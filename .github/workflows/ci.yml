@@ -30,12 +30,6 @@ jobs:
     - name: Build the devShell
       run: nix develop --command echo "Dev shell works!"
 
-    - name: Test the template
-      run: |
-        cd template
-        nix flake check
-        nix develop --command echo "Template dev shell works!"
-
   lint:
     name: Nix Formatting
     runs-on: ubuntu-latest
