@@ -1,27 +1,46 @@
 # devcmd
 
-A lightweight, extensible DSL for defining shell commands in Nix development environments.
+A lightweight, extensible **D**eclarative **E**xecution **V**ocabulary for defining and orchestrating commands across environments, with seamless Nix integration.
 
 ## Overview
 
-devcmd simplifies the creation of custom commands for Nix development shells. Define commands and aliases in a simple, maintainable syntax, and devcmd integrates them directly into your development environment.
+devcmd simplifies the creation and management of commands in development environments. Define commands and variables in a clean, maintainable syntax, and devcmd integrates them directly into your workflow.
 
 ```
 # commands   <-- This is the default filename (no extension)
 def go = ${pkgs.go}/bin/go
 def npm = ${pkgs.nodejs}/bin/npm
+def SRC_DIR = ./src
 
-build: go build -o ./bin/app ./cmd/main.go
-run: go run ./cmd/main.go
-test: go test ./...
-dev: npm run dev
+# Simple commands
+build: $(go) build -o ./bin/app ./cmd/main.go
+run: $(go) run ./cmd/main.go
+
+# Block commands with multiple statements
+watch dev: {
+  $(npm) run build-css;
+  $(go) run $(SRC_DIR)/cmd/main.go;
+  $(npm) run watch-assets &
+}
+
+# Stop command for watch processes
+stop dev: pkill -f "watch-assets"
+
+# Command with continuation lines
+deploy: aws s3 sync \
+  ./dist \
+  s3://my-bucket/app/ \
+  --delete
 ```
 
 ## Features
 
-- Simple, declarative syntax for defining development commands
-- Direct Nix store path variable substitution
-- Easy integration with flake-based development environments
+- Simple, declarative syntax for defining commands and workflows
+- Variable definitions with substitution using `$(name)` syntax
+- Block commands for multi-step processes
+- Background process management with `watch` and `stop`
+- Command continuations with backslash for improved readability
+- Nix store path variable substitution for easy integration with flake-based environments
 - No external dependencies required
 - Extensible architecture for customization
 
@@ -33,45 +52,51 @@ Add devcmd to your flake inputs:
 # flake.nix
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
-    devcmd.url = "github:yourusername/devcmd";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    devcmd.url = "github:aledsdavies/devcmd";
   };
-  
-  outputs = { self, nixpkgs, devcmd }: {
-    # Your outputs...
-  };
+
+  # Your outputs...
 }
 ```
 
 ## Usage
 
-1. Create a file named `commands` in your project root
-2. Update your flake to use devcmd:
+1. Create a file named `commands` in your project root with your command definitions
+
+2. Add devcmd to your flake and integrate it in your devShell:
 
 ```nix
-# flake.nix
 {
+  description = "Project with devcmd integration";
+
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
-    devcmd.url = "github:yourusername/devcmd";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    devcmd.url = "github:aledsdavies/devcmd";
   };
-  
-  outputs = { self, nixpkgs, devcmd }: {
-    devShells.x86_64-linux.default = 
-      let
-        pkgs = nixpkgs.legacyPackages.x86_64-linux;
-        commands = devcmd.lib.mkDevCommands {
-          # By default, looks for ./commands
-          # Optionally specify a different file:
+
+  outputs = { self, nixpkgs, devcmd }:
+    let
+      system = builtins.currentSystem;
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+    {
+      devShells.${system}.default = pkgs.mkShell {
+        # Add your development dependencies
+        buildInputs = with pkgs; [
+          go
+          nodejs
+          # Add other tools as needed
+        ];
+
+        # Set up devcmd
+        shellHook = (devcmd.lib.mkDevCommands {
+          inherit pkgs system;
+          # Optional: specify an alternate commands file location
           # commandsFile = ./path/to/commands;
-          inherit pkgs;
-        };
-      in
-      pkgs.mkShell {
-        buildInputs = with pkgs; [ go nodejs ];
-        inherit (commands) shellHook;
+        }).shellHook;
       };
-  };
+    };
 }
 ```
 
@@ -80,21 +105,22 @@ Add devcmd to your flake inputs:
 ```bash
 $ nix develop
 Dev shell initialized with your custom commands!
-Available commands: build, run, test, dev
+Available commands: build, run, watch-dev, stop-dev, deploy
 
 $ run
-# Executes: go run ./cmd/main.go
+# Executes: $(go) run ./cmd/main.go
 ```
+
+This creates a fully configured development environment with your devcmd commands available as soon as you enter the shell.
 
 ## Command Files
 
 devcmd will look for commands in the following order:
 
 1. The path specified in `commandsFile` parameter
-2. Inline commands provided in the `commands` parameter
-3. A file named `commands` (no extension) in your project root (default)
-4. A file named `commands.txt`
-5. A file named `commands.devcmd`
+2. A file named `commands` (no extension) in your project root (default)
+3. A file named `commands.txt`
+4. A file named `commands.devcmd`
 
 The recommended approach is to use a file named `commands` in your project root.
 
@@ -103,16 +129,33 @@ The recommended approach is to use a file named `commands` in your project root.
 The command file uses a simple syntax:
 
 ```
-# Define variables (usually Nix store paths)
+# Define variables (usually Nix store paths or project constants)
 def <name> = <value>
 
-# Define commands
+# Define simple commands
 <command-name>: <command-to-execute>
+
+# Define block commands
+<command-name>: {
+  <command1>;
+  <command2>;
+  <command3> &  # Run in background with &
+}
+
+# Define watch commands with background processes
+watch <command-name>: {
+  <start-process-1>;
+  <start-process-2>;
+  <start-process-3> &
+}
+
+# Define corresponding stop commands
+stop <command-name>: <command-to-stop-processes>
 
 # Comments start with #
 ```
 
-Variables are referenced using `${name}` syntax within commands.
+Variables are referenced using `$(name)` syntax within commands.
 
 Example:
 
@@ -127,17 +170,25 @@ def SRC_DIR = ./src
 def OUT_DIR = ./dist
 
 # Define commands
-build: go build -o ${OUT_DIR}/app ${SRC_DIR}/main.go
-run: ${OUT_DIR}/app
-test: go test ./...
-lint: go vet ./...
+build: $(go) build -o $(OUT_DIR)/app $(SRC_DIR)/main.go
+run: $(OUT_DIR)/app
+test: $(go) test ./...
+lint: $(go) vet ./...
 
 # Web development commands
-dev: node ${SRC_DIR}/scripts/dev-server.js
-serve: python -m http.server 8080 --directory ${OUT_DIR}
+watch dev: {
+  $(node) $(SRC_DIR)/scripts/dev-server.js;
+  $(python) -m http.server 8080 --directory $(OUT_DIR) &
+}
+
+stop dev: pkill -f "http.server 8080"
 
 # Compound commands
-all: build test lint
+all: {
+  build;
+  test;
+  lint
+}
 ```
 
 ## Just Use Nix
@@ -156,34 +207,9 @@ devcmd makes Nix development more approachable by simplifying the most common ta
 
 devcmd is designed to be extended. Key extension points include:
 
-- Custom Go parser implementation in `pkg/parser/`
+- Custom parser implementation in `pkg/parser/`
 - Shell script generation templates
 - Command metadata extraction
-
-Example extension:
-
-```go
-// pkg/parser/types.go - Add a new command type
-type AdvancedCommand struct {
-    Name      string
-    Command   string
-    Description string
-    Category  string
-}
-
-// pkg/parser/parser.go - Add pattern for advanced commands
-var advancedCmdRegex = regexp.MustCompile(`^([A-Za-z0-9_-]+)\[([^]]+)\]: (.*)$`)
-
-// In your parse function
-if matches := advancedCmdRegex.FindStringSubmatch(line); matches != nil {
-    result.AdvancedCommands = append(result.AdvancedCommands, AdvancedCommand{
-        Name:        matches[1],
-        Category:    matches[2],
-        Command:     matches[3],
-    })
-    continue
-}
-```
 
 See the source code for detailed extension documentation.
 
@@ -199,6 +225,15 @@ The project's design prioritizes:
 I'll review issues and PRs as time permits, but response times will vary. Extensions and forks are encouraged over feature requests. If you need something different, the modular codebase should make it easy to adapt to your needs.
 
 This tool exists because it makes my Nix workflow better - hopefully it helps yours too.
+
+## Beyond Development: Other Applications
+
+While devcmd was initially designed for development environments, its declarative syntax makes it suitable for a wide range of automation scenarios:
+
+- **Infrastructure Management**: Define cloud resources, orchestrate deployments
+- **Data Pipelines**: Create ETL workflows, automate data processing
+- **System Administration**: Automate maintenance tasks, monitor system health
+- **Scientific Computing**: Orchestrate research workflows, manage computational pipelines
 
 ## License
 

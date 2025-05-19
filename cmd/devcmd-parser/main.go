@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/aledsdavies/devcmd/pkg/generator"
-	"github.com/aledsdavies/devcmd/pkg/parser"
+	"github.com/aledsdavies/devcmd/pkgs/generator"
+	"github.com/aledsdavies/devcmd/pkgs/parser"
 )
 
 func main() {

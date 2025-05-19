@@ -114,7 +114,11 @@
               pkgs.runCommand "parsed-commands"
                 { nativeBuildInputs = [ parserBin ]; }
                 ''
-                  ${parserBin}/bin/devcmd-parser ${parserArgs} ${processedPath} > $out || echo "" > $out
+                  if ! ${parserBin}/bin/devcmd-parser ${parserArgs} ${processedPath} > $out; then
+                    echo "Warning: devcmd-parser failed to generate commands. Proceeding with an empty command set." >&2
+                    # Ensure $out is empty on failure, as before
+                    echo "" > $out
+                  fi
                 '';
 
             # Generate shell code with appropriate messages
