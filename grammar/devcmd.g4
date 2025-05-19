@@ -56,7 +56,7 @@ blockStatements
 // Multiple statements are separated by semicolons
 // The optional final semicolon allows for trailing semicolon in blocks like: { cmd1; cmd2; }
 nonEmptyBlockStatements
-    : blockStatement (SEMICOLON NEWLINE? blockStatement)* SEMICOLON?
+    : blockStatement (SEMICOLON NEWLINE* blockStatement)* SEMICOLON? NEWLINE*
     ;
 
 // Each block statement can be backgrounded with ampersand
