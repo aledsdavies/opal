@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/aledsdavies/devcmd/internal/gen"
@@ -9,6 +10,48 @@ import (
 
 //go:generate bash -c "cd ../../grammar && antlr -Dlanguage=Go -package gen -o ../internal/gen devcmd.g4"
 
+// ParseError represents an error that occurred during parsing
+type ParseError struct {
+	Line    int    // The line number where the error occurred
+	Column  int    // The column number where the error occurred
+	Message string // The error message
+	Context string // The line of text where the error occurred
+}
+
+// Error formats the parse error as a string with visual context
+func (e *ParseError) Error() string {
+	if e.Context == "" {
+		return fmt.Sprintf("line %d: %s", e.Line, e.Message)
+	}
+
+	// Create a visual error indicator with arrow pointing to error position
+	pointer := strings.Repeat(" ", e.Column) + "^"
+
+	return fmt.Sprintf("line %d: %s\n%s\n%s",
+		e.Line,
+		e.Message,
+		e.Context,
+		pointer)
+}
+
+// NewParseError creates a new ParseError without context
+func NewParseError(line int, format string, args ...interface{}) *ParseError {
+	return &ParseError{
+		Line:    line,
+		Message: fmt.Sprintf(format, args...),
+	}
+}
+
+// NewDetailedParseError creates a ParseError with context information
+func NewDetailedParseError(line int, column int, context string, format string, args ...interface{}) *ParseError {
+	return &ParseError{
+		Line:    line,
+		Column:  column,
+		Context: context,
+		Message: fmt.Sprintf(format, args...),
+	}
+}
+
 // Parse parses a command file content into a CommandFile structure
 func Parse(content string) (*CommandFile, error) {
 	// Ensure content has a trailing newline for consistent parsing
@@ -16,12 +59,17 @@ func Parse(content string) (*CommandFile, error) {
 		content += "\n"
 	}
 
+	// Split the content into lines for error reporting
+	lines := strings.Split(content, "\n")
+
 	// Create input stream from the content
 	input := antlr.NewInputStream(content)
 
 	// Create lexer with error handling
 	lexer := gen.NewdevcmdLexer(input)
-	errorListener := &ErrorCollector{}
+	errorListener := &ErrorCollector{
+		lines: lines,
+	}
 	lexer.RemoveErrorListeners()
 	lexer.AddErrorListener(errorListener)
 
@@ -44,7 +92,7 @@ func Parse(content string) (*CommandFile, error) {
 
 	// Create a CommandFile to store the parsing results
 	commandFile := &CommandFile{
-		Lines:       strings.Split(content, "\n"),
+		Lines:       lines,
 		Definitions: []Definition{},
 		Commands:    []Command{},
 	}
@@ -61,7 +109,9 @@ func Parse(content string) (*CommandFile, error) {
 	defs := make(map[string]int)
 	for _, def := range commandFile.Definitions {
 		if line, exists := defs[def.Name]; exists {
-			return nil, NewParseError(def.Line, "duplicate definition of '%s' (previously defined at line %d)",
+			defLine := lines[def.Line-1]
+			return nil, NewDetailedParseError(def.Line, strings.Index(defLine, def.Name), defLine,
+				"duplicate definition of '%s' (previously defined at line %d)",
 				def.Name, line)
 		}
 		defs[def.Name] = def.Line
@@ -71,7 +121,9 @@ func Parse(content string) (*CommandFile, error) {
 	cmds := make(map[string]int)
 	for _, cmd := range commandFile.Commands {
 		if line, exists := cmds[cmd.Name]; exists {
-			return nil, NewParseError(cmd.Line, "duplicate command '%s' (previously defined at line %d)",
+			cmdLine := lines[cmd.Line-1]
+			return nil, NewDetailedParseError(cmd.Line, strings.Index(cmdLine, cmd.Name), cmdLine,
+				"duplicate command '%s' (previously defined at line %d)",
 				cmd.Name, line)
 		}
 		cmds[cmd.Name] = cmd.Line
@@ -89,6 +141,7 @@ func Parse(content string) (*CommandFile, error) {
 type ErrorCollector struct {
 	antlr.DefaultErrorListener
 	errors []SyntaxError
+	lines  []string // Store the original source lines
 }
 
 // SyntaxError represents a syntax error with location information
@@ -119,7 +172,18 @@ func (e *ErrorCollector) Error() error {
 	}
 
 	err := e.errors[0]
-	return NewParseError(err.Line, "syntax error at column %d: %s", err.Column, err.Message)
+
+	// Get the line context if available
+	var context string
+	if err.Line > 0 && err.Line <= len(e.lines) {
+		context = e.lines[err.Line-1]
+	}
+
+	if context != "" {
+		return NewDetailedParseError(err.Line, err.Column, context, "%s", err.Message)
+	} else {
+		return NewParseError(err.Line, "syntax error at column %d: %s", err.Column, err.Message)
+	}
 }
 
 // DevcmdVisitor implements the visitor pattern for traversing the parse tree
@@ -220,7 +284,6 @@ func (v *DevcmdVisitor) visitCommandDefinition(ctx *gen.CommandDefinitionContext
 	}
 }
 
-// processSimpleCommand extracts text from a simple command
 // processSimpleCommand extracts text from a simple command
 func (v *DevcmdVisitor) processSimpleCommand(ctx *gen.SimpleCommandContext) string {
 	// Get main text

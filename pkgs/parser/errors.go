@@ -5,45 +5,68 @@ import (
 	"strings"
 )
 
-// ParseError represents an error that occurred during parsing
-type ParseError struct {
-	Line    int    // The line number where the error occurred
-	Message string // The error message
-}
-
-// Error formats the parse error as a string
-func (e *ParseError) Error() string {
-	return fmt.Sprintf("line %d: %s", e.Line, e.Message)
-}
-
-// NewParseError creates a new ParseError
-func NewParseError(line int, format string, args ...interface{}) *ParseError {
-	return &ParseError{
-		Line:    line,
-		Message: fmt.Sprintf(format, args...),
-	}
-}
-
 // ValidationError checks if commands and definitions are valid
 type ValidationError struct {
-	Errors []string
+	Errors []ValidationErrorEntry
+}
+
+// ValidationErrorEntry represents a single validation error
+type ValidationErrorEntry struct {
+	Line    int
+	Column  int
+	Message string
+	Context string
 }
 
 // Error formats all validation errors as a single string
 func (e *ValidationError) Error() string {
-	return strings.Join(e.Errors, "\n")
+	if len(e.Errors) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	for i, err := range e.Errors {
+		if i > 0 {
+			builder.WriteString("\n")
+		}
+
+		if err.Context != "" {
+			pointer := strings.Repeat(" ", err.Column) + "^"
+			builder.WriteString(fmt.Sprintf("line %d: %s\n%s\n%s",
+				err.Line,
+				err.Message,
+				err.Context,
+				pointer))
+		} else {
+			builder.WriteString(fmt.Sprintf("line %d: %s", err.Line, err.Message))
+		}
+	}
+	return builder.String()
 }
 
 // NewValidationError creates a new ValidationError
-func NewValidationError(errors []string) *ValidationError {
+func NewValidationError() *ValidationError {
 	return &ValidationError{
-		Errors: errors,
+		Errors: []ValidationErrorEntry{},
 	}
 }
 
 // Add adds a new error message to the validation error
-func (e *ValidationError) Add(format string, args ...interface{}) {
-	e.Errors = append(e.Errors, fmt.Sprintf(format, args...))
+func (e *ValidationError) Add(line int, column int, context string, format string, args ...interface{}) {
+	e.Errors = append(e.Errors, ValidationErrorEntry{
+		Line:    line,
+		Column:  column,
+		Context: context,
+		Message: fmt.Sprintf(format, args...),
+	})
+}
+
+// AddSimple adds a simple error message without context
+func (e *ValidationError) AddSimple(line int, format string, args ...interface{}) {
+	e.Errors = append(e.Errors, ValidationErrorEntry{
+		Line:    line,
+		Message: fmt.Sprintf(format, args...),
+	})
 }
 
 // HasErrors returns true if there are validation errors
@@ -53,7 +76,7 @@ func (e *ValidationError) HasErrors() bool {
 
 // Validate performs semantic validation on a command file
 func Validate(file *CommandFile) error {
-	validationError := &ValidationError{}
+	validationError := NewValidationError()
 
 	// Create variable name lookup
 	varNames := make(map[string]bool)
@@ -64,14 +87,11 @@ func Validate(file *CommandFile) error {
 	// 1. Check for matching watch/stop commands
 	watchCmds := make(map[string]int)
 	stopCmds := make(map[string]int)
-
 	for _, cmd := range file.Commands {
 		name := strings.TrimPrefix(cmd.Name, ".")
-
 		if cmd.IsWatch {
 			watchCmds[name] = cmd.Line
 		}
-
 		if cmd.IsStop {
 			stopCmds[name] = cmd.Line
 		}
@@ -80,21 +100,19 @@ func Validate(file *CommandFile) error {
 	// Check that every watch has a matching stop
 	for name, line := range watchCmds {
 		if _, ok := stopCmds[name]; !ok {
-			validationError.Add("watch command '%s' at line %d has no matching stop command",
-				name, line)
+			validationError.AddSimple(line, "watch command '%s' has no matching stop command", name)
 		}
 	}
 
 	// Check that every stop has a matching watch
 	for name, line := range stopCmds {
 		if _, ok := watchCmds[name]; !ok {
-			validationError.Add("stop command '%s' at line %d has no matching watch command",
-				name, line)
+			validationError.AddSimple(line, "stop command '%s' has no matching watch command", name)
 		}
 	}
 
 	// 2. Check for variable references in command text
-	checkVarReferences := func(text string, line int) {
+	checkVarReferences := func(text string, line int, lineContent string) {
 		// Find all $(var) references in text
 		var inVar bool
 		var varName strings.Builder
@@ -111,7 +129,14 @@ func Validate(file *CommandFile) error {
 					// End of variable reference
 					name := varName.String()
 					if !varNames[name] {
-						validationError.Add("undefined variable '%s' at line %d", name, line)
+						// Find the position of this variable in the original line
+						varPos := strings.Index(lineContent, "$("+name+")")
+						if varPos >= 0 {
+							validationError.Add(line, varPos, lineContent,
+								"undefined variable '%s'", name)
+						} else {
+							validationError.AddSimple(line, "undefined variable '%s'", name)
+						}
 					}
 					inVar = false
 				} else {
@@ -121,17 +146,22 @@ func Validate(file *CommandFile) error {
 		}
 
 		if inVar {
-			validationError.Add("unclosed variable reference '$(...)' at line %d", line)
+			validationError.AddSimple(line, "unclosed variable reference at line %d", line)
 		}
 	}
 
 	// Check variables in commands
 	for _, cmd := range file.Commands {
+		lineContent := ""
+		if cmd.Line > 0 && cmd.Line <= len(file.Lines) {
+			lineContent = file.Lines[cmd.Line-1]
+		}
+
 		if !cmd.IsBlock {
-			checkVarReferences(cmd.Command, cmd.Line)
+			checkVarReferences(cmd.Command, cmd.Line, lineContent)
 		} else {
 			for _, stmt := range cmd.Block {
-				checkVarReferences(stmt.Command, cmd.Line)
+				checkVarReferences(stmt.Command, cmd.Line, lineContent)
 			}
 		}
 	}
