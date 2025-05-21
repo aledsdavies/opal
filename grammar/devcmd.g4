@@ -6,7 +6,7 @@
  *
  * Core features:
  * 1. Named commands with optional modifiers: 'build: npm run build', 'watch server: node start'
- * 2. Variables for reuse: 'def SRC = ./src'
+ * 2. Variables for reuse: 'def SRC = ./src;'
  * 3. Variable references in commands: 'build: cd $(SRC) && make'
  * 4. Service management with 'watch' and 'stop' commands
  * 5. Multi-statement blocks: 'setup: { npm install; go mod tidy; }'
@@ -34,7 +34,8 @@ line
     ;
 
 // Variables store reusable text values for reference in commands
-variableDefinition : DEF NAME (EQUALS commandText?)? (NEWLINE | EOF) ;
+// Now with required semicolon
+variableDefinition : DEF NAME (EQUALS commandText?)? SEMICOLON (NEWLINE | EOF) ;
 
 // Commands define executable operations, optionally with service lifecycle modifiers
 commandDefinition
@@ -70,17 +71,14 @@ continuationLine : BACKSLASH NEWLINE commandText ;
 // Must match at least one element to avoid ambiguity
 commandText
     : (ESCAPED_CHAR
-      | variableReference
-      | INCOMPLETE_VARIABLE_REFERENCE
-      | COLON        // NEW
-      | EQUALS       // NEW
+      | OUR_VARIABLE_REFERENCE  // Our syntax: $(NAME)
+      | SHELL_VARIABLE_REFERENCE // Shell syntax: $NAME
+      | COLON
+      | EQUALS
       | COMMAND_TEXT
       | NAME
       )+
     ;
-
-// Variables are referenced using $(name) syntax
-variableReference : VAR_START NAME VAR_END ;
 
 /**
  * Lexer Rules
@@ -101,12 +99,11 @@ SEMICOLON : ';' ; // Statement separator
 AMPERSAND : '&' ; // Background process indicator
 BACKSLASH : '\\' ; // Line continuation marker
 
-// Variable reference delimiters
-VAR_START : '$(' ; // Start of variable reference
-VAR_END : ')' ;    // End of variable reference
+// Handle our variable references with $(NAME) syntax
+OUR_VARIABLE_REFERENCE : '$(' NAME ')' ;
 
-// Error recovery for incomplete variable references
-INCOMPLETE_VARIABLE_REFERENCE : '$(' ~[)\r\n]* ;
+// Handle shell variable references with $NAME syntax
+SHELL_VARIABLE_REFERENCE : '$' [A-Za-z][A-Za-z0-9_]* ;
 
 // Handle escape sequences for special characters and common escape patterns
 // Supports standard escapes (\n, \r, \t), shell-relevant chars (\$, \;, \{, \}, \(, \), \"), and Unicode
@@ -118,8 +115,9 @@ ESCAPED_CHAR : '\\' ( [\\nrt$;{}()"]
 // Identifiers for variables and command names
 NAME : [A-Za-z][A-Za-z0-9_-]* ;
 
-// General command text content - Modified to include = and : characters
-COMMAND_TEXT : ~[\r\n \t:=;{}()&]+ ;
+// General command text content - excludes reserved characters
+// Now we exclude the specific sequences for variables rather than just $
+COMMAND_TEXT : ~[\r\n \t:=;{}()&\\]+ ;
 
 // Comments and formatting elements
 COMMENT : '#' ~[\r\n]* -> channel(HIDDEN) ;  // Comments don't affect execution, so hide from parser

@@ -40,9 +40,6 @@ type devcmdListener interface {
 	// EnterCommandText is called when entering the commandText production.
 	EnterCommandText(c *CommandTextContext)
 
-	// EnterVariableReference is called when entering the variableReference production.
-	EnterVariableReference(c *VariableReferenceContext)
-
 	// ExitProgram is called when exiting the program production.
 	ExitProgram(c *ProgramContext)
 
@@ -75,7 +72,4 @@ type devcmdListener interface {
 
 	// ExitCommandText is called when exiting the commandText production.
 	ExitCommandText(c *CommandTextContext)
-
-	// ExitVariableReference is called when exiting the variableReference production.
-	ExitVariableReference(c *VariableReferenceContext)
 }

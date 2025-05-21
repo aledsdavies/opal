@@ -153,10 +153,33 @@ type SyntaxError struct {
 
 // SyntaxError is called by ANTLR when a syntax error is encountered
 func (e *ErrorCollector) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, ex antlr.RecognitionException) {
+	// Improve error messages for common syntax issues
+	improvedMsg := msg
+
+	// Check for common error patterns
+	if strings.Contains(msg, "missing '}'") && line > 1 {
+		// Look at the previous line to see if it might be missing a semicolon
+		prevLine := ""
+		if line-2 < len(e.lines) {
+			prevLine = e.lines[line-2]
+		}
+
+		if !strings.Contains(prevLine, ";") &&
+			(strings.Contains(prevLine, "&") ||
+				!strings.Contains(prevLine, "{")) {
+			improvedMsg = "missing semicolon after statement; block statements must be separated by semicolons"
+		}
+	} else if strings.Contains(msg, "extraneous input") && strings.Contains(msg, "expecting") {
+		// Provide more context for unexpected tokens
+		if strings.Contains(msg, "expecting '}'") {
+			improvedMsg = "unexpected input - check for missing semicolons between statements in the block"
+		}
+	}
+
 	e.errors = append(e.errors, SyntaxError{
 		Line:    line,
 		Column:  column,
-		Message: msg,
+		Message: improvedMsg,
 	})
 }
 

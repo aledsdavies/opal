@@ -85,9 +85,3 @@ func (s *BasedevcmdListener) EnterCommandText(ctx *CommandTextContext) {}
 
 // ExitCommandText is called when production commandText is exited.
 func (s *BasedevcmdListener) ExitCommandText(ctx *CommandTextContext) {}
-
-// EnterVariableReference is called when production variableReference is entered.
-func (s *BasedevcmdListener) EnterVariableReference(ctx *VariableReferenceContext) {}
-
-// ExitVariableReference is called when production variableReference is exited.
-func (s *BasedevcmdListener) ExitVariableReference(ctx *VariableReferenceContext) {}

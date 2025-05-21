@@ -33,75 +33,69 @@ func devcmdParserInit() {
 	staticData := &DevcmdParserStaticData
 	staticData.LiteralNames = []string{
 		"", "'def'", "'='", "':'", "'watch'", "'stop'", "'{'", "'}'", "';'",
-		"'&'", "'\\'", "'$('", "')'",
+		"'&'", "'\\'",
 	}
 	staticData.SymbolicNames = []string{
 		"", "DEF", "EQUALS", "COLON", "WATCH", "STOP", "LBRACE", "RBRACE", "SEMICOLON",
-		"AMPERSAND", "BACKSLASH", "VAR_START", "VAR_END", "INCOMPLETE_VARIABLE_REFERENCE",
+		"AMPERSAND", "BACKSLASH", "OUR_VARIABLE_REFERENCE", "SHELL_VARIABLE_REFERENCE",
 		"ESCAPED_CHAR", "NAME", "COMMAND_TEXT", "COMMENT", "NEWLINE", "WS",
 	}
 	staticData.RuleNames = []string{
 		"program", "line", "variableDefinition", "commandDefinition", "simpleCommand",
 		"blockCommand", "blockStatements", "nonEmptyBlockStatements", "blockStatement",
-		"continuationLine", "commandText", "variableReference",
+		"continuationLine", "commandText",
 	}
 	staticData.PredictionContextCache = antlr.NewPredictionContextCache()
 	staticData.serializedATN = []int32{
-		4, 1, 19, 127, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
+		4, 1, 18, 116, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
 		4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7,
-		10, 2, 11, 7, 11, 1, 0, 5, 0, 26, 8, 0, 10, 0, 12, 0, 29, 9, 0, 1, 0, 1,
-		0, 1, 1, 1, 1, 1, 1, 3, 1, 36, 8, 1, 1, 2, 1, 2, 1, 2, 1, 2, 3, 2, 42,
-		8, 2, 3, 2, 44, 8, 2, 1, 2, 1, 2, 1, 3, 3, 3, 49, 8, 3, 1, 3, 1, 3, 1,
-		3, 1, 3, 3, 3, 55, 8, 3, 1, 4, 1, 4, 5, 4, 59, 8, 4, 10, 4, 12, 4, 62,
-		9, 4, 3, 4, 64, 8, 4, 1, 4, 1, 4, 1, 5, 1, 5, 3, 5, 70, 8, 5, 1, 5, 1,
-		5, 1, 5, 3, 5, 75, 8, 5, 1, 6, 1, 6, 3, 6, 79, 8, 6, 1, 7, 1, 7, 1, 7,
-		5, 7, 84, 8, 7, 10, 7, 12, 7, 87, 9, 7, 1, 7, 5, 7, 90, 8, 7, 10, 7, 12,
-		7, 93, 9, 7, 1, 7, 3, 7, 96, 8, 7, 1, 7, 5, 7, 99, 8, 7, 10, 7, 12, 7,
-		102, 9, 7, 1, 8, 1, 8, 3, 8, 106, 8, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 10,
-		1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 4, 10, 119, 8, 10, 11, 10, 12,
-		10, 120, 1, 11, 1, 11, 1, 11, 1, 11, 1, 11, 0, 0, 12, 0, 2, 4, 6, 8, 10,
-		12, 14, 16, 18, 20, 22, 0, 2, 1, 1, 18, 18, 1, 0, 4, 5, 138, 0, 27, 1,
-		0, 0, 0, 2, 35, 1, 0, 0, 0, 4, 37, 1, 0, 0, 0, 6, 48, 1, 0, 0, 0, 8, 63,
-		1, 0, 0, 0, 10, 67, 1, 0, 0, 0, 12, 78, 1, 0, 0, 0, 14, 80, 1, 0, 0, 0,
-		16, 103, 1, 0, 0, 0, 18, 107, 1, 0, 0, 0, 20, 118, 1, 0, 0, 0, 22, 122,
-		1, 0, 0, 0, 24, 26, 3, 2, 1, 0, 25, 24, 1, 0, 0, 0, 26, 29, 1, 0, 0, 0,
-		27, 25, 1, 0, 0, 0, 27, 28, 1, 0, 0, 0, 28, 30, 1, 0, 0, 0, 29, 27, 1,
-		0, 0, 0, 30, 31, 5, 0, 0, 1, 31, 1, 1, 0, 0, 0, 32, 36, 3, 4, 2, 0, 33,
-		36, 3, 6, 3, 0, 34, 36, 5, 18, 0, 0, 35, 32, 1, 0, 0, 0, 35, 33, 1, 0,
-		0, 0, 35, 34, 1, 0, 0, 0, 36, 3, 1, 0, 0, 0, 37, 38, 5, 1, 0, 0, 38, 43,
-		5, 15, 0, 0, 39, 41, 5, 2, 0, 0, 40, 42, 3, 20, 10, 0, 41, 40, 1, 0, 0,
-		0, 41, 42, 1, 0, 0, 0, 42, 44, 1, 0, 0, 0, 43, 39, 1, 0, 0, 0, 43, 44,
-		1, 0, 0, 0, 44, 45, 1, 0, 0, 0, 45, 46, 7, 0, 0, 0, 46, 5, 1, 0, 0, 0,
-		47, 49, 7, 1, 0, 0, 48, 47, 1, 0, 0, 0, 48, 49, 1, 0, 0, 0, 49, 50, 1,
-		0, 0, 0, 50, 51, 5, 15, 0, 0, 51, 54, 5, 3, 0, 0, 52, 55, 3, 8, 4, 0, 53,
-		55, 3, 10, 5, 0, 54, 52, 1, 0, 0, 0, 54, 53, 1, 0, 0, 0, 55, 7, 1, 0, 0,
-		0, 56, 60, 3, 20, 10, 0, 57, 59, 3, 18, 9, 0, 58, 57, 1, 0, 0, 0, 59, 62,
-		1, 0, 0, 0, 60, 58, 1, 0, 0, 0, 60, 61, 1, 0, 0, 0, 61, 64, 1, 0, 0, 0,
-		62, 60, 1, 0, 0, 0, 63, 56, 1, 0, 0, 0, 63, 64, 1, 0, 0, 0, 64, 65, 1,
-		0, 0, 0, 65, 66, 7, 0, 0, 0, 66, 9, 1, 0, 0, 0, 67, 69, 5, 6, 0, 0, 68,
-		70, 5, 18, 0, 0, 69, 68, 1, 0, 0, 0, 69, 70, 1, 0, 0, 0, 70, 71, 1, 0,
-		0, 0, 71, 72, 3, 12, 6, 0, 72, 74, 5, 7, 0, 0, 73, 75, 7, 0, 0, 0, 74,
-		73, 1, 0, 0, 0, 74, 75, 1, 0, 0, 0, 75, 11, 1, 0, 0, 0, 76, 79, 1, 0, 0,
-		0, 77, 79, 3, 14, 7, 0, 78, 76, 1, 0, 0, 0, 78, 77, 1, 0, 0, 0, 79, 13,
-		1, 0, 0, 0, 80, 91, 3, 16, 8, 0, 81, 85, 5, 8, 0, 0, 82, 84, 5, 18, 0,
-		0, 83, 82, 1, 0, 0, 0, 84, 87, 1, 0, 0, 0, 85, 83, 1, 0, 0, 0, 85, 86,
-		1, 0, 0, 0, 86, 88, 1, 0, 0, 0, 87, 85, 1, 0, 0, 0, 88, 90, 3, 16, 8, 0,
-		89, 81, 1, 0, 0, 0, 90, 93, 1, 0, 0, 0, 91, 89, 1, 0, 0, 0, 91, 92, 1,
-		0, 0, 0, 92, 95, 1, 0, 0, 0, 93, 91, 1, 0, 0, 0, 94, 96, 5, 8, 0, 0, 95,
-		94, 1, 0, 0, 0, 95, 96, 1, 0, 0, 0, 96, 100, 1, 0, 0, 0, 97, 99, 5, 18,
-		0, 0, 98, 97, 1, 0, 0, 0, 99, 102, 1, 0, 0, 0, 100, 98, 1, 0, 0, 0, 100,
-		101, 1, 0, 0, 0, 101, 15, 1, 0, 0, 0, 102, 100, 1, 0, 0, 0, 103, 105, 3,
-		20, 10, 0, 104, 106, 5, 9, 0, 0, 105, 104, 1, 0, 0, 0, 105, 106, 1, 0,
-		0, 0, 106, 17, 1, 0, 0, 0, 107, 108, 5, 10, 0, 0, 108, 109, 5, 18, 0, 0,
-		109, 110, 3, 20, 10, 0, 110, 19, 1, 0, 0, 0, 111, 119, 5, 14, 0, 0, 112,
-		119, 3, 22, 11, 0, 113, 119, 5, 13, 0, 0, 114, 119, 5, 3, 0, 0, 115, 119,
-		5, 2, 0, 0, 116, 119, 5, 16, 0, 0, 117, 119, 5, 15, 0, 0, 118, 111, 1,
-		0, 0, 0, 118, 112, 1, 0, 0, 0, 118, 113, 1, 0, 0, 0, 118, 114, 1, 0, 0,
-		0, 118, 115, 1, 0, 0, 0, 118, 116, 1, 0, 0, 0, 118, 117, 1, 0, 0, 0, 119,
-		120, 1, 0, 0, 0, 120, 118, 1, 0, 0, 0, 120, 121, 1, 0, 0, 0, 121, 21, 1,
-		0, 0, 0, 122, 123, 5, 11, 0, 0, 123, 124, 5, 15, 0, 0, 124, 125, 5, 12,
-		0, 0, 125, 23, 1, 0, 0, 0, 18, 27, 35, 41, 43, 48, 54, 60, 63, 69, 74,
-		78, 85, 91, 95, 100, 105, 118, 120,
+		10, 1, 0, 5, 0, 24, 8, 0, 10, 0, 12, 0, 27, 9, 0, 1, 0, 1, 0, 1, 1, 1,
+		1, 1, 1, 3, 1, 34, 8, 1, 1, 2, 1, 2, 1, 2, 1, 2, 3, 2, 40, 8, 2, 3, 2,
+		42, 8, 2, 1, 2, 1, 2, 1, 2, 1, 3, 3, 3, 48, 8, 3, 1, 3, 1, 3, 1, 3, 1,
+		3, 3, 3, 54, 8, 3, 1, 4, 1, 4, 5, 4, 58, 8, 4, 10, 4, 12, 4, 61, 9, 4,
+		3, 4, 63, 8, 4, 1, 4, 1, 4, 1, 5, 1, 5, 3, 5, 69, 8, 5, 1, 5, 1, 5, 1,
+		5, 3, 5, 74, 8, 5, 1, 6, 1, 6, 3, 6, 78, 8, 6, 1, 7, 1, 7, 1, 7, 5, 7,
+		83, 8, 7, 10, 7, 12, 7, 86, 9, 7, 1, 7, 5, 7, 89, 8, 7, 10, 7, 12, 7, 92,
+		9, 7, 1, 7, 3, 7, 95, 8, 7, 1, 7, 5, 7, 98, 8, 7, 10, 7, 12, 7, 101, 9,
+		7, 1, 8, 1, 8, 3, 8, 105, 8, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 10, 4, 10, 112,
+		8, 10, 11, 10, 12, 10, 113, 1, 10, 0, 0, 11, 0, 2, 4, 6, 8, 10, 12, 14,
+		16, 18, 20, 0, 3, 1, 1, 17, 17, 1, 0, 4, 5, 2, 0, 2, 3, 11, 15, 122, 0,
+		25, 1, 0, 0, 0, 2, 33, 1, 0, 0, 0, 4, 35, 1, 0, 0, 0, 6, 47, 1, 0, 0, 0,
+		8, 62, 1, 0, 0, 0, 10, 66, 1, 0, 0, 0, 12, 77, 1, 0, 0, 0, 14, 79, 1, 0,
+		0, 0, 16, 102, 1, 0, 0, 0, 18, 106, 1, 0, 0, 0, 20, 111, 1, 0, 0, 0, 22,
+		24, 3, 2, 1, 0, 23, 22, 1, 0, 0, 0, 24, 27, 1, 0, 0, 0, 25, 23, 1, 0, 0,
+		0, 25, 26, 1, 0, 0, 0, 26, 28, 1, 0, 0, 0, 27, 25, 1, 0, 0, 0, 28, 29,
+		5, 0, 0, 1, 29, 1, 1, 0, 0, 0, 30, 34, 3, 4, 2, 0, 31, 34, 3, 6, 3, 0,
+		32, 34, 5, 17, 0, 0, 33, 30, 1, 0, 0, 0, 33, 31, 1, 0, 0, 0, 33, 32, 1,
+		0, 0, 0, 34, 3, 1, 0, 0, 0, 35, 36, 5, 1, 0, 0, 36, 41, 5, 14, 0, 0, 37,
+		39, 5, 2, 0, 0, 38, 40, 3, 20, 10, 0, 39, 38, 1, 0, 0, 0, 39, 40, 1, 0,
+		0, 0, 40, 42, 1, 0, 0, 0, 41, 37, 1, 0, 0, 0, 41, 42, 1, 0, 0, 0, 42, 43,
+		1, 0, 0, 0, 43, 44, 5, 8, 0, 0, 44, 45, 7, 0, 0, 0, 45, 5, 1, 0, 0, 0,
+		46, 48, 7, 1, 0, 0, 47, 46, 1, 0, 0, 0, 47, 48, 1, 0, 0, 0, 48, 49, 1,
+		0, 0, 0, 49, 50, 5, 14, 0, 0, 50, 53, 5, 3, 0, 0, 51, 54, 3, 8, 4, 0, 52,
+		54, 3, 10, 5, 0, 53, 51, 1, 0, 0, 0, 53, 52, 1, 0, 0, 0, 54, 7, 1, 0, 0,
+		0, 55, 59, 3, 20, 10, 0, 56, 58, 3, 18, 9, 0, 57, 56, 1, 0, 0, 0, 58, 61,
+		1, 0, 0, 0, 59, 57, 1, 0, 0, 0, 59, 60, 1, 0, 0, 0, 60, 63, 1, 0, 0, 0,
+		61, 59, 1, 0, 0, 0, 62, 55, 1, 0, 0, 0, 62, 63, 1, 0, 0, 0, 63, 64, 1,
+		0, 0, 0, 64, 65, 7, 0, 0, 0, 65, 9, 1, 0, 0, 0, 66, 68, 5, 6, 0, 0, 67,
+		69, 5, 17, 0, 0, 68, 67, 1, 0, 0, 0, 68, 69, 1, 0, 0, 0, 69, 70, 1, 0,
+		0, 0, 70, 71, 3, 12, 6, 0, 71, 73, 5, 7, 0, 0, 72, 74, 7, 0, 0, 0, 73,
+		72, 1, 0, 0, 0, 73, 74, 1, 0, 0, 0, 74, 11, 1, 0, 0, 0, 75, 78, 1, 0, 0,
+		0, 76, 78, 3, 14, 7, 0, 77, 75, 1, 0, 0, 0, 77, 76, 1, 0, 0, 0, 78, 13,
+		1, 0, 0, 0, 79, 90, 3, 16, 8, 0, 80, 84, 5, 8, 0, 0, 81, 83, 5, 17, 0,
+		0, 82, 81, 1, 0, 0, 0, 83, 86, 1, 0, 0, 0, 84, 82, 1, 0, 0, 0, 84, 85,
+		1, 0, 0, 0, 85, 87, 1, 0, 0, 0, 86, 84, 1, 0, 0, 0, 87, 89, 3, 16, 8, 0,
+		88, 80, 1, 0, 0, 0, 89, 92, 1, 0, 0, 0, 90, 88, 1, 0, 0, 0, 90, 91, 1,
+		0, 0, 0, 91, 94, 1, 0, 0, 0, 92, 90, 1, 0, 0, 0, 93, 95, 5, 8, 0, 0, 94,
+		93, 1, 0, 0, 0, 94, 95, 1, 0, 0, 0, 95, 99, 1, 0, 0, 0, 96, 98, 5, 17,
+		0, 0, 97, 96, 1, 0, 0, 0, 98, 101, 1, 0, 0, 0, 99, 97, 1, 0, 0, 0, 99,
+		100, 1, 0, 0, 0, 100, 15, 1, 0, 0, 0, 101, 99, 1, 0, 0, 0, 102, 104, 3,
+		20, 10, 0, 103, 105, 5, 9, 0, 0, 104, 103, 1, 0, 0, 0, 104, 105, 1, 0,
+		0, 0, 105, 17, 1, 0, 0, 0, 106, 107, 5, 10, 0, 0, 107, 108, 5, 17, 0, 0,
+		108, 109, 3, 20, 10, 0, 109, 19, 1, 0, 0, 0, 110, 112, 7, 2, 0, 0, 111,
+		110, 1, 0, 0, 0, 112, 113, 1, 0, 0, 0, 113, 111, 1, 0, 0, 0, 113, 114,
+		1, 0, 0, 0, 114, 21, 1, 0, 0, 0, 17, 25, 33, 39, 41, 47, 53, 59, 62, 68,
+		73, 77, 84, 90, 94, 99, 104, 113,
 	}
 	deserializer := antlr.NewATNDeserializer(nil)
 	staticData.atn = deserializer.Deserialize(staticData.serializedATN)
@@ -139,26 +133,25 @@ func NewdevcmdParser(input antlr.TokenStream) *devcmdParser {
 
 // devcmdParser tokens.
 const (
-	devcmdParserEOF                           = antlr.TokenEOF
-	devcmdParserDEF                           = 1
-	devcmdParserEQUALS                        = 2
-	devcmdParserCOLON                         = 3
-	devcmdParserWATCH                         = 4
-	devcmdParserSTOP                          = 5
-	devcmdParserLBRACE                        = 6
-	devcmdParserRBRACE                        = 7
-	devcmdParserSEMICOLON                     = 8
-	devcmdParserAMPERSAND                     = 9
-	devcmdParserBACKSLASH                     = 10
-	devcmdParserVAR_START                     = 11
-	devcmdParserVAR_END                       = 12
-	devcmdParserINCOMPLETE_VARIABLE_REFERENCE = 13
-	devcmdParserESCAPED_CHAR                  = 14
-	devcmdParserNAME                          = 15
-	devcmdParserCOMMAND_TEXT                  = 16
-	devcmdParserCOMMENT                       = 17
-	devcmdParserNEWLINE                       = 18
-	devcmdParserWS                            = 19
+	devcmdParserEOF                      = antlr.TokenEOF
+	devcmdParserDEF                      = 1
+	devcmdParserEQUALS                   = 2
+	devcmdParserCOLON                    = 3
+	devcmdParserWATCH                    = 4
+	devcmdParserSTOP                     = 5
+	devcmdParserLBRACE                   = 6
+	devcmdParserRBRACE                   = 7
+	devcmdParserSEMICOLON                = 8
+	devcmdParserAMPERSAND                = 9
+	devcmdParserBACKSLASH                = 10
+	devcmdParserOUR_VARIABLE_REFERENCE   = 11
+	devcmdParserSHELL_VARIABLE_REFERENCE = 12
+	devcmdParserESCAPED_CHAR             = 13
+	devcmdParserNAME                     = 14
+	devcmdParserCOMMAND_TEXT             = 15
+	devcmdParserCOMMENT                  = 16
+	devcmdParserNEWLINE                  = 17
+	devcmdParserWS                       = 18
 )
 
 // devcmdParser rules.
@@ -174,7 +167,6 @@ const (
 	devcmdParserRULE_blockStatement          = 8
 	devcmdParserRULE_continuationLine        = 9
 	devcmdParserRULE_commandText             = 10
-	devcmdParserRULE_variableReference       = 11
 )
 
 // IProgramContext is an interface to support dynamic dispatch.
@@ -296,20 +288,20 @@ func (p *devcmdParser) Program() (localctx IProgramContext) {
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
-	p.SetState(27)
+	p.SetState(25)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&294962) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&147506) != 0 {
 		{
-			p.SetState(24)
+			p.SetState(22)
 			p.Line()
 		}
 
-		p.SetState(29)
+		p.SetState(27)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -317,7 +309,7 @@ func (p *devcmdParser) Program() (localctx IProgramContext) {
 		_la = p.GetTokenStream().LA(1)
 	}
 	{
-		p.SetState(30)
+		p.SetState(28)
 		p.Match(devcmdParserEOF)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -445,7 +437,7 @@ func (s *LineContext) ExitRule(listener antlr.ParseTreeListener) {
 func (p *devcmdParser) Line() (localctx ILineContext) {
 	localctx = NewLineContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 2, devcmdParserRULE_line)
-	p.SetState(35)
+	p.SetState(33)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -455,21 +447,21 @@ func (p *devcmdParser) Line() (localctx ILineContext) {
 	case devcmdParserDEF:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(32)
+			p.SetState(30)
 			p.VariableDefinition()
 		}
 
 	case devcmdParserWATCH, devcmdParserSTOP, devcmdParserNAME:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(33)
+			p.SetState(31)
 			p.CommandDefinition()
 		}
 
 	case devcmdParserNEWLINE:
 		p.EnterOuterAlt(localctx, 3)
 		{
-			p.SetState(34)
+			p.SetState(32)
 			p.Match(devcmdParserNEWLINE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -505,6 +497,7 @@ type IVariableDefinitionContext interface {
 	// Getter signatures
 	DEF() antlr.TerminalNode
 	NAME() antlr.TerminalNode
+	SEMICOLON() antlr.TerminalNode
 	NEWLINE() antlr.TerminalNode
 	EOF() antlr.TerminalNode
 	EQUALS() antlr.TerminalNode
@@ -552,6 +545,10 @@ func (s *VariableDefinitionContext) DEF() antlr.TerminalNode {
 
 func (s *VariableDefinitionContext) NAME() antlr.TerminalNode {
 	return s.GetToken(devcmdParserNAME, 0)
+}
+
+func (s *VariableDefinitionContext) SEMICOLON() antlr.TerminalNode {
+	return s.GetToken(devcmdParserSEMICOLON, 0)
 }
 
 func (s *VariableDefinitionContext) NEWLINE() antlr.TerminalNode {
@@ -609,7 +606,7 @@ func (p *devcmdParser) VariableDefinition() (localctx IVariableDefinitionContext
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(37)
+		p.SetState(35)
 		p.Match(devcmdParserDEF)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -617,14 +614,14 @@ func (p *devcmdParser) VariableDefinition() (localctx IVariableDefinitionContext
 		}
 	}
 	{
-		p.SetState(38)
+		p.SetState(36)
 		p.Match(devcmdParserNAME)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(43)
+	p.SetState(41)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -633,23 +630,23 @@ func (p *devcmdParser) VariableDefinition() (localctx IVariableDefinitionContext
 
 	if _la == devcmdParserEQUALS {
 		{
-			p.SetState(39)
+			p.SetState(37)
 			p.Match(devcmdParserEQUALS)
 			if p.HasError() {
 				// Recognition error - abort rule
 				goto errorExit
 			}
 		}
-		p.SetState(41)
+		p.SetState(39)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
 		}
 		_la = p.GetTokenStream().LA(1)
 
-		if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&124940) != 0 {
+		if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&63500) != 0 {
 			{
-				p.SetState(40)
+				p.SetState(38)
 				p.CommandText()
 			}
 
@@ -657,7 +654,15 @@ func (p *devcmdParser) VariableDefinition() (localctx IVariableDefinitionContext
 
 	}
 	{
-		p.SetState(45)
+		p.SetState(43)
+		p.Match(devcmdParserSEMICOLON)
+		if p.HasError() {
+			// Recognition error - abort rule
+			goto errorExit
+		}
+	}
+	{
+		p.SetState(44)
 		_la = p.GetTokenStream().LA(1)
 
 		if !(_la == devcmdParserEOF || _la == devcmdParserNEWLINE) {
@@ -806,7 +811,7 @@ func (p *devcmdParser) CommandDefinition() (localctx ICommandDefinitionContext) 
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
-	p.SetState(48)
+	p.SetState(47)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -815,7 +820,7 @@ func (p *devcmdParser) CommandDefinition() (localctx ICommandDefinitionContext) 
 
 	if _la == devcmdParserWATCH || _la == devcmdParserSTOP {
 		{
-			p.SetState(47)
+			p.SetState(46)
 			_la = p.GetTokenStream().LA(1)
 
 			if !(_la == devcmdParserWATCH || _la == devcmdParserSTOP) {
@@ -828,7 +833,7 @@ func (p *devcmdParser) CommandDefinition() (localctx ICommandDefinitionContext) 
 
 	}
 	{
-		p.SetState(50)
+		p.SetState(49)
 		p.Match(devcmdParserNAME)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -836,29 +841,29 @@ func (p *devcmdParser) CommandDefinition() (localctx ICommandDefinitionContext) 
 		}
 	}
 	{
-		p.SetState(51)
+		p.SetState(50)
 		p.Match(devcmdParserCOLON)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(54)
+	p.SetState(53)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 
 	switch p.GetTokenStream().LA(1) {
-	case devcmdParserEOF, devcmdParserEQUALS, devcmdParserCOLON, devcmdParserVAR_START, devcmdParserINCOMPLETE_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT, devcmdParserNEWLINE:
+	case devcmdParserEOF, devcmdParserEQUALS, devcmdParserCOLON, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT, devcmdParserNEWLINE:
 		{
-			p.SetState(52)
+			p.SetState(51)
 			p.SimpleCommand()
 		}
 
 	case devcmdParserLBRACE:
 		{
-			p.SetState(53)
+			p.SetState(52)
 			p.BlockCommand()
 		}
 
@@ -1021,19 +1026,19 @@ func (p *devcmdParser) SimpleCommand() (localctx ISimpleCommandContext) {
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
-	p.SetState(63)
+	p.SetState(62)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&124940) != 0 {
+	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&63500) != 0 {
 		{
-			p.SetState(56)
+			p.SetState(55)
 			p.CommandText()
 		}
-		p.SetState(60)
+		p.SetState(59)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -1042,11 +1047,11 @@ func (p *devcmdParser) SimpleCommand() (localctx ISimpleCommandContext) {
 
 		for _la == devcmdParserBACKSLASH {
 			{
-				p.SetState(57)
+				p.SetState(56)
 				p.ContinuationLine()
 			}
 
-			p.SetState(62)
+			p.SetState(61)
 			p.GetErrorHandler().Sync(p)
 			if p.HasError() {
 				goto errorExit
@@ -1056,7 +1061,7 @@ func (p *devcmdParser) SimpleCommand() (localctx ISimpleCommandContext) {
 
 	}
 	{
-		p.SetState(65)
+		p.SetState(64)
 		_la = p.GetTokenStream().LA(1)
 
 		if !(_la == devcmdParserEOF || _la == devcmdParserNEWLINE) {
@@ -1194,14 +1199,14 @@ func (p *devcmdParser) BlockCommand() (localctx IBlockCommandContext) {
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(67)
+		p.SetState(66)
 		p.Match(devcmdParserLBRACE)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(69)
+	p.SetState(68)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1210,7 +1215,7 @@ func (p *devcmdParser) BlockCommand() (localctx IBlockCommandContext) {
 
 	if _la == devcmdParserNEWLINE {
 		{
-			p.SetState(68)
+			p.SetState(67)
 			p.Match(devcmdParserNEWLINE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1220,23 +1225,23 @@ func (p *devcmdParser) BlockCommand() (localctx IBlockCommandContext) {
 
 	}
 	{
-		p.SetState(71)
+		p.SetState(70)
 		p.BlockStatements()
 	}
 	{
-		p.SetState(72)
+		p.SetState(71)
 		p.Match(devcmdParserRBRACE)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(74)
+	p.SetState(73)
 	p.GetErrorHandler().Sync(p)
 
 	if p.GetInterpreter().AdaptivePredict(p.BaseParser, p.GetTokenStream(), 9, p.GetParserRuleContext()) == 1 {
 		{
-			p.SetState(73)
+			p.SetState(72)
 			_la = p.GetTokenStream().LA(1)
 
 			if !(_la == devcmdParserEOF || _la == devcmdParserNEWLINE) {
@@ -1349,7 +1354,7 @@ func (s *BlockStatementsContext) ExitRule(listener antlr.ParseTreeListener) {
 func (p *devcmdParser) BlockStatements() (localctx IBlockStatementsContext) {
 	localctx = NewBlockStatementsContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 12, devcmdParserRULE_blockStatements)
-	p.SetState(78)
+	p.SetState(77)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1359,10 +1364,10 @@ func (p *devcmdParser) BlockStatements() (localctx IBlockStatementsContext) {
 	case devcmdParserRBRACE:
 		p.EnterOuterAlt(localctx, 1)
 
-	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserVAR_START, devcmdParserINCOMPLETE_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT:
+	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(77)
+			p.SetState(76)
 			p.NonEmptyBlockStatements()
 		}
 
@@ -1521,10 +1526,10 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(80)
+		p.SetState(79)
 		p.BlockStatement()
 	}
-	p.SetState(91)
+	p.SetState(90)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1536,14 +1541,14 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 	for _alt != 2 && _alt != antlr.ATNInvalidAltNumber {
 		if _alt == 1 {
 			{
-				p.SetState(81)
+				p.SetState(80)
 				p.Match(devcmdParserSEMICOLON)
 				if p.HasError() {
 					// Recognition error - abort rule
 					goto errorExit
 				}
 			}
-			p.SetState(85)
+			p.SetState(84)
 			p.GetErrorHandler().Sync(p)
 			if p.HasError() {
 				goto errorExit
@@ -1552,7 +1557,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 
 			for _la == devcmdParserNEWLINE {
 				{
-					p.SetState(82)
+					p.SetState(81)
 					p.Match(devcmdParserNEWLINE)
 					if p.HasError() {
 						// Recognition error - abort rule
@@ -1560,7 +1565,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 					}
 				}
 
-				p.SetState(87)
+				p.SetState(86)
 				p.GetErrorHandler().Sync(p)
 				if p.HasError() {
 					goto errorExit
@@ -1568,12 +1573,12 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 				_la = p.GetTokenStream().LA(1)
 			}
 			{
-				p.SetState(88)
+				p.SetState(87)
 				p.BlockStatement()
 			}
 
 		}
-		p.SetState(93)
+		p.SetState(92)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -1583,7 +1588,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 			goto errorExit
 		}
 	}
-	p.SetState(95)
+	p.SetState(94)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1592,7 +1597,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 
 	if _la == devcmdParserSEMICOLON {
 		{
-			p.SetState(94)
+			p.SetState(93)
 			p.Match(devcmdParserSEMICOLON)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1601,7 +1606,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 		}
 
 	}
-	p.SetState(100)
+	p.SetState(99)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1610,7 +1615,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 
 	for _la == devcmdParserNEWLINE {
 		{
-			p.SetState(97)
+			p.SetState(96)
 			p.Match(devcmdParserNEWLINE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1618,7 +1623,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 			}
 		}
 
-		p.SetState(102)
+		p.SetState(101)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -1733,10 +1738,10 @@ func (p *devcmdParser) BlockStatement() (localctx IBlockStatementContext) {
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(103)
+		p.SetState(102)
 		p.CommandText()
 	}
-	p.SetState(105)
+	p.SetState(104)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1745,7 +1750,7 @@ func (p *devcmdParser) BlockStatement() (localctx IBlockStatementContext) {
 
 	if _la == devcmdParserAMPERSAND {
 		{
-			p.SetState(104)
+			p.SetState(103)
 			p.Match(devcmdParserAMPERSAND)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1865,7 +1870,7 @@ func (p *devcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 	p.EnterRule(localctx, 18, devcmdParserRULE_continuationLine)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(107)
+		p.SetState(106)
 		p.Match(devcmdParserBACKSLASH)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -1873,7 +1878,7 @@ func (p *devcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 		}
 	}
 	{
-		p.SetState(108)
+		p.SetState(107)
 		p.Match(devcmdParserNEWLINE)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -1881,7 +1886,7 @@ func (p *devcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 		}
 	}
 	{
-		p.SetState(109)
+		p.SetState(108)
 		p.CommandText()
 	}
 
@@ -1908,10 +1913,10 @@ type ICommandTextContext interface {
 	// Getter signatures
 	AllESCAPED_CHAR() []antlr.TerminalNode
 	ESCAPED_CHAR(i int) antlr.TerminalNode
-	AllVariableReference() []IVariableReferenceContext
-	VariableReference(i int) IVariableReferenceContext
-	AllINCOMPLETE_VARIABLE_REFERENCE() []antlr.TerminalNode
-	INCOMPLETE_VARIABLE_REFERENCE(i int) antlr.TerminalNode
+	AllOUR_VARIABLE_REFERENCE() []antlr.TerminalNode
+	OUR_VARIABLE_REFERENCE(i int) antlr.TerminalNode
+	AllSHELL_VARIABLE_REFERENCE() []antlr.TerminalNode
+	SHELL_VARIABLE_REFERENCE(i int) antlr.TerminalNode
 	AllCOLON() []antlr.TerminalNode
 	COLON(i int) antlr.TerminalNode
 	AllEQUALS() []antlr.TerminalNode
@@ -1965,53 +1970,20 @@ func (s *CommandTextContext) ESCAPED_CHAR(i int) antlr.TerminalNode {
 	return s.GetToken(devcmdParserESCAPED_CHAR, i)
 }
 
-func (s *CommandTextContext) AllVariableReference() []IVariableReferenceContext {
-	children := s.GetChildren()
-	len := 0
-	for _, ctx := range children {
-		if _, ok := ctx.(IVariableReferenceContext); ok {
-			len++
-		}
-	}
-
-	tst := make([]IVariableReferenceContext, len)
-	i := 0
-	for _, ctx := range children {
-		if t, ok := ctx.(IVariableReferenceContext); ok {
-			tst[i] = t.(IVariableReferenceContext)
-			i++
-		}
-	}
-
-	return tst
+func (s *CommandTextContext) AllOUR_VARIABLE_REFERENCE() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserOUR_VARIABLE_REFERENCE)
 }
 
-func (s *CommandTextContext) VariableReference(i int) IVariableReferenceContext {
-	var t antlr.RuleContext
-	j := 0
-	for _, ctx := range s.GetChildren() {
-		if _, ok := ctx.(IVariableReferenceContext); ok {
-			if j == i {
-				t = ctx.(antlr.RuleContext)
-				break
-			}
-			j++
-		}
-	}
-
-	if t == nil {
-		return nil
-	}
-
-	return t.(IVariableReferenceContext)
+func (s *CommandTextContext) OUR_VARIABLE_REFERENCE(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserOUR_VARIABLE_REFERENCE, i)
 }
 
-func (s *CommandTextContext) AllINCOMPLETE_VARIABLE_REFERENCE() []antlr.TerminalNode {
-	return s.GetTokens(devcmdParserINCOMPLETE_VARIABLE_REFERENCE)
+func (s *CommandTextContext) AllSHELL_VARIABLE_REFERENCE() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserSHELL_VARIABLE_REFERENCE)
 }
 
-func (s *CommandTextContext) INCOMPLETE_VARIABLE_REFERENCE(i int) antlr.TerminalNode {
-	return s.GetToken(devcmdParserINCOMPLETE_VARIABLE_REFERENCE, i)
+func (s *CommandTextContext) SHELL_VARIABLE_REFERENCE(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserSHELL_VARIABLE_REFERENCE, i)
 }
 
 func (s *CommandTextContext) AllCOLON() []antlr.TerminalNode {
@@ -2072,220 +2044,32 @@ func (p *devcmdParser) CommandText() (localctx ICommandTextContext) {
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
-	p.SetState(118)
+	p.SetState(111)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for ok := true; ok; ok = ((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&124940) != 0) {
-		p.SetState(118)
-		p.GetErrorHandler().Sync(p)
-		if p.HasError() {
-			goto errorExit
+	for ok := true; ok; ok = ((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&63500) != 0) {
+		{
+			p.SetState(110)
+			_la = p.GetTokenStream().LA(1)
+
+			if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&63500) != 0) {
+				p.GetErrorHandler().RecoverInline(p)
+			} else {
+				p.GetErrorHandler().ReportMatch(p)
+				p.Consume()
+			}
 		}
 
-		switch p.GetTokenStream().LA(1) {
-		case devcmdParserESCAPED_CHAR:
-			{
-				p.SetState(111)
-				p.Match(devcmdParserESCAPED_CHAR)
-				if p.HasError() {
-					// Recognition error - abort rule
-					goto errorExit
-				}
-			}
-
-		case devcmdParserVAR_START:
-			{
-				p.SetState(112)
-				p.VariableReference()
-			}
-
-		case devcmdParserINCOMPLETE_VARIABLE_REFERENCE:
-			{
-				p.SetState(113)
-				p.Match(devcmdParserINCOMPLETE_VARIABLE_REFERENCE)
-				if p.HasError() {
-					// Recognition error - abort rule
-					goto errorExit
-				}
-			}
-
-		case devcmdParserCOLON:
-			{
-				p.SetState(114)
-				p.Match(devcmdParserCOLON)
-				if p.HasError() {
-					// Recognition error - abort rule
-					goto errorExit
-				}
-			}
-
-		case devcmdParserEQUALS:
-			{
-				p.SetState(115)
-				p.Match(devcmdParserEQUALS)
-				if p.HasError() {
-					// Recognition error - abort rule
-					goto errorExit
-				}
-			}
-
-		case devcmdParserCOMMAND_TEXT:
-			{
-				p.SetState(116)
-				p.Match(devcmdParserCOMMAND_TEXT)
-				if p.HasError() {
-					// Recognition error - abort rule
-					goto errorExit
-				}
-			}
-
-		case devcmdParserNAME:
-			{
-				p.SetState(117)
-				p.Match(devcmdParserNAME)
-				if p.HasError() {
-					// Recognition error - abort rule
-					goto errorExit
-				}
-			}
-
-		default:
-			p.SetError(antlr.NewNoViableAltException(p, nil, nil, nil, nil, nil))
-			goto errorExit
-		}
-
-		p.SetState(120)
+		p.SetState(113)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
 		}
 		_la = p.GetTokenStream().LA(1)
-	}
-
-errorExit:
-	if p.HasError() {
-		v := p.GetError()
-		localctx.SetException(v)
-		p.GetErrorHandler().ReportError(p, v)
-		p.GetErrorHandler().Recover(p, v)
-		p.SetError(nil)
-	}
-	p.ExitRule()
-	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
-}
-
-// IVariableReferenceContext is an interface to support dynamic dispatch.
-type IVariableReferenceContext interface {
-	antlr.ParserRuleContext
-
-	// GetParser returns the parser.
-	GetParser() antlr.Parser
-
-	// Getter signatures
-	VAR_START() antlr.TerminalNode
-	NAME() antlr.TerminalNode
-	VAR_END() antlr.TerminalNode
-
-	// IsVariableReferenceContext differentiates from other interfaces.
-	IsVariableReferenceContext()
-}
-
-type VariableReferenceContext struct {
-	antlr.BaseParserRuleContext
-	parser antlr.Parser
-}
-
-func NewEmptyVariableReferenceContext() *VariableReferenceContext {
-	var p = new(VariableReferenceContext)
-	antlr.InitBaseParserRuleContext(&p.BaseParserRuleContext, nil, -1)
-	p.RuleIndex = devcmdParserRULE_variableReference
-	return p
-}
-
-func InitEmptyVariableReferenceContext(p *VariableReferenceContext) {
-	antlr.InitBaseParserRuleContext(&p.BaseParserRuleContext, nil, -1)
-	p.RuleIndex = devcmdParserRULE_variableReference
-}
-
-func (*VariableReferenceContext) IsVariableReferenceContext() {}
-
-func NewVariableReferenceContext(parser antlr.Parser, parent antlr.ParserRuleContext, invokingState int) *VariableReferenceContext {
-	var p = new(VariableReferenceContext)
-
-	antlr.InitBaseParserRuleContext(&p.BaseParserRuleContext, parent, invokingState)
-
-	p.parser = parser
-	p.RuleIndex = devcmdParserRULE_variableReference
-
-	return p
-}
-
-func (s *VariableReferenceContext) GetParser() antlr.Parser { return s.parser }
-
-func (s *VariableReferenceContext) VAR_START() antlr.TerminalNode {
-	return s.GetToken(devcmdParserVAR_START, 0)
-}
-
-func (s *VariableReferenceContext) NAME() antlr.TerminalNode {
-	return s.GetToken(devcmdParserNAME, 0)
-}
-
-func (s *VariableReferenceContext) VAR_END() antlr.TerminalNode {
-	return s.GetToken(devcmdParserVAR_END, 0)
-}
-
-func (s *VariableReferenceContext) GetRuleContext() antlr.RuleContext {
-	return s
-}
-
-func (s *VariableReferenceContext) ToStringTree(ruleNames []string, recog antlr.Recognizer) string {
-	return antlr.TreesStringTree(s, ruleNames, recog)
-}
-
-func (s *VariableReferenceContext) EnterRule(listener antlr.ParseTreeListener) {
-	if listenerT, ok := listener.(devcmdListener); ok {
-		listenerT.EnterVariableReference(s)
-	}
-}
-
-func (s *VariableReferenceContext) ExitRule(listener antlr.ParseTreeListener) {
-	if listenerT, ok := listener.(devcmdListener); ok {
-		listenerT.ExitVariableReference(s)
-	}
-}
-
-func (p *devcmdParser) VariableReference() (localctx IVariableReferenceContext) {
-	localctx = NewVariableReferenceContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 22, devcmdParserRULE_variableReference)
-	p.EnterOuterAlt(localctx, 1)
-	{
-		p.SetState(122)
-		p.Match(devcmdParserVAR_START)
-		if p.HasError() {
-			// Recognition error - abort rule
-			goto errorExit
-		}
-	}
-	{
-		p.SetState(123)
-		p.Match(devcmdParserNAME)
-		if p.HasError() {
-			// Recognition error - abort rule
-			goto errorExit
-		}
-	}
-	{
-		p.SetState(124)
-		p.Match(devcmdParserVAR_END)
-		if p.HasError() {
-			// Recognition error - abort rule
-			goto errorExit
-		}
 	}
 
 errorExit:

@@ -97,19 +97,9 @@ func Validate(file *CommandFile) error {
 		}
 	}
 
-	// Check that every watch has a matching stop
-	for name, line := range watchCmds {
-		if _, ok := stopCmds[name]; !ok {
-			validationError.AddSimple(line, "watch command '%s' has no matching stop command", name)
-		}
-	}
-
-	// Check that every stop has a matching watch
-	for name, line := range stopCmds {
-		if _, ok := watchCmds[name]; !ok {
-			validationError.AddSimple(line, "stop command '%s' has no matching watch command", name)
-		}
-	}
+	// We no longer enforce validation requirements for watch/stop commands
+	// Watch commands don't need matching stop commands (stop is optional)
+	// Stop commands without matching watch commands will be ignored
 
 	// 2. Check for variable references in command text
 	checkVarReferences := func(text string, line int, lineContent string) {

@@ -91,35 +91,35 @@ func TestDefinitions(t *testing.T) {
 	}{
 		{
 			name:      "simple definition",
-			input:     "def SRC = ./src",
+			input:     "def SRC = ./src;",
 			wantName:  "SRC",
 			wantValue: "./src",
 			wantErr:   false,
 		},
 		{
 			name:      "definition with complex value",
-			input:     "def CMD = go test -v ./...",
+			input:     "def CMD = go test -v ./...;",
 			wantName:  "CMD",
 			wantValue: "go test -v ./...",
 			wantErr:   false,
 		},
 		{
 			name:      "definition with special chars",
-			input:     "def PATH = /usr/local/bin:$PATH",
+			input:     "def PATH = /usr/local/bin:$PATH;",
 			wantName:  "PATH",
 			wantValue: "/usr/local/bin:$PATH",
 			wantErr:   false,
 		},
 		{
 			name:      "definition with quotes",
-			input:     `def MSG = "Hello, World!"`,
+			input:     `def MSG = "Hello, World!";`,
 			wantName:  "MSG",
 			wantValue: `"Hello, World!"`,
 			wantErr:   false,
 		},
 		{
 			name:      "definition with empty value",
-			input:     "def EMPTY = ",
+			input:     "def EMPTY = ;",
 			wantName:  "EMPTY",
 			wantValue: "",
 			wantErr:   false,
@@ -159,67 +159,67 @@ func TestDefinitions(t *testing.T) {
 
 func TestBlockCommands(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		wantName      string
-		wantBlockSize int
-		wantCommands  []string
+		name           string
+		input          string
+		wantName       string
+		wantBlockSize  int
+		wantCommands   []string
 		wantBackground []bool
-		wantErr       bool
+		wantErr        bool
 	}{
 		{
-			name:          "empty block",
-			input:         "setup: { }",
-			wantName:      "setup",
-			wantBlockSize: 0,
-			wantCommands:  []string{},
+			name:           "empty block",
+			input:          "setup: { }",
+			wantName:       "setup",
+			wantBlockSize:  0,
+			wantCommands:   []string{},
 			wantBackground: []bool{},
-			wantErr:       false,
+			wantErr:        false,
 		},
 		{
-			name:          "single statement block",
-			input:         "setup: { npm install }",
-			wantName:      "setup",
-			wantBlockSize: 1,
-			wantCommands:  []string{"npm install"},
+			name:           "single statement block",
+			input:          "setup: { npm install }",
+			wantName:       "setup",
+			wantBlockSize:  1,
+			wantCommands:   []string{"npm install"},
 			wantBackground: []bool{false},
-			wantErr:       false,
+			wantErr:        false,
 		},
 		{
-			name:          "multiple statements",
-			input:         "setup: { npm install; go mod tidy; echo done }",
-			wantName:      "setup",
-			wantBlockSize: 3,
-			wantCommands:  []string{"npm install", "go mod tidy", "echo done"},
+			name:           "multiple statements",
+			input:          "setup: { npm install; go mod tidy; echo done }",
+			wantName:       "setup",
+			wantBlockSize:  3,
+			wantCommands:   []string{"npm install", "go mod tidy", "echo done"},
 			wantBackground: []bool{false, false, false},
-			wantErr:       false,
+			wantErr:        false,
 		},
 		{
-			name:          "multiline block",
-			input:         "setup: {\n  npm install;\n  go mod tidy;\n  echo done\n}",
-			wantName:      "setup",
-			wantBlockSize: 3,
-			wantCommands:  []string{"npm install", "go mod tidy", "echo done"},
+			name:           "multiline block",
+			input:          "setup: {\n  npm install;\n  go mod tidy;\n  echo done\n}",
+			wantName:       "setup",
+			wantBlockSize:  3,
+			wantCommands:   []string{"npm install", "go mod tidy", "echo done"},
 			wantBackground: []bool{false, false, false},
-			wantErr:       false,
+			wantErr:        false,
 		},
 		{
-			name:          "background processes",
-			input:         "run-all: { server &; client &; db & }",
-			wantName:      "run-all",
-			wantBlockSize: 3,
-			wantCommands:  []string{"server", "client", "db"},
+			name:           "background processes",
+			input:          "run-all: { server &; client &; db & }",
+			wantName:       "run-all",
+			wantBlockSize:  3,
+			wantCommands:   []string{"server", "client", "db"},
 			wantBackground: []bool{true, true, true},
-			wantErr:       false,
+			wantErr:        false,
 		},
 		{
-			name:          "mixed background and foreground",
-			input:         "run: { setup; server &; monitor }",
-			wantName:      "run",
-			wantBlockSize: 3,
-			wantCommands:  []string{"setup", "server", "monitor"},
+			name:           "mixed background and foreground",
+			input:          "run: { setup; server &; monitor }",
+			wantName:       "run",
+			wantBlockSize:  3,
+			wantCommands:   []string{"setup", "server", "monitor"},
 			wantBackground: []bool{false, true, false},
-			wantErr:       false,
+			wantErr:        false,
 		},
 	}
 
@@ -306,11 +306,8 @@ func TestWatchStopCommands(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name: "watch command with block",
-			input: `watch dev: {
-				npm start &
-				go run main.go &
-			}`,
+			name:      "watch command with block",
+			input:     "watch dev: {\nnpm start &;\ngo run main.go &\n}",
 			wantName:  "dev",
 			wantWatch: true,
 			wantStop:  false,
@@ -319,11 +316,8 @@ func TestWatchStopCommands(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name: "stop command with block",
-			input: `stop dev: {
-				pkill node
-				pkill go
-			}`,
+			name:      "stop command with block",
+			input:     "stop dev: {\npkill node;\npkill go\n}",
 			wantName:  "dev",
 			wantWatch: false,
 			wantStop:  true,
@@ -386,33 +380,33 @@ func TestVariableReferences(t *testing.T) {
 	}{
 		{
 			name:         "simple variable reference",
-			input:        "def SRC = ./src\nbuild: cd $(SRC) && make",
+			input:        "def SRC = ./src;\nbuild: cd $(SRC) && make",
 			wantExpanded: "cd ./src && make",
 			wantErr:      false,
 		},
 		{
 			name:         "multiple variable references",
-			input:        "def SRC = ./src\ndef BIN = ./bin\nbuild: cp $(SRC)/main $(BIN)/app",
+			input:        "def SRC = ./src;\ndef BIN = ./bin;\nbuild: cp $(SRC)/main $(BIN)/app",
 			wantExpanded: "cp ./src/main ./bin/app",
 			wantErr:      false,
 		},
 		{
 			name:         "variable in block command",
-			input:        "def SRC = ./src\nsetup: { cd $(SRC); make all }",
-			wantExpanded: "cd ./src",  // Check just first statement
+			input:        "def SRC = ./src;\nsetup: { cd $(SRC); make all }",
+			wantExpanded: "cd ./src", // Check just first statement
+			wantErr:      false,
+		},
+		{
+			name:         "escaped dollar sign",
+			input:        "def PATH = /bin;\necho: echo \\$PATH is $(PATH)",
+			wantExpanded: "echo $PATH is /bin",
 			wantErr:      false,
 		},
 		{
 			name:         "undefined variable",
 			input:        "build: echo $(UNDEFINED)",
 			wantExpanded: "",
-			wantErr:      true,  // Should fail during ExpandVariables
-		},
-		{
-			name:         "escaped dollar sign",
-			input:        "def PATH = /bin\necho: echo \\$PATH is $(PATH)",
-			wantExpanded: "echo $PATH is /bin",
-			wantErr:      false,
+			wantErr:      true, // Should fail during ExpandVariables
 		},
 	}
 
@@ -463,10 +457,10 @@ func TestVariableReferences(t *testing.T) {
 
 func TestContinuationLines(t *testing.T) {
 	tests := []struct {
-		name         string
-		input        string
-		wantCommand  string
-		wantErr      bool
+		name        string
+		input       string
+		wantCommand string
+		wantErr     bool
 	}{
 		{
 			name:        "simple continuation",
@@ -482,7 +476,7 @@ func TestContinuationLines(t *testing.T) {
 		},
 		{
 			name:        "continuation with variables",
-			input:       "def DIR = src\nbuild: cd $(DIR) \\\n&& make",
+			input:       "def DIR = src;\nbuild: cd $(DIR) \\\n&& make",
 			wantCommand: "cd $(DIR) && make",
 			wantErr:     false,
 		},
@@ -512,7 +506,7 @@ func TestContinuationLines(t *testing.T) {
 			var cmd *Command
 			for i := range result.Commands {
 				if strings.HasPrefix(result.Commands[i].Command, "echo") ||
-				   strings.HasPrefix(result.Commands[i].Command, "cd") {
+					strings.HasPrefix(result.Commands[i].Command, "cd") {
 					cmd = &result.Commands[i]
 					break
 				}
@@ -532,34 +526,39 @@ func TestContinuationLines(t *testing.T) {
 
 func TestErrorHandling(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
+		name          string
+		input         string
 		wantErrSubstr string
 	}{
 		{
-			name:         "duplicate command",
-			input:        "build: echo hello\nbuild: echo world",
+			name:          "duplicate command",
+			input:         "build: echo hello\nbuild: echo world",
 			wantErrSubstr: "duplicate command",
 		},
 		{
-			name:         "duplicate definition",
-			input:        "def VAR = value1\ndef VAR = value2",
+			name:          "duplicate definition",
+			input:         "def VAR = value1;\ndef VAR = value2;",
 			wantErrSubstr: "duplicate definition",
 		},
 		{
-			name:         "syntax error in command",
-			input:        "build echo hello",  // Missing colon
+			name:          "syntax error in command",
+			input:         "build echo hello", // Missing colon
 			wantErrSubstr: "syntax error",
 		},
 		{
-			name:         "unclosed block",
-			input:        "build: { echo hello",
+			name:          "unclosed block",
+			input:         "build: { echo hello",
 			wantErrSubstr: "syntax error",
 		},
 		{
-			name:         "bad variable expansion",
-			input:        "build: echo $(missingVar)",
+			name:          "bad variable expansion",
+			input:         "build: echo $(missingVar)",
 			wantErrSubstr: "undefined variable",
+		},
+		{
+			name:          "missing semicolon in definition",
+			input:         "def VAR = value\nbuild: echo hello",
+			wantErrSubstr: "syntax error",
 		},
 	}
 
@@ -589,8 +588,8 @@ func TestErrorHandling(t *testing.T) {
 func TestCompleteFile(t *testing.T) {
 	input := `
 # Development commands
-def SRC = ./src
-def BIN = ./bin
+def SRC = ./src;
+def BIN = ./bin;
 
 # Build commands
 build: cd $(SRC) && make all
@@ -598,7 +597,7 @@ build: cd $(SRC) && make all
 # Run commands
 watch server: {
   cd $(SRC);
-  ./server --port=8080 &
+  ./server --port=8080 &;
   ./worker --queue=jobs &
 }
 
