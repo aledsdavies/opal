@@ -542,13 +542,13 @@ func TestErrorHandling(t *testing.T) {
 		},
 		{
 			name:          "syntax error in command",
-			input:         "build echo hello", // Missing colon
-			wantErrSubstr: "syntax error",
+			input:         "build echo hello",  // Missing colon
+			wantErrSubstr: "missing ':'",      // Updated to match actual error
 		},
 		{
 			name:          "unclosed block",
 			input:         "build: { echo hello",
-			wantErrSubstr: "syntax error",
+			wantErrSubstr: "missing '}'",      // Updated to match actual error
 		},
 		{
 			name:          "bad variable expansion",
@@ -558,7 +558,7 @@ func TestErrorHandling(t *testing.T) {
 		{
 			name:          "missing semicolon in definition",
 			input:         "def VAR = value\nbuild: echo hello",
-			wantErrSubstr: "syntax error",
+			wantErrSubstr: "missing ';'",      // Updated to match actual error
 		},
 	}
 

@@ -52,6 +52,128 @@ func NewDetailedParseError(line int, column int, context string, format string, 
 	}
 }
 
+// CommandRegistry manages command names and prevents conflicts
+type CommandRegistry struct {
+	regularCommands map[string]int  // name -> line number
+	watchCommands   map[string]int  // name -> line number
+	stopCommands    map[string]int  // name -> line number
+	lines           []string        // source lines for error reporting
+}
+
+// NewCommandRegistry creates a new command registry
+func NewCommandRegistry(lines []string) *CommandRegistry {
+	return &CommandRegistry{
+		regularCommands: make(map[string]int),
+		watchCommands:   make(map[string]int),
+		stopCommands:    make(map[string]int),
+		lines:           lines,
+	}
+}
+
+// RegisterCommand registers a command and checks for conflicts
+func (cr *CommandRegistry) RegisterCommand(cmd Command) error {
+	name := cmd.Name
+	line := cmd.Line
+
+	// Get the line content for error reporting
+	var lineContent string
+	if line > 0 && line <= len(cr.lines) {
+		lineContent = cr.lines[line-1]
+	}
+
+	// Find the column position of the command name
+	namePos := strings.Index(lineContent, name)
+	if namePos == -1 {
+		namePos = 0
+	}
+
+	if cmd.IsWatch {
+		// Check for duplicate watch command
+		if existingLine, exists := cr.watchCommands[name]; exists {
+			return NewDetailedParseError(line, namePos, lineContent,
+				"duplicate watch command '%s' (previously defined at line %d)",
+				name, existingLine)
+		}
+
+		// Check for conflict with regular command
+		if existingLine, exists := cr.regularCommands[name]; exists {
+			return NewDetailedParseError(line, namePos, lineContent,
+				"watch command '%s' conflicts with regular command (defined at line %d)",
+				name, existingLine)
+		}
+
+		cr.watchCommands[name] = line
+
+	} else if cmd.IsStop {
+		// Check for duplicate stop command
+		if existingLine, exists := cr.stopCommands[name]; exists {
+			return NewDetailedParseError(line, namePos, lineContent,
+				"duplicate stop command '%s' (previously defined at line %d)",
+				name, existingLine)
+		}
+
+		// Check for conflict with regular command
+		if existingLine, exists := cr.regularCommands[name]; exists {
+			return NewDetailedParseError(line, namePos, lineContent,
+				"stop command '%s' conflicts with regular command (defined at line %d)",
+				name, existingLine)
+		}
+
+		cr.stopCommands[name] = line
+
+	} else {
+		// Regular command
+		// Check for duplicate regular command
+		if existingLine, exists := cr.regularCommands[name]; exists {
+			return NewDetailedParseError(line, namePos, lineContent,
+				"duplicate command '%s' (previously defined at line %d)",
+				name, existingLine)
+		}
+
+		// Check for conflict with watch command
+		if existingLine, exists := cr.watchCommands[name]; exists {
+			return NewDetailedParseError(line, namePos, lineContent,
+				"regular command '%s' conflicts with watch command (defined at line %d)",
+				name, existingLine)
+		}
+
+		// Check for conflict with stop command
+		if existingLine, exists := cr.stopCommands[name]; exists {
+			return NewDetailedParseError(line, namePos, lineContent,
+				"regular command '%s' conflicts with stop command (defined at line %d)",
+				name, existingLine)
+		}
+
+		cr.regularCommands[name] = line
+	}
+
+	return nil
+}
+
+// GetWatchCommands returns all registered watch commands
+func (cr *CommandRegistry) GetWatchCommands() map[string]int {
+	return cr.watchCommands
+}
+
+// GetStopCommands returns all registered stop commands
+func (cr *CommandRegistry) GetStopCommands() map[string]int {
+	return cr.stopCommands
+}
+
+// GetRegularCommands returns all registered regular commands
+func (cr *CommandRegistry) GetRegularCommands() map[string]int {
+	return cr.regularCommands
+}
+
+// ValidateWatchStopPairs validates that watch commands have valid stop counterparts
+func (cr *CommandRegistry) ValidateWatchStopPairs() error {
+	// Note: We don't require every watch to have a stop since stop is optional
+	// We also don't require every stop to have a watch since stop commands can be standalone
+	// This method is kept for future validation rules if needed
+
+	return nil
+}
+
 // Parse parses a command file content into a CommandFile structure
 func Parse(content string) (*CommandFile, error) {
 	// Ensure content has a trailing newline for consistent parsing
@@ -79,9 +201,6 @@ func Parse(content string) (*CommandFile, error) {
 	parser.RemoveErrorListeners()
 	parser.AddErrorListener(errorListener)
 
-	// DO NOT use BailErrorStrategy as it's causing the panic
-	// We're now using the default error strategy which is more robust
-
 	// Parse the input
 	tree := parser.Program()
 
@@ -106,27 +225,13 @@ func Parse(content string) (*CommandFile, error) {
 	visitor.Visit(tree)
 
 	// Verify no duplicate definitions
-	defs := make(map[string]int)
-	for _, def := range commandFile.Definitions {
-		if line, exists := defs[def.Name]; exists {
-			defLine := lines[def.Line-1]
-			return nil, NewDetailedParseError(def.Line, strings.Index(defLine, def.Name), defLine,
-				"duplicate definition of '%s' (previously defined at line %d)",
-				def.Name, line)
-		}
-		defs[def.Name] = def.Line
+	if err := validateDefinitions(commandFile.Definitions, lines); err != nil {
+		return nil, err
 	}
 
-	// Verify no duplicate commands
-	cmds := make(map[string]int)
-	for _, cmd := range commandFile.Commands {
-		if line, exists := cmds[cmd.Name]; exists {
-			cmdLine := lines[cmd.Line-1]
-			return nil, NewDetailedParseError(cmd.Line, strings.Index(cmdLine, cmd.Name), cmdLine,
-				"duplicate command '%s' (previously defined at line %d)",
-				cmd.Name, line)
-		}
-		cmds[cmd.Name] = cmd.Line
+	// Verify command uniqueness and conflicts using the advanced registry
+	if err := validateCommands(commandFile.Commands, lines); err != nil {
+		return nil, err
 	}
 
 	// Perform semantic validation of the command file
@@ -135,6 +240,51 @@ func Parse(content string) (*CommandFile, error) {
 	}
 
 	return commandFile, nil
+}
+
+// validateDefinitions checks for duplicate variable definitions
+func validateDefinitions(definitions []Definition, lines []string) error {
+	defs := make(map[string]int)
+
+	for _, def := range definitions {
+		if line, exists := defs[def.Name]; exists {
+			var defLine string
+			if def.Line > 0 && def.Line <= len(lines) {
+				defLine = lines[def.Line-1]
+			}
+
+			namePos := strings.Index(defLine, def.Name)
+			if namePos == -1 {
+				namePos = 0
+			}
+
+			return NewDetailedParseError(def.Line, namePos, defLine,
+				"duplicate definition of '%s' (previously defined at line %d)",
+				def.Name, line)
+		}
+		defs[def.Name] = def.Line
+	}
+
+	return nil
+}
+
+// validateCommands performs advanced command validation using the command registry
+func validateCommands(commands []Command, lines []string) error {
+	registry := NewCommandRegistry(lines)
+
+	// Register all commands and check for conflicts
+	for _, cmd := range commands {
+		if err := registry.RegisterCommand(cmd); err != nil {
+			return err
+		}
+	}
+
+	// Validate watch/stop command relationships
+	if err := registry.ValidateWatchStopPairs(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ErrorCollector collects syntax errors during parsing
@@ -153,33 +303,10 @@ type SyntaxError struct {
 
 // SyntaxError is called by ANTLR when a syntax error is encountered
 func (e *ErrorCollector) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, ex antlr.RecognitionException) {
-	// Improve error messages for common syntax issues
-	improvedMsg := msg
-
-	// Check for common error patterns
-	if strings.Contains(msg, "missing '}'") && line > 1 {
-		// Look at the previous line to see if it might be missing a semicolon
-		prevLine := ""
-		if line-2 < len(e.lines) {
-			prevLine = e.lines[line-2]
-		}
-
-		if !strings.Contains(prevLine, ";") &&
-			(strings.Contains(prevLine, "&") ||
-				!strings.Contains(prevLine, "{")) {
-			improvedMsg = "missing semicolon after statement; block statements must be separated by semicolons"
-		}
-	} else if strings.Contains(msg, "extraneous input") && strings.Contains(msg, "expecting") {
-		// Provide more context for unexpected tokens
-		if strings.Contains(msg, "expecting '}'") {
-			improvedMsg = "unexpected input - check for missing semicolons between statements in the block"
-		}
-	}
-
 	e.errors = append(e.errors, SyntaxError{
 		Line:    line,
 		Column:  column,
-		Message: improvedMsg,
+		Message: msg,
 	})
 }
 
@@ -346,16 +473,45 @@ func (v *DevcmdVisitor) processBlockCommand(ctx *gen.BlockCommandContext) []Bloc
 	nonEmptyCtx := nonEmptyStmts.(*gen.NonEmptyBlockStatementsContext)
 	for _, stmt := range nonEmptyCtx.AllBlockStatement() {
 		stmtCtx := stmt.(*gen.BlockStatementContext)
-		command := v.getOriginalText(stmtCtx.CommandText())
-		background := stmtCtx.AMPERSAND() != nil
+
+		// Get the command text and check for background indicator
+		command, isBackground := v.getCommandTextWithBackground(stmtCtx)
 
 		statements = append(statements, BlockStatement{
 			Command:    command,
-			Background: background,
+			Background: isBackground,
 		})
 	}
 
 	return statements
+}
+
+// getCommandTextWithBackground extracts command text and determines if it's a background command
+// Uses a more robust approach that handles grammar parsing issues
+func (v *DevcmdVisitor) getCommandTextWithBackground(ctx *gen.BlockStatementContext) (string, bool) {
+	// Get the original text for the entire block statement
+	start := ctx.GetStart().GetStart()
+	stop := ctx.GetStop().GetStop()
+
+	if start < 0 || stop < 0 || start > stop {
+		return "", false
+	}
+
+	// Extract the full text of the statement
+	fullText := v.inputStream.GetText(start, stop)
+	fullText = strings.TrimSpace(fullText)
+
+	// Check if the statement ends with &
+	isBackground := strings.HasSuffix(fullText, "&")
+
+	// If it's a background command, remove the & and any trailing whitespace
+	command := fullText
+	if isBackground {
+		command = strings.TrimSuffix(command, "&")
+		command = strings.TrimRight(command, " \t")
+	}
+
+	return command, isBackground
 }
 
 // getOriginalText extracts the original source text for a rule context
