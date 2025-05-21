@@ -542,13 +542,13 @@ func TestErrorHandling(t *testing.T) {
 		},
 		{
 			name:          "syntax error in command",
-			input:         "build echo hello",  // Missing colon
+			input:         "build echo hello", // Missing colon
 			wantErrSubstr: "missing ':'",      // Updated to match actual error
 		},
 		{
 			name:          "unclosed block",
 			input:         "build: { echo hello",
-			wantErrSubstr: "missing '}'",      // Updated to match actual error
+			wantErrSubstr: "missing '}'", // Updated to match actual error
 		},
 		{
 			name:          "bad variable expansion",
@@ -558,7 +558,7 @@ func TestErrorHandling(t *testing.T) {
 		{
 			name:          "missing semicolon in definition",
 			input:         "def VAR = value\nbuild: echo hello",
-			wantErrSubstr: "missing ';'",      // Updated to match actual error
+			wantErrSubstr: "missing ';'", // Updated to match actual error
 		},
 	}
 
@@ -627,43 +627,51 @@ stop server: pkill -f "server|worker"
 		}
 	}
 
-	// Verify commands
+	// Verify commands - we expect 3 commands: build, watch server, stop server
 	if len(result.Commands) != 3 {
 		t.Errorf("Expected 3 commands, got %d", len(result.Commands))
 	} else {
-		// Collect commands by name
-		cmdMap := make(map[string]*Command)
+		// Find commands by type since we can have both watch and stop with same name
+		var buildCmd *Command
+		var watchServerCmd *Command
+		var stopServerCmd *Command
+
 		for i := range result.Commands {
-			cmdMap[result.Commands[i].Name] = &result.Commands[i]
+			cmd := &result.Commands[i]
+			if cmd.Name == "build" && !cmd.IsWatch && !cmd.IsStop {
+				buildCmd = cmd
+			} else if cmd.Name == "server" && cmd.IsWatch {
+				watchServerCmd = cmd
+			} else if cmd.Name == "server" && cmd.IsStop {
+				stopServerCmd = cmd
+			}
 		}
 
 		// Check build command
-		buildCmd, ok := cmdMap["build"]
-		if !ok {
+		if buildCmd == nil {
 			t.Errorf("Missing 'build' command")
 		} else if buildCmd.Command != "cd $(SRC) && make all" {
 			t.Errorf("build command = %q, want %q", buildCmd.Command, "cd $(SRC) && make all")
 		}
 
-		// Check server watch command
-		serverCmd, ok := cmdMap["server"]
-		if !ok {
-			t.Errorf("Missing 'server' command")
+		// Check watch server command
+		if watchServerCmd == nil {
+			t.Errorf("Missing 'watch server' command")
 		} else {
-			if !serverCmd.IsWatch {
+			if !watchServerCmd.IsWatch {
 				t.Errorf("Expected server command to be a watch command")
 			}
 
-			if !serverCmd.IsBlock {
+			if !watchServerCmd.IsBlock {
 				t.Errorf("Expected server command to be a block command")
 			}
 
-			if len(serverCmd.Block) != 3 {
-				t.Errorf("Expected 3 block statements in server command, got %d", len(serverCmd.Block))
+			if len(watchServerCmd.Block) != 3 {
+				t.Errorf("Expected 3 block statements in server command, got %d", len(watchServerCmd.Block))
 			} else {
 				// Check for background statements
 				backgroundCount := 0
-				for _, stmt := range serverCmd.Block {
+				for _, stmt := range watchServerCmd.Block {
 					if stmt.Background {
 						backgroundCount++
 					}
@@ -675,17 +683,28 @@ stop server: pkill -f "server|worker"
 			}
 		}
 
+		// Check stop server command
+		if stopServerCmd == nil {
+			t.Errorf("Missing 'stop server' command")
+		} else {
+			if !stopServerCmd.IsStop {
+				t.Errorf("Expected stop server command to be a stop command")
+			}
+
+			if stopServerCmd.IsBlock {
+				t.Errorf("Expected stop server command to be a simple command, not a block")
+			}
+		}
+
 		// Verify variable expansion
 		err = result.ExpandVariables()
 		if err != nil {
 			t.Fatalf("ExpandVariables() error = %v", err)
 		}
 
-		// Check that variables were expanded
-		if buildCmd, ok := cmdMap["build"]; ok {
-			if buildCmd.Command != "cd ./src && make all" {
-				t.Errorf("Expanded build command = %q, want %q", buildCmd.Command, "cd ./src && make all")
-			}
+		// Check that variables were expanded in the build command
+		if buildCmd != nil && buildCmd.Command != "cd ./src && make all" {
+			t.Errorf("Expanded build command = %q, want %q", buildCmd.Command, "cd ./src && make all")
 		}
 	}
 }
