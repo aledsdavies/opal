@@ -73,6 +73,7 @@ commandText
     : (ESCAPED_CHAR
       | OUR_VARIABLE_REFERENCE  // Our syntax: $(NAME)
       | SHELL_VARIABLE_REFERENCE // Shell syntax: $NAME
+      | AMPERSAND               // Now allowing ampersands in command text
       | COLON
       | EQUALS
       | COMMAND_TEXT
@@ -96,7 +97,7 @@ STOP : 'stop' ;   // Service shutdown modifier
 LBRACE : '{' ;    // Block start
 RBRACE : '}' ;    // Block end
 SEMICOLON : ';' ; // Statement separator
-AMPERSAND : '&' ; // Background process indicator
+AMPERSAND : '&' ; // Background process indicator and also allowed in command text
 BACKSLASH : '\\' ; // Line continuation marker
 
 // Handle our variable references with $(NAME) syntax
@@ -116,8 +117,8 @@ ESCAPED_CHAR : '\\' ( [\\nrt$;{}()"]
 NAME : [A-Za-z][A-Za-z0-9_-]* ;
 
 // General command text content - excludes reserved characters
-// Now we exclude the specific sequences for variables rather than just $
-COMMAND_TEXT : ~[\r\n \t:=;{}()&\\]+ ;
+// Removed ampersand (&) from excluded characters since we're handling it separately
+COMMAND_TEXT : ~[\r\n \t:=;{}()\\]+ ;
 
 // Comments and formatting elements
 COMMENT : '#' ~[\r\n]* -> channel(HIDDEN) ;  // Comments don't affect execution, so hide from parser

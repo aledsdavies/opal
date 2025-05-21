@@ -59,31 +59,31 @@ func devcmdParserInit() {
 		9, 7, 1, 7, 3, 7, 95, 8, 7, 1, 7, 5, 7, 98, 8, 7, 10, 7, 12, 7, 101, 9,
 		7, 1, 8, 1, 8, 3, 8, 105, 8, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 10, 4, 10, 112,
 		8, 10, 11, 10, 12, 10, 113, 1, 10, 0, 0, 11, 0, 2, 4, 6, 8, 10, 12, 14,
-		16, 18, 20, 0, 3, 1, 1, 17, 17, 1, 0, 4, 5, 2, 0, 2, 3, 11, 15, 122, 0,
-		25, 1, 0, 0, 0, 2, 33, 1, 0, 0, 0, 4, 35, 1, 0, 0, 0, 6, 47, 1, 0, 0, 0,
-		8, 62, 1, 0, 0, 0, 10, 66, 1, 0, 0, 0, 12, 77, 1, 0, 0, 0, 14, 79, 1, 0,
-		0, 0, 16, 102, 1, 0, 0, 0, 18, 106, 1, 0, 0, 0, 20, 111, 1, 0, 0, 0, 22,
-		24, 3, 2, 1, 0, 23, 22, 1, 0, 0, 0, 24, 27, 1, 0, 0, 0, 25, 23, 1, 0, 0,
-		0, 25, 26, 1, 0, 0, 0, 26, 28, 1, 0, 0, 0, 27, 25, 1, 0, 0, 0, 28, 29,
-		5, 0, 0, 1, 29, 1, 1, 0, 0, 0, 30, 34, 3, 4, 2, 0, 31, 34, 3, 6, 3, 0,
-		32, 34, 5, 17, 0, 0, 33, 30, 1, 0, 0, 0, 33, 31, 1, 0, 0, 0, 33, 32, 1,
-		0, 0, 0, 34, 3, 1, 0, 0, 0, 35, 36, 5, 1, 0, 0, 36, 41, 5, 14, 0, 0, 37,
-		39, 5, 2, 0, 0, 38, 40, 3, 20, 10, 0, 39, 38, 1, 0, 0, 0, 39, 40, 1, 0,
-		0, 0, 40, 42, 1, 0, 0, 0, 41, 37, 1, 0, 0, 0, 41, 42, 1, 0, 0, 0, 42, 43,
-		1, 0, 0, 0, 43, 44, 5, 8, 0, 0, 44, 45, 7, 0, 0, 0, 45, 5, 1, 0, 0, 0,
-		46, 48, 7, 1, 0, 0, 47, 46, 1, 0, 0, 0, 47, 48, 1, 0, 0, 0, 48, 49, 1,
-		0, 0, 0, 49, 50, 5, 14, 0, 0, 50, 53, 5, 3, 0, 0, 51, 54, 3, 8, 4, 0, 52,
-		54, 3, 10, 5, 0, 53, 51, 1, 0, 0, 0, 53, 52, 1, 0, 0, 0, 54, 7, 1, 0, 0,
-		0, 55, 59, 3, 20, 10, 0, 56, 58, 3, 18, 9, 0, 57, 56, 1, 0, 0, 0, 58, 61,
-		1, 0, 0, 0, 59, 57, 1, 0, 0, 0, 59, 60, 1, 0, 0, 0, 60, 63, 1, 0, 0, 0,
-		61, 59, 1, 0, 0, 0, 62, 55, 1, 0, 0, 0, 62, 63, 1, 0, 0, 0, 63, 64, 1,
-		0, 0, 0, 64, 65, 7, 0, 0, 0, 65, 9, 1, 0, 0, 0, 66, 68, 5, 6, 0, 0, 67,
-		69, 5, 17, 0, 0, 68, 67, 1, 0, 0, 0, 68, 69, 1, 0, 0, 0, 69, 70, 1, 0,
-		0, 0, 70, 71, 3, 12, 6, 0, 71, 73, 5, 7, 0, 0, 72, 74, 7, 0, 0, 0, 73,
-		72, 1, 0, 0, 0, 73, 74, 1, 0, 0, 0, 74, 11, 1, 0, 0, 0, 75, 78, 1, 0, 0,
-		0, 76, 78, 3, 14, 7, 0, 77, 75, 1, 0, 0, 0, 77, 76, 1, 0, 0, 0, 78, 13,
-		1, 0, 0, 0, 79, 90, 3, 16, 8, 0, 80, 84, 5, 8, 0, 0, 81, 83, 5, 17, 0,
-		0, 82, 81, 1, 0, 0, 0, 83, 86, 1, 0, 0, 0, 84, 82, 1, 0, 0, 0, 84, 85,
+		16, 18, 20, 0, 3, 1, 1, 17, 17, 1, 0, 4, 5, 3, 0, 2, 3, 9, 9, 11, 15, 122,
+		0, 25, 1, 0, 0, 0, 2, 33, 1, 0, 0, 0, 4, 35, 1, 0, 0, 0, 6, 47, 1, 0, 0,
+		0, 8, 62, 1, 0, 0, 0, 10, 66, 1, 0, 0, 0, 12, 77, 1, 0, 0, 0, 14, 79, 1,
+		0, 0, 0, 16, 102, 1, 0, 0, 0, 18, 106, 1, 0, 0, 0, 20, 111, 1, 0, 0, 0,
+		22, 24, 3, 2, 1, 0, 23, 22, 1, 0, 0, 0, 24, 27, 1, 0, 0, 0, 25, 23, 1,
+		0, 0, 0, 25, 26, 1, 0, 0, 0, 26, 28, 1, 0, 0, 0, 27, 25, 1, 0, 0, 0, 28,
+		29, 5, 0, 0, 1, 29, 1, 1, 0, 0, 0, 30, 34, 3, 4, 2, 0, 31, 34, 3, 6, 3,
+		0, 32, 34, 5, 17, 0, 0, 33, 30, 1, 0, 0, 0, 33, 31, 1, 0, 0, 0, 33, 32,
+		1, 0, 0, 0, 34, 3, 1, 0, 0, 0, 35, 36, 5, 1, 0, 0, 36, 41, 5, 14, 0, 0,
+		37, 39, 5, 2, 0, 0, 38, 40, 3, 20, 10, 0, 39, 38, 1, 0, 0, 0, 39, 40, 1,
+		0, 0, 0, 40, 42, 1, 0, 0, 0, 41, 37, 1, 0, 0, 0, 41, 42, 1, 0, 0, 0, 42,
+		43, 1, 0, 0, 0, 43, 44, 5, 8, 0, 0, 44, 45, 7, 0, 0, 0, 45, 5, 1, 0, 0,
+		0, 46, 48, 7, 1, 0, 0, 47, 46, 1, 0, 0, 0, 47, 48, 1, 0, 0, 0, 48, 49,
+		1, 0, 0, 0, 49, 50, 5, 14, 0, 0, 50, 53, 5, 3, 0, 0, 51, 54, 3, 8, 4, 0,
+		52, 54, 3, 10, 5, 0, 53, 51, 1, 0, 0, 0, 53, 52, 1, 0, 0, 0, 54, 7, 1,
+		0, 0, 0, 55, 59, 3, 20, 10, 0, 56, 58, 3, 18, 9, 0, 57, 56, 1, 0, 0, 0,
+		58, 61, 1, 0, 0, 0, 59, 57, 1, 0, 0, 0, 59, 60, 1, 0, 0, 0, 60, 63, 1,
+		0, 0, 0, 61, 59, 1, 0, 0, 0, 62, 55, 1, 0, 0, 0, 62, 63, 1, 0, 0, 0, 63,
+		64, 1, 0, 0, 0, 64, 65, 7, 0, 0, 0, 65, 9, 1, 0, 0, 0, 66, 68, 5, 6, 0,
+		0, 67, 69, 5, 17, 0, 0, 68, 67, 1, 0, 0, 0, 68, 69, 1, 0, 0, 0, 69, 70,
+		1, 0, 0, 0, 70, 71, 3, 12, 6, 0, 71, 73, 5, 7, 0, 0, 72, 74, 7, 0, 0, 0,
+		73, 72, 1, 0, 0, 0, 73, 74, 1, 0, 0, 0, 74, 11, 1, 0, 0, 0, 75, 78, 1,
+		0, 0, 0, 76, 78, 3, 14, 7, 0, 77, 75, 1, 0, 0, 0, 77, 76, 1, 0, 0, 0, 78,
+		13, 1, 0, 0, 0, 79, 90, 3, 16, 8, 0, 80, 84, 5, 8, 0, 0, 81, 83, 5, 17,
+		0, 0, 82, 81, 1, 0, 0, 0, 83, 86, 1, 0, 0, 0, 84, 82, 1, 0, 0, 0, 84, 85,
 		1, 0, 0, 0, 85, 87, 1, 0, 0, 0, 86, 84, 1, 0, 0, 0, 87, 89, 3, 16, 8, 0,
 		88, 80, 1, 0, 0, 0, 89, 92, 1, 0, 0, 0, 90, 88, 1, 0, 0, 0, 90, 91, 1,
 		0, 0, 0, 91, 94, 1, 0, 0, 0, 92, 90, 1, 0, 0, 0, 93, 95, 5, 8, 0, 0, 94,
@@ -644,7 +644,7 @@ func (p *devcmdParser) VariableDefinition() (localctx IVariableDefinitionContext
 		}
 		_la = p.GetTokenStream().LA(1)
 
-		if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&63500) != 0 {
+		if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&64012) != 0 {
 			{
 				p.SetState(38)
 				p.CommandText()
@@ -855,7 +855,7 @@ func (p *devcmdParser) CommandDefinition() (localctx ICommandDefinitionContext) 
 	}
 
 	switch p.GetTokenStream().LA(1) {
-	case devcmdParserEOF, devcmdParserEQUALS, devcmdParserCOLON, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT, devcmdParserNEWLINE:
+	case devcmdParserEOF, devcmdParserEQUALS, devcmdParserCOLON, devcmdParserAMPERSAND, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT, devcmdParserNEWLINE:
 		{
 			p.SetState(51)
 			p.SimpleCommand()
@@ -1033,7 +1033,7 @@ func (p *devcmdParser) SimpleCommand() (localctx ISimpleCommandContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&63500) != 0 {
+	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&64012) != 0 {
 		{
 			p.SetState(55)
 			p.CommandText()
@@ -1364,7 +1364,7 @@ func (p *devcmdParser) BlockStatements() (localctx IBlockStatementsContext) {
 	case devcmdParserRBRACE:
 		p.EnterOuterAlt(localctx, 1)
 
-	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT:
+	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserAMPERSAND, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT:
 		p.EnterOuterAlt(localctx, 2)
 		{
 			p.SetState(76)
@@ -1917,6 +1917,8 @@ type ICommandTextContext interface {
 	OUR_VARIABLE_REFERENCE(i int) antlr.TerminalNode
 	AllSHELL_VARIABLE_REFERENCE() []antlr.TerminalNode
 	SHELL_VARIABLE_REFERENCE(i int) antlr.TerminalNode
+	AllAMPERSAND() []antlr.TerminalNode
+	AMPERSAND(i int) antlr.TerminalNode
 	AllCOLON() []antlr.TerminalNode
 	COLON(i int) antlr.TerminalNode
 	AllEQUALS() []antlr.TerminalNode
@@ -1986,6 +1988,14 @@ func (s *CommandTextContext) SHELL_VARIABLE_REFERENCE(i int) antlr.TerminalNode 
 	return s.GetToken(devcmdParserSHELL_VARIABLE_REFERENCE, i)
 }
 
+func (s *CommandTextContext) AllAMPERSAND() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserAMPERSAND)
+}
+
+func (s *CommandTextContext) AMPERSAND(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserAMPERSAND, i)
+}
+
 func (s *CommandTextContext) AllCOLON() []antlr.TerminalNode {
 	return s.GetTokens(devcmdParserCOLON)
 }
@@ -2043,33 +2053,41 @@ func (p *devcmdParser) CommandText() (localctx ICommandTextContext) {
 	p.EnterRule(localctx, 20, devcmdParserRULE_commandText)
 	var _la int
 
+	var _alt int
+
 	p.EnterOuterAlt(localctx, 1)
 	p.SetState(111)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
-	_la = p.GetTokenStream().LA(1)
+	_alt = 1
+	for ok := true; ok; ok = _alt != 2 && _alt != antlr.ATNInvalidAltNumber {
+		switch _alt {
+		case 1:
+			{
+				p.SetState(110)
+				_la = p.GetTokenStream().LA(1)
 
-	for ok := true; ok; ok = ((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&63500) != 0) {
-		{
-			p.SetState(110)
-			_la = p.GetTokenStream().LA(1)
-
-			if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&63500) != 0) {
-				p.GetErrorHandler().RecoverInline(p)
-			} else {
-				p.GetErrorHandler().ReportMatch(p)
-				p.Consume()
+				if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&64012) != 0) {
+					p.GetErrorHandler().RecoverInline(p)
+				} else {
+					p.GetErrorHandler().ReportMatch(p)
+					p.Consume()
+				}
 			}
+
+		default:
+			p.SetError(antlr.NewNoViableAltException(p, nil, nil, nil, nil, nil))
+			goto errorExit
 		}
 
 		p.SetState(113)
 		p.GetErrorHandler().Sync(p)
+		_alt = p.GetInterpreter().AdaptivePredict(p.BaseParser, p.GetTokenStream(), 16, p.GetParserRuleContext())
 		if p.HasError() {
 			goto errorExit
 		}
-		_la = p.GetTokenStream().LA(1)
 	}
 
 errorExit:

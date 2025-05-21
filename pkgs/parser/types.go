@@ -70,8 +70,22 @@ func expandVariablesInText(text string, vars map[string]string, line int) (strin
 	var result []byte
 	var varName []byte
 	inVar := false
+	escapeNext := false
 
 	for i := 0; i < len(text); i++ {
+		if escapeNext {
+			// When a character is escaped, just output it as-is
+			result = append(result, text[i])
+			escapeNext = false
+			continue
+		}
+
+		if text[i] == '\\' {
+			// Next character will be escaped
+			escapeNext = true
+			continue
+		}
+
 		if !inVar {
 			// Look for variable start
 			if i+1 < len(text) && text[i] == '$' && text[i+1] == '(' {
