@@ -124,6 +124,34 @@ func TestDefinitions(t *testing.T) {
 			wantValue: "",
 			wantErr:   false,
 		},
+		{
+			name:      "definition with integer",
+			input:     "def PORT = 8080;",
+			wantName:  "PORT",
+			wantValue: "8080",
+			wantErr:   false,
+		},
+		{
+			name:      "definition with decimal",
+			input:     "def VERSION = 1.5;",
+			wantName:  "VERSION",
+			wantValue: "1.5",
+			wantErr:   false,
+		},
+		{
+			name:      "definition with dot-leading decimal",
+			input:     "def FACTOR = .75;",
+			wantName:  "FACTOR",
+			wantValue: ".75",
+			wantErr:   false,
+		},
+		{
+			name:      "definition with number in mixed value",
+			input:     "def TIMEOUT = 30s;",
+			wantName:  "TIMEOUT",
+			wantValue: "30s",
+			wantErr:   false,
+		},
 	}
 
 	for _, tt := range tests {

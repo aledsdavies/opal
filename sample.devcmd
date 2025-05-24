@@ -1,0 +1,154 @@
+# Sample devcmd file for testing all features
+def PORT = 8080;
+def DB_PORT = 5432;
+def SRC = ./src;
+def BUILD_DIR = ./build;
+
+# === Basic Commands ===
+
+# Build the application
+build: {
+  echo "Building application...";
+  mkdir -p $(BUILD_DIR);
+  go build -o $(BUILD_DIR)/app $(SRC)/main.go
+}
+
+# Run tests
+test: go test -v ./...
+
+# Clean build artifacts
+clean: {
+  echo "Cleaning build artifacts...";
+  rm -rf $(BUILD_DIR);
+  go clean
+}
+
+# === Development Services ===
+
+# Start API server in background
+watch api: {
+  echo "Starting API server on port $(PORT)";
+  cd $(SRC) && go run main.go --port=$(PORT) &
+}
+
+# Start database in background
+watch db: {
+  echo "Starting database on port $(DB_PORT)";
+  docker run --rm --name testdb -p $(DB_PORT):5432 -e POSTGRES_PASSWORD=test postgres:15 &
+}
+
+# Start frontend development server
+watch frontend: {
+  echo "Starting frontend dev server";
+  cd frontend && npm run dev &
+}
+
+# Start all development services
+watch all: {
+  echo "Starting all development services";
+  # API server
+  cd $(SRC) && go run main.go --port=$(PORT) &;
+  # Database
+  docker run --rm --name testdb -p $(DB_PORT):5432 -e POSTGRES_PASSWORD=test postgres:15 &;
+  # Frontend
+  cd frontend && npm run dev &;
+  echo "All services started"
+}
+
+# === Stop Commands ===
+
+# Stop API server
+stop api: {
+  echo "Stopping API server";
+  pkill -f "go run.*main.go"
+}
+
+# Stop database
+stop db: {
+  echo "Stopping database";
+  docker stop testdb 2>/dev/null || true
+}
+
+# Stop frontend server
+stop frontend: {
+  echo "Stopping frontend server";
+  pkill -f "npm run dev"
+}
+
+# Stop all services
+stop all: {
+  echo "Stopping all services";
+  pkill -f "go run.*main.go";
+  pkill -f "npm run dev";
+  docker stop testdb 2>/dev/null || true;
+  echo "All services stopped"
+}
+
+# === Utility Commands ===
+
+# Install dependencies
+install: {
+  echo "Installing dependencies...";
+  go mod tidy;
+  cd frontend && npm install;
+  echo "Dependencies installed"
+}
+
+# Run linting
+lint: {
+  echo "Running linters...";
+  golangci-lint run;
+  cd frontend && npm run lint
+}
+
+# Generate code/docs
+generate: {
+  echo "Generating code and documentation...";
+  go generate ./...;
+  go doc -all ./... > docs/api.txt;
+  echo "Generation complete"
+}
+
+# === Deployment Commands ===
+
+# Build for production
+build-prod: {
+  echo "Building for production...";
+  CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o $(BUILD_DIR)/app-linux $(SRC)/main.go;
+  cd frontend && npm run build;
+  echo "Production build complete"
+}
+
+# Run integration tests
+test-integration: {
+  echo "Running integration tests...";
+  docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit;
+  docker-compose -f docker-compose.test.yml down
+}
+
+# === Complex Example ===
+
+# Setup development environment from scratch
+setup: {
+  echo "Setting up development environment...";
+
+  # Check prerequisites
+  which go || (echo "Go not installed" && exit 1);
+  which docker || (echo "Docker not installed" && exit 1);
+  which npm || (echo "Node.js/npm not installed" && exit 1);
+
+  # Install dependencies
+  go mod download;
+  cd frontend && npm install;
+
+  # Create necessary directories
+  mkdir -p $(BUILD_DIR);
+  mkdir -p logs;
+
+  # Initialize database
+  docker run --rm -v $(pwd)/db/init.sql:/docker-entrypoint-initdb.d/init.sql \
+    -e POSTGRES_PASSWORD=test postgres:15 \
+    -c "echo 'Database initialized'";
+
+  echo "Development environment ready!"
+}

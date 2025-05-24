@@ -38,7 +38,8 @@ func devcmdParserInit() {
 	staticData.SymbolicNames = []string{
 		"", "DEF", "EQUALS", "COLON", "WATCH", "STOP", "LBRACE", "RBRACE", "SEMICOLON",
 		"AMPERSAND", "BACKSLASH", "OUR_VARIABLE_REFERENCE", "SHELL_VARIABLE_REFERENCE",
-		"ESCAPED_CHAR", "NAME", "COMMAND_TEXT", "COMMENT", "NEWLINE", "WS",
+		"ESCAPED_CHAR", "NAME", "NUMBER", "COMMAND_TEXT", "COMMENT", "NEWLINE",
+		"WS",
 	}
 	staticData.RuleNames = []string{
 		"program", "line", "variableDefinition", "commandDefinition", "simpleCommand",
@@ -47,7 +48,7 @@ func devcmdParserInit() {
 	}
 	staticData.PredictionContextCache = antlr.NewPredictionContextCache()
 	staticData.serializedATN = []int32{
-		4, 1, 18, 116, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
+		4, 1, 19, 116, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
 		4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7,
 		10, 1, 0, 5, 0, 24, 8, 0, 10, 0, 12, 0, 27, 9, 0, 1, 0, 1, 0, 1, 1, 1,
 		1, 1, 1, 3, 1, 34, 8, 1, 1, 2, 1, 2, 1, 2, 1, 2, 3, 2, 40, 8, 2, 3, 2,
@@ -59,14 +60,14 @@ func devcmdParserInit() {
 		9, 7, 1, 7, 3, 7, 95, 8, 7, 1, 7, 5, 7, 98, 8, 7, 10, 7, 12, 7, 101, 9,
 		7, 1, 8, 1, 8, 3, 8, 105, 8, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 10, 4, 10, 112,
 		8, 10, 11, 10, 12, 10, 113, 1, 10, 0, 0, 11, 0, 2, 4, 6, 8, 10, 12, 14,
-		16, 18, 20, 0, 3, 1, 1, 17, 17, 1, 0, 4, 5, 3, 0, 2, 3, 9, 9, 11, 15, 122,
+		16, 18, 20, 0, 3, 1, 1, 18, 18, 1, 0, 4, 5, 3, 0, 2, 5, 9, 9, 11, 16, 122,
 		0, 25, 1, 0, 0, 0, 2, 33, 1, 0, 0, 0, 4, 35, 1, 0, 0, 0, 6, 47, 1, 0, 0,
 		0, 8, 62, 1, 0, 0, 0, 10, 66, 1, 0, 0, 0, 12, 77, 1, 0, 0, 0, 14, 79, 1,
 		0, 0, 0, 16, 102, 1, 0, 0, 0, 18, 106, 1, 0, 0, 0, 20, 111, 1, 0, 0, 0,
 		22, 24, 3, 2, 1, 0, 23, 22, 1, 0, 0, 0, 24, 27, 1, 0, 0, 0, 25, 23, 1,
 		0, 0, 0, 25, 26, 1, 0, 0, 0, 26, 28, 1, 0, 0, 0, 27, 25, 1, 0, 0, 0, 28,
 		29, 5, 0, 0, 1, 29, 1, 1, 0, 0, 0, 30, 34, 3, 4, 2, 0, 31, 34, 3, 6, 3,
-		0, 32, 34, 5, 17, 0, 0, 33, 30, 1, 0, 0, 0, 33, 31, 1, 0, 0, 0, 33, 32,
+		0, 32, 34, 5, 18, 0, 0, 33, 30, 1, 0, 0, 0, 33, 31, 1, 0, 0, 0, 33, 32,
 		1, 0, 0, 0, 34, 3, 1, 0, 0, 0, 35, 36, 5, 1, 0, 0, 36, 41, 5, 14, 0, 0,
 		37, 39, 5, 2, 0, 0, 38, 40, 3, 20, 10, 0, 39, 38, 1, 0, 0, 0, 39, 40, 1,
 		0, 0, 0, 40, 42, 1, 0, 0, 0, 41, 37, 1, 0, 0, 0, 41, 42, 1, 0, 0, 0, 42,
@@ -78,20 +79,20 @@ func devcmdParserInit() {
 		58, 61, 1, 0, 0, 0, 59, 57, 1, 0, 0, 0, 59, 60, 1, 0, 0, 0, 60, 63, 1,
 		0, 0, 0, 61, 59, 1, 0, 0, 0, 62, 55, 1, 0, 0, 0, 62, 63, 1, 0, 0, 0, 63,
 		64, 1, 0, 0, 0, 64, 65, 7, 0, 0, 0, 65, 9, 1, 0, 0, 0, 66, 68, 5, 6, 0,
-		0, 67, 69, 5, 17, 0, 0, 68, 67, 1, 0, 0, 0, 68, 69, 1, 0, 0, 0, 69, 70,
+		0, 67, 69, 5, 18, 0, 0, 68, 67, 1, 0, 0, 0, 68, 69, 1, 0, 0, 0, 69, 70,
 		1, 0, 0, 0, 70, 71, 3, 12, 6, 0, 71, 73, 5, 7, 0, 0, 72, 74, 7, 0, 0, 0,
 		73, 72, 1, 0, 0, 0, 73, 74, 1, 0, 0, 0, 74, 11, 1, 0, 0, 0, 75, 78, 1,
 		0, 0, 0, 76, 78, 3, 14, 7, 0, 77, 75, 1, 0, 0, 0, 77, 76, 1, 0, 0, 0, 78,
-		13, 1, 0, 0, 0, 79, 90, 3, 16, 8, 0, 80, 84, 5, 8, 0, 0, 81, 83, 5, 17,
+		13, 1, 0, 0, 0, 79, 90, 3, 16, 8, 0, 80, 84, 5, 8, 0, 0, 81, 83, 5, 18,
 		0, 0, 82, 81, 1, 0, 0, 0, 83, 86, 1, 0, 0, 0, 84, 82, 1, 0, 0, 0, 84, 85,
 		1, 0, 0, 0, 85, 87, 1, 0, 0, 0, 86, 84, 1, 0, 0, 0, 87, 89, 3, 16, 8, 0,
 		88, 80, 1, 0, 0, 0, 89, 92, 1, 0, 0, 0, 90, 88, 1, 0, 0, 0, 90, 91, 1,
 		0, 0, 0, 91, 94, 1, 0, 0, 0, 92, 90, 1, 0, 0, 0, 93, 95, 5, 8, 0, 0, 94,
-		93, 1, 0, 0, 0, 94, 95, 1, 0, 0, 0, 95, 99, 1, 0, 0, 0, 96, 98, 5, 17,
+		93, 1, 0, 0, 0, 94, 95, 1, 0, 0, 0, 95, 99, 1, 0, 0, 0, 96, 98, 5, 18,
 		0, 0, 97, 96, 1, 0, 0, 0, 98, 101, 1, 0, 0, 0, 99, 97, 1, 0, 0, 0, 99,
 		100, 1, 0, 0, 0, 100, 15, 1, 0, 0, 0, 101, 99, 1, 0, 0, 0, 102, 104, 3,
 		20, 10, 0, 103, 105, 5, 9, 0, 0, 104, 103, 1, 0, 0, 0, 104, 105, 1, 0,
-		0, 0, 105, 17, 1, 0, 0, 0, 106, 107, 5, 10, 0, 0, 107, 108, 5, 17, 0, 0,
+		0, 0, 105, 17, 1, 0, 0, 0, 106, 107, 5, 10, 0, 0, 107, 108, 5, 18, 0, 0,
 		108, 109, 3, 20, 10, 0, 109, 19, 1, 0, 0, 0, 110, 112, 7, 2, 0, 0, 111,
 		110, 1, 0, 0, 0, 112, 113, 1, 0, 0, 0, 113, 111, 1, 0, 0, 0, 113, 114,
 		1, 0, 0, 0, 114, 21, 1, 0, 0, 0, 17, 25, 33, 39, 41, 47, 53, 59, 62, 68,
@@ -148,10 +149,11 @@ const (
 	devcmdParserSHELL_VARIABLE_REFERENCE = 12
 	devcmdParserESCAPED_CHAR             = 13
 	devcmdParserNAME                     = 14
-	devcmdParserCOMMAND_TEXT             = 15
-	devcmdParserCOMMENT                  = 16
-	devcmdParserNEWLINE                  = 17
-	devcmdParserWS                       = 18
+	devcmdParserNUMBER                   = 15
+	devcmdParserCOMMAND_TEXT             = 16
+	devcmdParserCOMMENT                  = 17
+	devcmdParserNEWLINE                  = 18
+	devcmdParserWS                       = 19
 )
 
 // devcmdParser rules.
@@ -295,7 +297,7 @@ func (p *devcmdParser) Program() (localctx IProgramContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&147506) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&278578) != 0 {
 		{
 			p.SetState(22)
 			p.Line()
@@ -644,7 +646,7 @@ func (p *devcmdParser) VariableDefinition() (localctx IVariableDefinitionContext
 		}
 		_la = p.GetTokenStream().LA(1)
 
-		if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&64012) != 0 {
+		if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&129596) != 0 {
 			{
 				p.SetState(38)
 				p.CommandText()
@@ -855,7 +857,7 @@ func (p *devcmdParser) CommandDefinition() (localctx ICommandDefinitionContext) 
 	}
 
 	switch p.GetTokenStream().LA(1) {
-	case devcmdParserEOF, devcmdParserEQUALS, devcmdParserCOLON, devcmdParserAMPERSAND, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT, devcmdParserNEWLINE:
+	case devcmdParserEOF, devcmdParserEQUALS, devcmdParserCOLON, devcmdParserWATCH, devcmdParserSTOP, devcmdParserAMPERSAND, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserNUMBER, devcmdParserCOMMAND_TEXT, devcmdParserNEWLINE:
 		{
 			p.SetState(51)
 			p.SimpleCommand()
@@ -1033,7 +1035,7 @@ func (p *devcmdParser) SimpleCommand() (localctx ISimpleCommandContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&64012) != 0 {
+	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&129596) != 0 {
 		{
 			p.SetState(55)
 			p.CommandText()
@@ -1364,7 +1366,7 @@ func (p *devcmdParser) BlockStatements() (localctx IBlockStatementsContext) {
 	case devcmdParserRBRACE:
 		p.EnterOuterAlt(localctx, 1)
 
-	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserAMPERSAND, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserCOMMAND_TEXT:
+	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserWATCH, devcmdParserSTOP, devcmdParserAMPERSAND, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserNUMBER, devcmdParserCOMMAND_TEXT:
 		p.EnterOuterAlt(localctx, 2)
 		{
 			p.SetState(76)
@@ -1923,10 +1925,16 @@ type ICommandTextContext interface {
 	COLON(i int) antlr.TerminalNode
 	AllEQUALS() []antlr.TerminalNode
 	EQUALS(i int) antlr.TerminalNode
-	AllCOMMAND_TEXT() []antlr.TerminalNode
-	COMMAND_TEXT(i int) antlr.TerminalNode
+	AllNUMBER() []antlr.TerminalNode
+	NUMBER(i int) antlr.TerminalNode
+	AllSTOP() []antlr.TerminalNode
+	STOP(i int) antlr.TerminalNode
+	AllWATCH() []antlr.TerminalNode
+	WATCH(i int) antlr.TerminalNode
 	AllNAME() []antlr.TerminalNode
 	NAME(i int) antlr.TerminalNode
+	AllCOMMAND_TEXT() []antlr.TerminalNode
+	COMMAND_TEXT(i int) antlr.TerminalNode
 
 	// IsCommandTextContext differentiates from other interfaces.
 	IsCommandTextContext()
@@ -2012,12 +2020,28 @@ func (s *CommandTextContext) EQUALS(i int) antlr.TerminalNode {
 	return s.GetToken(devcmdParserEQUALS, i)
 }
 
-func (s *CommandTextContext) AllCOMMAND_TEXT() []antlr.TerminalNode {
-	return s.GetTokens(devcmdParserCOMMAND_TEXT)
+func (s *CommandTextContext) AllNUMBER() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserNUMBER)
 }
 
-func (s *CommandTextContext) COMMAND_TEXT(i int) antlr.TerminalNode {
-	return s.GetToken(devcmdParserCOMMAND_TEXT, i)
+func (s *CommandTextContext) NUMBER(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserNUMBER, i)
+}
+
+func (s *CommandTextContext) AllSTOP() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserSTOP)
+}
+
+func (s *CommandTextContext) STOP(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserSTOP, i)
+}
+
+func (s *CommandTextContext) AllWATCH() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserWATCH)
+}
+
+func (s *CommandTextContext) WATCH(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserWATCH, i)
 }
 
 func (s *CommandTextContext) AllNAME() []antlr.TerminalNode {
@@ -2026,6 +2050,14 @@ func (s *CommandTextContext) AllNAME() []antlr.TerminalNode {
 
 func (s *CommandTextContext) NAME(i int) antlr.TerminalNode {
 	return s.GetToken(devcmdParserNAME, i)
+}
+
+func (s *CommandTextContext) AllCOMMAND_TEXT() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserCOMMAND_TEXT)
+}
+
+func (s *CommandTextContext) COMMAND_TEXT(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserCOMMAND_TEXT, i)
 }
 
 func (s *CommandTextContext) GetRuleContext() antlr.RuleContext {
@@ -2069,7 +2101,7 @@ func (p *devcmdParser) CommandText() (localctx ICommandTextContext) {
 				p.SetState(110)
 				_la = p.GetTokenStream().LA(1)
 
-				if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&64012) != 0) {
+				if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&129596) != 0) {
 					p.GetErrorHandler().RecoverInline(p)
 				} else {
 					p.GetErrorHandler().ReportMatch(p)

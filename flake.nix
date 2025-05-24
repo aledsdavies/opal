@@ -1,18 +1,17 @@
 {
-  description = "devcmd - Simple shell command DSL for Nix development environments";
+  description = "devcmd - Go CLI generator for development commands";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
   outputs = { self, nixpkgs, ... }:
     let
-      # Standard library and helpers
       lib = nixpkgs.lib;
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = f: lib.genAttrs systems f;
       pkgsFor = system: import nixpkgs { inherit system; };
-      version = "0.1.0";
+      version = "0.2.0";
     in
     {
       # Go parser binary package
@@ -23,157 +22,166 @@
             pname = "devcmd-parser";
             inherit version;
             src = ./.;
-            vendorHash = null; # Skip vendoring for projects with no external dependencies
+            vendorHash = null;
             subPackages = [ "cmd/devcmd-parser" ];
+
+            meta = with lib; {
+              description = "Parser and generator for devcmd DSL";
+              license = licenses.mit;
+            };
           };
         }
       );
 
-      # Export the library functions
+      # Library function to generate CLI packages
       lib = {
-        mkDevCommands =
+        mkDevCLI =
           { pkgs
           , system ? builtins.currentSystem
           , commandsFile ? null
           , commandsContent ? null
-          , commands ? null  # Alias for commandsContent for backward compatibility
           , preProcess ? (text: text)
-          , postProcess ? (text: text)
-          , extraShellHook ? ""
           , templateFile ? null
-          , debug ? false
+          , name ? "devcmd"
           }:
           let
-            # Helper function to read a file safely at evaluation time
+            # Helper to read files safely
             safeReadFile = path:
               if builtins.pathExists path
               then builtins.readFile path
               else null;
 
-            # Get content from commandsFile if provided
-            fileContent =
-              if commandsFile != null
-              then safeReadFile commandsFile
-              else null;
-
-            # Use either commandsContent or commands for inline content
-            inlineContent =
-              if commandsContent != null then commandsContent
-              else if commands != null then commands
-              else null;
-
-            # Try to find a commands file in common locations
-            autoDetectContent =
-              let
-                # Try to detect commands file in various common locations
-                paths = [
-                  # Absolute paths derived from caller's environment
-                  "${builtins.toString ./.}/commands"
-                  "${builtins.toString ./.}/commands.txt"
-                  "${builtins.toString ./.}/commands.devcmd"
-                  # Look in cwd-relative paths
-                  ./commands
-                  ./commands.txt
-                  ./commands.devcmd
-                ];
-                existingPath = lib.findFirst (p: builtins.pathExists p) null paths;
-              in
-              if existingPath != null
-              then builtins.readFile existingPath
-              else null;
-
-            # Determine what content to use (in order of priority)
+            # Get commands content
             finalContent =
-              if fileContent != null then fileContent
-              else if inlineContent != null then inlineContent
-              else if autoDetectContent != null then autoDetectContent
-              else "# No commands defined";
+              if commandsFile != null then safeReadFile commandsFile
+              else if commandsContent != null then commandsContent
+              else throw "Either commandsFile or commandsContent must be provided";
 
-            # Temporary file for commands content
-            commandsSrc = pkgs.writeText "commands-content" finalContent;
+            # Process content
+            processedContent = preProcess finalContent;
+            processedPath = pkgs.writeText "commands-input" processedContent;
 
-            # Process text
-            processedPath = pkgs.writeText "processed-commands"
-              (preProcess finalContent);
-
-            # Parse the commands
+            # Parser binary
             parserBin = self.packages.${system}.default;
 
-            # Safely handle template file paths
-            templatePath =
+            # Template arguments
+            templateArgs =
               if templateFile != null && builtins.pathExists templateFile
-              then toString templateFile
-              else null;
-
-            parserArgs =
-              if templatePath != null
-              then "--template ${templatePath}"
+              then "--template ${toString templateFile}"
               else "";
 
-            parsed =
-              pkgs.runCommand "parsed-commands"
-                { nativeBuildInputs = [ parserBin ]; }
-                ''
-                  if ! ${parserBin}/bin/devcmd-parser ${parserArgs} ${processedPath} > $out; then
-                    echo "Warning: devcmd-parser failed to generate commands. Proceeding with an empty command set." >&2
-                    # Ensure $out is empty on failure, as before
-                    echo "" > $out
-                  fi
-                '';
+            # Generate Go source
+            goSource = pkgs.runCommand "${name}-go-source"
+              { nativeBuildInputs = [ parserBin ]; }
+              ''
+                mkdir -p $out
+                ${parserBin}/bin/devcmd-parser --format=go ${templateArgs} ${processedPath} > $out/main.go
 
-            # Generate shell code with appropriate messages
-            generatedHook = postProcess (builtins.readFile parsed);
+                cat > $out/go.mod << 'EOF'
+                module ${name}-cli
+                go 1.21
+                EOF
+              '';
 
-            # Determine source type for logging
-            sourceType =
-              if fileContent != null then "from file ${toString commandsFile}"
-              else if inlineContent != null then "from inline content"
-              else if autoDetectContent != null then "from auto-detected file"
-              else "no commands found";
+            # Compile the CLI
+            cli = pkgs.buildGoModule {
+              pname = "${name}-cli";
+              version = "generated";
+              src = goSource;
+              vendorHash = null;
 
-            # Debugging information
-            debugInfo =
-              if debug then ''
-                echo "Debug: Commands source = ${sourceType}"
-                echo "Debug: Current directory = ${builtins.toString ./.}"
-                echo "Debug: Parser bin = ${toString parserBin}"
-              '' else "";
+              # Override the binary name to match the desired command name
+              postInstall = ''
+                mv $out/bin/${name}-cli $out/bin/${name}
+              '';
+
+              meta = {
+                description = "Generated ${name} CLI";
+              };
+            };
+
           in
-          {
-            # The shellHook to inject into mkShell
-            shellHook = ''
-              ${debugInfo}
-              echo "devcmd commands ${sourceType}"
-              ${generatedHook}
-              ${extraShellHook}
-            '';
-
-            # Exposed metadata for debugging
-            inherit commandsSrc processedPath parsed;
-            source = sourceType;
-            raw = finalContent;
-            generated = generatedHook;
-          };
+          cli;
       };
 
       # Development shell for the project itself
       devShells = forAllSystems (system:
-        let pkgs = pkgsFor system;
-        in {
+        let
+          pkgs = pkgsFor system;
+        in
+        {
           default = pkgs.mkShell {
-            buildInputs = with pkgs; [ go gopls go-tools ];
+            buildInputs = with pkgs; [
+              go
+              gopls
+              go-tools
+              antlr4
+            ];
+
             shellHook = ''
-              echo "devcmd development shell"
-              echo "Build the parser with: go run ./cmd/devcmd-parser --help"
+              echo "devcmd development environment"
+              echo ""
+              echo "Available commands:"
+              echo "  go run ./cmd/devcmd-parser --help"
+              echo "  go build ./cmd/devcmd-parser"
+              echo "  go test ./..."
+              echo "  go generate ./..."
             '';
           };
+
+          # Example shell with generated CLI
+          example =
+            let
+              exampleCLI = self.lib.mkDevCLI {
+                inherit pkgs system;
+                name = "example";
+                commandsContent = ''
+                  # Example commands
+                  def PORT = 8080;
+
+                  build: go build -o bin/devcmd ./cmd/devcmd-parser
+                  test: go test -v ./...
+
+                  watch demo: {
+                    echo "Starting demo server on port $(PORT)";
+                    python3 -m http.server $(PORT) &
+                  }
+
+                  stop demo: pkill -f "python3 -m http.server"
+
+                  clean: rm -rf bin/
+                '';
+              };
+            in
+            pkgs.mkShell {
+              buildInputs = with pkgs; [
+                go
+                python3
+                exampleCLI
+              ];
+
+              shellHook = ''
+                echo "devcmd example environment"
+                echo ""
+                echo "Generated CLI available as: example"
+                echo "  example build        # Build the parser"
+                echo "  example test         # Run tests"
+                echo "  example watch demo   # Start demo server"
+                echo "  example status       # Show running processes"
+                echo "  example logs demo    # View server logs"
+                echo "  example stop demo    # Stop server"
+              '';
+            };
         }
       );
 
       # Project template
       templates.default = {
         path = ./template;
-        description = "Minimal project with devcmd integration";
+        description = "Project template with devcmd CLI generation";
       };
+
+      # Formatter
+      formatter = forAllSystems (system: (pkgsFor system).nixpkgs-fmt);
     };
 }

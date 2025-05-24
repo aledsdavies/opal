@@ -71,13 +71,16 @@ continuationLine : BACKSLASH NEWLINE commandText ;
 // Must match at least one element to avoid ambiguity
 commandText
     : (ESCAPED_CHAR
-      | OUR_VARIABLE_REFERENCE  // Our syntax: $(NAME)
-      | SHELL_VARIABLE_REFERENCE // Shell syntax: $NAME
-      | AMPERSAND               // Now allowing ampersands in command text
+      | OUR_VARIABLE_REFERENCE      // $(NAME)
+      | SHELL_VARIABLE_REFERENCE    // $NAME
+      | AMPERSAND
       | COLON
       | EQUALS
-      | COMMAND_TEXT
+      | NUMBER
+      | STOP                        // ← allow reserved words here
+      | WATCH                       // ← (optional) ditto
       | NAME
+      | COMMAND_TEXT
       )+
     ;
 
@@ -115,6 +118,10 @@ ESCAPED_CHAR : '\\' ( [\\nrt$;{}()"]
 
 // Identifiers for variables and command names
 NAME : [A-Za-z][A-Za-z0-9_-]* ;
+
+// Numeric literals - supports integers, decimals, and decimals starting with dot
+// Examples: 42, 3.14, .5, 8080, 1.0
+NUMBER : [0-9]* '.' [0-9]+ | [0-9]+ ;
 
 // General command text content - excludes reserved characters
 // Removed ampersand (&) from excluded characters since we're handling it separately

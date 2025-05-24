@@ -347,21 +347,16 @@ type DevcmdVisitor struct {
 func (v *DevcmdVisitor) Visit(tree antlr.ParseTree) {
 	switch t := tree.(type) {
 	case *gen.ProgramContext:
-		fmt.Printf("Visiting ProgramContext\n")
 		v.visitProgram(t)
 	case *gen.LineContext:
-		fmt.Printf("Visiting LineContext\n")
 		v.visitLine(t)
 	case *gen.VariableDefinitionContext:
-		fmt.Printf("Visiting VariableDefinitionContext\n")
 		v.visitVariableDefinition(t)
 	case *gen.CommandDefinitionContext:
-		fmt.Printf("Visiting CommandDefinitionContext\n")
 		v.visitCommandDefinition(t)
 	case antlr.TerminalNode:
 		// Skip terminal nodes silently
 	default:
-		fmt.Printf("Visiting unknown type: %T\n", t)
 		// Visit children for other node types
 		for i := 0; i < tree.GetChildCount(); i++ {
 			child := tree.GetChild(i)
@@ -413,11 +408,7 @@ func (v *DevcmdVisitor) visitCommandDefinition(ctx *gen.CommandDefinitionContext
 	isWatch := ctx.WATCH() != nil
 	isStop := ctx.STOP() != nil
 
-	// Debug output
-	fmt.Printf("Processing command: name=%s, line=%d, isWatch=%v, isStop=%v\n", name, line, isWatch, isStop)
-
 	if simpleCmd := ctx.SimpleCommand(); simpleCmd != nil {
-		fmt.Printf("  -> Processing as simple command\n")
 		// Process simple command
 		cmd := v.processSimpleCommand(simpleCmd.(*gen.SimpleCommandContext))
 
@@ -429,10 +420,8 @@ func (v *DevcmdVisitor) visitCommandDefinition(ctx *gen.CommandDefinitionContext
 			IsStop:  isStop,
 		})
 	} else if blockCmd := ctx.BlockCommand(); blockCmd != nil {
-		fmt.Printf("  -> Processing as block command\n")
 		// Process block command
 		blockStatements := v.processBlockCommand(blockCmd.(*gen.BlockCommandContext))
-		fmt.Printf("  -> Block has %d statements\n", len(blockStatements))
 
 		v.commandFile.Commands = append(v.commandFile.Commands, Command{
 			Name:    name,
@@ -442,8 +431,6 @@ func (v *DevcmdVisitor) visitCommandDefinition(ctx *gen.CommandDefinitionContext
 			IsBlock: true,
 			Block:   blockStatements,
 		})
-	} else {
-		fmt.Printf("  -> ERROR: Neither simple nor block command found\n")
 	}
 }
 
@@ -472,36 +459,25 @@ func (v *DevcmdVisitor) processSimpleCommand(ctx *gen.SimpleCommandContext) stri
 func (v *DevcmdVisitor) processBlockCommand(ctx *gen.BlockCommandContext) []BlockStatement {
 	var statements []BlockStatement
 
-	fmt.Printf("    processBlockCommand: starting\n")
-
 	blockStmts := ctx.BlockStatements()
 	if blockStmts == nil {
-		fmt.Printf("    processBlockCommand: blockStmts is nil\n")
 		return statements
 	}
 
-	fmt.Printf("    processBlockCommand: blockStmts found\n")
-
 	nonEmptyStmts := blockStmts.(*gen.BlockStatementsContext).NonEmptyBlockStatements()
 	if nonEmptyStmts == nil {
-		fmt.Printf("    processBlockCommand: nonEmptyStmts is nil (empty block)\n")
 		return statements // Empty block
 	}
-
-	fmt.Printf("    processBlockCommand: nonEmptyStmts found\n")
 
 	// Process each statement
 	nonEmptyCtx := nonEmptyStmts.(*gen.NonEmptyBlockStatementsContext)
 	allBlockStmts := nonEmptyCtx.AllBlockStatement()
-	fmt.Printf("    processBlockCommand: found %d block statements\n", len(allBlockStmts))
 
-	for i, stmt := range allBlockStmts {
+	for _, stmt := range allBlockStmts {
 		stmtCtx := stmt.(*gen.BlockStatementContext)
-		fmt.Printf("    processBlockCommand: processing statement %d\n", i)
 
 		// Get the command text and check for background indicator
 		command, isBackground := v.getCommandTextWithBackground(stmtCtx)
-		fmt.Printf("    processBlockCommand: statement %d -> command=%q, background=%v\n", i, command, isBackground)
 
 		statements = append(statements, BlockStatement{
 			Command:    command,
@@ -509,7 +485,6 @@ func (v *DevcmdVisitor) processBlockCommand(ctx *gen.BlockCommandContext) []Bloc
 		})
 	}
 
-	fmt.Printf("    processBlockCommand: returning %d statements\n", len(statements))
 	return statements
 }
 
@@ -542,6 +517,7 @@ func (v *DevcmdVisitor) getCommandTextWithBackground(ctx *gen.BlockStatementCont
 }
 
 // getOriginalText extracts the original source text for a rule context
+// This function automatically handles all token types including the new NUMBER token
 func (v *DevcmdVisitor) getOriginalText(ctx antlr.ParserRuleContext) string {
 	if ctx == nil {
 		return ""
