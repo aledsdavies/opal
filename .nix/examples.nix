@@ -4,8 +4,7 @@
 let
   devcmdLib = import ./lib.nix { inherit pkgs self system lib; };
 
-in
-rec {
+in rec {
   # Simple development commands
   basicDev = devcmdLib.mkDevCLI {
     name = "dev";
@@ -501,10 +500,9 @@ rec {
   };
 
   # Test all examples
-  testExamples = pkgs.runCommand "test-all-examples"
-    {
-      nativeBuildInputs = with pkgs; [ bash ] ++ (builtins.attrValues examples);
-    } ''
+  testExamples = pkgs.runCommand "test-all-examples" {
+    nativeBuildInputs = with pkgs; [ bash ] ++ (builtins.attrValues examples);
+  } ''
     mkdir -p $out
 
     echo "Testing all example CLIs..."

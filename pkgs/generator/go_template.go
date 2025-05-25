@@ -66,7 +66,6 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 		"fmt",
 		"os",
 		"os/exec",
-		"syscall",
 	}
 
 	if hasWatchCommands {
@@ -76,6 +75,7 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 			"os/signal",
 			"path/filepath",
 			"strings",
+			"syscall",
 			"time",
 		}
 		data.Imports = append(data.Imports, additionalImports...)
