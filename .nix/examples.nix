@@ -111,7 +111,7 @@ in rec {
     '';
   };
 
-  # Go project with comprehensive tooling
+  # Go project with comprehensive tooling - FIXED to avoid conflicts
   goProject = devcmdLib.mkDevCLI {
     name = "godev";
     commandsContent = ''
@@ -177,7 +177,8 @@ in rec {
         echo "Linting complete"
       }
 
-      watch test: {
+      # FIXED: Changed "watch test" to "watch tests" to avoid conflict
+      watch tests: {
         echo "Watching for changes and running tests...";
         (which watchexec && watchexec -e go -- go test ./...) || echo "watchexec not found"
       }
@@ -263,7 +264,8 @@ in rec {
         cargo run
       }
 
-      watch dev: {
+      # FIXED: Changed "watch dev" to "watch develop" to be more descriptive
+      watch develop: {
         echo "Watching for changes...";
         (which cargo-watch && cargo watch -x run) || echo "cargo-watch not installed"
       }
