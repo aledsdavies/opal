@@ -48,6 +48,57 @@ func TestBasicParsing(t *testing.T) {
 			wantName:    "build",
 			wantErr:     false,
 		},
+		// New edge cases for parentheses and POSIX syntax
+		{
+			name:        "command with parentheses - simple subshell",
+			input:       "check: (echo test)",
+			wantCommand: "(echo test)",
+			wantName:    "check",
+			wantErr:     false,
+		},
+		{
+			name:        "command with parentheses - complex POSIX",
+			input:       "validate: (echo \"Go not installed\" && exit 1)",
+			wantCommand: "(echo \"Go not installed\" && exit 1)",
+			wantName:    "validate",
+			wantErr:     false,
+		},
+		{
+			name:        "command with conditional and parentheses",
+			input:       "setup: which go || (echo \"Go not installed\" && exit 1)",
+			wantCommand: "which go || (echo \"Go not installed\" && exit 1)",
+			wantName:    "setup",
+			wantErr:     false,
+		},
+		{
+			name:        "command with nested parentheses",
+			input:       "complex: (cd src && (make clean || echo \"already clean\"))",
+			wantCommand: "(cd src && (make clean || echo \"already clean\"))",
+			wantName:    "complex",
+			wantErr:     false,
+		},
+		// Test that 'watch' and 'stop' can appear in command text
+		{
+			name:        "command containing watch keyword",
+			input:       "monitor: echo \"watching files\" && watch -n 1 ls",
+			wantCommand: "echo \"watching files\" && watch -n 1 ls",
+			wantName:    "monitor",
+			wantErr:     false,
+		},
+		{
+			name:        "command containing stop keyword",
+			input:       "halt: echo \"stopping service\" && systemctl stop nginx",
+			wantCommand: "echo \"stopping service\" && systemctl stop nginx",
+			wantName:    "halt",
+			wantErr:     false,
+		},
+		{
+			name:        "command with both watch and stop in text",
+			input:       "manage: watch -n 5 \"systemctl status app || systemctl stop app\"",
+			wantCommand: "watch -n 5 \"systemctl status app || systemctl stop app\"",
+			wantName:    "manage",
+			wantErr:     false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -152,6 +203,21 @@ func TestDefinitions(t *testing.T) {
 			wantValue: "30s",
 			wantErr:   false,
 		},
+		// New edge cases for parentheses in definitions
+		{
+			name:      "definition with parentheses",
+			input:     "def CHECK_CMD = (which go && echo \"found\");",
+			wantName:  "CHECK_CMD",
+			wantValue: "(which go && echo \"found\")",
+			wantErr:   false,
+		},
+		{
+			name:      "definition with watch/stop keywords",
+			input:     "def MONITOR = watch -n 1 \"ps aux | grep myapp\";",
+			wantName:  "MONITOR",
+			wantValue: "watch -n 1 \"ps aux | grep myapp\"",
+			wantErr:   false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -247,6 +313,34 @@ func TestBlockCommands(t *testing.T) {
 			wantBlockSize:  3,
 			wantCommands:   []string{"setup", "server", "monitor"},
 			wantBackground: []bool{false, true, false},
+			wantErr:        false,
+		},
+		// New edge cases for parentheses in block commands
+		{
+			name:           "block with parentheses in commands",
+			input:          "check: { (which go || echo \"not found\"); echo \"done\" }",
+			wantName:       "check",
+			wantBlockSize:  2,
+			wantCommands:   []string{"(which go || echo \"not found\")", "echo \"done\""},
+			wantBackground: []bool{false, false},
+			wantErr:        false,
+		},
+		{
+			name:           "block with background subshells",
+			input:          "parallel: { (long-task1 && echo \"task1 done\") &; (long-task2 && echo \"task2 done\") & }",
+			wantName:       "parallel",
+			wantBlockSize:  2,
+			wantCommands:   []string{"(long-task1 && echo \"task1 done\")", "(long-task2 && echo \"task2 done\")"},
+			wantBackground: []bool{true, true},
+			wantErr:        false,
+		},
+		{
+			name:           "block with watch/stop keywords in command text",
+			input:          "services: { watch -n 1 \"ps aux\" &; echo \"stop when ready\" }",
+			wantName:       "services",
+			wantBlockSize:  2,
+			wantCommands:   []string{"watch -n 1 \"ps aux\"", "echo \"stop when ready\""},
+			wantBackground: []bool{true, false},
 			wantErr:        false,
 		},
 	}
@@ -353,6 +447,37 @@ func TestWatchStopCommands(t *testing.T) {
 			wantBlock: true,
 			wantErr:   false,
 		},
+		// New edge cases for parentheses in watch/stop commands
+		{
+			name:      "watch command with parentheses",
+			input:     "watch api: (cd api && npm start)",
+			wantName:  "api",
+			wantWatch: true,
+			wantStop:  false,
+			wantText:  "(cd api && npm start)",
+			wantBlock: false,
+			wantErr:   false,
+		},
+		{
+			name:      "stop command with complex parentheses",
+			input:     "stop services: (pkill -f \"node.*server\" || echo \"no node processes\")",
+			wantName:  "services",
+			wantWatch: false,
+			wantStop:  true,
+			wantText:  "(pkill -f \"node.*server\" || echo \"no node processes\")",
+			wantBlock: false,
+			wantErr:   false,
+		},
+		{
+			name:      "watch block with parentheses and keywords",
+			input:     "watch monitor: {\n(watch -n 1 \"ps aux\") &;\necho \"stop monitoring with Ctrl+C\"\n}",
+			wantName:  "monitor",
+			wantWatch: true,
+			wantStop:  false,
+			wantText:  "",
+			wantBlock: true,
+			wantErr:   false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -436,6 +561,19 @@ func TestVariableReferences(t *testing.T) {
 			wantExpanded: "",
 			wantErr:      true, // Should fail during ExpandVariables
 		},
+		// New edge cases for parentheses with variables
+		{
+			name:         "variable with parentheses in value",
+			input:        "def CHECK = (which go || echo \"not found\");\nvalidate: $(CHECK)",
+			wantExpanded: "(which go || echo \"not found\")",
+			wantErr:      false,
+		},
+		{
+			name:         "variable in parentheses expression",
+			input:        "def CMD = make clean;\nbuild: ($(CMD) && echo \"cleaned\") || echo \"failed\"",
+			wantExpanded: "(make clean && echo \"cleaned\") || echo \"failed\"",
+			wantErr:      false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -514,6 +652,19 @@ func TestContinuationLines(t *testing.T) {
 			wantCommand: "echo hello world",
 			wantErr:     false,
 		},
+		// New edge cases for continuations with parentheses
+		{
+			name:        "continuation with parentheses",
+			input:       "check: (which go \\\n|| echo \"not found\")",
+			wantCommand: "(which go || echo \"not found\")",
+			wantErr:     false,
+		},
+		{
+			name:        "complex continuation with parentheses",
+			input:       "setup: (cd src && \\\nmake clean) \\\n|| echo \"failed\"",
+			wantCommand: "(cd src && make clean) || echo \"failed\"",
+			wantErr:     false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -534,7 +685,8 @@ func TestContinuationLines(t *testing.T) {
 			var cmd *Command
 			for i := range result.Commands {
 				if strings.HasPrefix(result.Commands[i].Command, "echo") ||
-					strings.HasPrefix(result.Commands[i].Command, "cd") {
+					strings.HasPrefix(result.Commands[i].Command, "cd") ||
+					strings.HasPrefix(result.Commands[i].Command, "(") {
 					cmd = &result.Commands[i]
 					break
 				}
@@ -630,6 +782,14 @@ watch server: {
 }
 
 stop server: pkill -f "server|worker"
+
+# Complex commands with parentheses and keywords
+check-deps: (which go && echo "Go found") || (echo "Go missing" && exit 1)
+
+monitor: {
+  watch -n 1 "ps aux | grep server";
+  echo "Use stop server to halt processes"
+}
 `
 
 	result, err := Parse(input)
@@ -655,14 +815,16 @@ stop server: pkill -f "server|worker"
 		}
 	}
 
-	// Verify commands - we expect 3 commands: build, watch server, stop server
-	if len(result.Commands) != 3 {
-		t.Errorf("Expected 3 commands, got %d", len(result.Commands))
+	// Verify commands - we expect 5 commands: build, watch server, stop server, check-deps, monitor
+	if len(result.Commands) != 5 {
+		t.Errorf("Expected 5 commands, got %d", len(result.Commands))
 	} else {
 		// Find commands by type since we can have both watch and stop with same name
 		var buildCmd *Command
 		var watchServerCmd *Command
 		var stopServerCmd *Command
+		var checkDepsCmd *Command
+		var monitorCmd *Command
 
 		for i := range result.Commands {
 			cmd := &result.Commands[i]
@@ -672,6 +834,10 @@ stop server: pkill -f "server|worker"
 				watchServerCmd = cmd
 			} else if cmd.Name == "server" && cmd.IsStop {
 				stopServerCmd = cmd
+			} else if cmd.Name == "check-deps" {
+				checkDepsCmd = cmd
+			} else if cmd.Name == "monitor" {
+				monitorCmd = cmd
 			}
 		}
 
@@ -721,6 +887,41 @@ stop server: pkill -f "server|worker"
 
 			if stopServerCmd.IsBlock {
 				t.Errorf("Expected stop server command to be a simple command, not a block")
+			}
+		}
+
+		// Check check-deps command (contains parentheses)
+		if checkDepsCmd == nil {
+			t.Errorf("Missing 'check-deps' command")
+		} else {
+			expectedCmd := "(which go && echo \"Go found\") || (echo \"Go missing\" && exit 1)"
+			if checkDepsCmd.Command != expectedCmd {
+				t.Errorf("check-deps command = %q, want %q", checkDepsCmd.Command, expectedCmd)
+			}
+		}
+
+		// Check monitor command (contains watch/stop keywords in text)
+		if monitorCmd == nil {
+			t.Errorf("Missing 'monitor' command")
+		} else {
+			if !monitorCmd.IsBlock {
+				t.Errorf("Expected monitor command to be a block command")
+			}
+
+			if len(monitorCmd.Block) != 2 {
+				t.Errorf("Expected 2 block statements in monitor command, got %d", len(monitorCmd.Block))
+			} else {
+				// First statement should contain 'watch' keyword
+				firstStmt := monitorCmd.Block[0].Command
+				if !strings.Contains(firstStmt, "watch -n 1") {
+					t.Errorf("Expected first statement to contain 'watch -n 1', got: %q", firstStmt)
+				}
+
+				// Second statement should contain 'stop' keyword
+				secondStmt := monitorCmd.Block[1].Command
+				if !strings.Contains(secondStmt, "stop server") {
+					t.Errorf("Expected second statement to contain 'stop server', got: %q", secondStmt)
+				}
 			}
 		}
 

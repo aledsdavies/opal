@@ -54,10 +54,10 @@ func NewDetailedParseError(line int, column int, context string, format string, 
 
 // CommandRegistry manages command names and prevents conflicts
 type CommandRegistry struct {
-	regularCommands map[string]int  // name -> line number
-	watchCommands   map[string]int  // name -> line number
-	stopCommands    map[string]int  // name -> line number
-	lines           []string        // source lines for error reporting
+	regularCommands map[string]int // name -> line number
+	watchCommands   map[string]int // name -> line number
+	stopCommands    map[string]int // name -> line number
+	lines           []string       // source lines for error reporting
 }
 
 // NewCommandRegistry creates a new command registry

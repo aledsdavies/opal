@@ -3,31 +3,199 @@ package generator
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 	"text/template"
+	"unicode"
 
 	"github.com/aledsdavies/devcmd/pkgs/parser"
 )
 
-const goTemplate = `package main
+// TemplateData represents preprocessed data for template generation
+type TemplateData struct {
+	PackageName      string
+	Imports          []string
+	HasProcessMgmt   bool
+	Commands         []TemplateCommand
+	ProcessMgmtFuncs []string
+}
 
-import ({{if .HasWatchCommands}}
-	"bufio"
-	"context"
-	"encoding/json"{{end}}
-	"fmt"{{if .HasWatchCommands}}
-	"io"{{end}}
-	"os"
-	"os/exec"{{if .HasWatchCommands}}
-	"os/signal"
-	"path/filepath"
-	"strconv"{{end}}
-	"strings"
-	"syscall"{{if .HasWatchCommands}}
-	"time"{{end}}
-)
+// TemplateCommand represents a command ready for template generation
+type TemplateCommand struct {
+	Name            string // Original command name
+	FunctionName    string // Sanitized Go function name
+	GoCase          string // Case statement value
+	Type            string // "regular", "watch", "stop"
+	ShellCommand    string // The actual shell command to execute
+	IsBackground    bool   // For watch commands
+	BaseName        string // For stop commands
+	HelpDescription string // Description for help text
+}
 
-{{if .HasWatchCommands}}
+// PreprocessCommands converts parser commands into template-ready data
+func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
+	if cf == nil {
+		return nil, fmt.Errorf("command file cannot be nil")
+	}
+
+	data := &TemplateData{
+		PackageName: "main",
+		Imports:     []string{},
+		Commands:    []TemplateCommand{},
+	}
+
+	// Determine what features we need
+	hasWatchCommands := false
+	for _, cmd := range cf.Commands {
+		if cmd.IsWatch {
+			hasWatchCommands = true
+			break
+		}
+	}
+	data.HasProcessMgmt = hasWatchCommands
+
+	// Set up imports based on features needed
+	data.Imports = []string{
+		"fmt",
+		"os",
+		"os/exec",
+		"strings",
+		"syscall",
+	}
+
+	if hasWatchCommands {
+		additionalImports := []string{
+			"bufio",
+			"context",
+			"encoding/json",
+			"io",
+			"os/signal",
+			"path/filepath",
+			"strconv",
+			"time",
+		}
+		data.Imports = append(data.Imports, additionalImports...)
+	}
+
+	// Sort imports for consistent output
+	sort.Strings(data.Imports)
+
+	// Process commands
+	for _, cmd := range cf.Commands {
+		templateCmd, err := processCommand(cmd)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process command %s: %w", cmd.Name, err)
+		}
+		data.Commands = append(data.Commands, templateCmd)
+	}
+
+	// Add process management functions if needed
+	if hasWatchCommands {
+		data.ProcessMgmtFuncs = []string{
+			"showStatus",
+			"showLogs",
+			"stopCommand",
+			"runInBackground",
+		}
+	}
+
+	return data, nil
+}
+
+// processCommand converts a parser command to a template command
+func processCommand(cmd parser.Command) (TemplateCommand, error) {
+	templateCmd := TemplateCommand{
+		Name:         cmd.Name,
+		FunctionName: sanitizeFunctionName(cmd.Name),
+		GoCase:       cmd.Name, // Keep original name for case statements
+	}
+
+	// Determine command type and generate shell command
+	if cmd.IsWatch {
+		templateCmd.Type = "watch"
+		templateCmd.IsBackground = true
+		templateCmd.HelpDescription = fmt.Sprintf("%s (watch)", cmd.Name)
+		templateCmd.ShellCommand = buildShellCommand(cmd)
+	} else if cmd.IsStop {
+		templateCmd.Type = "stop"
+		templateCmd.BaseName = extractBaseName(cmd.Name)
+		templateCmd.HelpDescription = fmt.Sprintf("%s (stop)", cmd.Name)
+		templateCmd.ShellCommand = buildShellCommand(cmd)
+	} else {
+		templateCmd.Type = "regular"
+		templateCmd.HelpDescription = cmd.Name
+		templateCmd.ShellCommand = buildShellCommand(cmd)
+	}
+
+	return templateCmd, nil
+}
+
+// sanitizeFunctionName converts command names to valid Go function names
+func sanitizeFunctionName(name string) string {
+	// Capitalize first letter of each word
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	})
+
+	var result strings.Builder
+	for _, part := range parts {
+		if len(part) > 0 {
+			// Simple capitalize: uppercase first rune, lowercase rest
+			runes := []rune(strings.ToLower(part))
+			if len(runes) > 0 {
+				runes[0] = unicode.ToUpper(runes[0])
+			}
+			result.WriteString(string(runes))
+		}
+	}
+
+	funcName := result.String()
+	if funcName == "" {
+		funcName = "Command"
+	}
+
+	return "run" + funcName
+}
+
+// extractBaseName extracts the base name from stop commands
+func extractBaseName(stopName string) string {
+	// Handle "stop-service" -> "service" or "stop service" -> "service"
+	if strings.HasPrefix(stopName, "stop") {
+		base := strings.TrimPrefix(stopName, "stop")
+		base = strings.TrimPrefix(base, "-")
+		base = strings.TrimPrefix(base, "_")
+		base = strings.TrimSpace(base)
+		if base != "" {
+			return base
+		}
+	}
+	return stopName
+}
+
+// buildShellCommand constructs the shell command string from parser command
+func buildShellCommand(cmd parser.Command) string {
+	if cmd.IsBlock {
+		var parts []string
+		for _, stmt := range cmd.Block {
+			part := stmt.Command
+			if stmt.Background {
+				part += " &"
+			}
+			parts = append(parts, part)
+		}
+		return strings.Join(parts, "; ")
+	}
+	return cmd.Command
+}
+
+// Template for generating Go CLI
+const cleanGoTemplate = `package {{.PackageName}}
+
+import (
+{{range .Imports}}	"{{.}}"
+{{end}})
+
+{{if .HasProcessMgmt}}
 // ProcessInfo represents a managed background process
 type ProcessInfo struct {
 	Name      string    ` + "`json:\"name\"`" + `
@@ -135,15 +303,15 @@ func (pr *ProcessRegistry) listProcesses() []*ProcessInfo {
 }
 {{end}}
 
-// Main CLI struct
+// CLI represents the command line interface
 type CLI struct {
-	registry *ProcessRegistry
+{{if .HasProcessMgmt}}	registry *ProcessRegistry{{end}}
 }
 
 // NewCLI creates a new CLI instance
 func NewCLI() *CLI {
 	return &CLI{
-		registry: NewProcessRegistry(),
+{{if .HasProcessMgmt}}		registry: NewProcessRegistry(),{{end}}
 	}
 }
 
@@ -158,7 +326,7 @@ func (c *CLI) Execute() {
 	args := os.Args[2:]
 
 	switch command {
-	case "status":
+{{if .HasProcessMgmt}}	case "status":
 		c.showStatus()
 	case "logs":
 		if len(args) == 0 {
@@ -172,11 +340,9 @@ func (c *CLI) Execute() {
 			os.Exit(1)
 		}
 		c.stopCommand(args[0])
-{{range .Commands}}
-	case "{{.Name}}":
-		c.run{{.Name | title}}(args)
-{{end}}
-	case "help", "--help", "-h":
+{{end}}{{range .Commands}}	case "{{.GoCase}}":
+		c.{{.FunctionName}}(args)
+{{end}}	case "help", "--help", "-h":
 		c.showHelp()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
@@ -188,15 +354,13 @@ func (c *CLI) Execute() {
 // showHelp displays available commands
 func (c *CLI) showHelp() {
 	fmt.Println("Available commands:")
-	fmt.Println("  status          - Show running background processes")
+{{if .HasProcessMgmt}}	fmt.Println("  status          - Show running background processes")
 	fmt.Println("  logs <name>     - Show logs for a background process")
 	fmt.Println("  stop <name>     - Stop a background process")
-{{range .Commands}}
-	fmt.Println("  {{.Name}}{{if .IsWatch}} (watch){{else if .IsStop}} (stop){{end}}")
-{{end}}
-}
+{{end}}{{range .Commands}}	fmt.Println("  {{.HelpDescription}}")
+{{end}}}
 
-{{if .HasWatchCommands}}
+{{if .HasProcessMgmt}}
 // showStatus displays running processes
 func (c *CLI) showStatus() {
 	processes := c.registry.listProcesses()
@@ -331,35 +495,26 @@ func (c *CLI) runInBackground(name, command string) error {
 
 // Command implementations
 {{range .Commands}}
-func (c *CLI) run{{.Name | title}}(args []string) {
-{{if .IsWatch}}
-	// Watch command - run in background{{if $.HasWatchCommands}}
-	command := ` + "`" + `{{if .IsBlock}}{{range .Block}}{{.Command}}{{if .Background}} &{{end}}; {{end}}{{else}}{{.Command}}{{end}}` + "`" + `
+func (c *CLI) {{.FunctionName}}(args []string) {
+{{if eq .Type "watch"}}	// Watch command - run in background
+	command := ` + "`{{.ShellCommand}}`" + `
 	if err := c.runInBackground("{{.Name}}", command); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting {{.Name}}: %v\n", err)
 		os.Exit(1)
-	}{{else}}
-	fmt.Fprintf(os.Stderr, "Watch commands not supported in this build\n")
-	os.Exit(1){{end}}
-{{else if .IsStop}}
-	// Stop command - terminate associated processes
+	}
+{{else if eq .Type "stop"}}	// Stop command - terminate associated processes
 	baseName := "{{.BaseName}}"
-	if baseName == "" {
-		baseName = "{{.Name}}"
-	}{{if $.HasWatchCommands}}
-	c.stopCommand(baseName){{else}}
-	fmt.Printf("No background process named '%s' to stop\n", baseName){{end}}
+{{if $.HasProcessMgmt}}	c.stopCommand(baseName){{else}}	fmt.Printf("No background process named '%s' to stop\n", baseName){{end}}
 
 	// Also run user-defined stop commands
-	cmd := exec.Command("sh", "-c", ` + "`" + `{{if .IsBlock}}{{range .Block}}{{.Command}}{{if .Background}} &{{end}}; {{end}}{{else}}{{.Command}}{{end}}` + "`" + `)
+	cmd := exec.Command("sh", "-c", ` + "`{{.ShellCommand}}`" + `)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Stop command failed: %v\n", err)
 	}
-{{else}}
-	// Regular command
-	cmd := exec.Command("sh", "-c", ` + "`" + `{{if .IsBlock}}{{range .Block}}{{.Command}}{{if .Background}} &{{end}}; {{end}}{{else}}{{.Command}}{{end}}` + "`" + `)
+{{else}}	// Regular command
+	cmd := exec.Command("sh", "-c", ` + "`{{.ShellCommand}}`" + `)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -371,13 +526,12 @@ func (c *CLI) run{{.Name | title}}(args []string) {
 		fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
 		os.Exit(1)
 	}
-{{end}}
-}
+{{end}}}
 {{end}}
 
 func main() {
 	cli := NewCLI()
-	{{if .HasWatchCommands}}
+{{if .HasProcessMgmt}}
 	// Handle interrupt signals gracefully
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -386,59 +540,27 @@ func main() {
 		fmt.Println("\nShutting down...")
 		os.Exit(0)
 	}()
-	{{end}}
+{{end}}
 	cli.Execute()
 }
 `
 
-// GenerateGo creates a Go CLI from a CommandFile
+// GenerateGo creates a Go CLI from a CommandFile using the new preprocessing approach
 func GenerateGo(cf *parser.CommandFile) (string, error) {
-	return generateGo(cf, goTemplate)
-}
-
-// GenerateGoWithTemplate creates a Go CLI with a custom template
-func GenerateGoWithTemplate(cf *parser.CommandFile, templateStr string) (string, error) {
-	return generateGo(cf, templateStr)
-}
-
-// generateGo creates Go CLI with the given template
-func generateGo(cf *parser.CommandFile, templateStr string) (string, error) {
-	if cf == nil {
-		return "", fmt.Errorf("command file cannot be nil")
-	}
-	if len(templateStr) == 0 {
-		return "", fmt.Errorf("template string cannot be empty")
+	// Preprocess the command file into template-ready data
+	data, err := PreprocessCommands(cf)
+	if err != nil {
+		return "", fmt.Errorf("failed to preprocess commands: %w", err)
 	}
 
-	// Enhance commands with additional properties
-	enhancedCommands := enhanceCommands(cf.Commands)
-
-	// Check if there are any watch commands to determine if we need process management
-	hasWatchCommands := false
-	for _, cmd := range enhancedCommands {
-		if cmd.IsWatch {
-			hasWatchCommands = true
-			break
-		}
-	}
-
-	// Template functions
-	funcMap := template.FuncMap{
-		"title": strings.Title,
-	}
-
-	// Parse template with functions
-	tmpl, err := template.New("go").Funcs(funcMap).Parse(templateStr)
+	// Parse and execute template
+	tmpl, err := template.New("go-cli").Parse(cleanGoTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
 
-	// Execute template
 	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, map[string]interface{}{
-		"Commands":         enhancedCommands,
-		"HasWatchCommands": hasWatchCommands,
-	})
+	err = tmpl.Execute(&buf, data)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
@@ -451,89 +573,29 @@ func generateGo(cf *parser.CommandFile, templateStr string) (string, error) {
 	return result, nil
 }
 
-// EnhancedCommand adds additional properties needed for template generation
-// It wraps the original parser.Command with template-specific metadata
-type EnhancedCommand struct {
-	parser.Command                    // Embedded original command struct
-	BaseName      string             // For stop commands, the base name without 'stop' prefix
-	HasBackground bool               // Whether any block statements have Background=true
-}
-
-// TemplateData holds data for template execution with pre-built command list
-type TemplateData struct {
-	Commands    []EnhancedCommand    // All commands with enhanced metadata
-	CommandList string              // Space-separated list of command names for completion
-}
-
-// enhanceCommands transforms parser commands into template-ready enhanced commands
-// This function adds template-specific metadata that the generators need
-func enhanceCommands(commands []parser.Command) []EnhancedCommand {
-	var enhanced []EnhancedCommand
-
-	for _, cmd := range commands {
-		// Start with the base command
-		enh := EnhancedCommand{
-			Command: cmd,
-		}
-
-		// For stop commands, extract the base name
-		// Example: "stop server" -> BaseName: "server"
-		// Example: "stop-api" -> BaseName: "api"
-		if cmd.IsStop {
-			enh.BaseName = strings.TrimPrefix(cmd.Name, "stop")
-			// Handle both "stop server" and "stop-server" formats
-			if strings.HasPrefix(enh.BaseName, "-") {
-				enh.BaseName = enh.BaseName[1:]
-			}
-			// If no suffix, use the full name
-			if enh.BaseName == "" {
-				enh.BaseName = cmd.Name
-			}
-		}
-
-		// For block commands, check if any statements run in background
-		// This helps templates decide whether to add 'wait' commands
-		if cmd.IsBlock {
-			for _, stmt := range cmd.Block {
-				if stmt.Background {
-					enh.HasBackground = true
-					break
-				}
-			}
-		}
-
-		enhanced = append(enhanced, enh)
+// GenerateGoWithTemplate creates a Go CLI with a custom template (for testing)
+func GenerateGoWithTemplate(cf *parser.CommandFile, templateStr string) (string, error) {
+	if len(strings.TrimSpace(templateStr)) == 0 {
+		return "", fmt.Errorf("template string cannot be empty")
 	}
 
-	return enhanced
-}
-
-// buildCommandList creates a space-separated string of all command names
-// Used for shell completion and help text
-func buildCommandList(commands []EnhancedCommand) string {
-	var cmdNames []string
-
-	for _, cmd := range commands {
-		cmdNames = append(cmdNames, cmd.Name)
+	// Preprocess the command file
+	data, err := PreprocessCommands(cf)
+	if err != nil {
+		return "", fmt.Errorf("failed to preprocess commands: %w", err)
 	}
 
-	// Add built-in commands
-	cmdNames = append(cmdNames, "help", "status", "logs")
-
-	return strings.Join(cmdNames, " ")
-}
-
-// Common template functions available to all generators
-func getTemplateFuncs() template.FuncMap {
-	return template.FuncMap{
-		"title": strings.Title,
-		"upper": strings.ToUpper,
-		"lower": strings.ToLower,
-		"join":  strings.Join,
-		"contains": strings.Contains,
-		"hasPrefix": strings.HasPrefix,
-		"hasSuffix": strings.HasSuffix,
-		"trimPrefix": strings.TrimPrefix,
-		"trimSuffix": strings.TrimSuffix,
+	// Parse and execute custom template
+	tmpl, err := template.New("custom").Parse(templateStr)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute template: %w", err)
+	}
+
+	return buf.String(), nil
 }

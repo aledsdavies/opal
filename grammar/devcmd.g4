@@ -123,9 +123,9 @@ NAME : [A-Za-z][A-Za-z0-9_-]* ;
 // Examples: 42, 3.14, .5, 8080, 1.0
 NUMBER : [0-9]* '.' [0-9]+ | [0-9]+ ;
 
-// General command text content - excludes reserved characters
-// Removed ampersand (&) from excluded characters since we're handling it separately
-COMMAND_TEXT : ~[\r\n \t:=;{}()\\]+ ;
+// General command text content - allows parentheses and other shell characters
+// Note: $(NAME) is handled by OUR_VARIABLE_REFERENCE token with higher precedence
+COMMAND_TEXT : ~[\r\n \t:=;{}\\]+ ;
 
 // Comments and formatting elements
 COMMENT : '#' ~[\r\n]* -> channel(HIDDEN) ;  // Comments don't affect execution, so hide from parser

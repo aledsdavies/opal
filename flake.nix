@@ -1,187 +1,171 @@
 {
-  description = "devcmd - Go CLI generator for development commands";
+  description = "devcmd - Domain-specific language for generating development command CLIs";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, ... }:
-    let
-      lib = nixpkgs.lib;
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      forAllSystems = f: lib.genAttrs systems f;
-      pkgsFor = system: import nixpkgs { inherit system; };
-      version = "0.2.0";
-    in
-    {
-      # Go parser binary package
-      packages = forAllSystems (system:
-        let pkgs = pkgsFor system;
-        in {
-          default = pkgs.buildGoModule {
-            pname = "devcmd-parser";
-            inherit version;
-            src = ./.;
-            vendorHash = null;
-            subPackages = [ "cmd/devcmd-parser" ];
-
-            meta = with lib; {
-              description = "Parser and generator for devcmd DSL";
-              license = licenses.mit;
-            };
-          };
-        }
-      );
-
-      # Library function to generate CLI packages
-      lib = {
-        mkDevCLI =
-          { pkgs
-          , system ? builtins.currentSystem
-          , commandsFile ? null
-          , commandsContent ? null
-          , preProcess ? (text: text)
-          , templateFile ? null
-          , name ? "devcmd"
-          }:
-          let
-            # Helper to read files safely
-            safeReadFile = path:
-              if builtins.pathExists path
-              then builtins.readFile path
-              else null;
-
-            # Get commands content
-            finalContent =
-              if commandsFile != null then safeReadFile commandsFile
-              else if commandsContent != null then commandsContent
-              else throw "Either commandsFile or commandsContent must be provided";
-
-            # Process content
-            processedContent = preProcess finalContent;
-            processedPath = pkgs.writeText "commands-input" processedContent;
-
-            # Parser binary
-            parserBin = self.packages.${system}.default;
-
-            # Template arguments
-            templateArgs =
-              if templateFile != null && builtins.pathExists templateFile
-              then "--template ${toString templateFile}"
-              else "";
-
-            # Generate Go source
-            goSource = pkgs.runCommand "${name}-go-source"
-              { nativeBuildInputs = [ parserBin ]; }
-              ''
-                mkdir -p $out
-                ${parserBin}/bin/devcmd-parser --format=go ${templateArgs} ${processedPath} > $out/main.go
-
-                cat > $out/go.mod << 'EOF'
-                module ${name}-cli
-                go 1.21
-                EOF
-              '';
-
-            # Compile the CLI
-            cli = pkgs.buildGoModule {
-              pname = "${name}-cli";
-              version = "generated";
-              src = goSource;
-              vendorHash = null;
-
-              # Override the binary name to match the desired command name
-              postInstall = ''
-                mv $out/bin/${name}-cli $out/bin/${name}
-              '';
-
-              meta = {
-                description = "Generated ${name} CLI";
-              };
-            };
-
-          in
-          cli;
-      };
-
-      # Development shell for the project itself
-      devShells = forAllSystems (system:
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem
+      (system:
         let
-          pkgs = pkgsFor system;
+          pkgs = nixpkgs.legacyPackages.${system};
+          lib = nixpkgs.lib;
+
+          # Import modular components
+          devShell = import ./.nix/development.nix { inherit pkgs; };
+          packageDef = import ./.nix/package.nix { inherit pkgs lib; version = "0.2.0"; };
+          devcmdLib = import ./.nix/lib.nix { inherit pkgs self system lib; };
+          tests = import ./.nix/tests.nix { inherit pkgs lib self system; };
+          examples = import ./.nix/examples.nix { inherit pkgs lib self system; };
+
         in
         {
-          default = pkgs.mkShell {
-            buildInputs = with pkgs; [
-              go
-              gopls
-              go-tools
-              antlr4
-            ];
+          # Main package
+          packages = {
+            default = packageDef;
+            devcmd = packageDef;
 
-            shellHook = ''
-              echo "devcmd development environment"
-              echo ""
-              echo "Available commands:"
-              echo "  go run ./cmd/devcmd-parser --help"
-              echo "  go build ./cmd/devcmd-parser"
-              echo "  go test ./..."
-              echo "  go generate ./..."
-            '';
+            # Example CLIs
+            inherit (examples.examples) basicDev webDev goProject rustProject dataScienceProject devOpsProject;
+
+            # Test runner
+            tests = tests.runAllTests;
+            test-examples = examples.testExamples;
           };
 
-          # Example shell with generated CLI
-          example =
-            let
-              exampleCLI = self.lib.mkDevCLI {
-                inherit pkgs system;
-                name = "example";
-                commandsContent = ''
-                  # Example commands
-                  def PORT = 8080;
+          # Development shells
+          devShells = {
+            default = devShell;
 
-                  build: go build -o bin/devcmd ./cmd/devcmd-parser
-                  test: go test -v ./...
+            # Example development environments
+            inherit (examples.shells) basicShell webShell goShell dataShell;
 
-                  watch demo: {
-                    echo "Starting demo server on port $(PORT)";
-                    python3 -m http.server $(PORT) &
-                  }
-
-                  stop demo: pkill -f "python3 -m http.server"
-
-                  clean: rm -rf bin/
-                '';
-              };
-            in
-            pkgs.mkShell {
+            # Test environment with all examples
+            testEnv = pkgs.mkShell {
+              name = "devcmd-test-env";
               buildInputs = with pkgs; [
-                go
-                python3
-                exampleCLI
+                # All example CLIs
+                self.packages.${system}.basicDev
+                self.packages.${system}.webDev
+                self.packages.${system}.goProject
+                self.packages.${system}.rustProject
+                self.packages.${system}.dataScienceProject
+                self.packages.${system}.devOpsProject
+
+                # Testing tools
+                bash
+                coreutils
+                findutils
               ];
 
               shellHook = ''
-                echo "devcmd example environment"
+                echo "🧪 Devcmd Test Environment"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 echo ""
-                echo "Generated CLI available as: example"
-                echo "  example build        # Build the parser"
-                echo "  example test         # Run tests"
-                echo "  example watch demo   # Start demo server"
-                echo "  example status       # Show running processes"
-                echo "  example logs demo    # View server logs"
-                echo "  example stop demo    # Stop server"
+                echo "Available example CLIs:"
+                echo "  dev          - Basic development commands"
+                echo "  webdev       - Web development (frontend/backend)"
+                echo "  godev        - Go project development"
+                echo "  rustdev      - Rust project development"
+                echo "  datadev      - Data science / Python development"
+                echo "  devops       - DevOps / Infrastructure management"
+                echo ""
+                echo "Try: <cli-name> --help"
+                echo ""
               '';
             };
-        }
-      );
+          };
 
-      # Project template
-      templates.default = {
-        path = ./template;
-        description = "Project template with devcmd CLI generation";
+          # Library functions for other flakes to use
+          lib = devcmdLib // {
+            # Re-export utility functions
+            inherit (devcmdLib.utils) getVersion postProcessors preProcessors;
+
+            # Convenience functions
+            mkBasicCLI = commandsContent: devcmdLib.mkDevCLI {
+              inherit commandsContent;
+              name = "devcmd-cli";
+            };
+
+            mkProjectCLI = { name, commands }: devcmdLib.mkDevCLI {
+              inherit name;
+              commandsContent = commands;
+              validateCommands = true;
+            };
+          };
+
+          # Checks (run with `nix flake check`)
+          checks = {
+            # Package builds
+            package-builds = self.packages.${system}.default;
+
+            # All tests pass
+            tests-pass = tests.runAllTests;
+
+            # Examples work
+            examples-work = examples.testExamples;
+
+            # Generated CLIs are valid
+            cli-validation = pkgs.runCommand "validate-generated-clis"
+              {
+                nativeBuildInputs = [ pkgs.bash ] ++ (builtins.attrValues examples.examples);
+              } ''
+              echo "Validating all generated CLIs..."
+
+              # Test that each CLI can show help
+              ${lib.concatMapStringsSep "\n" (name: cli: ''
+                echo "Validating ${name}..."
+                ${cli.meta.mainProgram or name} --help >/dev/null
+              '') (lib.mapAttrsToList (name: cli: cli) examples.examples)}
+
+              echo "✅ All CLIs validated"
+              touch $out
+            '';
+          };
+
+          # Apps for easy running
+          apps = {
+            default = {
+              type = "app";
+              program = "${self.packages.${system}.default}/bin/devcmd";
+            };
+
+            # Example apps
+            basicDev = {
+              type = "app";
+              program = "${self.packages.${system}.basicDev}/bin/dev";
+            };
+
+            webDev = {
+              type = "app";
+              program = "${self.packages.${system}.webDev}/bin/webdev";
+            };
+
+            goProject = {
+              type = "app";
+              program = "${self.packages.${system}.goProject}/bin/godev";
+            };
+          };
+
+          # Formatter
+          formatter = pkgs.nixpkgs-fmt;
+        }) // {
+      # Templates for other projects
+      templates = {
+        default = {
+          path = ./templates/basic;
+          description = "Basic project with devcmd CLI";
+        };
       };
 
-      # Formatter
-      formatter = forAllSystems (system: (pkgsFor system).nixpkgs-fmt);
+      # Overlay for use in other flakes
+      overlays.default = final: prev: {
+        devcmd = self.packages.${prev.system}.default;
+
+        # Add library functions to pkgs
+        devcmdLib = self.lib;
+      };
     };
 }
