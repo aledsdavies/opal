@@ -20,6 +20,7 @@ grammar/*.tokens
 devcmd
 devcmd.exe
 devcmd-*
+!cmd/devcmd
 
 # Generated CLI files from devcmd
 examples/*.go

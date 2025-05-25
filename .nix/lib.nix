@@ -2,55 +2,186 @@
 { pkgs, self, system, lib }:
 
 rec {
-  # Generate a CLI package from devcmd commands
+  # Generate shell commands from devcmd/cli files - main library function
+  mkDevCommands =
+    {
+      # Required
+      pkgs
+    , system ? builtins.currentSystem
+
+      # Content sources (in order of priority)
+    , commandsFile ? null      # Explicit path to .cli/.devcmd file
+    , commandsContent ? null   # Inline content as string
+    , commands ? null          # Alias for commandsContent (backward compatibility)
+
+      # Processing options
+    , preProcess ? (text: text)    # Function to transform input before parsing
+    , postProcess ? (text: text)   # Function to transform generated shell code
+    , templateFile ? null          # Custom Go template file path
+    , extraShellHook ? ""          # Additional shell hook content
+    , debug ? false               # Enable debug output
+    }:
+
+    let
+      # Helper function to read a file safely at evaluation time
+      safeReadFile = path:
+        if builtins.pathExists path
+        then builtins.readFile path
+        else null;
+
+      # Get content from commandsFile if provided
+      fileContent =
+        if commandsFile != null
+        then safeReadFile commandsFile
+        else null;
+
+      # Use either commandsContent or commands for inline content
+      inlineContent =
+        if commandsContent != null then commandsContent
+        else if commands != null then commands
+        else null;
+
+      # Try to find a commands file in common locations
+      autoDetectContent =
+        let
+          # Try to detect commands file in various common locations
+          paths = [
+            # New .cli extension (preferred)
+            ./commands.cli
+            ./commands
+          ];
+          existingPath = lib.findFirst (p: builtins.pathExists p) null paths;
+        in
+        if existingPath != null
+        then builtins.readFile existingPath
+        else null;
+
+      # Determine what content to use (in order of priority)
+      finalContent =
+        if fileContent != null then fileContent
+        else if inlineContent != null then inlineContent
+        else if autoDetectContent != null then autoDetectContent
+        else "# No commands defined";
+
+      # Process the content through preProcess function
+      processedContent = preProcess finalContent;
+
+      # Write processed content to store for the parser
+      commandsSrc = pkgs.writeText "commands-content" processedContent;
+
+      # Get devcmd parser binary
+      parserBin = self.packages.${system}.default;
+
+      # Handle template file path safely
+      templatePath =
+        if templateFile != null && builtins.pathExists templateFile
+        then toString templateFile
+        else null;
+
+      # Build parser arguments
+      parserArgs = lib.optionalString (templatePath != null) "--template ${templatePath}";
+
+      # Parse the commands and generate shell functions
+      parsedShellCode = pkgs.runCommand "parsed-commands"
+        {
+          nativeBuildInputs = [ parserBin ];
+          meta.description = "Generated shell functions from devcmd";
+        }
+        ''
+          echo "Parsing commands with devcmd..."
+          ${parserBin}/bin/devcmd ${parserArgs} ${commandsSrc} > $out || {
+            echo "# Error parsing commands" > $out
+            echo 'echo "Error: Failed to parse commands"' >> $out
+          }
+        '';
+
+      # Read the generated shell code and apply postProcess
+      generatedHook =
+        let rawGenerated = builtins.readFile parsedShellCode;
+        in postProcess rawGenerated;
+
+      # Determine source type for logging
+      sourceType =
+        if fileContent != null then "from file ${toString commandsFile}"
+        else if inlineContent != null then "from inline content"
+        else if autoDetectContent != null then "from auto-detected file"
+        else "no commands found";
+
+      # Debug information (fixed or operator)
+      debugInfo = lib.optionalString debug ''
+        echo "🔍 Debug: Commands source = ${sourceType}"
+        echo "🔍 Debug: Parser bin = ${toString parserBin}"
+        echo "🔍 Debug: Template = ${if templatePath != null then toString templatePath else "none"}"
+      '';
+
+    in
+    {
+      # The shellHook to inject into mkShell
+      shellHook = ''
+        ${debugInfo}
+        echo "🚀 devcmd commands loaded ${sourceType}"
+        ${generatedHook}
+        ${extraShellHook}
+      '';
+
+      # Exposed metadata for debugging and introspection
+      inherit commandsSrc;
+      source = sourceType;
+      raw = finalContent;
+      processed = processedContent;
+      generated = generatedHook;
+      parser = parsedShellCode;
+    };
+
+  # Generate a CLI package from devcmd commands (for standalone binaries)
   mkDevCLI =
     {
       # Package name for the generated CLI
       name ? "devcmd-cli"
 
-      # Source of commands - exactly one must be provided
-    , commandsFile ? null      # Path to .devcmd file
-    , commandsContent ? null   # Raw devcmd content as string
-    , commandsDerivation ? null # Derivation that produces a .devcmd file
+      # Content sources (same as mkDevCommands)
+    , commandsFile ? null
+    , commandsContent ? null
+    , commands ? null
 
-      # Processing and customization
-    , preProcess ? (text: text)    # Function to transform input before parsing
-    , postProcess ? (text: text)   # Function to transform generated Go before building
-    , templateFile ? null          # Custom Go template file
-
-      # Build options
+      # Processing and build options
+    , preProcess ? (text: text)
+    , templateFile ? null
     , version ? "generated"
     , meta ? { }
-    , buildInputs ? [ ]
-    , extraLdflags ? [ ]
-
-      # Validation options
-    , validateCommands ? true      # Whether to validate generated CLI
-    , runTests ? false            # Whether to run tests on generated CLI
     }:
 
     let
-      # Input validation
-      commandSources = lib.count (x: x != null) [ commandsFile commandsContent commandsDerivation ];
-
-      # Helper to read files safely
+      # Use the same content resolution logic as mkDevCommands
       safeReadFile = path:
         if builtins.pathExists path
         then builtins.readFile path
-        else throw "File not found: ${toString path}";
+        else null;
 
-      # Get commands content based on input type
-      rawContent =
+      fileContent =
         if commandsFile != null then safeReadFile commandsFile
-        else if commandsContent != null then commandsContent
-        else if commandsDerivation != null then builtins.readFile "${commandsDerivation}/commands.devcmd"
-        else throw "One of commandsFile, commandsContent, or commandsDerivation must be provided";
+        else null;
 
-      # Process content
-      processedContent = preProcess rawContent;
+      inlineContent =
+        if commandsContent != null then commandsContent
+        else if commands != null then commands
+        else null;
 
-      # Write processed content to store
-      commandsInput = pkgs.writeText "${name}-commands.devcmd" processedContent;
+      autoDetectContent =
+        let
+          paths = [ ./commands.cli ./commands ];
+          existingPath = lib.findFirst (p: builtins.pathExists p) null paths;
+        in
+        if existingPath != null then builtins.readFile existingPath else null;
+
+      finalContent =
+        if fileContent != null then fileContent
+        else if inlineContent != null then inlineContent
+        else if autoDetectContent != null then autoDetectContent
+        else throw "No commands content found for CLI generation";
+
+      processedContent = preProcess finalContent;
+      commandsSrc = pkgs.writeText "${name}-commands.cli" processedContent;
 
       # Get devcmd binary
       devcmdBin = self.packages.${system}.default;
@@ -61,76 +192,60 @@ rec {
       # Generate Go source
       goSource = pkgs.runCommand "${name}-go-source"
         {
-          nativeBuildInputs = [ devcmdBin ];
-          meta.description = "Generated Go source for ${name}";
+          nativeBuildInputs = [ devcmdBin pkgs.go ];
         } ''
-              mkdir -p $out
+            # --------------------------------------------
+            # Go needs a writable cache dir; /homeless-shelter is read-only.
+            export HOME=$TMPDIR                 # satisfies other tools
+            export GOCACHE=$TMPDIR/go-build     # tell Go where to cache
+            # --------------------------------------------
 
-              echo "Generating Go CLI from devcmd file..."
-              ${devcmdBin}/bin/devcmd generate ${templateArgs} ${commandsInput} > $out/main.go
+            mkdir -p "$GOCACHE" "$out"
 
-              # Post-process generated Go if requested
-              ${lib.optionalString (postProcess != (text: text)) ''
-                echo "Post-processing generated Go code..."
-                cp $out/main.go $out/main.go.orig
-                cat $out/main.go.orig | ${postProcess} > $out/main.go
-              ''}
+            echo "Generating Go CLI from devcmd file..."
+            ${devcmdBin}/bin/devcmd ${templateArgs} ${commandsSrc} > "$out/main.go"
 
-              # Create go.mod
-              cat > $out/go.mod << EOF
-        module ${name}
-        go 1.21
-        EOF
+            cat > "$out/go.mod" <<EOF
+            module ${name}
+            go 1.21
+            EOF
 
-              # Validate generated Go syntax
-              ${lib.optionalString validateCommands ''
-                echo "Validating generated Go code..."
-                ${pkgs.go}/bin/go mod tidy -C $out
-                ${pkgs.go}/bin/go build -C $out -o /dev/null ./...
-                echo "✅ Generated Go code is valid"
-              ''}
+            echo "Validating generated Go code..."
+            ${pkgs.go}/bin/go mod tidy  -C "$out"
+            ${pkgs.go}/bin/go build -C "$out" -o /dev/null ./...
+            echo "✅ Generated Go code is valid"
       '';
 
-      # Build the CLI
-      cli = pkgs.buildGoModule {
-        pname = name;
-        inherit version;
-        src = goSource;
-        vendorHash = null;
-
-        inherit buildInputs;
-
-        # Enhanced build flags
-        ldflags = [
-          "-s"
-          "-w"
-          "-X main.Version=${version}"
-          "-X main.GeneratedBy=devcmd"
-          "-X main.BuildTime=1970-01-01T00:00:00Z"
-        ] ++ extraLdflags;
-
-        # Optional testing
-        doCheck = runTests;
-
-        # Rename binary to match package name
-        postInstall = ''
-          if [ "$pname" != "$(basename $out/bin/*)" ]; then
-            mv $out/bin/* $out/bin/${name}
-          fi
-        '';
-
-        meta = {
-          description = "Generated CLI from devcmd: ${name}";
-          license = lib.licenses.mit;
-          platforms = lib.platforms.unix;
-          mainProgram = name;
-        } // meta;
-      };
-
     in
-    if commandSources != 1
-    then throw "Exactly one of commandsFile, commandsContent, or commandsDerivation must be provided (got ${toString commandSources})"
-    else cli;
+    pkgs.buildGoModule {
+      pname = name;
+      inherit version;
+      src = goSource;
+      vendorHash = null;
+
+      # Build flags following CODE_GUIDELINES.md
+      ldflags = [
+        "-s"
+        "-w"
+        "-X main.Version=${version}"
+        "-X main.GeneratedBy=devcmd"
+        "-X main.BuildTime=1970-01-01T00:00:00Z"
+      ];
+
+      # Rename binary to match package name
+      postInstall = ''
+        if [ "$pname" != "$(basename $out/bin/*)" ]; then
+          mv $out/bin/* $out/bin/${name}
+        fi
+      '';
+
+      meta = {
+        description = "Generated CLI from devcmd: ${name}";
+        license = lib.licenses.mit;
+        platforms = lib.platforms.unix;
+        mainProgram = name;
+      } // meta;
+    };
 
   # Create a development shell with generated CLI
   mkDevShell =
@@ -152,12 +267,7 @@ rec {
         ${lib.optionalString (cli != null) ''
           echo ""
           echo "Generated CLI available as: ${cli.meta.mainProgram or name}"
-          echo ""
-          echo "Available commands:"
-          ${cli.meta.mainProgram or name} --help | grep -E "^  [a-zA-Z]" | head -10 || true
-          if [ $(${cli.meta.mainProgram or name} --help | grep -E "^  [a-zA-Z]" | wc -l) -gt 10 ]; then
-            echo "  ... (run '${cli.meta.mainProgram or name} --help' for full list)"
-          fi
+          echo "Run '${cli.meta.mainProgram or name} --help' to see available commands"
         ''}
 
         ${shellHook}
@@ -165,115 +275,33 @@ rec {
       '';
     };
 
-  # Test a generated CLI with various scenarios
-  testCLI =
-    { cli
-    , testScenarios ? [ ]  # List of { name, script } test scenarios
-    , name ? cli.meta.mainProgram or "cli"
-    }:
-
-    pkgs.runCommand "${name}-tests"
-      {
-        nativeBuildInputs = [ cli pkgs.bash pkgs.coreutils ];
-        meta.description = "Test scenarios for ${name} CLI";
-      }
-      (''
-        mkdir -p $out
-
-        echo "Testing CLI: ${name}"
-        echo "===================="
-
-        # Basic functionality test
-        echo "Testing help command..."
-        ${name} --help > $out/help.txt
-
-        echo "Testing version command..."
-        ${name} --version > $out/version.txt 2>&1 || echo "No version command" > $out/version.txt
-
-      '' + lib.concatMapStrings
-        (scenario: ''
-          echo ""
-          echo "Running test: ${scenario.name}"
-          echo "-----------------------------"
-          (
-            ${scenario.script}
-          ) > $out/${scenario.name}.log 2>&1
-          if [ $? -eq 0 ]; then
-            echo "✅ ${scenario.name} passed"
-          else
-            echo "❌ ${scenario.name} failed"
-            cat $out/${scenario.name}.log
-            exit 1
-          fi
-        '')
-        testScenarios + ''
-
-    echo ""
-    echo "All tests passed! 🎉"
-    echo "$(date)" > $out/success
-  '');
-
-  # Generate multiple CLIs from a directory of .devcmd files
-  mkMultipleCLIs =
-    { sourceDir
-    , namePrefix ? ""
-    , commonOptions ? { }
-    }:
-
-    let
-      devcmdFiles = lib.filterAttrs
-        (name: type:
-          type == "regular" && lib.hasSuffix ".devcmd" name
-        )
-        (builtins.readDir sourceDir);
-
-      cliName = filename:
-        let baseName = lib.removeSuffix ".devcmd" filename;
-        in "${namePrefix}${baseName}";
-
-    in
-    lib.mapAttrs
-      (filename: _:
-      mkDevCLI ({
-        name = cliName filename;
-        commandsFile = sourceDir + "/${filename}";
-      } // commonOptions)
-      )
-      devcmdFiles;
-
-  # Utilities for common patterns
+  # Utility functions for common patterns
   utils = {
-    # Extract version from git or fallback
-    getVersion = src:
-      if src ? rev
-      then "git-${builtins.substring 0 7 src.rev}"
-      else "unknown";
-
-    # Common post-processors
-    postProcessors = {
-      # Add custom imports
-      addImports = imports: goCode:
-        lib.replaceStrings
-          [ "import (" ]
-          [ "import (\n${lib.concatMapStringsSep "\n" (imp: "  \"${imp}\"") imports}" ]
-          goCode;
-
-      # Replace package name
-      replacePackage = newName: goCode:
-        lib.replaceStrings [ "package main" ] [ "package ${newName}" ] goCode;
-    };
-
     # Common pre-processors
     preProcessors = {
-      # Add common definitions
+      # Add common definitions to the top of commands
       addCommonDefs = defs: content:
         (lib.concatMapStringsSep "\n" (def: "def ${def.name} = ${def.value};") defs) + "\n\n" + content;
 
-      # Filter out comments
+      # Strip comments from commands
       stripComments = content:
         lib.concatStringsSep "\n"
           (lib.filter (line: !lib.hasPrefix "#" (lib.trim line))
             (lib.splitString "\n" content));
+    };
+
+    # Common post-processors
+    postProcessors = {
+      # Add extra shell functions
+      addHelpers = helpers: shellCode:
+        shellCode + "\n" + helpers;
+
+      # Wrap commands with timing
+      addTiming = shellCode:
+        lib.replaceStrings
+          [ "function " ]
+          [ "function timed_" ]
+          shellCode;
     };
   };
 }

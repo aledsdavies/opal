@@ -165,11 +165,6 @@ nix-build:
     @echo "📦 Building all Nix packages..."
     nix build .#devcmd
     nix build .#basicDev
-    nix build .#webDev
-    nix build .#goProject
-    nix build .#rustProject
-    nix build .#dataScienceProject
-    nix build .#devOpsProject
     @echo "✅ All packages built"
 
 # Build example CLIs with Nix

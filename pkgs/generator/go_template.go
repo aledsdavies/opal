@@ -25,10 +25,11 @@ type TemplateCommand struct {
 	Name            string // Original command name
 	FunctionName    string // Sanitized Go function name
 	GoCase          string // Case statement value
-	Type            string // "regular", "watch", "stop"
-	ShellCommand    string // The actual shell command to execute
+	Type            string // "regular", "watch-stop", "watch-only", "stop-only"
+	ShellCommand    string // For regular commands
+	WatchCommand    string // For watch part of watch-stop commands
+	StopCommand     string // For stop part of watch-stop commands
 	IsBackground    bool   // For watch commands
-	BaseName        string // For stop commands
 	HelpDescription string // Description for help text
 }
 
@@ -44,6 +45,12 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 		Commands:    []TemplateCommand{},
 	}
 
+	// Group commands by name to find watch/stop pairs
+	commandGroups := make(map[string][]parser.Command)
+	for _, cmd := range cf.Commands {
+		commandGroups[cmd.Name] = append(commandGroups[cmd.Name], cmd)
+	}
+
 	// Determine what features we need
 	hasWatchCommands := false
 	for _, cmd := range cf.Commands {
@@ -54,24 +61,21 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	}
 	data.HasProcessMgmt = hasWatchCommands
 
-	// Set up imports based on features needed
+	// Set up minimal imports - only include what we actually need
 	data.Imports = []string{
 		"fmt",
 		"os",
 		"os/exec",
-		"strings",
 		"syscall",
 	}
 
 	if hasWatchCommands {
 		additionalImports := []string{
-			"bufio",
-			"context",
 			"encoding/json",
 			"io",
 			"os/signal",
 			"path/filepath",
-			"strconv",
+			"strings",
 			"time",
 		}
 		data.Imports = append(data.Imports, additionalImports...)
@@ -80,11 +84,11 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	// Sort imports for consistent output
 	sort.Strings(data.Imports)
 
-	// Process commands
-	for _, cmd := range cf.Commands {
-		templateCmd, err := processCommand(cmd)
+	// Process command groups
+	for name, commands := range commandGroups {
+		templateCmd, err := processCommandGroup(name, commands)
 		if err != nil {
-			return nil, fmt.Errorf("failed to process command %s: %w", cmd.Name, err)
+			return nil, fmt.Errorf("failed to process command group %s: %w", name, err)
 		}
 		data.Commands = append(data.Commands, templateCmd)
 	}
@@ -102,29 +106,54 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	return data, nil
 }
 
-// processCommand converts a parser command to a template command
-func processCommand(cmd parser.Command) (TemplateCommand, error) {
+// processCommandGroup processes a group of commands with the same name
+func processCommandGroup(name string, commands []parser.Command) (TemplateCommand, error) {
 	templateCmd := TemplateCommand{
-		Name:         cmd.Name,
-		FunctionName: sanitizeFunctionName(cmd.Name),
-		GoCase:       cmd.Name, // Keep original name for case statements
+		Name:         name,
+		FunctionName: sanitizeFunctionName(name),
+		GoCase:       name,
 	}
 
-	// Determine command type and generate shell command
-	if cmd.IsWatch {
-		templateCmd.Type = "watch"
-		templateCmd.IsBackground = true
-		templateCmd.HelpDescription = fmt.Sprintf("%s (watch)", cmd.Name)
-		templateCmd.ShellCommand = buildShellCommand(cmd)
-	} else if cmd.IsStop {
-		templateCmd.Type = "stop"
-		templateCmd.BaseName = extractBaseName(cmd.Name)
-		templateCmd.HelpDescription = fmt.Sprintf("%s (stop)", cmd.Name)
-		templateCmd.ShellCommand = buildShellCommand(cmd)
-	} else {
+	var watchCmd, stopCmd *parser.Command
+	var regularCmd *parser.Command
+
+	// Categorize commands in the group
+	for i, cmd := range commands {
+		if cmd.IsWatch {
+			watchCmd = &commands[i]
+		} else if cmd.IsStop {
+			stopCmd = &commands[i]
+		} else {
+			regularCmd = &commands[i]
+		}
+	}
+
+	// Determine command type and structure
+	if regularCmd != nil {
+		// Regular command (no watch/stop)
 		templateCmd.Type = "regular"
-		templateCmd.HelpDescription = cmd.Name
-		templateCmd.ShellCommand = buildShellCommand(cmd)
+		templateCmd.ShellCommand = buildShellCommand(*regularCmd)
+		templateCmd.HelpDescription = name
+	} else if watchCmd != nil && stopCmd != nil {
+		// Watch/stop pair
+		templateCmd.Type = "watch-stop"
+		templateCmd.WatchCommand = buildShellCommand(*watchCmd)
+		templateCmd.StopCommand = buildShellCommand(*stopCmd)
+		templateCmd.IsBackground = true
+		templateCmd.HelpDescription = fmt.Sprintf("%s start|stop", name)
+	} else if watchCmd != nil {
+		// Watch only
+		templateCmd.Type = "watch-only"
+		templateCmd.WatchCommand = buildShellCommand(*watchCmd)
+		templateCmd.IsBackground = true
+		templateCmd.HelpDescription = fmt.Sprintf("%s start", name)
+	} else if stopCmd != nil {
+		// Stop only (unusual, but handle it)
+		templateCmd.Type = "stop-only"
+		templateCmd.StopCommand = buildShellCommand(*stopCmd)
+		templateCmd.HelpDescription = fmt.Sprintf("%s stop", name)
+	} else {
+		return templateCmd, fmt.Errorf("no valid commands found in group %s", name)
 	}
 
 	return templateCmd, nil
@@ -157,21 +186,6 @@ func sanitizeFunctionName(name string) string {
 	return "run" + funcName
 }
 
-// extractBaseName extracts the base name from stop commands
-func extractBaseName(stopName string) string {
-	// Handle "stop-service" -> "service" or "stop service" -> "service"
-	if strings.HasPrefix(stopName, "stop") {
-		base := strings.TrimPrefix(stopName, "stop")
-		base = strings.TrimPrefix(base, "-")
-		base = strings.TrimPrefix(base, "_")
-		base = strings.TrimSpace(base)
-		if base != "" {
-			return base
-		}
-	}
-	return stopName
-}
-
 // buildShellCommand constructs the shell command string from parser command
 func buildShellCommand(cmd parser.Command) string {
 	if cmd.IsBlock {
@@ -188,7 +202,7 @@ func buildShellCommand(cmd parser.Command) string {
 	return cmd.Command
 }
 
-// Template for generating Go CLI
+// Template for generating Go CLI with subcommand structure
 const cleanGoTemplate = `package {{.PackageName}}
 
 import (
@@ -301,6 +315,48 @@ func (pr *ProcessRegistry) listProcesses() []*ProcessInfo {
 	}
 	return procs
 }
+
+// gracefulStop attempts to stop a process gracefully
+func (pr *ProcessRegistry) gracefulStop(name string) error {
+	proc, exists := pr.getProcess(name)
+	if !exists {
+		return fmt.Errorf("no process named '%s' found", name)
+	}
+
+	// Try to terminate gracefully
+	process, err := os.FindProcess(proc.PID)
+	if err != nil {
+		pr.removeProcess(name)
+		return fmt.Errorf("process not found: %v", err)
+	}
+
+	fmt.Printf("Stopping process %s (PID: %d)...\n", name, proc.PID)
+
+	// Send SIGTERM
+	process.Signal(syscall.SIGTERM)
+
+	// Wait up to 5 seconds for graceful shutdown
+	timeout := time.After(5 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			// Force kill
+			fmt.Printf("Force killing process %s...\n", name)
+			process.Signal(syscall.SIGKILL)
+			pr.removeProcess(name)
+			return nil
+		case <-ticker.C:
+			if !pr.isProcessRunning(proc.PID) {
+				fmt.Printf("Process %s stopped successfully\n", name)
+				pr.removeProcess(name)
+				return nil
+			}
+		}
+	}
+}
 {{end}}
 
 // CLI represents the command line interface
@@ -330,16 +386,10 @@ func (c *CLI) Execute() {
 		c.showStatus()
 	case "logs":
 		if len(args) == 0 {
-			fmt.Fprintf(os.Stderr, "Usage: %s logs <command-name>\n", os.Args[0])
+			fmt.Fprintf(os.Stderr, "Usage: %s logs <process-name>\n", os.Args[0])
 			os.Exit(1)
 		}
 		c.showLogs(args[0])
-	case "stop":
-		if len(args) == 0 {
-			fmt.Fprintf(os.Stderr, "Usage: %s stop <command-name>\n", os.Args[0])
-			os.Exit(1)
-		}
-		c.stopCommand(args[0])
 {{end}}{{range .Commands}}	case "{{.GoCase}}":
 		c.{{.FunctionName}}(args)
 {{end}}	case "help", "--help", "-h":
@@ -354,9 +404,8 @@ func (c *CLI) Execute() {
 // showHelp displays available commands
 func (c *CLI) showHelp() {
 	fmt.Println("Available commands:")
-{{if .HasProcessMgmt}}	fmt.Println("  status          - Show running background processes")
-	fmt.Println("  logs <name>     - Show logs for a background process")
-	fmt.Println("  stop <name>     - Stop a background process")
+{{if .HasProcessMgmt}}	fmt.Println("  status              - Show running background processes")
+	fmt.Println("  logs <process>      - Show logs for a background process")
 {{end}}{{range .Commands}}	fmt.Println("  {{.HelpDescription}}")
 {{end}}}
 
@@ -413,50 +462,6 @@ func (c *CLI) showLogs(name string) {
 	io.Copy(os.Stdout, file)
 }
 
-// stopCommand stops a background process
-func (c *CLI) stopCommand(name string) {
-	proc, exists := c.registry.getProcess(name)
-	if !exists {
-		fmt.Fprintf(os.Stderr, "No process named '%s' found\n", name)
-		os.Exit(1)
-	}
-
-	// Try to terminate gracefully
-	process, err := os.FindProcess(proc.PID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Process not found: %v\n", err)
-		c.registry.removeProcess(name)
-		return
-	}
-
-	fmt.Printf("Stopping process %s (PID: %d)...\n", name, proc.PID)
-
-	// Send SIGTERM
-	process.Signal(syscall.SIGTERM)
-
-	// Wait up to 5 seconds for graceful shutdown
-	timeout := time.After(5 * time.Second)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			// Force kill
-			fmt.Printf("Force killing process %s...\n", name)
-			process.Signal(syscall.SIGKILL)
-			c.registry.removeProcess(name)
-			return
-		case <-ticker.C:
-			if !c.registry.isProcessRunning(proc.PID) {
-				fmt.Printf("Process %s stopped successfully\n", name)
-				c.registry.removeProcess(name)
-				return
-			}
-		}
-	}
-}
-
 // runInBackground starts a command in background with logging
 func (c *CLI) runInBackground(name, command string) error {
 	logFile := filepath.Join(c.registry.dir, name+".log")
@@ -496,24 +501,7 @@ func (c *CLI) runInBackground(name, command string) error {
 // Command implementations
 {{range .Commands}}
 func (c *CLI) {{.FunctionName}}(args []string) {
-{{if eq .Type "watch"}}	// Watch command - run in background
-	command := ` + "`{{.ShellCommand}}`" + `
-	if err := c.runInBackground("{{.Name}}", command); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting {{.Name}}: %v\n", err)
-		os.Exit(1)
-	}
-{{else if eq .Type "stop"}}	// Stop command - terminate associated processes
-	baseName := "{{.BaseName}}"
-{{if $.HasProcessMgmt}}	c.stopCommand(baseName){{else}}	fmt.Printf("No background process named '%s' to stop\n", baseName){{end}}
-
-	// Also run user-defined stop commands
-	cmd := exec.Command("sh", "-c", ` + "`{{.ShellCommand}}`" + `)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Stop command failed: %v\n", err)
-	}
-{{else}}	// Regular command
+{{if eq .Type "regular"}}	// Regular command
 	cmd := exec.Command("sh", "-c", ` + "`{{.ShellCommand}}`" + `)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -525,6 +513,68 @@ func (c *CLI) {{.FunctionName}}(args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
 		os.Exit(1)
+	}
+{{else if eq .Type "watch-stop"}}	// Watch/stop command pair
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: %s {{.Name}} <start|stop>\n", os.Args[0])
+		os.Exit(1)
+	}
+
+	subcommand := args[0]
+	switch subcommand {
+	case "start":
+		command := ` + "`{{.WatchCommand}}`" + `
+		if err := c.runInBackground("{{.Name}}", command); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting {{.Name}}: %v\n", err)
+			os.Exit(1)
+		}
+	case "stop":
+		// Run custom stop command
+		cmd := exec.Command("sh", "-c", ` + "`{{.StopCommand}}`" + `)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Stop command failed: %v\n", err)
+		}
+{{if $.HasProcessMgmt}}		// Also stop via process registry
+		if err := c.registry.gracefulStop("{{.Name}}"); err != nil {
+			fmt.Fprintf(os.Stderr, "Registry stop failed: %v\n", err)
+		}{{end}}
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s. Use 'start' or 'stop'\n", subcommand)
+		os.Exit(1)
+	}
+{{else if eq .Type "watch-only"}}	// Watch-only command (no custom stop)
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: %s {{.Name}} <start|stop>\n", os.Args[0])
+		os.Exit(1)
+	}
+
+	subcommand := args[0]
+	switch subcommand {
+	case "start":
+		command := ` + "`{{.WatchCommand}}`" + `
+		if err := c.runInBackground("{{.Name}}", command); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting {{.Name}}: %v\n", err)
+			os.Exit(1)
+		}
+	case "stop":
+{{if $.HasProcessMgmt}}		// Use generic process management for stopping
+		if err := c.registry.gracefulStop("{{.Name}}"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error stopping {{.Name}}: %v\n", err)
+			os.Exit(1)
+		}{{else}}		fmt.Printf("No background process named '{{.Name}}' to stop\n"){{end}}
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s. Use 'start' or 'stop'\n", subcommand)
+		os.Exit(1)
+	}
+{{else if eq .Type "stop-only"}}	// Stop-only command (unusual case)
+	// Run stop command
+	cmd := exec.Command("sh", "-c", ` + "`{{.StopCommand}}`" + `)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Stop command failed: %v\n", err)
 	}
 {{end}}}
 {{end}}
