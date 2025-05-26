@@ -1,4 +1,4 @@
-# Example devcmd configurations and generated CLIs
+# Example devcmd CLI configurations
 #
 # Note: In devcmd syntax, shell command substitution must be escaped as \$()
 # since devcmd reserves $() for its own variable references:
@@ -11,11 +11,11 @@ let
   devcmdLib = import ./lib.nix { inherit pkgs self system lib; };
 
 in rec {
-  # Simple development commands
+  # Basic project management CLI
   basicDev = devcmdLib.mkDevCLI {
     name = "dev";
     commandsContent = ''
-      # Basic development commands
+      # Basic project commands
       def SRC = ./src;
       def BUILD_DIR = ./build;
 
@@ -54,11 +54,11 @@ in rec {
     '';
   };
 
-  # Web development with frontend/backend
+  # Web development CLI with frontend/backend orchestration
   webDev = devcmdLib.mkDevCLI {
     name = "webdev";
     commandsContent = ''
-      # Web development environment
+      # Web development CLI
       def FRONTEND_PORT = 3000;
       def BACKEND_PORT = 3001;
       def NODE_ENV = development;
@@ -117,11 +117,11 @@ in rec {
     '';
   };
 
-  # Go project with comprehensive tooling - demonstrates shell escaping patterns
+  # Go project CLI with comprehensive tooling
   goProject = devcmdLib.mkDevCLI {
     name = "godev";
     commandsContent = ''
-      # Go project development
+      # Go project CLI
       def MODULE = github.com/example/myproject;
       def BINARY = myproject;
       # Shell command substitution must be escaped as \$() since devcmd uses $() for variables
@@ -216,11 +216,188 @@ in rec {
     '';
   };
 
-  # Rust project development
+  # DevOps and infrastructure management CLI
+  devOpsProject = devcmdLib.mkDevCLI {
+    name = "devops";
+    commandsContent = ''
+      # DevOps and infrastructure CLI
+      def ENVIRONMENT = development;
+      def TERRAFORM_DIR = ./terraform;
+      def ANSIBLE_DIR = ./ansible;
+      def KUBE_NAMESPACE = myapp-$(ENVIRONMENT);
+
+      plan: {
+        echo "Planning infrastructure changes...";
+        (cd $(TERRAFORM_DIR) && terraform plan -var="environment=$(ENVIRONMENT)") || echo "No Terraform";
+        echo "Plan complete"
+      }
+
+      apply: {
+        echo "Applying infrastructure changes...";
+        (cd $(TERRAFORM_DIR) && terraform apply -var="environment=$(ENVIRONMENT)" -auto-approve) || echo "No Terraform";
+        echo "Apply complete"
+      }
+
+      destroy: {
+        echo "Destroying infrastructure...";
+        echo "WARNING: This will destroy $(ENVIRONMENT) environment";
+        (cd $(TERRAFORM_DIR) && terraform destroy -var="environment=$(ENVIRONMENT)" -auto-approve) || echo "No Terraform"
+      }
+
+      provision: {
+        echo "Provisioning servers...";
+        (cd $(ANSIBLE_DIR) && ansible-playbook -i inventory/$(ENVIRONMENT) site.yml) || echo "No Ansible";
+        echo "Provisioning complete"
+      }
+
+      deploy: {
+        echo "Deploying application to $(ENVIRONMENT)...";
+        (which kubectl && kubectl apply -f k8s/ -n $(KUBE_NAMESPACE)) || echo "No kubectl";
+        echo "Deployment complete"
+      }
+
+      status: {
+        echo "Checking infrastructure status...";
+        (which kubectl && kubectl get pods,svc,ing -n $(KUBE_NAMESPACE)) || echo "No kubectl";
+        echo "Status check complete"
+      }
+
+      logs: {
+        echo "Fetching application logs...";
+        (which kubectl && kubectl logs -f deployment/myapp -n $(KUBE_NAMESPACE)) || echo "No kubectl"
+      }
+
+      shell: {
+        echo "Opening shell in application pod...";
+        (which kubectl && kubectl exec -it deployment/myapp -n $(KUBE_NAMESPACE) -- /bin/sh) || echo "No kubectl"
+      }
+
+      backup: {
+        echo "Creating backup...";
+        # Shell command substitution requires \$() escaping since devcmd reserves $() for variables
+        DATE=\$(date +%Y%m%d-%H%M%S);
+        echo "Backup timestamp: \$DATE";
+        (which kubectl && kubectl exec deployment/database -n $(KUBE_NAMESPACE) -- pg_dump myapp > backup-\$DATE.sql) || echo "No database"
+      }
+
+      monitor: {
+        echo "Opening monitoring dashboard...";
+        (which kubectl && kubectl port-forward svc/grafana 3000:3000 -n monitoring) || echo "No monitoring"
+      }
+
+      lint: {
+        echo "Linting infrastructure code...";
+        (cd $(TERRAFORM_DIR) && terraform fmt -check) || echo "No Terraform";
+        (cd $(ANSIBLE_DIR) && ansible-lint .) || echo "No Ansible";
+        echo "Linting complete"
+      }
+    '';
+  };
+
+  # Data pipeline management CLI
+  dataScienceProject = devcmdLib.mkDevCLI {
+    name = "datadev";
+    commandsContent = ''
+      # Data pipeline management CLI
+      def PYTHON = python3;
+      def VENV = ./venv;
+      def JUPYTER_PORT = 8888;
+      def DATA_DIR = ./data;
+
+      setup: {
+        echo "Setting up Python environment...";
+        $(PYTHON) -m venv $(VENV);
+        $(VENV)/bin/pip install --upgrade pip;
+        (test -f requirements.txt && $(VENV)/bin/pip install -r requirements.txt) || echo "No requirements.txt";
+        echo "Environment setup complete"
+      }
+
+      install: {
+        echo "Installing packages...";
+        $(VENV)/bin/pip install -r requirements.txt;
+        (test -f requirements-dev.txt && $(VENV)/bin/pip install -r requirements-dev.txt) || echo "No dev requirements";
+        echo "Installation complete"
+      }
+
+      freeze: {
+        echo "Freezing requirements...";
+        $(VENV)/bin/pip freeze > requirements.txt;
+        echo "Requirements frozen"
+      }
+
+      watch jupyter: {
+        echo "Starting Jupyter Lab on port $(JUPYTER_PORT)...";
+        $(VENV)/bin/jupyter lab --port=$(JUPYTER_PORT) --no-browser
+      }
+
+      stop jupyter: {
+        echo "Stopping Jupyter...";
+        pkill -f "jupyter" || echo "Jupyter not running"
+      }
+
+      extract: {
+        echo "Extracting data...";
+        mkdir -p $(DATA_DIR);
+        $(VENV)/bin/python scripts/extract.py --output $(DATA_DIR);
+        echo "Data extraction complete"
+      }
+
+      transform: {
+        echo "Transforming data...";
+        $(VENV)/bin/python scripts/transform.py --input $(DATA_DIR) --output $(DATA_DIR)/processed;
+        echo "Data transformation complete"
+      }
+
+      load: {
+        echo "Loading data...";
+        $(VENV)/bin/python scripts/load.py --source $(DATA_DIR)/processed;
+        echo "Data loading complete"
+      }
+
+      pipeline: {
+        echo "Running full data pipeline...";
+        datadev extract;
+        datadev transform;
+        datadev load;
+        echo "Pipeline complete"
+      }
+
+      test: {
+        echo "Running tests...";
+        $(VENV)/bin/pytest -v;
+        echo "Testing complete"
+      }
+
+      lint: {
+        echo "Linting code...";
+        $(VENV)/bin/flake8 . || echo "flake8 not installed";
+        $(VENV)/bin/black --check . || echo "black not installed";
+        echo "Linting complete"
+      }
+
+      format: {
+        echo "Formatting code...";
+        $(VENV)/bin/black . || echo "black not installed";
+        $(VENV)/bin/isort . || echo "isort not installed";
+        echo "Formatting complete"
+      }
+
+      clean: {
+        echo "Cleaning temporary files...";
+        find . -name "*.pyc" -delete;
+        find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true;
+        find . -name ".pytest_cache" -type d -exec rm -rf {} + 2>/dev/null || true;
+        rm -rf $(DATA_DIR)/tmp;
+        echo "Clean complete"
+      }
+    '';
+  };
+
+  # System administration CLI
   rustProject = devcmdLib.mkDevCLI {
     name = "rustdev";
     commandsContent = ''
-      # Rust project development
+      # Rust project CLI
       def CRATE_NAME = myproject;
       def TARGET_DIR = ./target;
 
@@ -303,166 +480,12 @@ in rec {
     '';
   };
 
-  # Data science / Python project
-  dataScienceProject = devcmdLib.mkDevCLI {
-    name = "datadev";
-    commandsContent = ''
-      # Data science project development
-      def PYTHON = python3;
-      def VENV = ./venv;
-      def JUPYTER_PORT = 8888;
-
-      setup: {
-        echo "Setting up Python environment...";
-        $(PYTHON) -m venv $(VENV);
-        $(VENV)/bin/pip install --upgrade pip;
-        (test -f requirements.txt && $(VENV)/bin/pip install -r requirements.txt) || echo "No requirements.txt";
-        echo "Environment setup complete"
-      }
-
-      install: {
-        echo "Installing packages...";
-        $(VENV)/bin/pip install -r requirements.txt;
-        (test -f requirements-dev.txt && $(VENV)/bin/pip install -r requirements-dev.txt) || echo "No dev requirements";
-        echo "Installation complete"
-      }
-
-      freeze: {
-        echo "Freezing requirements...";
-        $(VENV)/bin/pip freeze > requirements.txt;
-        echo "Requirements frozen"
-      }
-
-      watch jupyter: {
-        echo "Starting Jupyter Lab on port $(JUPYTER_PORT)...";
-        $(VENV)/bin/jupyter lab --port=$(JUPYTER_PORT) --no-browser
-      }
-
-      stop jupyter: {
-        echo "Stopping Jupyter...";
-        pkill -f "jupyter" || echo "Jupyter not running"
-      }
-
-      test: {
-        echo "Running tests...";
-        $(VENV)/bin/pytest -v;
-        echo "Testing complete"
-      }
-
-      lint: {
-        echo "Linting code...";
-        $(VENV)/bin/flake8 . || echo "flake8 not installed";
-        $(VENV)/bin/black --check . || echo "black not installed";
-        echo "Linting complete"
-      }
-
-      format: {
-        echo "Formatting code...";
-        $(VENV)/bin/black . || echo "black not installed";
-        $(VENV)/bin/isort . || echo "isort not installed";
-        echo "Formatting complete"
-      }
-
-      analyze: {
-        echo "Running data analysis...";
-        $(VENV)/bin/python scripts/analyze.py || echo "No analysis script";
-        echo "Analysis complete"
-      }
-
-      clean: {
-        echo "Cleaning temporary files...";
-        find . -name "*.pyc" -delete;
-        find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true;
-        find . -name ".pytest_cache" -type d -exec rm -rf {} + 2>/dev/null || true;
-        echo "Clean complete"
-      }
-    '';
-  };
-
-  # DevOps / Infrastructure project
-  devOpsProject = devcmdLib.mkDevCLI {
-    name = "devops";
-    commandsContent = ''
-      # DevOps and infrastructure management
-      def ENVIRONMENT = development;
-      def TERRAFORM_DIR = ./terraform;
-      def ANSIBLE_DIR = ./ansible;
-      def KUBE_NAMESPACE = myapp-$(ENVIRONMENT);
-
-      plan: {
-        echo "Planning infrastructure changes...";
-        (cd $(TERRAFORM_DIR) && terraform plan -var="environment=$(ENVIRONMENT)") || echo "No Terraform";
-        echo "Plan complete"
-      }
-
-      apply: {
-        echo "Applying infrastructure changes...";
-        (cd $(TERRAFORM_DIR) && terraform apply -var="environment=$(ENVIRONMENT)" -auto-approve) || echo "No Terraform";
-        echo "Apply complete"
-      }
-
-      destroy: {
-        echo "Destroying infrastructure...";
-        echo "WARNING: This will destroy $(ENVIRONMENT) environment";
-        (cd $(TERRAFORM_DIR) && terraform destroy -var="environment=$(ENVIRONMENT)" -auto-approve) || echo "No Terraform"
-      }
-
-      provision: {
-        echo "Provisioning servers...";
-        (cd $(ANSIBLE_DIR) && ansible-playbook -i inventory/$(ENVIRONMENT) site.yml) || echo "No Ansible";
-        echo "Provisioning complete"
-      }
-
-      deploy: {
-        echo "Deploying application to $(ENVIRONMENT)...";
-        (which kubectl && kubectl apply -f k8s/ -n $(KUBE_NAMESPACE)) || echo "No kubectl";
-        echo "Deployment complete"
-      }
-
-      status: {
-        echo "Checking infrastructure status...";
-        (which kubectl && kubectl get pods,svc,ing -n $(KUBE_NAMESPACE)) || echo "No kubectl";
-        echo "Status check complete"
-      }
-
-      logs: {
-        echo "Fetching application logs...";
-        (which kubectl && kubectl logs -f deployment/myapp -n $(KUBE_NAMESPACE)) || echo "No kubectl"
-      }
-
-      shell: {
-        echo "Opening shell in application pod...";
-        (which kubectl && kubectl exec -it deployment/myapp -n $(KUBE_NAMESPACE) -- /bin/sh) || echo "No kubectl"
-      }
-
-      backup: {
-        echo "Creating backup...";
-        # Shell command substitution requires \$() escaping since devcmd reserves $() for variables
-        DATE=\$(date +%Y%m%d-%H%M%S);
-        echo "Backup timestamp: \$DATE";
-        (which kubectl && kubectl exec deployment/database -n $(KUBE_NAMESPACE) -- pg_dump myapp > backup-\$DATE.sql) || echo "No database"
-      }
-
-      monitor: {
-        echo "Opening monitoring dashboard...";
-        (which kubectl && kubectl port-forward svc/grafana 3000:3000 -n monitoring) || echo "No monitoring"
-      }
-
-      lint: {
-        echo "Linting infrastructure code...";
-        (cd $(TERRAFORM_DIR) && terraform fmt -check) || echo "No Terraform";
-        (cd $(ANSIBLE_DIR) && ansible-lint .) || echo "No Ansible";
-        echo "Linting complete"
-      }
-    '';
-  };
-
   # All example CLIs
   examples = {
     inherit basicDev webDev goProject rustProject dataScienceProject devOpsProject;
   };
 
-  # Development shells with example CLIs
+  # Development shells with example CLIs for testing
   shells = {
     # Basic development shell
     basicShell = devcmdLib.mkDevShell {
@@ -470,8 +493,8 @@ in rec {
       cli = basicDev;
       extraPackages = with pkgs; [ git curl wget ];
       shellHook = ''
-        echo "Basic development environment loaded"
-        echo "Available: dev build, dev test, dev clean, dev lint, dev deps"
+        echo "🚀 Basic CLI Development Environment"
+        echo "Try: dev --help"
       '';
     };
 
@@ -481,8 +504,8 @@ in rec {
       cli = webDev;
       extraPackages = with pkgs; [ nodejs python3 go git docker ];
       shellHook = ''
-        echo "Web development environment loaded"
-        echo "Available: webdev install, webdev watch dev, webdev build, webdev deploy"
+        echo "🚀 Web Development CLI Environment"
+        echo "Try: webdev --help"
       '';
     };
 
@@ -492,8 +515,8 @@ in rec {
       cli = goProject;
       extraPackages = with pkgs; [ go gopls golangci-lint git ];
       shellHook = ''
-        echo "Go development environment loaded"
-        echo "Available: godev build, godev test, godev run, godev release"
+        echo "🚀 Go Development CLI Environment"
+        echo "Try: godev --help"
       '';
     };
 
@@ -503,8 +526,8 @@ in rec {
       cli = dataScienceProject;
       extraPackages = with pkgs; [ python3 python3Packages.pip git ];
       shellHook = ''
-        echo "Data science environment loaded"
-        echo "Available: datadev setup, datadev watch jupyter, datadev test, datadev analyze"
+        echo "🚀 Data Science CLI Environment"
+        echo "Try: datadev --help"
       '';
     };
   };

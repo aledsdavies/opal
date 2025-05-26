@@ -46,9 +46,9 @@ let
   };
 
   # Helper function to create test derivations for CLIs
-  mkCLITest = { name, cli, testScript }: pkgs.runCommand "test-${name}"
+  mkCLITest = { name, cli, testScript, extraPackages ? [] }: pkgs.runCommand "test-${name}"
     {
-      nativeBuildInputs = [ pkgs.bash cli ];
+      nativeBuildInputs = [ pkgs.bash cli ] ++ extraPackages;
       meta.description = "Test for ${name} CLI";
     } ''
     set -euo pipefail
@@ -71,9 +71,9 @@ rec {
       cli = devcmdLib.mkDevCLI {
         name = "simple-test";
         commandsContent = ''
-          build: echo "Building project..."
-          test: echo "Running tests..."
-          clean: rm -f *.tmp
+          build: echo "Building project...";
+          test: echo "Running tests...";
+          clean: rm -f *.tmp;
         '';
       };
 
@@ -84,17 +84,20 @@ rec {
       '';
     };
 
-    # Test commands with POSIX syntax and parentheses
+    # Test commands with POSIX syntax and parentheses - FIXED shell command substitution
     posixSyntax = mkCLITest {
       name = "posix-syntax";
       cli = devcmdLib.mkDevCLI {
         name = "posix-test";
         commandsContent = ''
-          check-deps: (which go && echo "Go found") || (echo "Go missing" && exit 1)
-          validate: test -f go.mod && echo "Go module found" || echo "No go.mod"
-          complex: (cd /tmp && echo "In tmp: $(pwd)") && echo "Back to: $(pwd)"
+          check-deps: (which go && echo "Go found") || (echo "Go missing" && exit 1);
+          validate: test -f go.mod && echo "Go module found" || echo "No go.mod";
+          complex: (cd /tmp && echo "In tmp: \$(pwd)") && echo "Back to: \$(pwd)";
         '';
       };
+
+      # Add which command (usually in util-linux or coreutils)
+      extraPackages = with pkgs; [ which go ];
 
       testScript = ''
         ${testUtils.simpleTest "posix-test --help"}
@@ -119,11 +122,14 @@ rec {
           def PORT = 8080;
           def CHECK_CMD = which node || echo "missing";
 
-          build: cd $(SRC) && echo "Building in $(SRC)"
-          serve: echo "Starting server on port $(PORT)"
-          check: $(CHECK_CMD) && echo "Dependencies OK"
+          build: mkdir -p $(SRC) && cd $(SRC) && echo "Building in $(SRC)";
+          serve: echo "Starting server on port $(PORT)";
+          check: $(CHECK_CMD) && echo "Dependencies OK";
         '';
       };
+
+      # Add nodejs and which for the CHECK_CMD variable
+      extraPackages = with pkgs; [ nodejs which ];
 
       testScript = ''
         ${testUtils.checkOutput "variables-test build" "Building in ./src"}
@@ -141,8 +147,8 @@ rec {
       cli = devcmdLib.mkDevCLI {
         name = "process-test";
         commandsContent = ''
-          watch demo: python3 -m http.server 9999 &
-          stop demo: pkill -f "python3 -m http.server 9999"
+          watch demo: python3 -m http.server 9999 &;
+          stop demo: pkill -f "python3 -m http.server 9999";
 
           watch multi: {
             echo "Starting services...";
@@ -152,6 +158,9 @@ rec {
           }
         '';
       };
+
+      # Add python3 for the http server command
+      extraPackages = with pkgs; [ python3 ];
 
       testScript = ''
         # Check that process management commands exist
@@ -215,9 +224,9 @@ rec {
       cli = devcmdLib.mkDevCLI {
         name = "error-test";
         commandsContent = ''
-          valid: echo "This works"
-          special-chars: echo "Special: !@#$%^&*()"
-          unicode: echo "Hello 世界"
+          valid: echo "This works";
+          special-chars: echo "Special: !@#\$%^&*()";
+          unicode: echo "Hello 世界";
         '';
       };
 
@@ -236,7 +245,7 @@ rec {
       cli = devcmdLib.mkDevCLI {
         name = "large-test";
         commandsContent = lib.concatStringsSep "\n" (
-          lib.genList (i: "cmd${toString i}: echo 'Command ${toString i}'") 20
+          lib.genList (i: "cmd${toString i}: echo 'Command ${toString i}';") 20
         );
       };
 
@@ -266,22 +275,25 @@ rec {
           def PORT = 3000;
           def API_PORT = 3001;
 
-          install: npm install && echo "Dependencies installed"
+          install: echo "npm install" && echo "Dependencies installed";
           build: {
             echo "Building frontend...";
-            (cd frontend && npm run build) || echo "No frontend";
+            (test -d frontend && cd frontend && npm run build) || echo "No frontend";
             echo "Building backend...";
-            (cd backend && go build) || echo "No backend"
+            (test -d backend && cd backend && go build) || echo "No backend"
           }
 
           test: {
             echo "Running frontend tests...";
-            (cd frontend && npm test) || echo "No frontend tests";
+            (test -d frontend && cd frontend && npm test) || echo "No frontend tests";
             echo "Running backend tests...";
-            (cd backend && go test ./...) || echo "No backend tests"
+            (test -d backend && cd backend && go test ./...) || echo "No backend tests"
           }
         '';
       };
+
+      # Add nodejs and go for npm and go commands
+      extraPackages = with pkgs; [ nodejs go ];
 
       testScript = ''
         # Check all expected commands exist
@@ -313,28 +325,34 @@ rec {
           def VERSION = v0.1.0;
 
           deps: {
-            go mod tidy;
-            go mod download;
-            go mod verify
+            echo "Managing dependencies...";
+            (test -f go.mod && go mod tidy) || echo "No go.mod";
+            (test -f go.mod && go mod download) || echo "No go.mod";
+            (test -f go.mod && go mod verify) || echo "No go.mod"
           }
 
           build: {
             echo "Building $(BINARY) $(VERSION)...";
-            go build -ldflags="-X main.Version=$(VERSION)" -o $(BINARY) ./cmd/$(BINARY)
+            (test -d ./cmd/$(BINARY) && go build -ldflags="-X main.Version=$(VERSION)" -o $(BINARY) ./cmd/$(BINARY)) || echo "No ./cmd/$(BINARY) directory"
           }
 
           test: {
-            go test -v ./...;
-            go test -race ./...
+            echo "Running tests...";
+            (go test -v ./... 2>/dev/null) || echo "No tests or go.mod";
+            (go test -race ./... 2>/dev/null) || echo "No tests or go.mod"
           }
 
           lint: {
+            echo "Running linters...";
             (which golangci-lint && golangci-lint run) || echo "No linter";
-            go fmt ./...;
-            go vet ./...
+            (test -f go.mod && go fmt ./...) || echo "No go.mod";
+            (test -f go.mod && go vet ./...) || echo "No go.mod"
           }
         '';
       };
+
+      # Add go for go commands
+      extraPackages = with pkgs; [ go ];
 
       testScript = ''
         # Check Go commands exist
@@ -342,10 +360,11 @@ rec {
         ${testUtils.checkOutput "goproj --help" "test"}
         ${testUtils.checkOutput "goproj --help" "lint"}
 
-        # Test that commands structure is correct
-        echo "Testing command structure..."
-        goproj deps &>/dev/null || echo "Deps command structure verified"
-        goproj lint &>/dev/null || echo "Lint command structure verified"
+        # Test that commands work even without Go project structure
+        ${testUtils.checkOutput "goproj deps" "Managing dependencies"}
+        ${testUtils.checkOutput "goproj build" "Building myapp"}
+        ${testUtils.checkOutput "goproj test" "Running tests"}
+        ${testUtils.checkOutput "goproj lint" "Running linters"}
       '';
     };
   };
@@ -392,7 +411,7 @@ rec {
     FAILED_TESTS=""
     PASSED_TESTS=""
 
-    ${lib.concatMapStringsSep "\n" (testName: test: ''
+    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (testName: test: ''
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo "🧪 Running test: ${testName}"
       if [ -f "${test}/result" ]; then
@@ -402,7 +421,7 @@ rec {
         echo "❌ ${testName} failed"
         FAILED_TESTS="$FAILED_TESTS ${testName}"
       fi
-    '') (lib.mapAttrsToList (name: test: test) allTestDerivations)}
+    '') allTestDerivations)}
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📊 Test Results Summary:"
