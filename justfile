@@ -62,22 +62,12 @@ setup:
     @echo "✅ Setup complete! Run 'just test' to verify."
 
 # Generate parser from ANTLR grammar
+# Generate parser from ANTLR grammar
 grammar:
     @echo "📝 Generating ANTLR parser..."
-    @if command -v antlr >/dev/null 2>&1; then \
-        mkdir -p {{gen_dir}}; \
-        cd {{grammar_dir}} && antlr -Dlanguage=Go -package gen -o ../{{gen_dir}} devcmd.g4; \
-        echo "✅ Parser generated with local antlr"; \
-    elif command -v java >/dev/null 2>&1; then \
-        echo "📥 Downloading ANTLR jar..."; \
-        mkdir -p {{gen_dir}}; \
-        wget -q https://www.antlr.org/download/antlr-4.13.1-complete.jar -O /tmp/antlr.jar; \
-        cd {{grammar_dir}} && java -jar /tmp/antlr.jar -Dlanguage=Go -package gen -o ../{{gen_dir}} devcmd.g4; \
-        echo "✅ Parser generated with ANTLR jar"; \
-    else \
-        echo "❌ Neither antlr nor java found. Install Java 17+ or ANTLR."; \
-        exit 1; \
-    fi
+    mkdir -p {{gen_dir}}
+    cd {{grammar_dir}} && antlr -Dlanguage=Go -package gen -o ../{{gen_dir}} DevcmdLexer.g4 DevcmdParser.g4
+    @echo "✅ Parser generated"
 
 # Build the CLI tool
 build:
@@ -172,6 +162,17 @@ test-all:
     just test-nix
     just test-examples
     @echo "🎉 All tests passed!"
+
+
+# Run parser tests only
+test-parser:
+    @echo "🧪 Running parser tests..."
+    go test -v ./pkgs/parser
+
+# Run generator tests only
+test-generator:
+    @echo "🧪 Running generator tests..."
+    go test -v ./pkgs/generator
 
 # Run basic Go tests (for quick feedback)
 test:

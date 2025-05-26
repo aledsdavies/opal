@@ -74,6 +74,30 @@ func (s *BasedevcmdListener) EnterBlockStatement(ctx *BlockStatementContext) {}
 // ExitBlockStatement is called when production blockStatement is exited.
 func (s *BasedevcmdListener) ExitBlockStatement(ctx *BlockStatementContext) {}
 
+// EnterFunctionAnnot is called when production functionAnnot is entered.
+func (s *BasedevcmdListener) EnterFunctionAnnot(ctx *FunctionAnnotContext) {}
+
+// ExitFunctionAnnot is called when production functionAnnot is exited.
+func (s *BasedevcmdListener) ExitFunctionAnnot(ctx *FunctionAnnotContext) {}
+
+// EnterBlockAnnot is called when production blockAnnot is entered.
+func (s *BasedevcmdListener) EnterBlockAnnot(ctx *BlockAnnotContext) {}
+
+// ExitBlockAnnot is called when production blockAnnot is exited.
+func (s *BasedevcmdListener) ExitBlockAnnot(ctx *BlockAnnotContext) {}
+
+// EnterSimpleAnnot is called when production simpleAnnot is entered.
+func (s *BasedevcmdListener) EnterSimpleAnnot(ctx *SimpleAnnotContext) {}
+
+// ExitSimpleAnnot is called when production simpleAnnot is exited.
+func (s *BasedevcmdListener) ExitSimpleAnnot(ctx *SimpleAnnotContext) {}
+
+// EnterAnnotation is called when production annotation is entered.
+func (s *BasedevcmdListener) EnterAnnotation(ctx *AnnotationContext) {}
+
+// ExitAnnotation is called when production annotation is exited.
+func (s *BasedevcmdListener) ExitAnnotation(ctx *AnnotationContext) {}
+
 // EnterContinuationLine is called when production continuationLine is entered.
 func (s *BasedevcmdListener) EnterContinuationLine(ctx *ContinuationLineContext) {}
 

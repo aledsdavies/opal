@@ -34,6 +34,18 @@ type devcmdListener interface {
 	// EnterBlockStatement is called when entering the blockStatement production.
 	EnterBlockStatement(c *BlockStatementContext)
 
+	// EnterFunctionAnnot is called when entering the functionAnnot production.
+	EnterFunctionAnnot(c *FunctionAnnotContext)
+
+	// EnterBlockAnnot is called when entering the blockAnnot production.
+	EnterBlockAnnot(c *BlockAnnotContext)
+
+	// EnterSimpleAnnot is called when entering the simpleAnnot production.
+	EnterSimpleAnnot(c *SimpleAnnotContext)
+
+	// EnterAnnotation is called when entering the annotation production.
+	EnterAnnotation(c *AnnotationContext)
+
 	// EnterContinuationLine is called when entering the continuationLine production.
 	EnterContinuationLine(c *ContinuationLineContext)
 
@@ -66,6 +78,18 @@ type devcmdListener interface {
 
 	// ExitBlockStatement is called when exiting the blockStatement production.
 	ExitBlockStatement(c *BlockStatementContext)
+
+	// ExitFunctionAnnot is called when exiting the functionAnnot production.
+	ExitFunctionAnnot(c *FunctionAnnotContext)
+
+	// ExitBlockAnnot is called when exiting the blockAnnot production.
+	ExitBlockAnnot(c *BlockAnnotContext)
+
+	// ExitSimpleAnnot is called when exiting the simpleAnnot production.
+	ExitSimpleAnnot(c *SimpleAnnotContext)
+
+	// ExitAnnotation is called when exiting the annotation production.
+	ExitAnnotation(c *AnnotationContext)
 
 	// ExitContinuationLine is called when exiting the continuationLine production.
 	ExitContinuationLine(c *ContinuationLineContext)
