@@ -709,6 +709,354 @@ func TestVariableReferences(t *testing.T) {
 	}
 }
 
+// Add these test functions to your parser_test.go file
+
+func TestDollarSyntaxHandling(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		wantExpanded string
+		wantErr      bool
+	}{
+		{
+			name:         "escaped shell command substitution - simple",
+			input:        "date: echo \\$(date);",
+			wantExpanded: "echo $(date)",
+			wantErr:      false,
+		},
+		{
+			name:         "escaped shell command substitution - complex",
+			input:        "info: echo \"Current time: \\$(date '+%Y-%m-%d %H:%M:%S')\";",
+			wantExpanded: "echo \"Current time: $(date '+%Y-%m-%d %H:%M:%S')\"",
+			wantErr:      false,
+		},
+		{
+			name:         "escaped devcmd variable reference",
+			input:        "def SRC = ./src;\necho: echo \"Variable syntax: \\$(SRC)\";",
+			wantExpanded: "echo \"Variable syntax: $(SRC)\"",
+			wantErr:      false,
+		},
+		{
+			name:         "mixed escaped and real variable references",
+			input:        "def DIR = /tmp;\ncmd: echo \"Real: $(DIR), Escaped: \\$(whoami)\";",
+			wantExpanded: "echo \"Real: /tmp, Escaped: $(whoami)\"",
+			wantErr:      false,
+		},
+		{
+			name:         "escaped shell variable vs devcmd variable",
+			input:        "def PATH = mypath;\ncmd: echo \"Devcmd: $(PATH), Shell: \\$PATH\";",
+			wantExpanded: "echo \"Devcmd: mypath, Shell: $PATH\"",
+			wantErr:      false,
+		},
+		{
+			name:         "nested shell command substitution - escaped",
+			input:        "complex: echo \\$(echo \\$(date));",
+			wantExpanded: "echo $(echo $(date))",
+			wantErr:      false,
+		},
+		{
+			name:         "shell command substitution with pipes",
+			input:        "pipeline: echo \\$(ps aux | grep node | wc -l);",
+			wantExpanded: "echo $(ps aux | grep node | wc -l)",
+			wantErr:      false,
+		},
+		{
+			name:         "arithmetic expansion - escaped",
+			input:        "math: echo \\$((2 + 3));",
+			wantExpanded: "echo $((2 + 3))",
+			wantErr:      false,
+		},
+		{
+			name:         "parameter expansion - escaped",
+			input:        "param: echo \\${HOME}/bin;",
+			wantExpanded: "echo ${HOME}/bin",
+			wantErr:      false,
+		},
+		{
+			name:         "complex mixed case",
+			input:        "def SRC = ./src;\ncomplex: cd $(SRC) && echo \\$(pwd) && echo \\$USER;",
+			wantExpanded: "cd ./src && echo $(pwd) && echo $USER",
+			wantErr:      false,
+		},
+		{
+			name:         "dockerfile-like syntax",
+			input:        "def IMAGE = myapp;\nbuild: docker build -t $(IMAGE) . && echo \\$(docker images | grep $(IMAGE));",
+			wantExpanded: "docker build -t myapp . && echo $(docker images | grep myapp)",
+			wantErr:      false,
+		},
+		{
+			name:         "escaped dollar in quotes",
+			input:        "quote: echo \"Price: \\$10\" && echo \\$(date);",
+			wantExpanded: "echo \"Price: $10\" && echo $(date)",
+			wantErr:      false,
+		},
+		{
+			name:         "multiple escapes in sequence",
+			input:        "multi: echo \\$HOME \\$(whoami) \\$((1+1));",
+			wantExpanded: "echo $HOME $(whoami) $((1+1))",
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			result, err := Parse(tt.input)
+			if err != nil {
+				if !tt.wantErr {
+					t.Fatalf("Parse() error = %v", err)
+				}
+				return
+			}
+
+			// Try to expand variables
+			err = result.ExpandVariables()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ExpandVariables() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// Check the expanded command
+			if len(result.Commands) == 0 {
+				t.Fatalf("No commands found")
+			}
+
+			cmd := result.Commands[0]
+			var expandedText string
+
+			if cmd.IsBlock {
+				if len(cmd.Block) == 0 {
+					t.Fatalf("No block statements found")
+				}
+				expandedText = cmd.Block[0].Command
+			} else {
+				expandedText = cmd.Command
+			}
+
+			if expandedText != tt.wantExpanded {
+				t.Errorf("Expanded text = %q, want %q", expandedText, tt.wantExpanded)
+			}
+		})
+	}
+}
+
+func TestDollarSyntaxInBlocks(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		wantBlockSize int
+		wantCommands  []string
+		wantErr       bool
+	}{
+		{
+			name:          "block with mixed dollar syntax",
+			input:         "def PORT = 8080;\nsetup: { echo \"Starting on port $(PORT)\"; echo \\$(date); echo \"PID: \\$\\$\" }",
+			wantBlockSize: 3,
+			wantCommands:  []string{"echo \"Starting on port 8080\"", "echo $(date)", "echo \"PID: $$\""},
+			wantErr:       false,
+		},
+		{
+			name:          "watch block with shell command substitution",
+			input:         "watch dev: { echo \"Started at \\$(date)\"; npm start &; echo \"PID: \\$!\" }",
+			wantBlockSize: 3,
+			wantCommands:  []string{"echo \"Started at $(date)\"", "npm start", "echo \"PID: $!\""},
+			wantErr:       false,
+		},
+		{
+			name:          "block with environment variable handling",
+			input:         "def APP = myapp;\nenv: { export APP_NAME=$(APP); echo \\$APP_NAME; echo \\$(printenv APP_NAME) }",
+			wantBlockSize: 3,
+			wantCommands:  []string{"export APP_NAME=myapp", "echo $APP_NAME", "echo $(printenv APP_NAME)"},
+			wantErr:       false,
+		},
+		{
+			name:          "block with docker commands",
+			input:         "def IMAGE = node:18;\ndocker: { docker run -d --name myapp $(IMAGE); echo \"Container ID: \\$(docker ps -q -f name=myapp)\" }",
+			wantBlockSize: 2,
+			wantCommands:  []string{"docker run -d --name myapp node:18", "echo \"Container ID: $(docker ps -q -f name=myapp)\""},
+			wantErr:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			result, err := Parse(tt.input)
+			if err != nil {
+				if !tt.wantErr {
+					t.Fatalf("Parse() error = %v", err)
+				}
+				return
+			}
+
+			// Expand variables
+			err = result.ExpandVariables()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ExpandVariables() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// Find the command with a block
+			var cmd *Command
+			for i := range result.Commands {
+				if result.Commands[i].IsBlock {
+					cmd = &result.Commands[i]
+					break
+				}
+			}
+
+			if cmd == nil {
+				t.Fatalf("No block command found")
+			}
+
+			if len(cmd.Block) != tt.wantBlockSize {
+				t.Fatalf("Block size = %d, want %d", len(cmd.Block), tt.wantBlockSize)
+			}
+
+			// Check each statement in the block
+			for i := 0; i < tt.wantBlockSize; i++ {
+				if i >= len(cmd.Block) {
+					t.Fatalf("Missing block statement %d", i)
+				}
+
+				stmt := cmd.Block[i]
+				if stmt.Command != tt.wantCommands[i] {
+					t.Errorf("Block[%d].Command = %q, want %q", i, stmt.Command, tt.wantCommands[i])
+				}
+			}
+		})
+	}
+}
+
+func TestDollarSyntaxErrorCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		wantErrSubstr string
+	}{
+		{
+			name:          "undefined variable with escaped syntax mix",
+			input:         "test: echo $(UNDEFINED) \\$(date);",
+			wantErrSubstr: "undefined variable",
+		},
+		{
+			name:          "malformed escaped syntax should still parse",
+			input:         "test: echo \\$(;", // Incomplete but should parse the escape
+			wantErrSubstr: "", // Should not error on parsing, just produce the literal
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			result, err := Parse(tt.input)
+
+			// Check if we should have a parsing error
+			if tt.wantErrSubstr != "" {
+				if err == nil {
+					t.Fatalf("Expected parsing error containing %q, got nil", tt.wantErrSubstr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrSubstr) {
+					t.Errorf("Error = %q, want substring %q", err.Error(), tt.wantErrSubstr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected parse error: %v", err)
+			}
+
+			// Try to expand variables - this is where semantic errors occur
+			err = result.ExpandVariables()
+
+			if tt.wantErrSubstr != "" {
+				if err == nil {
+					t.Fatalf("Expected error containing %q, got nil", tt.wantErrSubstr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrSubstr) {
+					t.Errorf("Error = %q, want substring %q", err.Error(), tt.wantErrSubstr)
+				}
+			} else if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDollarSyntaxWithContinuations(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		wantExpanded string
+		wantErr      bool
+	}{
+		{
+			name:         "escaped dollar with continuation",
+			input:        "def DIR = /home;\ncmd: echo $(DIR) \\\n&& echo \\$(pwd);",
+			wantExpanded: "echo /home && echo $(pwd)",
+			wantErr:      false,
+		},
+		{
+			name:         "complex shell substitution with continuation",
+			input:        "complex: echo \\$(find . -name \"*.go\" \\\n| wc -l);",
+			wantExpanded: "echo $(find . -name \"*.go\" | wc -l)",
+			wantErr:      false,
+		},
+		{
+			name:         "mixed syntax across continuation lines",
+			input:        "def SRC = ./src;\nmulti: cd $(SRC) \\\n&& echo \\$(pwd) \\\n&& echo \"Done\";",
+			wantExpanded: "cd ./src && echo $(pwd) && echo \"Done\"",
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			result, err := Parse(tt.input)
+			if err != nil {
+				if !tt.wantErr {
+					t.Fatalf("Parse() error = %v", err)
+				}
+				return
+			}
+
+			// Expand variables
+			err = result.ExpandVariables()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ExpandVariables() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// Find the command (skip definitions)
+			var cmd *Command
+			for i := range result.Commands {
+				if result.Commands[i].Name != "" && !strings.HasPrefix(result.Commands[i].Name, "def") {
+					cmd = &result.Commands[i]
+					break
+				}
+			}
+
+			if cmd == nil {
+				t.Fatalf("Command not found in result")
+			}
+
+			if cmd.Command != tt.wantExpanded {
+				t.Errorf("Command text = %q, want %q", cmd.Command, tt.wantExpanded)
+			}
+		})
+	}
+}
+
 func TestContinuationLines(t *testing.T) {
 	tests := []struct {
 		name        string

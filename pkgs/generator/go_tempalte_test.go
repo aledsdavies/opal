@@ -696,6 +696,498 @@ deps: {
 	}
 }
 
+// Add these test functions to your go_template_test.go file
+
+func TestGenerateGo_DollarSyntaxHandling(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		expectedInCode []string
+		notInCode      []string
+	}{
+		{
+			name:  "escaped shell command substitution",
+			input: "date: echo \\$(date);",
+			expectedInCode: []string{
+				"func (c *CLI) runDate(args []string)",
+				`echo $(date)`, // Should be unescaped in the generated shell command
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+				`\$(date)`, // Should not contain the escaped version
+			},
+		},
+		{
+			name:  "mixed devcmd and shell variables",
+			input: "def DIR = /tmp;\ninfo: echo \"Dir: $(DIR), User: \\$USER, Time: \\$(date)\";",
+			expectedInCode: []string{
+				"func (c *CLI) runInfo(args []string)",
+				`echo "Dir: /tmp, User: $USER, Time: $(date)"`, // Variables expanded, escapes resolved
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+				`$(DIR)`, // Should not contain unexpanded devcmd variable
+				`\\$`,    // Should not contain escaped syntax
+			},
+		},
+		{
+			name:  "docker command with mixed syntax",
+			input: "def IMAGE = node:18;\ndocker: docker run $(IMAGE) -e NODE_ENV=\\$NODE_ENV -e BUILD_TIME=\\$(date);",
+			expectedInCode: []string{
+				"func (c *CLI) runDocker(args []string)",
+				`docker run node:18 -e NODE_ENV=$NODE_ENV -e BUILD_TIME=$(date)`,
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+				`$(IMAGE)`, // Should be expanded
+				`\\$`,      // Should not contain escape syntax
+			},
+		},
+		{
+			name:  "complex shell operations",
+			input: "count: echo \"Go files: \\$(find . -name '*.go' | wc -l)\";",
+			expectedInCode: []string{
+				"func (c *CLI) runCount(args []string)",
+				`echo "Go files: $(find . -name '*.go' | wc -l)"`,
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+				`\\$(find`, // Should not contain escaped version
+			},
+		},
+		{
+			name:  "arithmetic expansion",
+			input: "math: echo \"Result: \\$((2 + 3))\";",
+			expectedInCode: []string{
+				"func (c *CLI) runMath(args []string)",
+				`echo "Result: $((2 + 3))"`,
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+				`\\$((`, // Should not contain escaped version
+			},
+		},
+		{
+			name:  "parameter expansion",
+			input: "home: echo \"Home: \\${HOME:-/tmp}\";",
+			expectedInCode: []string{
+				"func (c *CLI) runHome(args []string)",
+				`echo "Home: ${HOME:-/tmp}"`,
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+				`\\${`, // Should not contain escaped version
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			cf, err := devcmdParser.Parse(tt.input)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			// Expand variables
+			err = cf.ExpandVariables()
+			if err != nil {
+				t.Fatalf("ExpandVariables error: %v", err)
+			}
+
+			// Generate Go code
+			generated, err := GenerateGo(cf)
+			if err != nil {
+				t.Fatalf("GenerateGo error: %v", err)
+			}
+
+			// Verify generated code is valid Go
+			if !isValidGoCode(t, generated) {
+				t.Errorf("Generated code is not valid Go")
+				t.Logf("Generated code:\n%s", generated)
+				return
+			}
+
+			// Check expected content
+			for _, expected := range tt.expectedInCode {
+				if !strings.Contains(generated, expected) {
+					t.Errorf("Generated code missing expected content: %q", expected)
+				}
+			}
+
+			// Check that unwanted content is not present
+			for _, notInCode := range tt.notInCode {
+				if strings.Contains(generated, notInCode) {
+					t.Errorf("Generated code contains unwanted content: %q", notInCode)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateGo_DollarSyntaxInBlocks(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		expectedInCode []string
+		notInCode      []string
+	}{
+		{
+			name:  "block with mixed dollar syntax",
+			input: "def PORT = 8080;\nsetup: { echo \"Port: $(PORT)\"; echo \"Time: \\$(date)\"; echo \"PID: \\$\\$\" }",
+			expectedInCode: []string{
+				"func (c *CLI) runSetup(args []string)",
+				`echo "Port: 8080"; echo "Time: $(date)"; echo "PID: $$"`,
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+				`$(PORT)`, // Should be expanded
+				`\\$(`,    // Should not contain escaped version
+				`\\$\\$`,  // Should not contain double-escaped version
+			},
+		},
+		{
+			name:  "watch block with shell command substitution",
+			input: "watch dev: { echo \"Started: \\$(date)\"; npm start &; echo \"Background PID: \\$!\" }",
+			expectedInCode: []string{
+				"ProcessRegistry", // Watch command should include process management
+				"runInBackground",
+				`echo "Started: $(date)"; npm start &; echo "Background PID: $!"`,
+				"syscall",
+			},
+			notInCode: []string{
+				`\\$(date)`, // Should not contain escaped version
+				`\\$!`,      // Should not contain escaped version
+			},
+		},
+		{
+			name:  "complex docker setup with variables",
+			input: "def IMAGE = myapp:latest;\ndocker: { docker build -t $(IMAGE) .; echo \"Image ID: \\$(docker images -q $(IMAGE))\"; docker run -d $(IMAGE) }",
+			expectedInCode: []string{
+				"func (c *CLI) runDocker(args []string)",
+				`docker build -t myapp:latest .; echo "Image ID: $(docker images -q myapp:latest)"; docker run -d myapp:latest`,
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+				`$(IMAGE)`, // Should be expanded
+				`\\$(`,     // Should not contain escaped version
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			cf, err := devcmdParser.Parse(tt.input)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			// Expand variables
+			err = cf.ExpandVariables()
+			if err != nil {
+				t.Fatalf("ExpandVariables error: %v", err)
+			}
+
+			// Generate Go code
+			generated, err := GenerateGo(cf)
+			if err != nil {
+				t.Fatalf("GenerateGo error: %v", err)
+			}
+
+			// Verify generated code is valid Go
+			if !isValidGoCode(t, generated) {
+				t.Errorf("Generated code is not valid Go")
+				t.Logf("Generated code:\n%s", generated)
+				return
+			}
+
+			// Check expected content
+			for _, expected := range tt.expectedInCode {
+				if !strings.Contains(generated, expected) {
+					t.Errorf("Generated code missing expected content: %q", expected)
+				}
+			}
+
+			// Check that unwanted content is not present
+			for _, notInCode := range tt.notInCode {
+				if strings.Contains(generated, notInCode) {
+					t.Errorf("Generated code contains unwanted content: %q", notInCode)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateGo_DollarSyntaxEdgeCases(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		expectedInCode []string
+		notInCode      []string
+	}{
+		{
+			name:  "multiple dollar signs in sequence",
+			input: "special: echo \"\\$\\$PID: \\$\\$, Time: \\$(date)\";",
+			expectedInCode: []string{
+				`echo "$$PID: $$, Time: $(date)"`,
+			},
+			notInCode: []string{
+				`\\$\\$`, // Should not contain escaped version
+				`\\$(`,   // Should not contain escaped version
+			},
+		},
+		{
+			name:  "dollar signs in different quote contexts",
+			input: "quotes: echo 'Cost: \\$10' && echo \"Command: \\$(date)\" && echo Price:\\$5;",
+			expectedInCode: []string{
+				`echo 'Cost: $10' && echo "Command: $(date)" && echo Price:$5`,
+			},
+			notInCode: []string{
+				`\\$10`,   // Should not contain escaped version
+				`\\$(`,    // Should not contain escaped version
+				`Price:\\$`, // Should not contain escaped version
+			},
+		},
+		{
+			name:  "mixed with find command and braces",
+			input: "cleanup: find . -name \"*.log\" -exec sh -c 'echo \"Removing: \\$1\" && rm \"\\$1\"' _ {} \\;;",
+			expectedInCode: []string{
+				`find . -name "*.log" -exec sh -c 'echo "Removing: $1" && rm "$1"' _ {} \;`,
+			},
+			notInCode: []string{
+				`\\$1`, // Should not contain escaped version
+			},
+		},
+		{
+			name:  "environment variable operations",
+			input: "env: export PATH=\\$PATH:/usr/local/bin && echo \\$PATH && echo \"Node: \\$(which node)\";",
+			expectedInCode: []string{
+				`export PATH=$PATH:/usr/local/bin && echo $PATH && echo "Node: $(which node)"`,
+			},
+			notInCode: []string{
+				`\\$PATH`, // Should not contain escaped version
+				`\\$(`,    // Should not contain escaped version
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			cf, err := devcmdParser.Parse(tt.input)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			// Expand variables
+			err = cf.ExpandVariables()
+			if err != nil {
+				t.Fatalf("ExpandVariables error: %v", err)
+			}
+
+			// Generate Go code
+			generated, err := GenerateGo(cf)
+			if err != nil {
+				t.Fatalf("GenerateGo error: %v", err)
+			}
+
+			// Verify generated code is valid Go
+			if !isValidGoCode(t, generated) {
+				t.Errorf("Generated code is not valid Go")
+				t.Logf("Generated code:\n%s", generated)
+				return
+			}
+
+			// Check expected content
+			for _, expected := range tt.expectedInCode {
+				if !strings.Contains(generated, expected) {
+					t.Errorf("Generated code missing expected content: %q", expected)
+				}
+			}
+
+			// Check that unwanted content is not present
+			for _, notInCode := range tt.notInCode {
+				if strings.Contains(generated, notInCode) {
+					t.Errorf("Generated code contains unwanted content: %q", notInCode)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildShellCommand_DollarSyntax(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    devcmdParser.Command
+		expected string
+	}{
+		{
+			name: "simple command with escaped dollar",
+			input: devcmdParser.Command{
+				Command: "echo $(date)",
+			},
+			expected: "echo $(date)",
+		},
+		{
+			name: "block with mixed dollar syntax",
+			input: devcmdParser.Command{
+				IsBlock: true,
+				Block: []devcmdParser.BlockStatement{
+					{Command: "echo $HOME", Background: false},
+					{Command: "echo $(date)", Background: false},
+					{Command: "echo $$", Background: false},
+				},
+			},
+			expected: "echo $HOME; echo $(date); echo $$",
+		},
+		{
+			name: "block with background processes and dollar syntax",
+			input: devcmdParser.Command{
+				IsBlock: true,
+				Block: []devcmdParser.BlockStatement{
+					{Command: "echo $(date)", Background: true},
+					{Command: "echo $USER", Background: false},
+				},
+			},
+			expected: "echo $(date) &; echo $USER",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildShellCommand(tt.input)
+			if result != tt.expected {
+				t.Errorf("buildShellCommand() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// Integration test to verify the complete flow from parsing to generation
+func TestDollarSyntaxIntegration(t *testing.T) {
+	// This is a comprehensive example that combines all dollar syntax variants
+	complexInput := `
+def SRC = ./src;
+def PORT = 8080;
+def IMAGE = myapp:latest;
+
+# Regular command with mixed syntax
+info: echo "Source: $(SRC), User: \$USER, Time: \$(date)";
+
+# Block command with various dollar uses
+setup: {
+  echo "Building in $(SRC)";
+  export NODE_ENV=\$NODE_ENV;
+  echo "Environment: \$NODE_ENV";
+  echo "Build time: \$(date)"
+}
+
+# Watch command with background processes
+watch dev: {
+  echo "Starting development server on port $(PORT)";
+  cd $(SRC) && npm start &;
+  echo "Server PID: \$!";
+  echo "Monitor with: ps aux | grep \$(echo node)"
+}
+
+# Stop command with shell operations
+stop dev: {
+  echo "Stopping development server";
+  pkill -f "npm start" || echo "No npm processes";
+  echo "Stopped at: \$(date)"
+}
+
+# Docker command with complex shell operations
+docker: {
+  docker build -t $(IMAGE) .;
+  echo "Image ID: \$(docker images -q $(IMAGE))";
+  docker run -d -p $(PORT):3000 -e NODE_ENV=\$NODE_ENV $(IMAGE);
+  echo "Container: \$(docker ps -q -f ancestor=$(IMAGE))"
+}
+`
+
+	// Parse the input
+	cf, err := devcmdParser.Parse(complexInput)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	// Expand variables
+	err = cf.ExpandVariables()
+	if err != nil {
+		t.Fatalf("ExpandVariables error: %v", err)
+	}
+
+	// Generate Go code
+	generated, err := GenerateGo(cf)
+	if err != nil {
+		t.Fatalf("GenerateGo error: %v", err)
+	}
+
+	// Verify generated code is valid Go
+	if !isValidGoCode(t, generated) {
+		t.Errorf("Generated code is not valid Go")
+		t.Logf("Generated code:\n%s", generated)
+		return
+	}
+
+	// Check that key transformations occurred correctly
+	expectedTransformations := []string{
+		// Variable expansions
+		`echo "Source: ./src, User: $USER, Time: $(date)"`,
+		`echo "Starting development server on port 8080"`,
+		`docker build -t myapp:latest .`,
+		`docker run -d -p 8080:3000`,
+
+		// Shell syntax preservation
+		`export NODE_ENV=$NODE_ENV`,
+		`echo "Environment: $NODE_ENV"`,
+		`echo "Build time: $(date)"`,
+		`echo "Server PID: $!"`,
+		`echo "Monitor with: ps aux | grep $(echo node)"`,
+		`echo "Image ID: $(docker images -q myapp:latest)"`,
+		`echo "Container: $(docker ps -q -f ancestor=myapp:latest)"`,
+
+		// Process management for watch commands
+		`ProcessRegistry`,
+		`runInBackground`,
+		`syscall`,
+	}
+
+	for _, expected := range expectedTransformations {
+		if !strings.Contains(generated, expected) {
+			t.Errorf("Generated code missing expected transformation: %q", expected)
+		}
+	}
+
+	// Check that escape sequences are not present in final output
+	unwantedEscapes := []string{
+		`\$USER`,
+		`\$(date)`,
+		`\$!`,
+		`\$(echo`,
+		`\$(docker`,
+		`$(SRC)`,  // Should be expanded
+		`$(PORT)`, // Should be expanded
+		`$(IMAGE)`, // Should be expanded
+	}
+
+	for _, unwanted := range unwantedEscapes {
+		if strings.Contains(generated, unwanted) {
+			t.Errorf("Generated code contains unwanted escape sequence: %q", unwanted)
+		}
+	}
+}
+
 func TestImportHandling(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -79,6 +79,7 @@ commandText
       | OUR_VARIABLE_REFERENCE      // $(NAME)
       | SHELL_VARIABLE_REFERENCE    // $NAME
       | ESCAPED_SEMICOLON           // \\; for shell commands like find
+      | ESCAPED_DOLLAR              // \$ for shell variables and command substitution
       | AMPERSAND
       | COLON
       | EQUALS
@@ -111,9 +112,12 @@ OUR_VARIABLE_REFERENCE : '$(' NAME ')' ;
 SHELL_VARIABLE_REFERENCE : '$' [A-Za-z][A-Za-z0-9_]* ;
 
 // VERY HIGH PRIORITY: Shell escaped semicolon - MUST come before all other escape rules
-// User writes \\; in devcmd source to get \; in the generated shell command
 // This is needed for POSIX commands like: find . -name "*.tmp" -exec rm {} \;
 ESCAPED_SEMICOLON : '\\;' ;
+
+// User writes \$ in devcmd source to get $ in the generated shell command
+// This is needed for shell variables (\$PATH) and command substitution (\$(date))
+ESCAPED_DOLLAR : '\\$' ;
 
 // HIGH PRIORITY: Other escape sequences
 // Note: semicolon is NOT included here since it's handled above

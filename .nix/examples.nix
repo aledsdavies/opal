@@ -1,4 +1,10 @@
 # Example devcmd configurations and generated CLIs
+#
+# Note: In devcmd syntax, shell command substitution must be escaped as \$()
+# since devcmd reserves $() for its own variable references:
+#   - $(VAR) = devcmd variable reference
+#   - \$(command) = shell command substitution (escaped)
+#   - \$VAR = shell variable reference (escaped)
 { pkgs, lib, self, system }:
 
 let
@@ -111,15 +117,16 @@ in rec {
     '';
   };
 
-  # Go project with comprehensive tooling - FIXED to avoid conflicts
+  # Go project with comprehensive tooling - demonstrates shell escaping patterns
   goProject = devcmdLib.mkDevCLI {
     name = "godev";
     commandsContent = ''
       # Go project development
       def MODULE = github.com/example/myproject;
       def BINARY = myproject;
-      def VERSION = $(git describe --tags --always 2>/dev/null || echo "dev");
-      def LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ);
+      # Shell command substitution must be escaped as \$() since devcmd uses $() for variables
+      def VERSION = \$(git describe --tags --always 2>/dev/null || echo "dev");
+      def LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.BuildTime=\$(date -u +%Y-%m-%dT%H:%M:%SZ);
 
       init: {
         echo "Initializing Go project...";
@@ -177,7 +184,7 @@ in rec {
         echo "Linting complete"
       }
 
-      # FIXED: Changed "watch test" to "watch tests" to avoid conflict
+      # Use "watch tests" instead of "watch test" to avoid conflict with existing "test" command
       watch tests: {
         echo "Watching for changes and running tests...";
         (which watchexec && watchexec -e go -- go test ./...) || echo "watchexec not found"
@@ -264,7 +271,7 @@ in rec {
         cargo run
       }
 
-      # FIXED: Changed "watch dev" to "watch develop" to be more descriptive
+      # Use "watch develop" for clarity and to distinguish from other dev-related commands
       watch develop: {
         echo "Watching for changes...";
         (which cargo-watch && cargo watch -x run) || echo "cargo-watch not installed"
@@ -430,9 +437,10 @@ in rec {
 
       backup: {
         echo "Creating backup...";
-        DATE=$(date +%Y%m%d-%H%M%S);
-        echo "Backup timestamp: $DATE";
-        (which kubectl && kubectl exec deployment/database -n $(KUBE_NAMESPACE) -- pg_dump myapp > backup-$DATE.sql) || echo "No database"
+        # Shell command substitution requires \$() escaping since devcmd reserves $() for variables
+        DATE=\$(date +%Y%m%d-%H%M%S);
+        echo "Backup timestamp: \$DATE";
+        (which kubectl && kubectl exec deployment/database -n $(KUBE_NAMESPACE) -- pg_dump myapp > backup-\$DATE.sql) || echo "No database"
       }
 
       monitor: {

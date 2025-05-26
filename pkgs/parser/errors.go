@@ -103,12 +103,19 @@ func Validate(file *CommandFile) error {
 
 	// 2. Check for variable references in command text
 	checkVarReferences := func(text string, line int, lineContent string) {
-		// Find all $(var) references in text
+		// Find all $(var) references in text, but skip escaped sequences
 		var inVar bool
 		var varName strings.Builder
 
 		for i := 0; i < len(text); i++ {
 			if !inVar {
+				// Check for escaped dollar sign \$ - skip over it
+				if i+1 < len(text) && text[i] == '\\' && text[i+1] == '$' {
+					i += 1 // Skip both '\' and '$', will be incremented by for loop
+					continue
+				}
+
+				// Look for unescaped variable reference $(
 				if i+1 < len(text) && text[i] == '$' && text[i+1] == '(' {
 					inVar = true
 					varName.Reset()
