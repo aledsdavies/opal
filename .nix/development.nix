@@ -5,6 +5,8 @@ pkgs.mkShell {
   name = "devcmd-dev";
 
   buildInputs = with pkgs; [
+
+
     # Core Go development
     go
     gopls
@@ -20,6 +22,7 @@ pkgs.mkShell {
     zsh
 
     # Optional: code formatting
+    nixpkgs-fmt
     gofumpt
   ];
 

@@ -20,7 +20,8 @@
         # preProcess = text: "# Auto-generated\n" + text;
       };
 
-    in {
+    in
+    {
       # Make the CLI available as a package
       packages.${system} = {
         default = projectCLI;

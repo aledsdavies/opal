@@ -948,7 +948,7 @@ func TestDollarSyntaxErrorCases(t *testing.T) {
 		{
 			name:          "malformed escaped syntax should still parse",
 			input:         "test: echo \\$(;", // Incomplete but should parse the escape
-			wantErrSubstr: "", // Should not error on parsing, just produce the literal
+			wantErrSubstr: "",                 // Should not error on parsing, just produce the literal
 		},
 	}
 

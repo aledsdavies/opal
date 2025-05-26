@@ -72,11 +72,16 @@
               name = "devcmd-test-env";
               buildInputs = with pkgs; [
                 # Core development tools
-                go gopls golangci-lint
+                go
+                gopls
+                golangci-lint
                 # Testing tools
-                python3 nodejs
+                python3
+                nodejs
                 # Utilities
-                git curl wget
+                git
+                curl
+                wget
               ] ++ [
                 # Include all example CLIs for testing
                 examples.basicDev

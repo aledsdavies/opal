@@ -952,8 +952,8 @@ func TestGenerateGo_DollarSyntaxEdgeCases(t *testing.T) {
 				`echo 'Cost: $10' && echo "Command: $(date)" && echo Price:$5`,
 			},
 			notInCode: []string{
-				`\\$10`,   // Should not contain escaped version
-				`\\$(`,    // Should not contain escaped version
+				`\\$10`,     // Should not contain escaped version
+				`\\$(`,      // Should not contain escaped version
 				`Price:\\$`, // Should not contain escaped version
 			},
 		},
@@ -1176,8 +1176,8 @@ docker: {
 		`\$!`,
 		`\$(echo`,
 		`\$(docker`,
-		`$(SRC)`,  // Should be expanded
-		`$(PORT)`, // Should be expanded
+		`$(SRC)`,   // Should be expanded
+		`$(PORT)`,  // Should be expanded
 		`$(IMAGE)`, // Should be expanded
 	}
 

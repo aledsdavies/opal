@@ -120,7 +120,7 @@ func expandVariablesInText(text string, vars map[string]string, line int) (strin
 			case 'x':
 				// Hex escape: \xXX
 				if i+3 < len(text) && isHexDigit(text[i+2]) && isHexDigit(text[i+3]) {
-					hex := text[i+2:i+4]
+					hex := text[i+2 : i+4]
 					if val, err := parseHexByte(hex); err == nil {
 						result = append(result, val)
 						i += 4
@@ -137,9 +137,9 @@ func expandVariablesInText(text string, vars map[string]string, line int) (strin
 			case 'u':
 				// Unicode escape: \uXXXX
 				if i+5 < len(text) &&
-				   isHexDigit(text[i+2]) && isHexDigit(text[i+3]) &&
-				   isHexDigit(text[i+4]) && isHexDigit(text[i+5]) {
-					hex := text[i+2:i+6]
+					isHexDigit(text[i+2]) && isHexDigit(text[i+3]) &&
+					isHexDigit(text[i+4]) && isHexDigit(text[i+5]) {
+					hex := text[i+2 : i+6]
 					if val, err := parseHexRune(hex); err == nil {
 						result = append(result, []byte(string(val))...)
 						i += 6
@@ -242,7 +242,7 @@ func processEscapeSequences(text string) ([]byte, error) {
 			case 'x':
 				// Hex escape: \xXX
 				if i+3 < len(text) && isHexDigit(text[i+2]) && isHexDigit(text[i+3]) {
-					hex := text[i+2:i+4]
+					hex := text[i+2 : i+4]
 					if val, err := parseHexByte(hex); err == nil {
 						result = append(result, val)
 						i += 4
@@ -259,9 +259,9 @@ func processEscapeSequences(text string) ([]byte, error) {
 			case 'u':
 				// Unicode escape: \uXXXX
 				if i+5 < len(text) &&
-				   isHexDigit(text[i+2]) && isHexDigit(text[i+3]) &&
-				   isHexDigit(text[i+4]) && isHexDigit(text[i+5]) {
-					hex := text[i+2:i+6]
+					isHexDigit(text[i+2]) && isHexDigit(text[i+3]) &&
+					isHexDigit(text[i+4]) && isHexDigit(text[i+5]) {
+					hex := text[i+2 : i+6]
 					if val, err := parseHexRune(hex); err == nil {
 						result = append(result, []byte(string(val))...)
 						i += 6
