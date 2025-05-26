@@ -301,12 +301,38 @@ type SyntaxError struct {
 	Message string
 }
 
-// SyntaxError is called by ANTLR when a syntax error is encountered
+// simplifyErrorMessage converts verbose ANTLR messages to user-friendly ones
+func simplifyErrorMessage(msg string) string {
+	// Common ANTLR error patterns and their simplified versions
+	if strings.Contains(msg, "expecting") && strings.Contains(msg, "';'") {
+		return "missing ';'"
+	}
+	if strings.Contains(msg, "missing '}'") {
+		return "missing '}'"
+	}
+	if strings.Contains(msg, "missing ':'") {
+		return "missing ':'"
+	}
+	if strings.Contains(msg, "expecting") && strings.Contains(msg, "'}'") {
+		return "missing '}'"
+	}
+	if strings.Contains(msg, "no viable alternative") {
+		return "syntax error"
+	}
+	if strings.Contains(msg, "extraneous input") {
+		return "unexpected input"
+	}
+
+	// Return original message if no pattern matches
+	return msg
+}
+
+// Update your existing SyntaxError method in ErrorCollector to use this:
 func (e *ErrorCollector) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, ex antlr.RecognitionException) {
 	e.errors = append(e.errors, SyntaxError{
 		Line:    line,
 		Column:  column,
-		Message: msg,
+		Message: simplifyErrorMessage(msg), // Use the simplified message
 	})
 }
 
@@ -517,7 +543,7 @@ func (v *DevcmdVisitor) getCommandTextWithBackground(ctx *gen.BlockStatementCont
 }
 
 // getOriginalText extracts the original source text for a rule context
-// This function automatically handles all token types including the new NUMBER token
+// This function handles BACKSLASH SEMICOLON sequences specially for command text
 func (v *DevcmdVisitor) getOriginalText(ctx antlr.ParserRuleContext) string {
 	if ctx == nil {
 		return ""
@@ -532,8 +558,13 @@ func (v *DevcmdVisitor) getOriginalText(ctx antlr.ParserRuleContext) string {
 
 	text := v.inputStream.GetText(start, stop)
 
-	// If this is a command text, trim leading whitespace
+	// For command text contexts, handle special cases
 	if _, ok := ctx.(*gen.CommandTextContext); ok {
+		// Handle the conversion from \\; (input) to \; (output)
+		// The grammar should now parse \\; as BACKSLASH SEMICOLON sequence
+		text = strings.ReplaceAll(text, "\\\\;", "\\;")
+		text = strings.TrimLeft(text, " \t")
+	} else {
 		text = strings.TrimLeft(text, " \t")
 	}
 

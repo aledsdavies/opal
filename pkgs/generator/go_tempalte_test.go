@@ -18,7 +18,7 @@ func TestPreprocessCommands(t *testing.T) {
 	}{
 		{
 			name:  "simple command",
-			input: "build: go build ./...",
+			input: "build: go build ./...;",
 			expectedData: func(data *TemplateData) bool {
 				return len(data.Commands) == 1 &&
 					data.Commands[0].Name == "build" &&
@@ -30,7 +30,7 @@ func TestPreprocessCommands(t *testing.T) {
 		},
 		{
 			name:  "watch command",
-			input: "watch server: npm start",
+			input: "watch server: npm start;",
 			expectedData: func(data *TemplateData) bool {
 				return len(data.Commands) == 1 &&
 					data.Commands[0].Name == "server" &&
@@ -41,7 +41,7 @@ func TestPreprocessCommands(t *testing.T) {
 		},
 		{
 			name:  "stop command",
-			input: "stop server: pkill node",
+			input: "stop server: pkill node;",
 			expectedData: func(data *TemplateData) bool {
 				return len(data.Commands) == 1 &&
 					data.Commands[0].Name == "server" &&
@@ -51,7 +51,7 @@ func TestPreprocessCommands(t *testing.T) {
 		},
 		{
 			name:  "hyphenated command name",
-			input: "check-deps: which go",
+			input: "check-deps: which go;",
 			expectedData: func(data *TemplateData) bool {
 				return len(data.Commands) == 1 &&
 					data.Commands[0].Name == "check-deps" &&
@@ -60,7 +60,7 @@ func TestPreprocessCommands(t *testing.T) {
 		},
 		{
 			name:  "watch-stop pair",
-			input: "watch server: npm start\nstop server: pkill node",
+			input: "watch server: npm start;\nstop server: pkill node;",
 			expectedData: func(data *TemplateData) bool {
 				return len(data.Commands) == 1 &&
 					data.Commands[0].Name == "server" &&
@@ -186,7 +186,7 @@ func TestGenerateGo_BasicCommands(t *testing.T) {
 	}{
 		{
 			name:  "simple command",
-			input: "build: go build ./...",
+			input: "build: go build ./...;",
 			expectedInCode: []string{
 				"func (c *CLI) runBuild(args []string)",
 				`go build ./...`,
@@ -202,7 +202,7 @@ func TestGenerateGo_BasicCommands(t *testing.T) {
 		},
 		{
 			name:  "command with POSIX parentheses",
-			input: "check: (which go && echo \"found\") || echo \"not found\"",
+			input: "check: (which go && echo \"found\") || echo \"not found\";",
 			expectedInCode: []string{
 				"func (c *CLI) runCheck(args []string)",
 				`(which go && echo "found") || echo "not found"`,
@@ -215,7 +215,7 @@ func TestGenerateGo_BasicCommands(t *testing.T) {
 		},
 		{
 			name:  "command with watch/stop keywords in text",
-			input: "monitor: watch -n 1 \"ps aux\" && echo \"stop with Ctrl+C\"",
+			input: "monitor: watch -n 1 \"ps aux\" && echo \"stop with Ctrl+C\";",
 			expectedInCode: []string{
 				"func (c *CLI) runMonitor(args []string)",
 				`watch -n 1 "ps aux" && echo "stop with Ctrl+C"`,
@@ -227,11 +227,24 @@ func TestGenerateGo_BasicCommands(t *testing.T) {
 		},
 		{
 			name:  "hyphenated command name",
-			input: "check-deps: which go || echo missing",
+			input: "check-deps: which go || echo missing;",
 			expectedInCode: []string{
 				"func (c *CLI) runCheckDeps(args []string)",
 				`case "check-deps":`, // Case should use original name
 				"c.runCheckDeps(args)",
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+			},
+		},
+		{
+			name:  "command with POSIX find and braces",
+			input: "cleanup: find . -name \"*.tmp\" -exec rm {} \\;;",
+			expectedInCode: []string{
+				"func (c *CLI) runCleanup(args []string)",
+				`find . -name "*.tmp" -exec rm {} \;`,
+				`case "cleanup":`,
 			},
 			notInCode: []string{
 				"syscall",
@@ -287,7 +300,7 @@ func TestGenerateGo_WatchStopCommands(t *testing.T) {
 	}{
 		{
 			name:  "simple watch command",
-			input: "watch server: npm start",
+			input: "watch server: npm start;",
 			expectedInCode: []string{
 				"ProcessRegistry",
 				"runInBackground",
@@ -299,19 +312,19 @@ func TestGenerateGo_WatchStopCommands(t *testing.T) {
 		},
 		{
 			name:  "simple stop command",
-			input: "stop server: pkill node",
+			input: "stop server: pkill node;",
 			expectedInCode: []string{
 				"func (c *CLI) runServer(args []string)",
 				`pkill node`,
 			},
 			notInCode: []string{
 				"ProcessRegistry", // No watch commands means no process management
-				"syscall", // Stop-only commands don't need syscall
+				"syscall",         // Stop-only commands don't need syscall
 			},
 		},
 		{
 			name:  "watch and stop pair",
-			input: "watch api: go run main.go\nstop api: pkill -f main.go",
+			input: "watch api: go run main.go;\nstop api: pkill -f main.go;",
 			expectedInCode: []string{
 				"ProcessRegistry", // Should have ProcessRegistry due to watch command
 				"func (c *CLI) runApi(args []string)",
@@ -322,11 +335,21 @@ func TestGenerateGo_WatchStopCommands(t *testing.T) {
 		},
 		{
 			name:  "watch command with parentheses",
-			input: "watch dev: (cd src && npm start)",
+			input: "watch dev: (cd src && npm start);",
 			expectedInCode: []string{
 				"ProcessRegistry",
 				"runInBackground",
 				`(cd src && npm start)`,
+				"syscall",
+			},
+		},
+		{
+			name:  "watch command with POSIX find and braces",
+			input: "watch cleanup: find . -name \"*.tmp\" -exec rm {} \\;;",
+			expectedInCode: []string{
+				"ProcessRegistry",
+				"runInBackground",
+				`find . -name "*.tmp" -exec rm {} \;`,
 				"syscall",
 			},
 		},
@@ -422,6 +445,18 @@ func TestGenerateGo_BlockCommands(t *testing.T) {
 				"ProcessRegistry",
 			},
 		},
+		{
+			name:  "block with POSIX find and braces",
+			input: "cleanup: { find . -name \"*.tmp\" -exec rm {} \\;; echo \"cleanup done\" }",
+			expectedInCode: []string{
+				`find . -name "*.tmp" -exec rm {} \;`,
+				`echo "cleanup done"`,
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -473,8 +508,8 @@ func TestGenerateGo_VariableHandling(t *testing.T) {
 			name: "commands with variables",
 			input: `def SRC = ./src;
 def PORT = 8080;
-build: cd $(SRC) && go build
-start: go run $(SRC) --port=$(PORT)`,
+build: cd $(SRC) && go build;
+start: go run $(SRC) --port=$(PORT);`,
 			expectedInCode: []string{
 				"func (c *CLI) runBuild(args []string)",
 				"func (c *CLI) runStart(args []string)",
@@ -489,9 +524,21 @@ start: go run $(SRC) --port=$(PORT)`,
 		{
 			name: "variables with parentheses",
 			input: `def CHECK = (which go || echo "missing");
-validate: $(CHECK) && echo "ok"`,
+validate: $(CHECK) && echo "ok";`,
 			expectedInCode: []string{
 				`(which go || echo "missing") && echo "ok"`,
+			},
+			notInCode: []string{
+				"syscall",
+				"ProcessRegistry",
+			},
+		},
+		{
+			name: "variables with POSIX find and braces",
+			input: `def PATTERN = "*.tmp";
+cleanup: find . -name $(PATTERN) -exec rm {} \;;`,
+			expectedInCode: []string{
+				`find . -name "*.tmp" -exec rm {} \;`,
 			},
 			notInCode: []string{
 				"syscall",
@@ -651,14 +698,14 @@ deps: {
 
 func TestImportHandling(t *testing.T) {
 	tests := []struct {
-		name           string
-		input          string
-		shouldHave     []string
-		shouldNotHave  []string
+		name          string
+		input         string
+		shouldHave    []string
+		shouldNotHave []string
 	}{
 		{
 			name:  "regular commands only - minimal imports",
-			input: "build: go build\ntest: go test\nclean: rm -rf dist",
+			input: "build: go build;\ntest: go test;\nclean: rm -rf dist;",
 			shouldHave: []string{
 				`"fmt"`,
 				`"os"`,
@@ -674,7 +721,7 @@ func TestImportHandling(t *testing.T) {
 		},
 		{
 			name:  "watch commands - full imports",
-			input: "watch server: npm start",
+			input: "watch server: npm start;",
 			shouldHave: []string{
 				`"fmt"`,
 				`"os"`,
@@ -686,7 +733,7 @@ func TestImportHandling(t *testing.T) {
 		},
 		{
 			name:  "mixed commands - full imports due to watch",
-			input: "build: go build\nwatch dev: npm start",
+			input: "build: go build;\nwatch dev: npm start;",
 			shouldHave: []string{
 				`"fmt"`,
 				`"os"`,
@@ -815,11 +862,15 @@ func TestGenerateGo_EdgeCases(t *testing.T) {
 		},
 		{
 			name:  "command with special characters",
-			input: `special: echo "quotes" && echo 'single' && echo \$escaped`,
+			input: `special: echo "quotes" && echo 'single' && echo \$escaped;`,
 		},
 		{
 			name:  "command with unicode",
-			input: "unicode: echo \"Hello 世界\"",
+			input: "unicode: echo \"Hello 世界\";",
+		},
+		{
+			name:  "command with POSIX find and braces",
+			input: "cleanup: find . -name \"*.tmp\" -exec rm {} \\;;",
 		},
 	}
 

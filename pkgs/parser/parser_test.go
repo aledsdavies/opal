@@ -15,35 +15,35 @@ func TestBasicParsing(t *testing.T) {
 	}{
 		{
 			name:        "simple command",
-			input:       "build: echo hello",
+			input:       "build: echo hello;",
 			wantCommand: "echo hello",
 			wantName:    "build",
 			wantErr:     false,
 		},
 		{
 			name:        "command with arguments",
-			input:       "test: go test -v ./...",
+			input:       "test: go test -v ./...;",
 			wantCommand: "go test -v ./...",
 			wantName:    "test",
 			wantErr:     false,
 		},
 		{
 			name:        "command with special characters",
-			input:       "run: echo 'Hello, World!'",
+			input:       "run: echo 'Hello, World!';",
 			wantCommand: "echo 'Hello, World!'",
 			wantName:    "run",
 			wantErr:     false,
 		},
 		{
 			name:        "command with empty content",
-			input:       "noop: ",
+			input:       "noop: ;",
 			wantCommand: "",
 			wantName:    "noop",
 			wantErr:     false,
 		},
 		{
 			name:        "command with trailing space",
-			input:       "build: make all   ",
+			input:       "build: make all   ;",
 			wantCommand: "make all",
 			wantName:    "build",
 			wantErr:     false,
@@ -51,28 +51,28 @@ func TestBasicParsing(t *testing.T) {
 		// New edge cases for parentheses and POSIX syntax
 		{
 			name:        "command with parentheses - simple subshell",
-			input:       "check: (echo test)",
+			input:       "check: (echo test);",
 			wantCommand: "(echo test)",
 			wantName:    "check",
 			wantErr:     false,
 		},
 		{
 			name:        "command with parentheses - complex POSIX",
-			input:       "validate: (echo \"Go not installed\" && exit 1)",
+			input:       "validate: (echo \"Go not installed\" && exit 1);",
 			wantCommand: "(echo \"Go not installed\" && exit 1)",
 			wantName:    "validate",
 			wantErr:     false,
 		},
 		{
 			name:        "command with conditional and parentheses",
-			input:       "setup: which go || (echo \"Go not installed\" && exit 1)",
+			input:       "setup: which go || (echo \"Go not installed\" && exit 1);",
 			wantCommand: "which go || (echo \"Go not installed\" && exit 1)",
 			wantName:    "setup",
 			wantErr:     false,
 		},
 		{
 			name:        "command with nested parentheses",
-			input:       "complex: (cd src && (make clean || echo \"already clean\"))",
+			input:       "complex: (cd src && (make clean || echo \"already clean\"));",
 			wantCommand: "(cd src && (make clean || echo \"already clean\"))",
 			wantName:    "complex",
 			wantErr:     false,
@@ -80,23 +80,45 @@ func TestBasicParsing(t *testing.T) {
 		// Test that 'watch' and 'stop' can appear in command text
 		{
 			name:        "command containing watch keyword",
-			input:       "monitor: echo \"watching files\" && watch -n 1 ls",
+			input:       "monitor: echo \"watching files\" && watch -n 1 ls;",
 			wantCommand: "echo \"watching files\" && watch -n 1 ls",
 			wantName:    "monitor",
 			wantErr:     false,
 		},
 		{
 			name:        "command containing stop keyword",
-			input:       "halt: echo \"stopping service\" && systemctl stop nginx",
+			input:       "halt: echo \"stopping service\" && systemctl stop nginx;",
 			wantCommand: "echo \"stopping service\" && systemctl stop nginx",
 			wantName:    "halt",
 			wantErr:     false,
 		},
 		{
 			name:        "command with both watch and stop in text",
-			input:       "manage: watch -n 5 \"systemctl status app || systemctl stop app\"",
+			input:       "manage: watch -n 5 \"systemctl status app || systemctl stop app\";",
 			wantCommand: "watch -n 5 \"systemctl status app || systemctl stop app\"",
 			wantName:    "manage",
+			wantErr:     false,
+		},
+		// Test POSIX shell constructs with braces
+		{
+			name:        "find command with braces",
+			input:       "cleanup: find . -name \"*.tmp\" -exec rm {} \\;;",
+			wantCommand: "find . -name \"*.tmp\" -exec rm {} \\;",
+			wantName:    "cleanup",
+			wantErr:     false,
+		},
+		{
+			name:        "complex find with multiple braces",
+			input:       "deep-clean: find . \\( -name \"*.log\" -o -name \"*.tmp\" \\) -exec rm {} \\;;",
+			wantCommand: "find . \\( -name \"*.log\" -o -name \"*.tmp\" \\) -exec rm {} \\;",
+			wantName:    "deep-clean",
+			wantErr:     false,
+		},
+		{
+			name:        "test command with braces",
+			input:       "check-files: test -f {} && echo \"File exists\" || echo \"Missing\";",
+			wantCommand: "test -f {} && echo \"File exists\" || echo \"Missing\"",
+			wantName:    "check-files",
 			wantErr:     false,
 		},
 	}
@@ -216,6 +238,13 @@ func TestDefinitions(t *testing.T) {
 			input:     "def MONITOR = watch -n 1 \"ps aux | grep myapp\";",
 			wantName:  "MONITOR",
 			wantValue: "watch -n 1 \"ps aux | grep myapp\"",
+			wantErr:   false,
+		},
+		{
+			name:      "definition with braces",
+			input:     "def FIND_CMD = find . -name \"*.tmp\" -exec rm {} \\;;",
+			wantName:  "FIND_CMD",
+			wantValue: "find . -name \"*.tmp\" -exec rm {} \\;",
 			wantErr:   false,
 		},
 	}
@@ -343,6 +372,25 @@ func TestBlockCommands(t *testing.T) {
 			wantBackground: []bool{true, false},
 			wantErr:        false,
 		},
+		// New edge cases for POSIX braces in block commands
+		{
+			name:           "block with find commands using braces",
+			input:          "cleanup: { find . -name \"*.tmp\" -exec rm {} \\;; echo \"cleanup done\" }",
+			wantName:       "cleanup",
+			wantBlockSize:  2,
+			wantCommands:   []string{"find . -name \"*.tmp\" -exec rm {} \\;", "echo \"cleanup done\""},
+			wantBackground: []bool{false, false},
+			wantErr:        false,
+		},
+		{
+			name:           "block with complex braces and background",
+			input:          "parallel-clean: { find /tmp -name \"*.log\" -exec rm {} \\; &; find /var -name \"*.tmp\" -exec rm {} \\; & }",
+			wantName:       "parallel-clean",
+			wantBlockSize:  2,
+			wantCommands:   []string{"find /tmp -name \"*.log\" -exec rm {} \\;", "find /var -name \"*.tmp\" -exec rm {} \\;"},
+			wantBackground: []bool{true, true},
+			wantErr:        false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -409,7 +457,7 @@ func TestWatchStopCommands(t *testing.T) {
 	}{
 		{
 			name:      "simple watch command",
-			input:     "watch server: npm start",
+			input:     "watch server: npm start;",
 			wantName:  "server",
 			wantWatch: true,
 			wantStop:  false,
@@ -419,7 +467,7 @@ func TestWatchStopCommands(t *testing.T) {
 		},
 		{
 			name:      "simple stop command",
-			input:     "stop server: pkill node",
+			input:     "stop server: pkill node;",
 			wantName:  "server",
 			wantWatch: false,
 			wantStop:  true,
@@ -450,7 +498,7 @@ func TestWatchStopCommands(t *testing.T) {
 		// New edge cases for parentheses in watch/stop commands
 		{
 			name:      "watch command with parentheses",
-			input:     "watch api: (cd api && npm start)",
+			input:     "watch api: (cd api && npm start);",
 			wantName:  "api",
 			wantWatch: true,
 			wantStop:  false,
@@ -460,7 +508,7 @@ func TestWatchStopCommands(t *testing.T) {
 		},
 		{
 			name:      "stop command with complex parentheses",
-			input:     "stop services: (pkill -f \"node.*server\" || echo \"no node processes\")",
+			input:     "stop services: (pkill -f \"node.*server\" || echo \"no node processes\");",
 			wantName:  "services",
 			wantWatch: false,
 			wantStop:  true,
@@ -476,6 +524,27 @@ func TestWatchStopCommands(t *testing.T) {
 			wantStop:  false,
 			wantText:  "",
 			wantBlock: true,
+			wantErr:   false,
+		},
+		// New edge cases for POSIX braces in watch/stop commands
+		{
+			name:      "watch command with find and braces",
+			input:     "watch cleanup: find . -name \"*.tmp\" -exec rm {} \\;;",
+			wantName:  "cleanup",
+			wantWatch: true,
+			wantStop:  false,
+			wantText:  "find . -name \"*.tmp\" -exec rm {} \\;",
+			wantBlock: false,
+			wantErr:   false,
+		},
+		{
+			name:      "stop command with test and braces",
+			input:     "stop validator: test -f {} && rm {} || echo \"file not found\";",
+			wantName:  "validator",
+			wantWatch: false,
+			wantStop:  true,
+			wantText:  "test -f {} && rm {} || echo \"file not found\"",
+			wantBlock: false,
 			wantErr:   false,
 		},
 	}
@@ -533,13 +602,13 @@ func TestVariableReferences(t *testing.T) {
 	}{
 		{
 			name:         "simple variable reference",
-			input:        "def SRC = ./src;\nbuild: cd $(SRC) && make",
+			input:        "def SRC = ./src;\nbuild: cd $(SRC) && make;",
 			wantExpanded: "cd ./src && make",
 			wantErr:      false,
 		},
 		{
 			name:         "multiple variable references",
-			input:        "def SRC = ./src;\ndef BIN = ./bin;\nbuild: cp $(SRC)/main $(BIN)/app",
+			input:        "def SRC = ./src;\ndef BIN = ./bin;\nbuild: cp $(SRC)/main $(BIN)/app;",
 			wantExpanded: "cp ./src/main ./bin/app",
 			wantErr:      false,
 		},
@@ -551,27 +620,46 @@ func TestVariableReferences(t *testing.T) {
 		},
 		{
 			name:         "escaped dollar sign",
-			input:        "def PATH = /bin;\necho: echo \\$PATH is $(PATH)",
+			input:        "def PATH = /bin;\necho: echo \\$PATH is $(PATH);",
 			wantExpanded: "echo $PATH is /bin",
 			wantErr:      false,
 		},
 		{
 			name:         "undefined variable",
-			input:        "build: echo $(UNDEFINED)",
+			input:        "build: echo $(UNDEFINED);",
 			wantExpanded: "",
 			wantErr:      true, // Should fail during ExpandVariables
 		},
 		// New edge cases for parentheses with variables
 		{
 			name:         "variable with parentheses in value",
-			input:        "def CHECK = (which go || echo \"not found\");\nvalidate: $(CHECK)",
+			input:        "def CHECK = (which go || echo \"not found\");\nvalidate: $(CHECK);",
 			wantExpanded: "(which go || echo \"not found\")",
 			wantErr:      false,
 		},
 		{
 			name:         "variable in parentheses expression",
-			input:        "def CMD = make clean;\nbuild: ($(CMD) && echo \"cleaned\") || echo \"failed\"",
+			input:        "def CMD = make clean;\nbuild: ($(CMD) && echo \"cleaned\") || echo \"failed\";",
 			wantExpanded: "(make clean && echo \"cleaned\") || echo \"failed\"",
+			wantErr:      false,
+		},
+		// New edge cases for POSIX braces with variables
+		{
+			name:         "variable with find braces",
+			input:        "def PATTERN = \"*.tmp\";\ncleanup: find . -name $(PATTERN) -exec rm {} \\;;",
+			wantExpanded: "find . -name \"*.tmp\" -exec rm {} \\;",
+			wantErr:      false,
+		},
+		{
+			name:         "variable with escaped characters",
+			input:        "def MSG = \"Cost: \\$50\";\necho: echo $(MSG);",
+			wantExpanded: "echo \"Cost: $50\"",
+			wantErr:      false,
+		},
+		{
+			name:         "variable with test braces",
+			input:        "def FILE = config.json;\ncheck: test -f $(FILE) && echo \"found {}\" || echo \"not found\";",
+			wantExpanded: "test -f config.json && echo \"found {}\" || echo \"not found\"",
 			wantErr:      false,
 		},
 	}
@@ -630,39 +718,52 @@ func TestContinuationLines(t *testing.T) {
 	}{
 		{
 			name:        "simple continuation",
-			input:       "build: echo hello \\\nworld",
+			input:       "build: echo hello \\\nworld;",
 			wantCommand: "echo hello world",
 			wantErr:     false,
 		},
 		{
 			name:        "multiple continuations",
-			input:       "build: echo hello \\\nworld \\\nuniverse",
+			input:       "build: echo hello \\\nworld \\\nuniverse;",
 			wantCommand: "echo hello world universe",
 			wantErr:     false,
 		},
 		{
 			name:        "continuation with variables",
-			input:       "def DIR = src;\nbuild: cd $(DIR) \\\n&& make",
+			input:       "def DIR = src;\nbuild: cd $(DIR) \\\n&& make;",
 			wantCommand: "cd $(DIR) && make",
 			wantErr:     false,
 		},
 		{
 			name:        "continuation with indentation",
-			input:       "build: echo hello \\\n    world",
+			input:       "build: echo hello \\\n    world;",
 			wantCommand: "echo hello world",
 			wantErr:     false,
 		},
 		// New edge cases for continuations with parentheses
 		{
 			name:        "continuation with parentheses",
-			input:       "check: (which go \\\n|| echo \"not found\")",
+			input:       "check: (which go \\\n|| echo \"not found\");",
 			wantCommand: "(which go || echo \"not found\")",
 			wantErr:     false,
 		},
 		{
 			name:        "complex continuation with parentheses",
-			input:       "setup: (cd src && \\\nmake clean) \\\n|| echo \"failed\"",
+			input:       "setup: (cd src && \\\nmake clean) \\\n|| echo \"failed\";",
 			wantCommand: "(cd src && make clean) || echo \"failed\"",
+			wantErr:     false,
+		},
+		// New edge cases for continuations with POSIX braces
+		{
+			name:        "continuation with find braces",
+			input:       "cleanup: find . -name \"*.tmp\" \\\n-exec rm {} \\;;",
+			wantCommand: "find . -name \"*.tmp\" -exec rm {} \\;",
+			wantErr:     false,
+		},
+		{
+			name:        "complex continuation with braces",
+			input:       "batch: find . \\( -name \"*.log\" \\\n-o -name \"*.tmp\" \\) \\\n-exec rm {} \\;;",
+			wantCommand: "find . \\( -name \"*.log\" -o -name \"*.tmp\" \\) -exec rm {} \\;",
 			wantErr:     false,
 		},
 	}
@@ -684,8 +785,9 @@ func TestContinuationLines(t *testing.T) {
 			// Find the actual command (might not be the first one in some tests)
 			var cmd *Command
 			for i := range result.Commands {
-				if strings.HasPrefix(result.Commands[i].Command, "echo") ||
-					strings.HasPrefix(result.Commands[i].Command, "cd") ||
+				if strings.Contains(result.Commands[i].Command, "echo") ||
+					strings.Contains(result.Commands[i].Command, "cd") ||
+					strings.Contains(result.Commands[i].Command, "find") ||
 					strings.HasPrefix(result.Commands[i].Command, "(") {
 					cmd = &result.Commands[i]
 					break
@@ -712,7 +814,7 @@ func TestErrorHandling(t *testing.T) {
 	}{
 		{
 			name:          "duplicate command",
-			input:         "build: echo hello\nbuild: echo world",
+			input:         "build: echo hello;\nbuild: echo world;",
 			wantErrSubstr: "duplicate command",
 		},
 		{
@@ -722,23 +824,34 @@ func TestErrorHandling(t *testing.T) {
 		},
 		{
 			name:          "syntax error in command",
-			input:         "build echo hello", // Missing colon
-			wantErrSubstr: "missing ':'",      // Updated to match actual error
+			input:         "build echo hello;", // Missing colon
+			wantErrSubstr: "missing ':'",       // Updated to match actual error
 		},
 		{
 			name:          "unclosed block",
-			input:         "build: { echo hello",
+			input:         "build: { echo hello;",
 			wantErrSubstr: "missing '}'", // Updated to match actual error
 		},
 		{
 			name:          "bad variable expansion",
-			input:         "build: echo $(missingVar)",
+			input:         "build: echo $(missingVar);",
 			wantErrSubstr: "undefined variable",
 		},
 		{
 			name:          "missing semicolon in definition",
-			input:         "def VAR = value\nbuild: echo hello",
+			input:         "def VAR = value\nbuild: echo hello;",
 			wantErrSubstr: "missing ';'", // Updated to match actual error
+		},
+		{
+			name:          "missing semicolon in simple command",
+			input:         "build: echo hello\ntest: echo world;",
+			wantErrSubstr: "missing ';'", // New test for semicolon requirement
+		},
+		// New edge cases for error handling with POSIX constructs
+		{
+			name:          "invalid find syntax with braces",
+			input:         "cleanup: find . -name \"*.tmp\" -exec rm {;", // Missing closing brace
+			wantErrSubstr: "missing ';'",                                 // Will likely be a syntax error
 		},
 	}
 
@@ -772,7 +885,7 @@ def SRC = ./src;
 def BIN = ./bin;
 
 # Build commands
-build: cd $(SRC) && make all
+build: cd $(SRC) && make all;
 
 # Run commands
 watch server: {
@@ -781,14 +894,23 @@ watch server: {
   ./worker --queue=jobs &
 }
 
-stop server: pkill -f "server|worker"
+stop server: pkill -f "server|worker";
 
 # Complex commands with parentheses and keywords
-check-deps: (which go && echo "Go found") || (echo "Go missing" && exit 1)
+check-deps: (which go && echo "Go found") || (echo "Go missing" && exit 1);
 
 monitor: {
   watch -n 1 "ps aux | grep server";
   echo "Use stop server to halt processes"
+}
+
+# POSIX shell commands with braces
+cleanup: find . -name "*.tmp" -exec rm {} \;;
+
+batch-clean: {
+  find /tmp -name "*.log" -exec rm {} \; &;
+  find /var -name "*.tmp" -exec rm {} \; &;
+  wait
 }
 `
 
@@ -815,9 +937,9 @@ monitor: {
 		}
 	}
 
-	// Verify commands - we expect 5 commands: build, watch server, stop server, check-deps, monitor
-	if len(result.Commands) != 5 {
-		t.Errorf("Expected 5 commands, got %d", len(result.Commands))
+	// Verify commands - we expect 7 commands: build, watch server, stop server, check-deps, monitor, cleanup, batch-clean
+	if len(result.Commands) != 7 {
+		t.Errorf("Expected 7 commands, got %d", len(result.Commands))
 	} else {
 		// Find commands by type since we can have both watch and stop with same name
 		var buildCmd *Command
@@ -825,19 +947,26 @@ monitor: {
 		var stopServerCmd *Command
 		var checkDepsCmd *Command
 		var monitorCmd *Command
+		var cleanupCmd *Command
+		var batchCleanCmd *Command
 
 		for i := range result.Commands {
 			cmd := &result.Commands[i]
-			if cmd.Name == "build" && !cmd.IsWatch && !cmd.IsStop {
+			switch {
+			case cmd.Name == "build" && !cmd.IsWatch && !cmd.IsStop:
 				buildCmd = cmd
-			} else if cmd.Name == "server" && cmd.IsWatch {
+			case cmd.Name == "server" && cmd.IsWatch:
 				watchServerCmd = cmd
-			} else if cmd.Name == "server" && cmd.IsStop {
+			case cmd.Name == "server" && cmd.IsStop:
 				stopServerCmd = cmd
-			} else if cmd.Name == "check-deps" {
+			case cmd.Name == "check-deps":
 				checkDepsCmd = cmd
-			} else if cmd.Name == "monitor" {
+			case cmd.Name == "monitor":
 				monitorCmd = cmd
+			case cmd.Name == "cleanup":
+				cleanupCmd = cmd
+			case cmd.Name == "batch-clean":
+				batchCleanCmd = cmd
 			}
 		}
 
@@ -921,6 +1050,52 @@ monitor: {
 				secondStmt := monitorCmd.Block[1].Command
 				if !strings.Contains(secondStmt, "stop server") {
 					t.Errorf("Expected second statement to contain 'stop server', got: %q", secondStmt)
+				}
+			}
+		}
+
+		// Check cleanup command (contains POSIX braces)
+		if cleanupCmd == nil {
+			t.Errorf("Missing 'cleanup' command")
+		} else {
+			expectedCmd := "find . -name \"*.tmp\" -exec rm {} \\;"
+			if cleanupCmd.Command != expectedCmd {
+				t.Errorf("cleanup command = %q, want %q", cleanupCmd.Command, expectedCmd)
+			}
+		}
+
+		// Check batch-clean command (contains POSIX braces in block)
+		if batchCleanCmd == nil {
+			t.Errorf("Missing 'batch-clean' command")
+		} else {
+			if !batchCleanCmd.IsBlock {
+				t.Errorf("Expected batch-clean command to be a block command")
+			}
+
+			if len(batchCleanCmd.Block) != 3 {
+				t.Errorf("Expected 3 block statements in batch-clean command, got %d", len(batchCleanCmd.Block))
+			} else {
+				// First two statements should be background find commands
+				for i := 0; i < 2; i++ {
+					stmt := batchCleanCmd.Block[i]
+					if !stmt.Background {
+						t.Errorf("Expected statement %d to be background", i)
+					}
+					if !strings.Contains(stmt.Command, "find") {
+						t.Errorf("Expected statement %d to contain 'find', got: %q", i, stmt.Command)
+					}
+					if !strings.Contains(stmt.Command, "-exec rm {} \\;") {
+						t.Errorf("Expected statement %d to contain '-exec rm {} \\;', got: %q", i, stmt.Command)
+					}
+				}
+
+				// Third statement should be wait command
+				waitStmt := batchCleanCmd.Block[2]
+				if waitStmt.Background {
+					t.Errorf("Expected wait statement to be foreground")
+				}
+				if waitStmt.Command != "wait" {
+					t.Errorf("Expected wait command, got: %q", waitStmt.Command)
 				}
 			}
 		}

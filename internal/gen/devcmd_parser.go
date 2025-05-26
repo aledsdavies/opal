@@ -32,14 +32,14 @@ var DevcmdParserStaticData struct {
 func devcmdParserInit() {
 	staticData := &DevcmdParserStaticData
 	staticData.LiteralNames = []string{
-		"", "'def'", "'='", "':'", "'watch'", "'stop'", "'{'", "'}'", "';'",
-		"'&'", "'\\'",
+		"", "'def'", "'='", "':'", "'watch'", "'stop'", "", "", "'\\;'", "",
+		"'{'", "'}'", "';'", "'&'", "'\\'",
 	}
 	staticData.SymbolicNames = []string{
-		"", "DEF", "EQUALS", "COLON", "WATCH", "STOP", "LBRACE", "RBRACE", "SEMICOLON",
-		"AMPERSAND", "BACKSLASH", "OUR_VARIABLE_REFERENCE", "SHELL_VARIABLE_REFERENCE",
-		"ESCAPED_CHAR", "NAME", "NUMBER", "COMMAND_TEXT", "COMMENT", "NEWLINE",
-		"WS",
+		"", "DEF", "EQUALS", "COLON", "WATCH", "STOP", "OUR_VARIABLE_REFERENCE",
+		"SHELL_VARIABLE_REFERENCE", "ESCAPED_SEMICOLON", "ESCAPED_CHAR", "LBRACE",
+		"RBRACE", "SEMICOLON", "AMPERSAND", "BACKSLASH", "NAME", "NUMBER", "COMMAND_TEXT",
+		"COMMENT", "NEWLINE", "WS",
 	}
 	staticData.RuleNames = []string{
 		"program", "line", "variableDefinition", "commandDefinition", "simpleCommand",
@@ -48,55 +48,56 @@ func devcmdParserInit() {
 	}
 	staticData.PredictionContextCache = antlr.NewPredictionContextCache()
 	staticData.serializedATN = []int32{
-		4, 1, 19, 116, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
+		4, 1, 20, 117, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
 		4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7,
 		10, 1, 0, 5, 0, 24, 8, 0, 10, 0, 12, 0, 27, 9, 0, 1, 0, 1, 0, 1, 1, 1,
 		1, 1, 1, 3, 1, 34, 8, 1, 1, 2, 1, 2, 1, 2, 1, 2, 3, 2, 40, 8, 2, 3, 2,
 		42, 8, 2, 1, 2, 1, 2, 1, 2, 1, 3, 3, 3, 48, 8, 3, 1, 3, 1, 3, 1, 3, 1,
 		3, 3, 3, 54, 8, 3, 1, 4, 1, 4, 5, 4, 58, 8, 4, 10, 4, 12, 4, 61, 9, 4,
-		3, 4, 63, 8, 4, 1, 4, 1, 4, 1, 5, 1, 5, 3, 5, 69, 8, 5, 1, 5, 1, 5, 1,
-		5, 3, 5, 74, 8, 5, 1, 6, 1, 6, 3, 6, 78, 8, 6, 1, 7, 1, 7, 1, 7, 5, 7,
-		83, 8, 7, 10, 7, 12, 7, 86, 9, 7, 1, 7, 5, 7, 89, 8, 7, 10, 7, 12, 7, 92,
-		9, 7, 1, 7, 3, 7, 95, 8, 7, 1, 7, 5, 7, 98, 8, 7, 10, 7, 12, 7, 101, 9,
-		7, 1, 8, 1, 8, 3, 8, 105, 8, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 10, 4, 10, 112,
-		8, 10, 11, 10, 12, 10, 113, 1, 10, 0, 0, 11, 0, 2, 4, 6, 8, 10, 12, 14,
-		16, 18, 20, 0, 3, 1, 1, 18, 18, 1, 0, 4, 5, 3, 0, 2, 5, 9, 9, 11, 16, 122,
-		0, 25, 1, 0, 0, 0, 2, 33, 1, 0, 0, 0, 4, 35, 1, 0, 0, 0, 6, 47, 1, 0, 0,
-		0, 8, 62, 1, 0, 0, 0, 10, 66, 1, 0, 0, 0, 12, 77, 1, 0, 0, 0, 14, 79, 1,
-		0, 0, 0, 16, 102, 1, 0, 0, 0, 18, 106, 1, 0, 0, 0, 20, 111, 1, 0, 0, 0,
-		22, 24, 3, 2, 1, 0, 23, 22, 1, 0, 0, 0, 24, 27, 1, 0, 0, 0, 25, 23, 1,
-		0, 0, 0, 25, 26, 1, 0, 0, 0, 26, 28, 1, 0, 0, 0, 27, 25, 1, 0, 0, 0, 28,
-		29, 5, 0, 0, 1, 29, 1, 1, 0, 0, 0, 30, 34, 3, 4, 2, 0, 31, 34, 3, 6, 3,
-		0, 32, 34, 5, 18, 0, 0, 33, 30, 1, 0, 0, 0, 33, 31, 1, 0, 0, 0, 33, 32,
-		1, 0, 0, 0, 34, 3, 1, 0, 0, 0, 35, 36, 5, 1, 0, 0, 36, 41, 5, 14, 0, 0,
-		37, 39, 5, 2, 0, 0, 38, 40, 3, 20, 10, 0, 39, 38, 1, 0, 0, 0, 39, 40, 1,
-		0, 0, 0, 40, 42, 1, 0, 0, 0, 41, 37, 1, 0, 0, 0, 41, 42, 1, 0, 0, 0, 42,
-		43, 1, 0, 0, 0, 43, 44, 5, 8, 0, 0, 44, 45, 7, 0, 0, 0, 45, 5, 1, 0, 0,
-		0, 46, 48, 7, 1, 0, 0, 47, 46, 1, 0, 0, 0, 47, 48, 1, 0, 0, 0, 48, 49,
-		1, 0, 0, 0, 49, 50, 5, 14, 0, 0, 50, 53, 5, 3, 0, 0, 51, 54, 3, 8, 4, 0,
-		52, 54, 3, 10, 5, 0, 53, 51, 1, 0, 0, 0, 53, 52, 1, 0, 0, 0, 54, 7, 1,
-		0, 0, 0, 55, 59, 3, 20, 10, 0, 56, 58, 3, 18, 9, 0, 57, 56, 1, 0, 0, 0,
-		58, 61, 1, 0, 0, 0, 59, 57, 1, 0, 0, 0, 59, 60, 1, 0, 0, 0, 60, 63, 1,
-		0, 0, 0, 61, 59, 1, 0, 0, 0, 62, 55, 1, 0, 0, 0, 62, 63, 1, 0, 0, 0, 63,
-		64, 1, 0, 0, 0, 64, 65, 7, 0, 0, 0, 65, 9, 1, 0, 0, 0, 66, 68, 5, 6, 0,
-		0, 67, 69, 5, 18, 0, 0, 68, 67, 1, 0, 0, 0, 68, 69, 1, 0, 0, 0, 69, 70,
-		1, 0, 0, 0, 70, 71, 3, 12, 6, 0, 71, 73, 5, 7, 0, 0, 72, 74, 7, 0, 0, 0,
-		73, 72, 1, 0, 0, 0, 73, 74, 1, 0, 0, 0, 74, 11, 1, 0, 0, 0, 75, 78, 1,
-		0, 0, 0, 76, 78, 3, 14, 7, 0, 77, 75, 1, 0, 0, 0, 77, 76, 1, 0, 0, 0, 78,
-		13, 1, 0, 0, 0, 79, 90, 3, 16, 8, 0, 80, 84, 5, 8, 0, 0, 81, 83, 5, 18,
-		0, 0, 82, 81, 1, 0, 0, 0, 83, 86, 1, 0, 0, 0, 84, 82, 1, 0, 0, 0, 84, 85,
-		1, 0, 0, 0, 85, 87, 1, 0, 0, 0, 86, 84, 1, 0, 0, 0, 87, 89, 3, 16, 8, 0,
-		88, 80, 1, 0, 0, 0, 89, 92, 1, 0, 0, 0, 90, 88, 1, 0, 0, 0, 90, 91, 1,
-		0, 0, 0, 91, 94, 1, 0, 0, 0, 92, 90, 1, 0, 0, 0, 93, 95, 5, 8, 0, 0, 94,
-		93, 1, 0, 0, 0, 94, 95, 1, 0, 0, 0, 95, 99, 1, 0, 0, 0, 96, 98, 5, 18,
-		0, 0, 97, 96, 1, 0, 0, 0, 98, 101, 1, 0, 0, 0, 99, 97, 1, 0, 0, 0, 99,
-		100, 1, 0, 0, 0, 100, 15, 1, 0, 0, 0, 101, 99, 1, 0, 0, 0, 102, 104, 3,
-		20, 10, 0, 103, 105, 5, 9, 0, 0, 104, 103, 1, 0, 0, 0, 104, 105, 1, 0,
-		0, 0, 105, 17, 1, 0, 0, 0, 106, 107, 5, 10, 0, 0, 107, 108, 5, 18, 0, 0,
-		108, 109, 3, 20, 10, 0, 109, 19, 1, 0, 0, 0, 110, 112, 7, 2, 0, 0, 111,
-		110, 1, 0, 0, 0, 112, 113, 1, 0, 0, 0, 113, 111, 1, 0, 0, 0, 113, 114,
-		1, 0, 0, 0, 114, 21, 1, 0, 0, 0, 17, 25, 33, 39, 41, 47, 53, 59, 62, 68,
-		73, 77, 84, 90, 94, 99, 104, 113,
+		3, 4, 63, 8, 4, 1, 4, 1, 4, 1, 4, 1, 5, 1, 5, 3, 5, 70, 8, 5, 1, 5, 1,
+		5, 1, 5, 3, 5, 75, 8, 5, 1, 6, 1, 6, 3, 6, 79, 8, 6, 1, 7, 1, 7, 1, 7,
+		5, 7, 84, 8, 7, 10, 7, 12, 7, 87, 9, 7, 1, 7, 5, 7, 90, 8, 7, 10, 7, 12,
+		7, 93, 9, 7, 1, 7, 3, 7, 96, 8, 7, 1, 7, 5, 7, 99, 8, 7, 10, 7, 12, 7,
+		102, 9, 7, 1, 8, 1, 8, 3, 8, 106, 8, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 10,
+		4, 10, 113, 8, 10, 11, 10, 12, 10, 114, 1, 10, 0, 0, 11, 0, 2, 4, 6, 8,
+		10, 12, 14, 16, 18, 20, 0, 3, 1, 1, 19, 19, 1, 0, 4, 5, 2, 0, 2, 9, 13,
+		17, 123, 0, 25, 1, 0, 0, 0, 2, 33, 1, 0, 0, 0, 4, 35, 1, 0, 0, 0, 6, 47,
+		1, 0, 0, 0, 8, 62, 1, 0, 0, 0, 10, 67, 1, 0, 0, 0, 12, 78, 1, 0, 0, 0,
+		14, 80, 1, 0, 0, 0, 16, 103, 1, 0, 0, 0, 18, 107, 1, 0, 0, 0, 20, 112,
+		1, 0, 0, 0, 22, 24, 3, 2, 1, 0, 23, 22, 1, 0, 0, 0, 24, 27, 1, 0, 0, 0,
+		25, 23, 1, 0, 0, 0, 25, 26, 1, 0, 0, 0, 26, 28, 1, 0, 0, 0, 27, 25, 1,
+		0, 0, 0, 28, 29, 5, 0, 0, 1, 29, 1, 1, 0, 0, 0, 30, 34, 3, 4, 2, 0, 31,
+		34, 3, 6, 3, 0, 32, 34, 5, 19, 0, 0, 33, 30, 1, 0, 0, 0, 33, 31, 1, 0,
+		0, 0, 33, 32, 1, 0, 0, 0, 34, 3, 1, 0, 0, 0, 35, 36, 5, 1, 0, 0, 36, 41,
+		5, 15, 0, 0, 37, 39, 5, 2, 0, 0, 38, 40, 3, 20, 10, 0, 39, 38, 1, 0, 0,
+		0, 39, 40, 1, 0, 0, 0, 40, 42, 1, 0, 0, 0, 41, 37, 1, 0, 0, 0, 41, 42,
+		1, 0, 0, 0, 42, 43, 1, 0, 0, 0, 43, 44, 5, 12, 0, 0, 44, 45, 7, 0, 0, 0,
+		45, 5, 1, 0, 0, 0, 46, 48, 7, 1, 0, 0, 47, 46, 1, 0, 0, 0, 47, 48, 1, 0,
+		0, 0, 48, 49, 1, 0, 0, 0, 49, 50, 5, 15, 0, 0, 50, 53, 5, 3, 0, 0, 51,
+		54, 3, 8, 4, 0, 52, 54, 3, 10, 5, 0, 53, 51, 1, 0, 0, 0, 53, 52, 1, 0,
+		0, 0, 54, 7, 1, 0, 0, 0, 55, 59, 3, 20, 10, 0, 56, 58, 3, 18, 9, 0, 57,
+		56, 1, 0, 0, 0, 58, 61, 1, 0, 0, 0, 59, 57, 1, 0, 0, 0, 59, 60, 1, 0, 0,
+		0, 60, 63, 1, 0, 0, 0, 61, 59, 1, 0, 0, 0, 62, 55, 1, 0, 0, 0, 62, 63,
+		1, 0, 0, 0, 63, 64, 1, 0, 0, 0, 64, 65, 5, 12, 0, 0, 65, 66, 7, 0, 0, 0,
+		66, 9, 1, 0, 0, 0, 67, 69, 5, 10, 0, 0, 68, 70, 5, 19, 0, 0, 69, 68, 1,
+		0, 0, 0, 69, 70, 1, 0, 0, 0, 70, 71, 1, 0, 0, 0, 71, 72, 3, 12, 6, 0, 72,
+		74, 5, 11, 0, 0, 73, 75, 7, 0, 0, 0, 74, 73, 1, 0, 0, 0, 74, 75, 1, 0,
+		0, 0, 75, 11, 1, 0, 0, 0, 76, 79, 1, 0, 0, 0, 77, 79, 3, 14, 7, 0, 78,
+		76, 1, 0, 0, 0, 78, 77, 1, 0, 0, 0, 79, 13, 1, 0, 0, 0, 80, 91, 3, 16,
+		8, 0, 81, 85, 5, 12, 0, 0, 82, 84, 5, 19, 0, 0, 83, 82, 1, 0, 0, 0, 84,
+		87, 1, 0, 0, 0, 85, 83, 1, 0, 0, 0, 85, 86, 1, 0, 0, 0, 86, 88, 1, 0, 0,
+		0, 87, 85, 1, 0, 0, 0, 88, 90, 3, 16, 8, 0, 89, 81, 1, 0, 0, 0, 90, 93,
+		1, 0, 0, 0, 91, 89, 1, 0, 0, 0, 91, 92, 1, 0, 0, 0, 92, 95, 1, 0, 0, 0,
+		93, 91, 1, 0, 0, 0, 94, 96, 5, 12, 0, 0, 95, 94, 1, 0, 0, 0, 95, 96, 1,
+		0, 0, 0, 96, 100, 1, 0, 0, 0, 97, 99, 5, 19, 0, 0, 98, 97, 1, 0, 0, 0,
+		99, 102, 1, 0, 0, 0, 100, 98, 1, 0, 0, 0, 100, 101, 1, 0, 0, 0, 101, 15,
+		1, 0, 0, 0, 102, 100, 1, 0, 0, 0, 103, 105, 3, 20, 10, 0, 104, 106, 5,
+		13, 0, 0, 105, 104, 1, 0, 0, 0, 105, 106, 1, 0, 0, 0, 106, 17, 1, 0, 0,
+		0, 107, 108, 5, 14, 0, 0, 108, 109, 5, 19, 0, 0, 109, 110, 3, 20, 10, 0,
+		110, 19, 1, 0, 0, 0, 111, 113, 7, 2, 0, 0, 112, 111, 1, 0, 0, 0, 113, 114,
+		1, 0, 0, 0, 114, 112, 1, 0, 0, 0, 114, 115, 1, 0, 0, 0, 115, 21, 1, 0,
+		0, 0, 17, 25, 33, 39, 41, 47, 53, 59, 62, 69, 74, 78, 85, 91, 95, 100,
+		105, 114,
 	}
 	deserializer := antlr.NewATNDeserializer(nil)
 	staticData.atn = deserializer.Deserialize(staticData.serializedATN)
@@ -140,20 +141,21 @@ const (
 	devcmdParserCOLON                    = 3
 	devcmdParserWATCH                    = 4
 	devcmdParserSTOP                     = 5
-	devcmdParserLBRACE                   = 6
-	devcmdParserRBRACE                   = 7
-	devcmdParserSEMICOLON                = 8
-	devcmdParserAMPERSAND                = 9
-	devcmdParserBACKSLASH                = 10
-	devcmdParserOUR_VARIABLE_REFERENCE   = 11
-	devcmdParserSHELL_VARIABLE_REFERENCE = 12
-	devcmdParserESCAPED_CHAR             = 13
-	devcmdParserNAME                     = 14
-	devcmdParserNUMBER                   = 15
-	devcmdParserCOMMAND_TEXT             = 16
-	devcmdParserCOMMENT                  = 17
-	devcmdParserNEWLINE                  = 18
-	devcmdParserWS                       = 19
+	devcmdParserOUR_VARIABLE_REFERENCE   = 6
+	devcmdParserSHELL_VARIABLE_REFERENCE = 7
+	devcmdParserESCAPED_SEMICOLON        = 8
+	devcmdParserESCAPED_CHAR             = 9
+	devcmdParserLBRACE                   = 10
+	devcmdParserRBRACE                   = 11
+	devcmdParserSEMICOLON                = 12
+	devcmdParserAMPERSAND                = 13
+	devcmdParserBACKSLASH                = 14
+	devcmdParserNAME                     = 15
+	devcmdParserNUMBER                   = 16
+	devcmdParserCOMMAND_TEXT             = 17
+	devcmdParserCOMMENT                  = 18
+	devcmdParserNEWLINE                  = 19
+	devcmdParserWS                       = 20
 )
 
 // devcmdParser rules.
@@ -297,7 +299,7 @@ func (p *devcmdParser) Program() (localctx IProgramContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&278578) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&557106) != 0 {
 		{
 			p.SetState(22)
 			p.Line()
@@ -646,7 +648,7 @@ func (p *devcmdParser) VariableDefinition() (localctx IVariableDefinitionContext
 		}
 		_la = p.GetTokenStream().LA(1)
 
-		if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&129596) != 0 {
+		if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&254972) != 0 {
 			{
 				p.SetState(38)
 				p.CommandText()
@@ -857,7 +859,7 @@ func (p *devcmdParser) CommandDefinition() (localctx ICommandDefinitionContext) 
 	}
 
 	switch p.GetTokenStream().LA(1) {
-	case devcmdParserEOF, devcmdParserEQUALS, devcmdParserCOLON, devcmdParserWATCH, devcmdParserSTOP, devcmdParserAMPERSAND, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserNUMBER, devcmdParserCOMMAND_TEXT, devcmdParserNEWLINE:
+	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserWATCH, devcmdParserSTOP, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_SEMICOLON, devcmdParserESCAPED_CHAR, devcmdParserSEMICOLON, devcmdParserAMPERSAND, devcmdParserBACKSLASH, devcmdParserNAME, devcmdParserNUMBER, devcmdParserCOMMAND_TEXT:
 		{
 			p.SetState(51)
 			p.SimpleCommand()
@@ -895,6 +897,7 @@ type ISimpleCommandContext interface {
 	GetParser() antlr.Parser
 
 	// Getter signatures
+	SEMICOLON() antlr.TerminalNode
 	NEWLINE() antlr.TerminalNode
 	EOF() antlr.TerminalNode
 	CommandText() ICommandTextContext
@@ -936,6 +939,10 @@ func NewSimpleCommandContext(parser antlr.Parser, parent antlr.ParserRuleContext
 }
 
 func (s *SimpleCommandContext) GetParser() antlr.Parser { return s.parser }
+
+func (s *SimpleCommandContext) SEMICOLON() antlr.TerminalNode {
+	return s.GetToken(devcmdParserSEMICOLON, 0)
+}
 
 func (s *SimpleCommandContext) NEWLINE() antlr.TerminalNode {
 	return s.GetToken(devcmdParserNEWLINE, 0)
@@ -1035,7 +1042,7 @@ func (p *devcmdParser) SimpleCommand() (localctx ISimpleCommandContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&129596) != 0 {
+	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&254972) != 0 {
 		{
 			p.SetState(55)
 			p.CommandText()
@@ -1064,6 +1071,14 @@ func (p *devcmdParser) SimpleCommand() (localctx ISimpleCommandContext) {
 	}
 	{
 		p.SetState(64)
+		p.Match(devcmdParserSEMICOLON)
+		if p.HasError() {
+			// Recognition error - abort rule
+			goto errorExit
+		}
+	}
+	{
+		p.SetState(65)
 		_la = p.GetTokenStream().LA(1)
 
 		if !(_la == devcmdParserEOF || _la == devcmdParserNEWLINE) {
@@ -1201,14 +1216,14 @@ func (p *devcmdParser) BlockCommand() (localctx IBlockCommandContext) {
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(66)
+		p.SetState(67)
 		p.Match(devcmdParserLBRACE)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(68)
+	p.SetState(69)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1217,7 +1232,7 @@ func (p *devcmdParser) BlockCommand() (localctx IBlockCommandContext) {
 
 	if _la == devcmdParserNEWLINE {
 		{
-			p.SetState(67)
+			p.SetState(68)
 			p.Match(devcmdParserNEWLINE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1227,23 +1242,23 @@ func (p *devcmdParser) BlockCommand() (localctx IBlockCommandContext) {
 
 	}
 	{
-		p.SetState(70)
+		p.SetState(71)
 		p.BlockStatements()
 	}
 	{
-		p.SetState(71)
+		p.SetState(72)
 		p.Match(devcmdParserRBRACE)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(73)
+	p.SetState(74)
 	p.GetErrorHandler().Sync(p)
 
 	if p.GetInterpreter().AdaptivePredict(p.BaseParser, p.GetTokenStream(), 9, p.GetParserRuleContext()) == 1 {
 		{
-			p.SetState(72)
+			p.SetState(73)
 			_la = p.GetTokenStream().LA(1)
 
 			if !(_la == devcmdParserEOF || _la == devcmdParserNEWLINE) {
@@ -1356,7 +1371,7 @@ func (s *BlockStatementsContext) ExitRule(listener antlr.ParseTreeListener) {
 func (p *devcmdParser) BlockStatements() (localctx IBlockStatementsContext) {
 	localctx = NewBlockStatementsContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 12, devcmdParserRULE_blockStatements)
-	p.SetState(77)
+	p.SetState(78)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1366,10 +1381,10 @@ func (p *devcmdParser) BlockStatements() (localctx IBlockStatementsContext) {
 	case devcmdParserRBRACE:
 		p.EnterOuterAlt(localctx, 1)
 
-	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserWATCH, devcmdParserSTOP, devcmdParserAMPERSAND, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_CHAR, devcmdParserNAME, devcmdParserNUMBER, devcmdParserCOMMAND_TEXT:
+	case devcmdParserEQUALS, devcmdParserCOLON, devcmdParserWATCH, devcmdParserSTOP, devcmdParserOUR_VARIABLE_REFERENCE, devcmdParserSHELL_VARIABLE_REFERENCE, devcmdParserESCAPED_SEMICOLON, devcmdParserESCAPED_CHAR, devcmdParserAMPERSAND, devcmdParserBACKSLASH, devcmdParserNAME, devcmdParserNUMBER, devcmdParserCOMMAND_TEXT:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(76)
+			p.SetState(77)
 			p.NonEmptyBlockStatements()
 		}
 
@@ -1528,10 +1543,10 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(79)
+		p.SetState(80)
 		p.BlockStatement()
 	}
-	p.SetState(90)
+	p.SetState(91)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1543,14 +1558,14 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 	for _alt != 2 && _alt != antlr.ATNInvalidAltNumber {
 		if _alt == 1 {
 			{
-				p.SetState(80)
+				p.SetState(81)
 				p.Match(devcmdParserSEMICOLON)
 				if p.HasError() {
 					// Recognition error - abort rule
 					goto errorExit
 				}
 			}
-			p.SetState(84)
+			p.SetState(85)
 			p.GetErrorHandler().Sync(p)
 			if p.HasError() {
 				goto errorExit
@@ -1559,7 +1574,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 
 			for _la == devcmdParserNEWLINE {
 				{
-					p.SetState(81)
+					p.SetState(82)
 					p.Match(devcmdParserNEWLINE)
 					if p.HasError() {
 						// Recognition error - abort rule
@@ -1567,7 +1582,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 					}
 				}
 
-				p.SetState(86)
+				p.SetState(87)
 				p.GetErrorHandler().Sync(p)
 				if p.HasError() {
 					goto errorExit
@@ -1575,12 +1590,12 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 				_la = p.GetTokenStream().LA(1)
 			}
 			{
-				p.SetState(87)
+				p.SetState(88)
 				p.BlockStatement()
 			}
 
 		}
-		p.SetState(92)
+		p.SetState(93)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -1590,7 +1605,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 			goto errorExit
 		}
 	}
-	p.SetState(94)
+	p.SetState(95)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1599,7 +1614,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 
 	if _la == devcmdParserSEMICOLON {
 		{
-			p.SetState(93)
+			p.SetState(94)
 			p.Match(devcmdParserSEMICOLON)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1608,7 +1623,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 		}
 
 	}
-	p.SetState(99)
+	p.SetState(100)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1617,7 +1632,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 
 	for _la == devcmdParserNEWLINE {
 		{
-			p.SetState(96)
+			p.SetState(97)
 			p.Match(devcmdParserNEWLINE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1625,7 +1640,7 @@ func (p *devcmdParser) NonEmptyBlockStatements() (localctx INonEmptyBlockStateme
 			}
 		}
 
-		p.SetState(101)
+		p.SetState(102)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -1740,10 +1755,10 @@ func (p *devcmdParser) BlockStatement() (localctx IBlockStatementContext) {
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(102)
+		p.SetState(103)
 		p.CommandText()
 	}
-	p.SetState(104)
+	p.SetState(105)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1752,7 +1767,7 @@ func (p *devcmdParser) BlockStatement() (localctx IBlockStatementContext) {
 
 	if _la == devcmdParserAMPERSAND {
 		{
-			p.SetState(103)
+			p.SetState(104)
 			p.Match(devcmdParserAMPERSAND)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1872,7 +1887,7 @@ func (p *devcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 	p.EnterRule(localctx, 18, devcmdParserRULE_continuationLine)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(106)
+		p.SetState(107)
 		p.Match(devcmdParserBACKSLASH)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -1880,7 +1895,7 @@ func (p *devcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 		}
 	}
 	{
-		p.SetState(107)
+		p.SetState(108)
 		p.Match(devcmdParserNEWLINE)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -1888,7 +1903,7 @@ func (p *devcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 		}
 	}
 	{
-		p.SetState(108)
+		p.SetState(109)
 		p.CommandText()
 	}
 
@@ -1919,6 +1934,8 @@ type ICommandTextContext interface {
 	OUR_VARIABLE_REFERENCE(i int) antlr.TerminalNode
 	AllSHELL_VARIABLE_REFERENCE() []antlr.TerminalNode
 	SHELL_VARIABLE_REFERENCE(i int) antlr.TerminalNode
+	AllESCAPED_SEMICOLON() []antlr.TerminalNode
+	ESCAPED_SEMICOLON(i int) antlr.TerminalNode
 	AllAMPERSAND() []antlr.TerminalNode
 	AMPERSAND(i int) antlr.TerminalNode
 	AllCOLON() []antlr.TerminalNode
@@ -1933,6 +1950,8 @@ type ICommandTextContext interface {
 	WATCH(i int) antlr.TerminalNode
 	AllNAME() []antlr.TerminalNode
 	NAME(i int) antlr.TerminalNode
+	AllBACKSLASH() []antlr.TerminalNode
+	BACKSLASH(i int) antlr.TerminalNode
 	AllCOMMAND_TEXT() []antlr.TerminalNode
 	COMMAND_TEXT(i int) antlr.TerminalNode
 
@@ -1996,6 +2015,14 @@ func (s *CommandTextContext) SHELL_VARIABLE_REFERENCE(i int) antlr.TerminalNode 
 	return s.GetToken(devcmdParserSHELL_VARIABLE_REFERENCE, i)
 }
 
+func (s *CommandTextContext) AllESCAPED_SEMICOLON() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserESCAPED_SEMICOLON)
+}
+
+func (s *CommandTextContext) ESCAPED_SEMICOLON(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserESCAPED_SEMICOLON, i)
+}
+
 func (s *CommandTextContext) AllAMPERSAND() []antlr.TerminalNode {
 	return s.GetTokens(devcmdParserAMPERSAND)
 }
@@ -2052,6 +2079,14 @@ func (s *CommandTextContext) NAME(i int) antlr.TerminalNode {
 	return s.GetToken(devcmdParserNAME, i)
 }
 
+func (s *CommandTextContext) AllBACKSLASH() []antlr.TerminalNode {
+	return s.GetTokens(devcmdParserBACKSLASH)
+}
+
+func (s *CommandTextContext) BACKSLASH(i int) antlr.TerminalNode {
+	return s.GetToken(devcmdParserBACKSLASH, i)
+}
+
 func (s *CommandTextContext) AllCOMMAND_TEXT() []antlr.TerminalNode {
 	return s.GetTokens(devcmdParserCOMMAND_TEXT)
 }
@@ -2088,7 +2123,7 @@ func (p *devcmdParser) CommandText() (localctx ICommandTextContext) {
 	var _alt int
 
 	p.EnterOuterAlt(localctx, 1)
-	p.SetState(111)
+	p.SetState(112)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -2098,10 +2133,10 @@ func (p *devcmdParser) CommandText() (localctx ICommandTextContext) {
 		switch _alt {
 		case 1:
 			{
-				p.SetState(110)
+				p.SetState(111)
 				_la = p.GetTokenStream().LA(1)
 
-				if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&129596) != 0) {
+				if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&254972) != 0) {
 					p.GetErrorHandler().RecoverInline(p)
 				} else {
 					p.GetErrorHandler().ReportMatch(p)
@@ -2114,7 +2149,7 @@ func (p *devcmdParser) CommandText() (localctx ICommandTextContext) {
 			goto errorExit
 		}
 
-		p.SetState(113)
+		p.SetState(114)
 		p.GetErrorHandler().Sync(p)
 		_alt = p.GetInterpreter().AdaptivePredict(p.BaseParser, p.GetTokenStream(), 16, p.GetParserRuleContext())
 		if p.HasError() {
