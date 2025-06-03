@@ -62,11 +62,13 @@ setup:
     @echo "✅ Setup complete! Run 'just test' to verify."
 
 # Generate parser from ANTLR grammar
-# Generate parser from ANTLR grammar
 grammar:
     @echo "📝 Generating ANTLR parser..."
+    rm -rf {{gen_dir}}
     mkdir -p {{gen_dir}}
-    cd {{grammar_dir}} && antlr -Dlanguage=Go -package gen -o ../{{gen_dir}} DevcmdLexer.g4 DevcmdParser.g4
+    cd {{grammar_dir}} && antlr4 -Dlanguage=Go -package gen -listener -visitor -o ../{{gen_dir}} DevcmdLexer.g4 DevcmdParser.g4
+    @echo "Generated files:"
+    @ls -la {{gen_dir}}/
     @echo "✅ Parser generated"
 
 # Build the CLI tool
@@ -144,13 +146,21 @@ test-nix:
 # Example CLI tests (mirrors CI nix-examples job)
 test-examples:
     @echo "🎯 Testing example CLIs..."
-    @examples=(basicDev webDev goProject rustProject dataScienceProject devOpsProject); \
-    for example in $${examples[@]}; do \
-        echo "Building $$example..."; \
-        nix build .#$$example --print-build-logs || exit 1; \
-        echo "Testing $$example..."; \
-        ./result/bin/* --help >/dev/null || echo "⚠️  $$example help command issues"; \
-    done
+    @echo "Building all examples..."
+    nix build .#basicDev .#webDev .#goProject .#rustProject .#dataScienceProject .#devOpsProject --print-build-logs
+    @echo "Testing all examples..."
+    @echo "Testing basicDev..."
+    @nix run .#basicDev -- --help >/dev/null || echo "⚠️  basicDev help issues"
+    @echo "Testing webDev..."
+    @nix run .#webDev -- --help >/dev/null || echo "⚠️  webDev help issues"
+    @echo "Testing goProject..."
+    @nix run .#goProject -- --help >/dev/null || echo "⚠️  goProject help issues"
+    @echo "Testing rustProject..."
+    @nix run .#rustProject -- --help >/dev/null || echo "⚠️  rustProject help issues"
+    @echo "Testing dataScienceProject..."
+    @nix run .#dataScienceProject -- --help >/dev/null || echo "⚠️  dataScienceProject help issues"
+    @echo "Testing devOpsProject..."
+    @nix run .#devOpsProject -- --help >/dev/null || echo "⚠️  devOpsProject help issues"
     @echo "✅ Example CLI tests passed!"
 
 # Complete test suite (mirrors CI workflow)

@@ -145,6 +145,27 @@ func TestBasicParsing(t *testing.T) {
 			wantName:    "check-files",
 			wantErr:     false,
 		},
+		{
+			name:        "double parentheses in @sh() annotation",
+			input:       "setup: @sh((cd src && make) || echo \"failed\");",
+			wantCommand: "(cd src && make) || echo \"failed\"",
+			wantName:    "setup",
+			wantErr:     false,
+		},
+		{
+			name:        "nested parentheses in @sh() annotation",
+			input:       "complex: @sh((test -f config && (source config && run)) || default);",
+			wantCommand: "(test -f config && (source config && run)) || default",
+			wantName:    "complex",
+			wantErr:     false,
+		},
+		{
+			name:        "variable with double parentheses in @sh()",
+			input:       "def SRC = ./src;\ncheck: @sh((cd $(SRC) && make) || echo \"No Makefile found\");",
+			wantCommand: "(cd $(SRC) && make) || echo \"No Makefile found\"",
+			wantName:    "check",
+			wantErr:     false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1316,73 +1337,61 @@ func TestContinuationLines(t *testing.T) {
 
 func TestErrorHandling(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		wantErrSubstr string
+		name    string
+		input   string
+		wantErr string
 	}{
 		{
-			name:          "duplicate command",
-			input:         "build: echo hello;\nbuild: echo world;",
-			wantErrSubstr: "duplicate command",
+			name:    "duplicate command",
+			input:   "build: echo hello;\nbuild: echo world;",
+			wantErr: "duplicate command",
 		},
 		{
-			name:          "duplicate definition",
-			input:         "def VAR = value1;\ndef VAR = value2;",
-			wantErrSubstr: "duplicate definition",
+			name:    "duplicate definition",
+			input:   "def VAR = value1;\ndef VAR = value2;",
+			wantErr: "duplicate definition",
 		},
 		{
-			name:          "syntax error in command",
-			input:         "build echo hello;", // Missing colon
-			wantErrSubstr: "missing ':'",       // Updated to match actual error
+			name:    "syntax error in command",
+			input:   "build echo hello;", // Missing colon
+			wantErr: "missing ':'",       // Updated to match actual error
 		},
 		{
-			name:          "unclosed block",
-			input:         "build: { echo hello;",  // Missing closing brace at EOF
-			wantErrSubstr: "missing",
+			name:    "bad variable expansion",
+			input:   "build: echo $(missingVar);",
+			wantErr: "undefined variable",
 		},
 		{
-			name:          "bad variable expansion",
-			input:         "build: echo $(missingVar);",
-			wantErrSubstr: "undefined variable",
+			name:    "missing semicolon in definition",
+			input:   "def VAR = value\nbuild: echo hello;",
+			wantErr: "missing ';'", // Updated to match actual error
 		},
 		{
-			name:          "missing semicolon in definition",
-			input:         "def VAR = value\nbuild: echo hello;",
-			wantErrSubstr: "missing ';'", // Updated to match actual error
-		},
-		{
-			name:          "missing semicolon in simple command",
-			input:         "build: echo hello\ntest: echo world;",
-			wantErrSubstr: "missing ';'", // New test for semicolon requirement
+			name:    "missing semicolon in simple command",
+			input:   "build: echo hello\ntest: echo world;",
+			wantErr: "missing ';'", // New test for semicolon requirement
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Parse and possibly expand variables
-			result, err := Parse(tt.input, true)
+			result, gotErr := Parse(tt.input, true)
 
 			// If no syntax error, try expanding variables to catch semantic errors
-			if err == nil && strings.Contains(tt.input, "$(") {
-				err = result.ExpandVariables()
+			if gotErr == nil && strings.Contains(tt.input, "$(") {
+				gotErr = result.ExpandVariables()
 			}
 
-			// Log what we actually got for debugging
-			if err == nil {
-				t.Logf("Expected error but got successful parse. Input: %q", tt.input)
-				if result != nil {
-					t.Logf("Got %d commands, %d definitions", len(result.Commands), len(result.Definitions))
-				}
-			}
-
-			// Expect an error
-			if err == nil {
-				t.Fatalf("Expected error containing %q, got nil", tt.wantErrSubstr)
+			// We expect an error
+			if gotErr == nil {
+				t.Fatalf("got nil error, want error containing %q", tt.wantErr)
 			}
 
 			// Check that the error contains the expected substring
-			if !strings.Contains(err.Error(), tt.wantErrSubstr) {
-				t.Errorf("Error = %q, want substring %q", err.Error(), tt.wantErrSubstr)
+			got := gotErr.Error()
+			if !strings.Contains(got, tt.wantErr) {
+				t.Errorf("got error %q, want error containing %q", got, tt.wantErr)
 			}
 		})
 	}

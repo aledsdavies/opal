@@ -1,4 +1,4 @@
- /**
+  /**
  * Devcmd Lexer Grammar - Clean Design with Strategic Mode Usage
  *
  * This lexer uses a simple two-mode approach:

@@ -320,6 +320,16 @@ func (s *ProgramContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *ProgramContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitProgram(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 func (p *DevcmdParser) Program() (localctx IProgramContext) {
 	localctx = NewProgramContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 0, DevcmdParserRULE_program)
@@ -469,6 +479,16 @@ func (s *LineContext) EnterRule(listener antlr.ParseTreeListener) {
 func (s *LineContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitLine(s)
+	}
+}
+
+func (s *LineContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitLine(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
@@ -627,6 +647,16 @@ func (s *VariableDefinitionContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *VariableDefinitionContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitVariableDefinition(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 func (p *DevcmdParser) VariableDefinition() (localctx IVariableDefinitionContext) {
 	localctx = NewVariableDefinitionContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 4, DevcmdParserRULE_variableDefinition)
@@ -760,6 +790,16 @@ func (s *VariableValueContext) EnterRule(listener antlr.ParseTreeListener) {
 func (s *VariableValueContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitVariableValue(s)
+	}
+}
+
+func (s *VariableValueContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitVariableValue(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
@@ -899,6 +939,16 @@ func (s *CommandDefinitionContext) EnterRule(listener antlr.ParseTreeListener) {
 func (s *CommandDefinitionContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitCommandDefinition(s)
+	}
+}
+
+func (s *CommandDefinitionContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitCommandDefinition(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
@@ -1079,6 +1129,16 @@ func (s *CommandBodyContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *CommandBodyContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitCommandBody(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 func (p *DevcmdParser) CommandBody() (localctx ICommandBodyContext) {
 	localctx = NewCommandBodyContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 10, DevcmdParserRULE_commandBody)
@@ -1231,6 +1291,16 @@ func (s *FunctionAnnotContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *FunctionAnnotContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitFunctionAnnot(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 type SimpleAnnotContext struct {
 	AnnotatedCommandContext
 }
@@ -1301,6 +1371,16 @@ func (s *SimpleAnnotContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *SimpleAnnotContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitSimpleAnnot(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 type BlockAnnotContext struct {
 	AnnotatedCommandContext
 }
@@ -1368,6 +1448,16 @@ func (s *BlockAnnotContext) EnterRule(listener antlr.ParseTreeListener) {
 func (s *BlockAnnotContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitBlockAnnot(s)
+	}
+}
+
+func (s *BlockAnnotContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitBlockAnnot(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
@@ -1586,6 +1676,16 @@ func (s *AnnotationContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *AnnotationContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitAnnotation(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 func (p *DevcmdParser) Annotation() (localctx IAnnotationContext) {
 	localctx = NewAnnotationContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 14, DevcmdParserRULE_annotation)
@@ -1739,6 +1839,16 @@ func (s *SimpleCommandContext) EnterRule(listener antlr.ParseTreeListener) {
 func (s *SimpleCommandContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitSimpleCommand(s)
+	}
+}
+
+func (s *SimpleCommandContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitSimpleCommand(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
@@ -1919,6 +2029,16 @@ func (s *AnnotationCommandContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *AnnotationCommandContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitAnnotationCommand(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 func (p *DevcmdParser) AnnotationCommand() (localctx IAnnotationCommandContext) {
 	localctx = NewAnnotationCommandContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 18, DevcmdParserRULE_annotationCommand)
@@ -2060,6 +2180,16 @@ func (s *BlockCommandContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *BlockCommandContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitBlockCommand(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 func (p *DevcmdParser) BlockCommand() (localctx IBlockCommandContext) {
 	localctx = NewBlockCommandContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 20, DevcmdParserRULE_blockCommand)
@@ -2193,6 +2323,16 @@ func (s *BlockStatementsContext) EnterRule(listener antlr.ParseTreeListener) {
 func (s *BlockStatementsContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitBlockStatements(s)
+	}
+}
+
+func (s *BlockStatementsContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitBlockStatements(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
@@ -2358,6 +2498,16 @@ func (s *NonEmptyBlockStatementsContext) EnterRule(listener antlr.ParseTreeListe
 func (s *NonEmptyBlockStatementsContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitNonEmptyBlockStatements(s)
+	}
+}
+
+func (s *NonEmptyBlockStatementsContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitNonEmptyBlockStatements(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
@@ -2637,6 +2787,16 @@ func (s *BlockStatementContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *BlockStatementContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitBlockStatement(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 func (p *DevcmdParser) BlockStatement() (localctx IBlockStatementContext) {
 	localctx = NewBlockStatementContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 26, DevcmdParserRULE_blockStatement)
@@ -2793,6 +2953,16 @@ func (s *ContinuationLineContext) ExitRule(listener antlr.ParseTreeListener) {
 	}
 }
 
+func (s *ContinuationLineContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitContinuationLine(s)
+
+	default:
+		return t.VisitChildren(s)
+	}
+}
+
 func (p *DevcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 	localctx = NewContinuationLineContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 28, DevcmdParserRULE_continuationLine)
@@ -2936,6 +3106,16 @@ func (s *CommandTextContext) EnterRule(listener antlr.ParseTreeListener) {
 func (s *CommandTextContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitCommandText(s)
+	}
+}
+
+func (s *CommandTextContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitCommandText(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
@@ -3133,6 +3313,16 @@ func (s *CommandTextElementContext) EnterRule(listener antlr.ParseTreeListener) 
 func (s *CommandTextElementContext) ExitRule(listener antlr.ParseTreeListener) {
 	if listenerT, ok := listener.(DevcmdParserListener); ok {
 		listenerT.ExitCommandTextElement(s)
+	}
+}
+
+func (s *CommandTextElementContext) Accept(visitor antlr.ParseTreeVisitor) interface{} {
+	switch t := visitor.(type) {
+	case DevcmdParserVisitor:
+		return t.VisitCommandTextElement(s)
+
+	default:
+		return t.VisitChildren(s)
 	}
 }
 
