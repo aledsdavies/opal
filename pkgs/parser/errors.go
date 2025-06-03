@@ -232,8 +232,8 @@ func ValidateWithDebug(file *CommandFile, debug *DebugTrace) error {
 }
 
 func checkBlockStatements(statements []BlockStatement, line int, lineContent string,
-	checkVarReferences func(string, int, string), debug *DebugTrace) {
-
+	checkVarReferences func(string, int, string), debug *DebugTrace,
+) {
 	for i, stmt := range statements {
 		if debug != nil {
 			debug.Log("Checking block statement %d: annotated=%v", i, stmt.IsAnnotated)

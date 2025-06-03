@@ -8,7 +8,7 @@ import (
 	"github.com/antlr4-go/antlr/v4"
 )
 
-//go:generate bash -c "cd ../../grammar && antlr -Dlanguage=Go -package gen -o ../internal/gen devcmdLexer.g4 devcmdParser.g4"
+//go:generate bash -c "cd ../../grammar && antlr -Dlanguage=Go -package gen -o ../internal/gen DevcmdLexer.g4 DevcmdParser.g4"
 
 type ParseError struct {
 	Line    int
@@ -304,6 +304,9 @@ func simplifyErrorMessage(msg string) string {
 	}
 	if strings.Contains(msg, "missing ':'") {
 		return "missing ':'"
+	}
+	if strings.Contains(msg, "missing ')'") && strings.Contains(msg, "'\\n'") {
+		return "missing ')' at '\\n'"
 	}
 	if strings.Contains(msg, "expecting") && strings.Contains(msg, "'}'") {
 		return "missing '}'"
@@ -615,20 +618,34 @@ func (v *DevcmdVisitor) processAnnotatedCommand(ctx antlr.ParserRuleContext) Blo
 		// Remove @ and ( to get the annotation name
 		annotation := strings.TrimSuffix(strings.TrimPrefix(atNameLParen, "@"), "(")
 
-		// Get raw content
-		var content strings.Builder
-		for _, rawText := range annotCtx.AllRAW_TEXT() {
-			content.WriteString(rawText.GetText())
+		// For function annotations like @sh(...), we need to get the exact text
+		// between the parentheses, preserving all formatting
+		var content string
+
+		// The AT_NAME_LPAREN token includes the @name( part
+		// The RPAREN token is the closing )
+		// We need everything in between
+
+		openParenToken := annotCtx.AT_NAME_LPAREN().GetSymbol()
+		closeParenToken := annotCtx.RPAREN().GetSymbol()
+
+		// Get positions
+		contentStart := openParenToken.GetStop() + 1  // After the (
+		contentStop := closeParenToken.GetStart() - 1 // Before the )
+
+		if contentStop >= contentStart {
+			// Get the raw text, which preserves spaces, newlines, backslashes, etc.
+			content = v.inputStream.GetText(contentStart, contentStop)
 		}
 
 		if v.debug != nil {
-			v.debug.Log("Function annotation: %s(%s)", annotation, content.String())
+			v.debug.Log("Function annotation: %s(%s)", annotation, content)
 		}
 		return BlockStatement{
 			IsAnnotated:    true,
 			Annotation:     annotation,
 			AnnotationType: "function",
-			Command:        content.String(),
+			Command:        content,
 		}
 
 	case *gen.BlockAnnotContext:

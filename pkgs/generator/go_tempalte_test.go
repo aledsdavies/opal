@@ -337,7 +337,7 @@ func TestGenerateGo_BasicCommands(t *testing.T) {
 			notInCode: []string{
 				"ProcessRegistry",
 				"runInBackground",
-				"syscall", // Should not import syscall for regular commands
+				"syscall",        // Should not import syscall for regular commands
 				"logs <process>", // Should not have global logs command
 			},
 		},
@@ -678,7 +678,7 @@ start: go run $(SRC) --port=$(PORT);`,
 			},
 		},
 		{
-			name: "variables with @sh annotation",
+			name:  "variables with @sh annotation",
 			input: `cleanup: @sh(find . -name "*.tmp" -exec rm {} \\;);`,
 			expectedInCode: []string{
 				"find . -name \"*.tmp\" -exec rm {} \\;",

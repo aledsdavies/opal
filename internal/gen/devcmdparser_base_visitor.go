@@ -47,6 +47,14 @@ func (v *BaseDevcmdParserVisitor) VisitAnnotation(ctx *AnnotationContext) interf
 	return v.VisitChildren(ctx)
 }
 
+func (v *BaseDevcmdParserVisitor) VisitAnnotationContent(ctx *AnnotationContentContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseDevcmdParserVisitor) VisitAnnotationElement(ctx *AnnotationElementContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
 func (v *BaseDevcmdParserVisitor) VisitSimpleCommand(ctx *SimpleCommandContext) interface{} {
 	return v.VisitChildren(ctx)
 }

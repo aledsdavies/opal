@@ -37,6 +37,12 @@ type DevcmdParserListener interface {
 	// EnterAnnotation is called when entering the annotation production.
 	EnterAnnotation(c *AnnotationContext)
 
+	// EnterAnnotationContent is called when entering the annotationContent production.
+	EnterAnnotationContent(c *AnnotationContentContext)
+
+	// EnterAnnotationElement is called when entering the annotationElement production.
+	EnterAnnotationElement(c *AnnotationElementContext)
+
 	// EnterSimpleCommand is called when entering the simpleCommand production.
 	EnterSimpleCommand(c *SimpleCommandContext)
 
@@ -93,6 +99,12 @@ type DevcmdParserListener interface {
 
 	// ExitAnnotation is called when exiting the annotation production.
 	ExitAnnotation(c *AnnotationContext)
+
+	// ExitAnnotationContent is called when exiting the annotationContent production.
+	ExitAnnotationContent(c *AnnotationContentContext)
+
+	// ExitAnnotationElement is called when exiting the annotationElement production.
+	ExitAnnotationElement(c *AnnotationElementContext)
 
 	// ExitSimpleCommand is called when exiting the simpleCommand production.
 	ExitSimpleCommand(c *SimpleCommandContext)

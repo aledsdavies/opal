@@ -80,6 +80,18 @@ func (s *BaseDevcmdParserListener) EnterAnnotation(ctx *AnnotationContext) {}
 // ExitAnnotation is called when production annotation is exited.
 func (s *BaseDevcmdParserListener) ExitAnnotation(ctx *AnnotationContext) {}
 
+// EnterAnnotationContent is called when production annotationContent is entered.
+func (s *BaseDevcmdParserListener) EnterAnnotationContent(ctx *AnnotationContentContext) {}
+
+// ExitAnnotationContent is called when production annotationContent is exited.
+func (s *BaseDevcmdParserListener) ExitAnnotationContent(ctx *AnnotationContentContext) {}
+
+// EnterAnnotationElement is called when production annotationElement is entered.
+func (s *BaseDevcmdParserListener) EnterAnnotationElement(ctx *AnnotationElementContext) {}
+
+// ExitAnnotationElement is called when production annotationElement is exited.
+func (s *BaseDevcmdParserListener) ExitAnnotationElement(ctx *AnnotationElementContext) {}
+
 // EnterSimpleCommand is called when production simpleCommand is entered.
 func (s *BaseDevcmdParserListener) EnterSimpleCommand(ctx *SimpleCommandContext) {}
 

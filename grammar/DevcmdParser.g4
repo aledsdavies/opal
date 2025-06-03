@@ -1,16 +1,15 @@
 /**
- * Devcmd Parser Grammar - Clean Design with Backward Compatibility
+ * Devcmd Parser Grammar - Fixed to handle newlines in annotations
  *
- * This parser maintains rule names expected by existing Go code while
- * implementing a cleaner design that properly handles annotation syntax.
+ * This parser works with the properly tokenized lexer output
+ * and handles @name(...) syntax with nested parentheses and newlines.
  *
  * Key design principles:
  * 1. Annotation syntax is handled cleanly with proper precedence
  * 2. Shell syntax (parentheses, braces) works normally in commands
  * 3. Variable expansion and escaping work as expected
  * 4. Rule names are compatible with existing visitor code
- * 5. Proper newline handling in block statements
- * 6. Simple annotations work without requiring semicolons in blocks
+ * 5. Proper newline handling in block statements and annotations
  */
 parser grammar DevcmdParser;
 
@@ -39,13 +38,10 @@ line
  */
 
 // Variable definition with optional value
-variableDefinition : DEF NAME EQUALS variableValue SEMICOLON ;
+variableDefinition : DEF NAME EQUALS variableValue? SEMICOLON ;
 
-// Variable value - can be empty or contain command text
-variableValue
-    : commandText     // Variable has content
-    | /* empty */     // Variable is empty (def VAR = ;)
-    ;
+// Variable value - can contain command text
+variableValue : commandText ;
 
 /**
  * COMMAND DEFINITIONS
@@ -66,24 +62,32 @@ commandBody
 /**
  * ANNOTATION SYNTAX
  * Three forms:
- * 1. Function: @name(raw shell command) - with optional semicolon for top-level
- * 2. Block: @name: { ... } - MOVED TO HIGHER PRECEDENCE
- * 3. Simple: @name: processed command - no semicolon needed in blocks
- *
- * CRITICAL FIX: blockAnnot must come before simpleAnnot to get precedence
- * when parsing @name: { ... } syntax
+ * 1. Function: @name(...) - parser handles nested parentheses and newlines
+ * 2. Block: @name: { ... }
+ * 3. Simple: @name: processed command
  */
 
 // Annotation command with labels for visitor compatibility
-// REORDERED: blockAnnot now comes before simpleAnnot for correct precedence
 annotatedCommand
-    : AT_NAME_LPAREN RAW_TEXT* RAW_RPAREN SEMICOLON?    #functionAnnot
-    | AT annotation COLON blockCommand                  #blockAnnot
-    | AT annotation COLON annotationCommand             #simpleAnnot
+    : AT_NAME_LPAREN annotationContent RPAREN SEMICOLON?    #functionAnnot
+    | AT annotation COLON blockCommand                      #blockAnnot
+    | AT annotation COLON annotationCommand                 #simpleAnnot
     ;
 
 // Annotation name (kept for compatibility)
 annotation : NAME ;
+
+// Content inside @name(...) - handle nested parentheses and newlines
+annotationContent : annotationElement* ;
+
+// Elements that can appear in annotation content
+// This handles nested parentheses by recursively parsing them
+// Also allows newlines and all other content
+annotationElement
+    : LPAREN annotationContent RPAREN         // Nested parentheses
+    | NEWLINE                                 // Allow newlines
+    | ~(LPAREN | RPAREN | NEWLINE)+          // Any sequence of non-paren, non-newline tokens
+    ;
 
 /**
  * REGULAR COMMANDS
@@ -106,7 +110,6 @@ blockStatements
     ;
 
 // Non-empty block statements separated by semicolons with optional newlines
-// Filter out empty statements to fix block counting issues
 nonEmptyBlockStatements
     : blockStatement (SEMICOLON NEWLINE* blockStatement)* SEMICOLON? NEWLINE*
     ;
@@ -138,18 +141,44 @@ commandTextElement
     : VAR_REF           // $(VAR) - devcmd variable
     | SHELL_VAR         // $VAR - shell variable
     | ESCAPED_DOLLAR    // \$ - literal dollar
+    | ESCAPED_SEMICOLON // \; - literal semicolon
+    | ESCAPED_BRACE     // \{ or \} - literal braces
     | NAME              // Identifiers
     | NUMBER            // Numeric literals
-    | STRING            // Quoted strings
+    | STRING            // Double quoted strings
+    | SINGLE_STRING     // Single quoted strings
+    | PATH_CONTENT      // Path-like content (./src, *.tmp, etc.)
     | LPAREN            // ( - shell subshells, grouping
     | RPAREN            // ) - shell subshells, grouping
     | LBRACE            // { - shell brace expansion
     | RBRACE            // } - shell brace expansion
+    | LBRACKET          // [ - shell tests
+    | RBRACKET          // ] - shell tests
     | AMPERSAND         // & - shell background processes
+    | PIPE              // | - shell pipes
+    | LT                // < - shell input redirection
+    | GT                // > - shell output redirection
     | COLON             // : - allowed in commands
     | EQUALS            // = - allowed in commands
     | BACKSLASH         // \ - shell escaping
+    | DOT               // . - paths, decimals
+    | COMMA             // , - lists
+    | SLASH             // / - paths
+    | DASH              // - - command options
+    | STAR              // * - globs
+    | PLUS              // + - expressions
+    | QUESTION          // ? - patterns
+    | EXCLAIM           // ! - negation
+    | PERCENT           // % - modulo
+    | CARET             // ^ - patterns
+    | TILDE             // ~ - home dir
+    | UNDERSCORE        // _ - identifiers
+    | DOLLAR            // $ - when not part of variable ref
+    | HASH              // # - when not comment
+    | DOUBLEQUOTE       // " - when not in string
+    | AT                // @ - when not annotation start
     | WATCH             // Allow keywords in command text
     | STOP              // Allow keywords in command text
-    | CONTENT           // General content token
+    | DEF               // Allow keywords in command text
+    | CONTENT           // General content
     ;

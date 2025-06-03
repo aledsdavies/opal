@@ -37,6 +37,12 @@ type DevcmdParserVisitor interface {
 	// Visit a parse tree produced by DevcmdParser#annotation.
 	VisitAnnotation(ctx *AnnotationContext) interface{}
 
+	// Visit a parse tree produced by DevcmdParser#annotationContent.
+	VisitAnnotationContent(ctx *AnnotationContentContext) interface{}
+
+	// Visit a parse tree produced by DevcmdParser#annotationElement.
+	VisitAnnotationElement(ctx *AnnotationElementContext) interface{}
+
 	// Visit a parse tree produced by DevcmdParser#simpleCommand.
 	VisitSimpleCommand(ctx *SimpleCommandContext) interface{}
 

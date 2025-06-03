@@ -46,7 +46,7 @@ let
   };
 
   # Helper function to create test derivations for CLIs
-  mkCLITest = { name, cli, testScript, extraPackages ? [] }: pkgs.runCommand "test-${name}"
+  mkCLITest = { name, cli, testScript, extraPackages ? [ ] }: pkgs.runCommand "test-${name}"
     {
       nativeBuildInputs = [ pkgs.bash cli ] ++ extraPackages;
       meta.description = "Test for ${name} CLI";

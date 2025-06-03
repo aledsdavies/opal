@@ -1671,7 +1671,6 @@ func TestDebugFunctionality(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := Parse(tt.input, true) // Always use debug now
-
 			if err != nil {
 				// With debug enabled, errors will include debug trace
 				if tt.debug && !strings.Contains(err.Error(), "DEBUG TRACE") {
