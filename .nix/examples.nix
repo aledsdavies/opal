@@ -469,8 +469,8 @@ rec {
       backup: {
         echo "Creating backup...";
         # Shell command substitution requires @sh() for complex operations with variable assignment
-        @sh(DATE=$(date +%Y%m%d-%H%M%S); echo "Backup timestamp: $DATE");
-        @sh((which kubectl && kubectl exec deployment/database -n $(KUBE_NAMESPACE) -- pg_dump myapp > backup-$(date +%Y%m%d-%H%M%S).sql) || echo "No database")
+        @sh(DATE=\$(date +%Y%m%d-%H%M%S); echo "Backup timestamp: \$DATE");
+        @sh((which kubectl && kubectl exec deployment/database -n $(KUBE_NAMESPACE) -- pg_dump myapp > backup-\$(date +%Y%m%d-%H%M%S).sql) || echo "No database")
       }
 
       monitor: {
