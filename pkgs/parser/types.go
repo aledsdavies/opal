@@ -103,7 +103,8 @@ func (cf *CommandFile) expandVariablesInBlockStatements(statements []BlockStatem
 
 		if stmt.IsAnnotated {
 			// Handle annotated commands
-			if stmt.AnnotationType == "function" || stmt.AnnotationType == "simple" {
+			switch stmt.AnnotationType {
+			case "function", "simple":
 				// Expand variables in the command text
 				if stmt.Command != "" {
 					expanded, err := expandVariablesInText(stmt.Command, vars, line)
@@ -112,7 +113,7 @@ func (cf *CommandFile) expandVariablesInBlockStatements(statements []BlockStatem
 					}
 					stmt.Command = expanded
 				}
-			} else if stmt.AnnotationType == "block" {
+			case "block":
 				// Recursively expand variables in nested block
 				if err := cf.expandVariablesInBlockStatements(stmt.AnnotatedBlock, vars, line); err != nil {
 					return err

@@ -1674,7 +1674,9 @@ func TestDebugFunctionality(t *testing.T) {
 			if err != nil {
 				// With debug enabled, errors will include debug trace
 				if tt.debug && !strings.Contains(err.Error(), "DEBUG TRACE") {
-					// This is fine - some errors might not have trace data
+					// When debug is enabled, we might expect trace data, but it's not always present
+					// This is acceptable behavior, so we don't need to check for it
+					t.Fatalf("Parse() error = %v", err)
 				}
 				t.Fatalf("Parse() error = %v", err)
 			}

@@ -240,11 +240,12 @@ func checkBlockStatements(statements []BlockStatement, line int, lineContent str
 		}
 
 		if stmt.IsAnnotated {
-			if stmt.AnnotationType == "function" || stmt.AnnotationType == "simple" {
+			switch stmt.AnnotationType {
+			case "function", "simple":
 				if stmt.Command != "" {
 					checkVarReferences(stmt.Command, line, lineContent)
 				}
-			} else if stmt.AnnotationType == "block" {
+			case "block":
 				checkBlockStatements(stmt.AnnotatedBlock, line, lineContent, checkVarReferences, debug)
 			}
 		} else {
