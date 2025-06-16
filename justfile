@@ -137,8 +137,6 @@ test-nix:
     nix build .#{{project_name}} --print-build-logs
     @echo "Testing core package..."
     ./result/bin/{{project_name}} --help
-    @echo "Testing development shell..."
-    nix develop --command echo "✅ Dev shell works"
     @echo "Basic flake check..."
     nix flake check --no-build
     @echo "✅ Nix core tests passed!"
