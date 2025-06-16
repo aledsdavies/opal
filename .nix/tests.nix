@@ -92,7 +92,7 @@ rec {
         commandsContent = ''
           check-deps: (which go && echo "Go found") || (echo "Go missing" && exit 1);
           validate: test -f go.mod && echo "Go module found" || echo "No go.mod";
-          complex: @sh((cd /tmp && echo "In tmp: $(pwd)") && echo "Back to: $(pwd)");
+          complex: @sh((cd /tmp && echo "In tmp: \$(pwd)") && echo "Back to: \$(pwd)");
         '';
       };
 
