@@ -3,6 +3,10 @@ package generator
 import (
 	"go/parser"
 	"go/token"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -994,6 +998,68 @@ func TestGenerateGo_ErrorHandling(t *testing.T) {
 	}
 }
 
+// TestGenerateGo_CompilationTest ensures generated code can be compiled successfully
+func TestGenerateGo_CompilationTest(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "basic commands compilation",
+			input: "build: go build ./...;\ntest: go test ./...; \nclean: rm -rf ./build;",
+		},
+		{
+			name:  "watch commands compilation",
+			input: "watch server: npm start;\nstop server: pkill node;",
+		},
+		{
+			name:  "decorators compilation",
+			input: "services: { @parallel: { server; client; worker } }\ncleanup: @sh(find . -name \"*.tmp\" -delete);",
+		},
+		{
+			name: "complex mixed compilation",
+			input: `def SRC = ./src;
+def PORT = 8080;
+build: cd $(SRC) && go build;
+watch dev: { echo starting; @parallel: { npm start; go run main.go --port=$(PORT) } }
+stop dev: { echo stopping; @parallel: { pkill npm; pkill go } }
+cleanup: @sh(find . -name "*.tmp" -delete);`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			cf, err := devcmdParser.Parse(tt.input, false)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			// Expand variables if they exist
+			err = cf.ExpandVariables()
+			if err != nil {
+				t.Fatalf("ExpandVariables error: %v", err)
+			}
+
+			// Generate Go code
+			generated, err := GenerateGo(cf)
+			if err != nil {
+				t.Fatalf("GenerateGo error: %v", err)
+			}
+
+			// Verify generated code compiles using Go parser
+			if !isValidGoCode(t, generated) {
+				t.Fatalf("Generated code failed Go syntax check")
+			}
+
+			// Additionally test actual compilation if in testing environment
+			if err := testActualCompilation(t, generated); err != nil {
+				t.Fatalf("Generated code failed actual compilation: %v", err)
+			}
+		})
+	}
+}
+
 func TestBasicDevExample_NoSyscall(t *testing.T) {
 	// Test that basic development commands don't include syscall imports
 	basicDevCommands := `
@@ -1106,6 +1172,40 @@ func isValidGoCode(t *testing.T, code string) bool {
 	return true
 }
 
+// testActualCompilation attempts to compile the generated code using go build
+func testActualCompilation(t *testing.T, code string) error {
+	// Create a temporary directory
+	tmpDir, err := ioutil.TempDir("", "devcmd_test_*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Write the generated code to a temporary file
+	tmpFile := filepath.Join(tmpDir, "main.go")
+	if err := ioutil.WriteFile(tmpFile, []byte(code), 0644); err != nil {
+		return err
+	}
+
+	// Initialize go.mod in the temporary directory
+	cmd := exec.Command("go", "mod", "init", "testmodule")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// Try to compile the code
+	cmd = exec.Command("go", "build", "-o", "/dev/null", tmpFile)
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("Compilation output: %s", string(output))
+		return err
+	}
+
+	return nil
+}
+
 // Helper function to create string pointers
 func stringPtr(s string) *string {
 	return &s
@@ -1183,6 +1283,13 @@ cleanup: {
 	// Verify generated code is valid Go
 	if !isValidGoCode(t, generated) {
 		t.Errorf("Generated code is not valid Go")
+		t.Logf("Generated code:\n%s", generated)
+		return
+	}
+
+	// Test actual compilation
+	if err := testActualCompilation(t, generated); err != nil {
+		t.Errorf("Generated code failed actual compilation: %v", err)
 		t.Logf("Generated code:\n%s", generated)
 		return
 	}
