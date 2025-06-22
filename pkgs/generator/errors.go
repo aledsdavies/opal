@@ -175,21 +175,6 @@ func (e *VariableError) Error() string {
 
 // Helper functions for creating errors with context
 
-// createContextualError creates a generic error with source context
-func createContextualError(message, cmdName string, cmdLine int, sourceLines []string) error {
-	var sourceText string
-	if cmdLine > 0 && cmdLine <= len(sourceLines) {
-		sourceText = strings.TrimSpace(sourceLines[cmdLine-1])
-	}
-
-	return &GeneratorError{
-		Message:     message,
-		CommandName: cmdName,
-		SourceLine:  cmdLine,
-		SourceText:  sourceText,
-	}
-}
-
 // createValidationError creates a validation error with source context
 func createValidationError(message, cmdName string, cmdLine int, sourceLines []string) error {
 	var sourceText string
@@ -208,26 +193,6 @@ func createDecoratorError(decoratorName, decoratorType, message, suggestion, cmd
 	}
 
 	return NewDecoratorError(decoratorName, decoratorType, message, suggestion, cmdName, cmdLine, sourceText)
-}
-
-// createVariableError creates a variable error with source context
-func createVariableError(varName, message, cmdName string, cmdLine int, sourceLines []string) error {
-	var sourceText string
-	if cmdLine > 0 && cmdLine <= len(sourceLines) {
-		sourceText = strings.TrimSpace(sourceLines[cmdLine-1])
-	}
-
-	return NewVariableError(varName, message, cmdName, cmdLine, sourceText)
-}
-
-// createProcessingError creates a processing error with source context
-func createProcessingError(message, cmdName string, cmdLine int, sourceLines []string) error {
-	var sourceText string
-	if cmdLine > 0 && cmdLine <= len(sourceLines) {
-		sourceText = strings.TrimSpace(sourceLines[cmdLine-1])
-	}
-
-	return NewProcessingError(message, cmdName, cmdLine, sourceText)
 }
 
 // ErrorCollector collects multiple errors during processing

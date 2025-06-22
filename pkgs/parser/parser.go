@@ -757,94 +757,6 @@ func (v *DevcmdVisitor) processSimpleDecorator(decorCtx *gen.SimpleDecoratorCont
 	}
 }
 
-// processDecoratorContent processes decorator content using the grammar rules
-func (v *DevcmdVisitor) processDecoratorContent(ctx *gen.DecoratorContentContext) []CommandElement {
-	if ctx == nil {
-		return []CommandElement{}
-	}
-
-	var elements []CommandElement
-
-	// Use the grammar-based approach
-	decoratorElements := ctx.AllDecoratorElement()
-	if v.debug != nil {
-		v.debug.Log("Processing decorator content with %d elements", len(decoratorElements))
-	}
-
-	for i, elemCtx := range decoratorElements {
-		elem := elemCtx.(*gen.DecoratorElementContext)
-		if v.debug != nil {
-			v.debug.Log("Processing decorator element %d", i)
-		}
-
-		// Handle nested decorators (like @var inside @sh)
-		if nestedDecorator := elem.NestedDecorator(); nestedDecorator != nil {
-			nested := nestedDecorator.(*gen.NestedDecoratorContext)
-			decoratorName := nested.NAME().GetText()
-
-			if v.debug != nil {
-				v.debug.Log("Found nested decorator: %s", decoratorName)
-			}
-
-			// Recursively process nested content
-			var nestedElements []CommandElement
-			if nested.DecoratorContent() != nil {
-				nestedElements = v.processDecoratorContent(nested.DecoratorContent().(*gen.DecoratorContentContext))
-			}
-
-			decoratorElem := &DecoratorElement{
-				Name: decoratorName,
-				Type: "function",
-				Args: nestedElements,
-			}
-			elements = append(elements, decoratorElem)
-
-		} else if elem.LPAREN() != nil {
-			// Handle regular parentheses
-			elements = append(elements, NewTextElement("("))
-			// Process nested content
-			if elem.DecoratorContent() != nil {
-				nestedElements := v.processDecoratorContent(elem.DecoratorContent().(*gen.DecoratorContentContext))
-				elements = append(elements, nestedElements...)
-			}
-			elements = append(elements, NewTextElement(")"))
-
-		} else if decoratorTextElement := elem.DecoratorTextElement(); decoratorTextElement != nil {
-			// Handle text content
-			text := v.getOriginalText(decoratorTextElement)
-			if text != "" {
-				elements = append(elements, NewTextElement(text))
-			}
-
-		} else if elem.NEWLINE() != nil {
-			elements = append(elements, NewTextElement("\n"))
-		} else {
-			// Fallback to original text
-			text := v.getOriginalText(elem)
-			if text != "" {
-				elements = append(elements, NewTextElement(text))
-			}
-		}
-	}
-
-	if v.debug != nil {
-		v.debug.Log("Decorator content produced %d elements", len(elements))
-	}
-
-	return elements
-}
-
-// processCommandTextTokenLevel processes command text at the token level without spaces
-func (v *DevcmdVisitor) processCommandTextTokenLevel(ctx *gen.CommandTextContext) []CommandElement {
-	if ctx == nil {
-		return []CommandElement{}
-	}
-
-	// For simple cases, use the original text and parse it manually
-	originalText := v.getOriginalText(ctx)
-	return v.parseCommandString(originalText)
-}
-
 // parseCommandString with simplified tokenization - preserves spaces and structure.
 func (v *DevcmdVisitor) parseCommandString(text string) []CommandElement {
 	var elements []CommandElement
@@ -917,9 +829,10 @@ func (v *DevcmdVisitor) parseDecorator(text string) (*DecoratorElement, int) {
 	i := contentStart
 
 	for i < len(text) && parenLevel > 0 {
-		if text[i] == '(' {
+		switch text[i] {
+		case '(':
 			parenLevel++
-		} else if text[i] == ')' {
+		case ')':
 			parenLevel--
 		}
 		i++

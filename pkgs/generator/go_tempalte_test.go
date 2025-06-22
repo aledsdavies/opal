@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"go/format"
 	"go/parser"
 	"go/token"
@@ -88,8 +87,8 @@ func showRelevantCode(t *testing.T, code string, pattern string) {
 				// Highlight lines that might contain our pattern
 				prefix := "    "
 				if strings.Contains(lines[j], "exec.Command") ||
-				   strings.Contains(lines[j], `"-c"`) ||
-				   strings.Contains(lines[j], pattern) {
+					strings.Contains(lines[j], `"-c"`) ||
+					strings.Contains(lines[j], pattern) {
 					prefix = " >> "
 				}
 
@@ -122,7 +121,7 @@ func mustContain(pattern string) func(string) TestResult {
 		return TestResult{
 			Success:         false,
 			ExpectedPattern: pattern,
-			ErrorMessage:    fmt.Sprintf("Generated code does not contain expected pattern"),
+			ErrorMessage:    "Generated code does not contain expected pattern",
 			Context: map[string]interface{}{
 				"Pattern": pattern,
 			},
@@ -200,7 +199,7 @@ func TestImportsTemplate(t *testing.T) {
 			},
 		},
 		{
-			name: "Watch command imports",
+			name:  "Watch command imports",
 			input: `watch server: npm start;`,
 			expected: []string{
 				`"encoding/json"`,
@@ -300,9 +299,9 @@ build: {
 								Success:      false,
 								ErrorMessage: "Found unexpanded variable",
 								Context: map[string]interface{}{
-									"Line":     i + 1,
-									"Content":  strings.TrimSpace(line),
-									"NotWant":  tt.notWant,
+									"Line":    i + 1,
+									"Content": strings.TrimSpace(line),
+									"NotWant": tt.notWant,
 								},
 							}
 						}
@@ -367,7 +366,7 @@ func TestWatchStopCommands(t *testing.T) {
 		expect []string
 	}{
 		{
-			name: "Watch only command",
+			name:  "Watch only command",
 			input: `watch server: npm start;`,
 			expect: []string{
 				"runInBackground",
@@ -571,11 +570,15 @@ stop dev: @sh(pkill -f "go run");
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Failed to clean up temp dir: %v", err)
+		}
+	}()
 
 	// Write generated code
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(mainFile, []byte(generated), 0644); err != nil {
+	if err := os.WriteFile(mainFile, []byte(generated), 0o644); err != nil {
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
 
@@ -600,13 +603,13 @@ stop dev: @sh(pkill -f "go run");
 			t.Logf("%4d: %s", i+1, line)
 		}
 	} else {
-		t.Log("✓ Generated code compiles successfully")
+		t.Log("✅ Generated code compiles successfully")
 
 		// Try to run help
 		cmd = exec.Command("./testcli", "help")
 		cmd.Dir = tmpDir
 		if output, err := cmd.CombinedOutput(); err == nil {
-			t.Logf("✓ CLI runs successfully\nHelp output:\n%s", output)
+			t.Logf("✅ CLI runs successfully\nHelp output:\n%s", output)
 		}
 	}
 }
@@ -620,13 +623,13 @@ func TestErrorHandling(t *testing.T) {
 		expectError string
 	}{
 		{
-			name: "Invalid @parallel syntax",
-			input: `test: @parallel(echo one; echo two);`,
+			name:        "Invalid @parallel syntax",
+			input:       `test: @parallel(echo one; echo two);`,
 			expectError: "@parallel decorator cannot be used with function syntax",
 		},
 		{
-			name: "Unknown decorator",
-			input: `test: @unknown(echo hello);`,
+			name:        "Unknown decorator",
+			input:       `test: @unknown(echo hello);`,
 			expectError: "unsupported decorator '@unknown'",
 		},
 	}
