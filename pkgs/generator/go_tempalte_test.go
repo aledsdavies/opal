@@ -14,6 +14,193 @@ import (
 	devcmdParser "github.com/aledsdavies/devcmd/pkgs/parser"
 )
 
+// TestVarDecoratorExpansion tests the @var() decorator expansion
+func TestVarDecoratorExpansion(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantCommand string
+		description string
+	}{
+		{
+			name: "simple_var_decorator",
+			input: `
+def PORT = 8080;
+server: @sh(go run main.go --port=@var(PORT));
+`,
+			wantCommand: "go run main.go --port=8080",
+			description: "@var() decorator inside @sh() should be expanded",
+		},
+		{
+			name: "multiple_var_decorators",
+			input: `
+def HOST = localhost;
+def PORT = 8080;
+server: @sh(go run main.go --host=@var(HOST) --port=@var(PORT));
+`,
+			wantCommand: "go run main.go --host=localhost --port=8080",
+			description: "Multiple @var() decorators should be expanded",
+		},
+		{
+			name: "var_decorator_in_block",
+			input: `
+def PROJECT = myapp;
+build: {
+    echo "Building project";
+    @sh(go build -o @var(PROJECT) .)
+}
+`,
+			wantCommand: "echo \"Building project\"; go build -o myapp .",
+			description: "@var() decorator in block should be expanded",
+		},
+		{
+			name: "undefined_var_preserved",
+			input: `
+def PORT = 8080;
+server: @sh(go run main.go --port=@var(PORT) --host=@var(UNDEFINED));
+`,
+			wantCommand: "go run main.go --port=8080 --host=@var(UNDEFINED)",
+			description: "Undefined @var() should be preserved as-is",
+		},
+		{
+			name: "var_in_watch_command",
+			input: `
+def PORT = 3000;
+watch frontend: @sh(ng serve --port=@var(PORT));
+`,
+			wantCommand: "ng serve --port=3000",
+			description: "@var() should work in watch commands",
+		},
+		{
+			name: "nested_var_in_parallel",
+			input: `
+def PORT1 = 8080;
+def PORT2 = 9090;
+services: {
+    @parallel: {
+        @sh(server --port=@var(PORT1));
+        @sh(worker --port=@var(PORT2))
+    }
+}
+`,
+			wantCommand: "server --port=8080 &; worker --port=9090 &; wait",
+			description: "@var() should work in parallel blocks",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			cf, err := devcmdParser.Parse(tt.input, false)
+			if err != nil {
+				t.Fatalf("Parse error for %s: %v", tt.description, err)
+			}
+
+			// Generate Go code
+			generated, err := GenerateGo(cf)
+			if err != nil {
+				t.Errorf("GenerateGo error for %s: %v", tt.description, err)
+				return
+			}
+
+			// Check that the expanded command appears in the generated code
+			if !strings.Contains(generated, tt.wantCommand) {
+				t.Errorf("Generated code doesn't contain expected command for %s", tt.description)
+				t.Logf("Expected command: %s", tt.wantCommand)
+				t.Logf("Generated code:\n%s", generated)
+				return
+			}
+
+			// Validate Go syntax
+			if !isValidGoCode(t, generated) {
+				t.Errorf("Generated invalid Go code for %s", tt.description)
+				t.Logf("Generated code:\n%s", generated)
+				return
+			}
+
+			t.Logf("✅ %s: %s", tt.name, tt.description)
+		})
+	}
+}
+
+// TestNestedDecoratorValidation tests validation of nested decorators in @sh
+func TestNestedDecoratorValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		shouldFail  bool
+		description string
+	}{
+		{
+			name: "var_in_sh_allowed",
+			input: `
+def PORT = 8080;
+server: @sh(go run main.go --port=@var(PORT));
+`,
+			shouldFail:  false,
+			description: "@var() inside @sh() should be allowed",
+		},
+		{
+			name: "parallel_in_sh_not_allowed",
+			input: `
+server: @sh(echo start && @parallel(task1; task2));
+`,
+			shouldFail:  true,
+			description: "@parallel() inside @sh() should not be allowed",
+		},
+		{
+			name: "sh_in_sh_not_allowed",
+			input: `
+test: @sh(echo outer && @sh(echo inner));
+`,
+			shouldFail:  true,
+			description: "@sh() inside @sh() should not be allowed",
+		},
+		{
+			name: "multiple_vars_in_sh_allowed",
+			input: `
+def HOST = localhost;
+def PORT = 8080;
+server: @sh(go run main.go --host=@var(HOST) --port=@var(PORT));
+`,
+			shouldFail:  false,
+			description: "Multiple @var() inside @sh() should be allowed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input
+			cf, err := devcmdParser.Parse(tt.input, false)
+			if err != nil {
+				if tt.shouldFail {
+					t.Logf("Expected parse failure for %s: %v", tt.description, err)
+					return
+				}
+				t.Fatalf("Parse error for %s: %v", tt.description, err)
+			}
+
+			// Generate Go code
+			_, err = GenerateGo(cf)
+			if err != nil {
+				if tt.shouldFail {
+					t.Logf("Expected generation failure for %s: %v", tt.description, err)
+					return
+				}
+				t.Errorf("Unexpected GenerateGo error for %s: %v", tt.description, err)
+				return
+			}
+
+			if tt.shouldFail {
+				t.Errorf("Expected failure for %s but succeeded", tt.description)
+				return
+			}
+
+			t.Logf("✅ %s: %s", tt.name, tt.description)
+		})
+	}
+}
+
 // TestTemplateEdgeCases tests various edge cases that might cause template failures
 func TestTemplateEdgeCases(t *testing.T) {
 	tests := []struct {
@@ -96,9 +283,9 @@ func TestTemplateEdgeCases(t *testing.T) {
 		},
 		{
 			name:        "command_with_variables",
-			input:       "def PORT = 8080;\nserver: go run main.go --port=$(PORT);",
+			input:       "def PORT = 8080;\nserver: @sh(go run main.go --port=@var(PORT));",
 			shouldFail:  false,
-			description: "Command using variables",
+			description: "Command using @var() decorator",
 		},
 		{
 			name:        "block_command_simple",
@@ -157,8 +344,8 @@ def BUILD_DIR = ./dist;
 # Regular commands
 build: {
     echo "Building application...";
-    mkdir -p $(BUILD_DIR);
-    go build -o $(BUILD_DIR)/app .;
+    mkdir -p @var(BUILD_DIR);
+    @sh(go build -o @var(BUILD_DIR)/app .);
     echo "Build complete"
 }
 
@@ -170,8 +357,8 @@ test: {
 
 # Watch commands
 watch server: {
-    echo "Starting server on port $(PORT)...";
-    @sh(cd cmd/server && go run main.go --port=$(PORT))
+    echo "Starting server on port @var(PORT)...";
+    @sh(cd cmd/server && go run main.go --port=@var(PORT))
 }
 
 stop server: {
@@ -191,7 +378,7 @@ deploy: {
 }
 `,
 			shouldFail:  false,
-			description: "Real-world complex commands file",
+			description: "Real-world complex commands file with @var() decorators",
 		},
 	}
 
@@ -205,16 +392,6 @@ deploy: {
 					return
 				}
 				t.Fatalf("Parse error for %s: %v", tt.description, err)
-			}
-
-			// Expand variables
-			err = cf.ExpandVariables()
-			if err != nil {
-				if tt.shouldFail {
-					t.Logf("Expected variable expansion failure for %s: %v", tt.description, err)
-					return
-				}
-				t.Fatalf("ExpandVariables error for %s: %v", tt.description, err)
 			}
 
 			// Generate Go code
@@ -464,16 +641,16 @@ func TestTemplateExecutionOrder(t *testing.T) {
 	}
 }
 
-// TestRealWorldScenario tests a real-world commands.cli scenario
+// TestRealWorldScenario tests a real-world commands.cli scenario with @var() decorators
 func TestRealWorldScenario(t *testing.T) {
-	// This is similar to your actual commands.cli
+	// This is similar to your actual commands.cli but using @var() decorators
 	realWorldInput := `
 def SERVER_PORT = 8080;
 def FRONTEND_PORT = 4200;
 def BUILD_DIR = ./dist;
 
 watch server: {
-    echo "🚀 Starting Go server on port $(SERVER_PORT)...";
+    echo "🚀 Starting Go server on port @var(SERVER_PORT)...";
     @sh(cd cmd/ailuvia && go run main.go)
 }
 
@@ -483,8 +660,8 @@ stop server: {
 }
 
 watch frontend: {
-    echo "⚡ Starting Angular dev server on port $(FRONTEND_PORT)...";
-    @sh(cd frontend && ng serve --port=$(FRONTEND_PORT))
+    echo "⚡ Starting Angular dev server on port @var(FRONTEND_PORT)...";
+    @sh(cd frontend && ng serve --port=@var(FRONTEND_PORT))
 }
 
 stop frontend: {
@@ -494,8 +671,8 @@ stop frontend: {
 
 build: {
     echo "🔨 Building Go server...";
-    mkdir -p $(BUILD_DIR);
-    @sh(cd cmd/ailuvia && go build -o ../../$(BUILD_DIR)/server .)
+    mkdir -p @var(BUILD_DIR);
+    @sh(cd cmd/ailuvia && go build -o ../../@var(BUILD_DIR)/server .)
 }
 
 test: {
@@ -511,22 +688,24 @@ test: {
 			t.Fatalf("Parse error: %v", err)
 		}
 
-		// Expand variables
-		err = cf.ExpandVariables()
-		if err != nil {
-			t.Fatalf("ExpandVariables error: %v", err)
-		}
-
 		// Generate
 		generated, err := GenerateGo(cf)
 		if err != nil {
 			t.Fatalf("GenerateGo error: %v", err)
 		}
 
-		// Validate
+		// Check that variables were expanded where expected
+		if !strings.Contains(generated, "--port=4200") {
+			t.Errorf("Expected expanded FRONTEND_PORT variable in generated code")
+		}
+
+		if !strings.Contains(generated, "../.././dist/server") {
+			t.Errorf("Expected expanded BUILD_DIR variable in generated code")
+		}
+
+		// Validate Go syntax
 		if !isValidGoCode(t, generated) {
 			t.Errorf("Generated invalid Go code")
-
 			// Show the problematic code
 			lines := strings.Split(generated, "\n")
 			for i, line := range lines {

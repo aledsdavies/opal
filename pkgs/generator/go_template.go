@@ -15,6 +15,7 @@ import (
 var supportedDecorators = map[string]bool{
 	"sh":       true, // Shell command execution
 	"parallel": true, // Parallel execution
+	"var":      true, // Variable reference
 }
 
 // TemplateData represents preprocessed data for template generation
@@ -117,6 +118,9 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 		Commands:    []TemplateCommand{},
 	}
 
+	// Create variable definitions map for expansion
+	definitions := createDefinitionMap(cf.Definitions)
+
 	// Group commands by name to find watch/stop pairs
 	commandGroups := make(map[string][]parser.Command)
 	for _, cmd := range cf.Commands {
@@ -171,9 +175,9 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	// Sort imports for consistent output
 	sort.Strings(data.Imports)
 
-	// Process command groups
+	// Process command groups with variable expansion
 	for name, commands := range commandGroups {
-		templateCmd, err := processCommandGroup(name, commands)
+		templateCmd, err := processCommandGroup(name, commands, definitions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to process command group %s: %w", name, err)
 		}
@@ -191,6 +195,15 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	}
 
 	return data, nil
+}
+
+// createDefinitionMap creates a map from variable definitions for quick lookup
+func createDefinitionMap(definitions []parser.Definition) map[string]string {
+	defMap := make(map[string]string)
+	for _, def := range definitions {
+		defMap[def.Name] = def.Value
+	}
+	return defMap
 }
 
 // validateDecorators checks that all decorators used are supported
@@ -226,11 +239,48 @@ func validateBlockDecorators(statements []parser.BlockStatement, cmdName string,
 					return fmt.Errorf("@sh decorator must be used with function or simple syntax in command '%s' at line %d. Use: @sh(command) or @sh: command",
 						cmdName, cmdLine)
 				}
+				// Check for nested decorators in @sh content using AST
+				if err := validateShDecoratorElements(stmt.Elements, cmdName, cmdLine); err != nil {
+					return err
+				}
+			case "var":
+				if stmt.DecoratorType != "function" {
+					return fmt.Errorf("@var decorator must be used with function syntax in command '%s' at line %d. Use: @var(VARIABLE_NAME)",
+						cmdName, cmdLine)
+				}
 			}
 
 			// Recursively validate nested blocks
 			if stmt.DecoratorType == "block" && len(stmt.DecoratedBlock) > 0 {
 				if err := validateBlockDecorators(stmt.DecoratedBlock, cmdName, cmdLine); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateShDecoratorElements checks for nested decorators in @sh using AST
+func validateShDecoratorElements(elements []parser.CommandElement, cmdName string, cmdLine int) error {
+	for _, elem := range elements {
+		if elem.IsDecorator() {
+			decorator := elem.(*parser.DecoratorElement)
+			if decorator.Name == "sh" {
+				// Check arguments of @sh for nested decorators
+				for _, arg := range decorator.Args {
+					if err := validateShDecoratorElements([]parser.CommandElement{arg}, cmdName, cmdLine); err != nil {
+						return err
+					}
+				}
+			} else if decorator.Name != "var" {
+				return fmt.Errorf("nested decorator '@%s' not allowed inside @sh in command '%s' at line %d. Only @var() is allowed",
+					decorator.Name, cmdName, cmdLine)
+			}
+
+			// Recursively check nested decorators
+			if len(decorator.Args) > 0 {
+				if err := validateShDecoratorElements(decorator.Args, cmdName, cmdLine); err != nil {
 					return err
 				}
 			}
@@ -250,7 +300,7 @@ func getSupportedDecoratorsString() string {
 }
 
 // processCommandGroup processes a group of commands with the same name
-func processCommandGroup(name string, commands []parser.Command) (TemplateCommand, error) {
+func processCommandGroup(name string, commands []parser.Command, definitions map[string]string) (TemplateCommand, error) {
 	templateCmd := TemplateCommand{
 		Name:         name,
 		FunctionName: sanitizeFunctionName(name),
@@ -275,7 +325,7 @@ func processCommandGroup(name string, commands []parser.Command) (TemplateComman
 	if regularCmd != nil {
 		// Regular command (no watch/stop)
 		templateCmd.Type = "regular"
-		shellCmd, err := buildShellCommand(*regularCmd)
+		shellCmd, err := buildShellCommand(*regularCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build shell command for '%s': %w", name, err)
 		}
@@ -284,11 +334,11 @@ func processCommandGroup(name string, commands []parser.Command) (TemplateComman
 	} else if watchCmd != nil && stopCmd != nil {
 		// Watch/stop pair
 		templateCmd.Type = "watch-stop"
-		watchShell, err := buildShellCommand(*watchCmd)
+		watchShell, err := buildShellCommand(*watchCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build watch command for '%s': %w", name, err)
 		}
-		stopShell, err := buildShellCommand(*stopCmd)
+		stopShell, err := buildShellCommand(*stopCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build stop command for '%s': %w", name, err)
 		}
@@ -299,7 +349,7 @@ func processCommandGroup(name string, commands []parser.Command) (TemplateComman
 	} else if watchCmd != nil {
 		// Watch only
 		templateCmd.Type = "watch-only"
-		watchShell, err := buildShellCommand(*watchCmd)
+		watchShell, err := buildShellCommand(*watchCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build watch command for '%s': %w", name, err)
 		}
@@ -309,7 +359,7 @@ func processCommandGroup(name string, commands []parser.Command) (TemplateComman
 	} else if stopCmd != nil {
 		// Stop only (unusual, but handle it)
 		templateCmd.Type = "stop-only"
-		stopShell, err := buildShellCommand(*stopCmd)
+		stopShell, err := buildShellCommand(*stopCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build stop command for '%s': %w", name, err)
 		}
@@ -350,20 +400,24 @@ func sanitizeFunctionName(name string) string {
 }
 
 // buildShellCommand constructs the shell command string from parser command
-func buildShellCommand(cmd parser.Command) (string, error) {
+func buildShellCommand(cmd parser.Command, definitions map[string]string) (string, error) {
 	if cmd.IsBlock {
-		return buildBlockCommand(cmd.Block, cmd.Name, cmd.Line)
+		return buildBlockCommand(cmd.Block, cmd.Name, cmd.Line, definitions)
+	}
+	// Process Elements if available, otherwise fall back to legacy Command
+	if len(cmd.Elements) > 0 {
+		return processElements(cmd.Elements, definitions), nil
 	}
 	return cmd.Command, nil
 }
 
 // buildBlockCommand handles block statements with decorator support
-func buildBlockCommand(statements []parser.BlockStatement, cmdName string, cmdLine int) (string, error) {
+func buildBlockCommand(statements []parser.BlockStatement, cmdName string, cmdLine int, definitions map[string]string) (string, error) {
 	var parts []string
 
 	for _, stmt := range statements {
 		if stmt.IsDecorated {
-			part, err := buildDecoratedStatement(stmt, cmdName, cmdLine)
+			part, err := buildDecoratedStatement(stmt, cmdName, cmdLine, definitions)
 			if err != nil {
 				return "", err
 			}
@@ -371,8 +425,11 @@ func buildBlockCommand(statements []parser.BlockStatement, cmdName string, cmdLi
 				parts = append(parts, part)
 			}
 		} else {
-			// Regular command (no decorator)
-			if stmt.Command != "" {
+			// Regular command (no decorator) - use Elements if available
+			if len(stmt.Elements) > 0 {
+				processedCommand := processElements(stmt.Elements, definitions)
+				parts = append(parts, processedCommand)
+			} else if stmt.Command != "" {
 				parts = append(parts, stmt.Command)
 			}
 		}
@@ -382,17 +439,23 @@ func buildBlockCommand(statements []parser.BlockStatement, cmdName string, cmdLi
 }
 
 // buildDecoratedStatement handles different decorator types
-func buildDecoratedStatement(stmt parser.BlockStatement, cmdName string, cmdLine int) (string, error) {
+func buildDecoratedStatement(stmt parser.BlockStatement, cmdName string, cmdLine int, definitions map[string]string) (string, error) {
 	switch stmt.Decorator {
 	case "sh":
-		// Shell command - pass through directly (no variable processing)
-		if stmt.DecoratorType == "function" {
-			// @sh(command) - command is in stmt.Command
-			return stmt.Command, nil
-		} else {
-			// @sh:command - command is in stmt.Command
-			return stmt.Command, nil
+		// Shell command - process Elements if available
+		if len(stmt.Elements) > 0 {
+			return processElements(stmt.Elements, definitions), nil
 		}
+		return stmt.Command, nil
+
+	case "var":
+		// Variable reference - expand to variable value
+		varName := stmt.Command
+		if value, exists := definitions[varName]; exists {
+			return value, nil
+		}
+		// If variable doesn't exist, return the original @var() call
+		return fmt.Sprintf("@var(%s)", varName), nil
 
 	case "parallel":
 		// Parallel execution - convert to background processes with &
@@ -402,7 +465,7 @@ func buildDecoratedStatement(stmt parser.BlockStatement, cmdName string, cmdLine
 			for _, nestedStmt := range stmt.DecoratedBlock {
 				if nestedStmt.IsDecorated {
 					// Handle nested decorators
-					part, err := buildDecoratedStatement(nestedStmt, cmdName, cmdLine)
+					part, err := buildDecoratedStatement(nestedStmt, cmdName, cmdLine, definitions)
 					if err != nil {
 						return "", err
 					}
@@ -410,8 +473,11 @@ func buildDecoratedStatement(stmt parser.BlockStatement, cmdName string, cmdLine
 						parallelParts = append(parallelParts, part+" &")
 					}
 				} else {
-					// Regular command in parallel block
-					if nestedStmt.Command != "" {
+					// Regular command in parallel block - use Elements if available
+					if len(nestedStmt.Elements) > 0 {
+						processedCommand := processElements(nestedStmt.Elements, definitions)
+						parallelParts = append(parallelParts, processedCommand+" &")
+					} else if nestedStmt.Command != "" {
 						parallelParts = append(parallelParts, nestedStmt.Command+" &")
 					}
 				}
@@ -429,6 +495,42 @@ func buildDecoratedStatement(stmt parser.BlockStatement, cmdName string, cmdLine
 	}
 
 	return stmt.Command, nil
+}
+
+// processElements traverses the AST and processes decorators
+func processElements(elements []parser.CommandElement, definitions map[string]string) string {
+	var result strings.Builder
+
+	for _, elem := range elements {
+		if elem.IsDecorator() {
+			decorator := elem.(*parser.DecoratorElement)
+			switch decorator.Name {
+			case "var":
+				// Extract variable name from Args
+				if len(decorator.Args) > 0 {
+					varName := processElements(decorator.Args, definitions)
+					if value, exists := definitions[varName]; exists {
+						result.WriteString(value)
+					} else {
+						result.WriteString(fmt.Sprintf("@var(%s)", varName))
+					}
+				}
+			case "sh":
+				// For @sh decorators, process their arguments
+				if len(decorator.Args) > 0 {
+					result.WriteString(processElements(decorator.Args, definitions))
+				}
+			default:
+				// For other decorators, just write them as-is
+				result.WriteString(decorator.String())
+			}
+		} else {
+			// Text element - write as-is
+			result.WriteString(elem.String())
+		}
+	}
+
+	return result.String()
 }
 
 // GenerateGo creates a Go CLI from a CommandFile using the composable template system
