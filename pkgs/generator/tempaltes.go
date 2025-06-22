@@ -1,17 +1,18 @@
 package generator
 
-// Template component definitions
+// Improved template component definitions with better whitespace control and formatting
 
 const packageTemplate = `{{define "package"}}package {{.PackageName}}{{end}}`
 
 const importsTemplate = `{{define "imports"}}
 import (
-{{range .Imports}}	"{{.}}"
-{{end}})
+{{- range .Imports}}
+	"{{.}}"
+{{- end}}
+)
 {{end}}`
 
-const processTypesTemplate = `{{define "process-types"}}
-{{if .HasProcessMgmt}}
+const processTypesTemplate = `{{define "process-types"}}{{if .HasProcessMgmt}}
 // ProcessInfo represents a managed background process
 type ProcessInfo struct {
 	Name      string    ` + "`json:\"name\"`" + `
@@ -27,11 +28,9 @@ type ProcessRegistry struct {
 	dir       string
 	processes map[string]*ProcessInfo
 }
-{{end}}
-{{end}}`
+{{- end}}{{end}}`
 
-const processRegistryTemplate = `{{define "process-registry"}}
-{{if .HasProcessMgmt}}
+const processRegistryTemplate = `{{define "process-registry"}}{{if .HasProcessMgmt}}
 // NewProcessRegistry creates a new process registry
 func NewProcessRegistry() *ProcessRegistry {
 	dir := ".devcmd"
@@ -163,19 +162,22 @@ func (pr *ProcessRegistry) gracefulStop(name string) error {
 		}
 	}
 }
-{{end}}
-{{end}}`
+{{- end}}{{end}}`
 
 const cliStructTemplate = `{{define "cli-struct"}}
 // CLI represents the command line interface
 type CLI struct {
-{{if .HasProcessMgmt}}	registry *ProcessRegistry{{end}}
+{{- if .HasProcessMgmt}}
+	registry *ProcessRegistry
+{{- end}}
 }
 
 // NewCLI creates a new CLI instance
 func NewCLI() *CLI {
 	return &CLI{
-{{if .HasProcessMgmt}}		registry: NewProcessRegistry(),{{end}}
+{{- if .HasProcessMgmt}}
+		registry: NewProcessRegistry(),
+{{- end}}
 	}
 }
 {{end}}`
@@ -189,20 +191,35 @@ func (c *CLI) Execute() {
 	}
 
 	command := os.Args[1]
+{{- if .Commands}}
 	args := os.Args[2:]
 
 	switch command {
-{{if .HasProcessMgmt}}	case "status":
+{{- if .HasProcessMgmt}}
+	case "status":
 		c.showStatus()
-{{end}}{{range .Commands}}	case "{{.GoCase}}":
+{{- end}}
+{{- range .Commands}}
+	case "{{.GoCase}}":
 		c.{{.FunctionName}}(args)
-{{end}}	case "help", "--help", "-h":
+{{- end}}
+	case "help", "--help", "-h":
 		c.showHelp()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		c.showHelp()
 		os.Exit(1)
 	}
+{{- else}}
+	switch command {
+	case "help", "--help", "-h":
+		c.showHelp()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
+		c.showHelp()
+		os.Exit(1)
+	}
+{{- end}}
 }
 {{end}}`
 
@@ -210,13 +227,16 @@ const helpFunctionTemplate = `{{define "help-function"}}
 // showHelp displays available commands
 func (c *CLI) showHelp() {
 	fmt.Println("Available commands:")
-{{if .HasProcessMgmt}}	fmt.Println("  status              - Show running background processes")
-{{end}}{{range .Commands}}	fmt.Println("  {{.HelpDescription}}")
-{{end}}}
+{{- if .HasProcessMgmt}}
+	fmt.Println("  status              - Show running background processes")
+{{- end}}
+{{- range .Commands}}
+	fmt.Println("  {{.HelpDescription}}")
+{{- end}}
+}
 {{end}}`
 
-const statusFunctionTemplate = `{{define "status-function"}}
-{{if .HasProcessMgmt}}
+const statusFunctionTemplate = `{{define "status-function"}}{{if .HasProcessMgmt}}
 // showStatus displays running processes
 func (c *CLI) showStatus() {
 	processes := c.registry.listProcesses()
@@ -244,11 +264,9 @@ func (c *CLI) showStatus() {
 			proc.Name, proc.PID, proc.Status, startTime, command)
 	}
 }
-{{end}}
-{{end}}`
+{{- end}}{{end}}`
 
-const processMgmtFunctionsTemplate = `{{define "process-mgmt-functions"}}
-{{if .HasProcessMgmt}}
+const processMgmtFunctionsTemplate = `{{define "process-mgmt-functions"}}{{if .HasProcessMgmt}}
 // showLogsFor displays logs for a specific process
 func (c *CLI) showLogsFor(name string) {
 	proc, exists := c.registry.getProcess(name)
@@ -308,19 +326,20 @@ func (c *CLI) runInBackground(name, command string) error {
 
 	return nil
 }
-{{end}}
-{{end}}`
+{{- end}}{{end}}`
 
 const commandFunctionsTemplate = `{{define "command-functions"}}
 // Command implementations
-{{range .Commands}}
+{{- range .Commands}}
+
 func (c *CLI) {{.FunctionName}}(args []string) {
-{{template "command-impl" .}}
+{{- template "command-impl" .}}
 }
-{{end}}
+{{- end}}
 {{end}}`
 
-const regularCommandTemplate = `{{define "regular-command"}}	// Regular command
+const regularCommandTemplate = `{{define "regular-command"}}
+	// Regular command
 	cmd := exec.Command("sh", "-c", ` + "`{{.ShellCommand}}`" + `)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -332,9 +351,11 @@ const regularCommandTemplate = `{{define "regular-command"}}	// Regular command
 		}
 		fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
 		os.Exit(1)
-	}{{end}}`
+	}
+{{- end}}`
 
-const watchStopCommandTemplate = `{{define "watch-stop-command"}}	// Watch/stop command pair
+const watchStopCommandTemplate = `{{define "watch-stop-command"}}
+	// Watch/stop command pair
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: %s {{.Name}} <start|stop|logs>\n", os.Args[0])
 		os.Exit(1)
@@ -365,9 +386,11 @@ const watchStopCommandTemplate = `{{define "watch-stop-command"}}	// Watch/stop 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s. Use 'start', 'stop', or 'logs'\n", subcommand)
 		os.Exit(1)
-	}{{end}}`
+	}
+{{- end}}`
 
-const watchOnlyCommandTemplate = `{{define "watch-only-command"}}	// Watch-only command (no custom stop)
+const watchOnlyCommandTemplate = `{{define "watch-only-command"}}
+	// Watch-only command (no custom stop)
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: %s {{.Name}} <start|stop|logs>\n", os.Args[0])
 		os.Exit(1)
@@ -392,21 +415,25 @@ const watchOnlyCommandTemplate = `{{define "watch-only-command"}}	// Watch-only 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s. Use 'start', 'stop', or 'logs'\n", subcommand)
 		os.Exit(1)
-	}{{end}}`
+	}
+{{- end}}`
 
-const stopOnlyCommandTemplate = `{{define "stop-only-command"}}	// Stop-only command (unusual case)
+const stopOnlyCommandTemplate = `{{define "stop-only-command"}}
+	// Stop-only command (unusual case)
 	// Run stop command
 	cmd := exec.Command("sh", "-c", ` + "`{{.StopCommand}}`" + `)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Stop command failed: %v\n", err)
-	}{{end}}`
+	}
+{{- end}}`
 
 const mainFunctionTemplate = `{{define "main-function"}}
 func main() {
 	cli := NewCLI()
-{{if .HasProcessMgmt}}
+{{- if .HasProcessMgmt}}
+
 	// Handle interrupt signals gracefully
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -415,32 +442,24 @@ func main() {
 		fmt.Println("\nShutting down...")
 		os.Exit(0)
 	}()
-{{end}}
+{{- end}}
+
 	cli.Execute()
 }
 {{end}}`
 
-// Master template that composes all components
+// Master template that composes all components with improved formatting
 const masterTemplate = `{{define "main"}}{{template "package" .}}
 
 {{template "imports" .}}
-
 {{template "process-types" .}}
-
 {{template "process-registry" .}}
-
 {{template "cli-struct" .}}
-
 {{template "command-switch" .}}
-
 {{template "help-function" .}}
-
 {{template "status-function" .}}
-
 {{template "process-mgmt-functions" .}}
-
 {{template "command-functions" .}}
-
 {{template "main-function" .}}{{end}}
 
 {{define "command-impl"}}{{if eq .Type "regular"}}{{template "regular-command" .}}{{else if eq .Type "watch-stop"}}{{template "watch-stop-command" .}}{{else if eq .Type "watch-only"}}{{template "watch-only-command" .}}{{else if eq .Type "stop-only"}}{{template "stop-only-command" .}}{{end}}{{end}}`

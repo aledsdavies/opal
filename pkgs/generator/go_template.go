@@ -130,6 +130,7 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 
 	// Determine what features we need
 	hasWatchCommands := false
+	hasRegularCommands := len(cf.Commands) > 0
 	for _, cmd := range cf.Commands {
 		if cmd.IsWatch {
 			hasWatchCommands = true
@@ -139,23 +140,32 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	data.HasProcessMgmt = hasWatchCommands
 
 	// Set up minimal imports - only include what we actually need
-	data.Imports = []string{
-		"fmt",
-		"os",
-		"os/exec",
-	}
-
-	if hasWatchCommands {
-		additionalImports := []string{
-			"encoding/json",
-			"io",
-			"os/signal",
-			"path/filepath",
-			"strings",
-			"syscall",
-			"time",
+	if hasRegularCommands {
+		data.Imports = []string{
+			"fmt",
+			"os",
 		}
-		data.Imports = append(data.Imports, additionalImports...)
+
+		// Only add os/exec if we have actual commands
+		if len(cf.Commands) > 0 {
+			data.Imports = append(data.Imports, "os/exec")
+		}
+
+		if hasWatchCommands {
+			additionalImports := []string{
+				"encoding/json",
+				"io",
+				"os/signal",
+				"path/filepath",
+				"strings",
+				"syscall",
+				"time",
+			}
+			data.Imports = append(data.Imports, additionalImports...)
+		}
+	} else {
+		// Minimal imports for empty command files
+		data.Imports = []string{"fmt", "os"}
 	}
 
 	// Sort imports for consistent output
