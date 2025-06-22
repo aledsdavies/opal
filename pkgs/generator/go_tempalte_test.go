@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -562,15 +561,19 @@ func isValidGoCode(t *testing.T, code string) bool {
 
 func testActualCompilation(t *testing.T, code string) error {
 	// Create a temporary directory
-	tmpDir, err := ioutil.TempDir("", "devcmd_test_*")
+	tmpDir, err := os.MkdirTemp("", "devcmd_test_*")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tmpDir); removeErr != nil {
+			t.Logf("Warning: failed to clean up temp directory %s: %v", tmpDir, removeErr)
+		}
+	}()
 
 	// Write the generated code to a temporary file
 	tmpFile := filepath.Join(tmpDir, "main.go")
-	if err := ioutil.WriteFile(tmpFile, []byte(code), 0o644); err != nil {
+	if err := os.WriteFile(tmpFile, []byte(code), 0o644); err != nil {
 		return err
 	}
 
