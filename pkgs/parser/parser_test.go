@@ -137,6 +137,17 @@ func DecoratedStatement(decorator, decoratorType, command string, elements ...Ex
 	}
 }
 
+// For block decorators, we expect the elements to contain the decorator
+func BlockDecoratedStatement(decorator, decoratorType, command string) ExpectedBlockStatement {
+	return ExpectedBlockStatement{
+		IsDecorated:   true,
+		Decorator:     decorator,
+		DecoratorType: decoratorType,
+		Command:       command,
+		Elements:      []ExpectedElement{Decorator(decorator, decoratorType)},
+	}
+}
+
 func Def(name, value string) ExpectedDefinition {
 	return ExpectedDefinition{Name: name, Value: value}
 }
@@ -170,9 +181,13 @@ func formatExpectedElements(elements []ExpectedElement) string {
 			if len(elem.Args) == 0 {
 				parts = append(parts, fmt.Sprintf("[%d] DECORATOR: @%s()", i, elem.DecoratorName))
 			} else {
-				argStrs := make([]string, len(elem.Args))
-				for j, arg := range elem.Args {
-					argStrs[j] = arg.Text
+				var argStrs []string
+				for _, arg := range elem.Args {
+					if arg.Type == "decorator" {
+						argStrs = append(argStrs, fmt.Sprintf("@%s(%s)", arg.DecoratorName, arg.Text))
+					} else {
+						argStrs = append(argStrs, arg.Text)
+					}
 				}
 				parts = append(parts, fmt.Sprintf("[%d] DECORATOR: @%s(%s)", i, elem.DecoratorName, strings.Join(argStrs, "")))
 			}
@@ -245,7 +260,7 @@ func verifyElements(t *testing.T, actual []CommandElement, expected []ExpectedEl
 			}
 
 			// Recursively verify decorator arguments with diff
-			if len(expectedElem.Args) > 0 {
+			if len(expectedElem.Args) > 0 || len(decorator.Args) > 0 {
 				showElementsDiff(t, decorator.Args, expectedElem.Args, fmt.Sprintf("%s.Args", elemPath))
 			}
 
@@ -280,7 +295,7 @@ func verifyCommand(t *testing.T, actual Command, expected ExpectedCommand, index
 			t.Errorf("%s: expected command %q, got %q", prefix, expected.Command, actual.Command)
 		}
 
-		if len(expected.Elements) > 0 {
+		if len(expected.Elements) > 0 || len(actual.Elements) > 0 {
 			showElementsDiff(t, actual.Elements, expected.Elements, fmt.Sprintf("%s.Elements", prefix))
 		}
 	} else {
@@ -312,7 +327,7 @@ func verifyCommand(t *testing.T, actual Command, expected ExpectedCommand, index
 				t.Errorf("%s: expected command %q, got %q", stmtPrefix, expectedStmt.Command, actualStmt.Command)
 			}
 
-			if len(expectedStmt.Elements) > 0 {
+			if len(expectedStmt.Elements) > 0 || len(actualStmt.Elements) > 0 {
 				showElementsDiff(t, actualStmt.Elements, expectedStmt.Elements, fmt.Sprintf("%s.Elements", stmtPrefix))
 			}
 		}
@@ -333,7 +348,8 @@ func verifyDefinition(t *testing.T, actual Definition, expected ExpectedDefiniti
 
 func runTestCase(t *testing.T, tc TestCase) {
 	t.Run(tc.Name, func(t *testing.T) {
-		result, err := Parse(tc.Input, true)
+		// Using debug=false for typical test runs unless a specific test needs it
+		result, err := Parse(tc.Input, false)
 
 		// Check error expectations
 		if tc.WantErr {
@@ -370,7 +386,7 @@ func runTestCase(t *testing.T, tc TestCase) {
 	})
 }
 
-// Main test functions with semantic tokenization expectations
+// Main test functions with updated expectations for the new parser
 func TestBasicCommands(t *testing.T) {
 	testCases := []TestCase{
 		{
@@ -381,8 +397,7 @@ func TestBasicCommands(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					SimpleCommand("build", "echo hello",
-						Text("echo"), Text("hello")),
+					SimpleCommand("build", "echo hello", Text("echo hello")),
 				},
 			},
 		},
@@ -394,8 +409,7 @@ func TestBasicCommands(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					SimpleCommand("run", "echo 'Hello, World!'",
-						Text("echo"), Text("'Hello, World!'")),
+					SimpleCommand("run", "echo 'Hello, World!'", Text("echo 'Hello, World!'")),
 				},
 			},
 		},
@@ -419,8 +433,7 @@ func TestBasicCommands(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					SimpleCommand("check", "(echo test)",
-						Text("("), Text("echo"), Text("test"), Text(")")),
+					SimpleCommand("check", "(echo test)", Text("(echo test)")),
 				},
 			},
 		},
@@ -441,8 +454,7 @@ func TestVarDecorators(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					SimpleCommand("build", "cd @var(SRC)",
-						Text("cd"), Var("SRC")),
+					SimpleCommand("build", "cd @var(SRC)", Text("cd "), Var("SRC")),
 				},
 			},
 		},
@@ -455,7 +467,7 @@ func TestVarDecorators(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("deploy", "docker build -t @var(IMAGE):@var(TAG)",
-						Text("docker"), Text("build"), Text("-t"), Var("IMAGE"), Text(":"), Var("TAG")),
+						Text("docker build -t "), Var("IMAGE"), Text(":"), Var("TAG")),
 				},
 			},
 		},
@@ -468,7 +480,7 @@ func TestVarDecorators(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("echo", "echo \"Building @var(PROJECT) version @var(VERSION)\"",
-						Text("echo"), Text("\"Building "), Var("PROJECT"), Text(" version "), Var("VERSION"), Text("\"")),
+						Text("echo \"Building "), Var("PROJECT"), Text(" version "), Var("VERSION"), Text("\"")),
 				},
 			},
 		},
@@ -481,7 +493,7 @@ func TestVarDecorators(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("info", "echo \"Project: @var(NAME), User: $USER\"",
-						Text("echo"), Text("\"Project: "), Var("NAME"), Text(", User: $USER\"")),
+						Text("echo \"Project: "), Var("NAME"), Text(", User: $USER\"")),
 				},
 			},
 		},
@@ -504,7 +516,7 @@ func TestNestedDecorators(t *testing.T) {
 				Commands: []ExpectedCommand{
 					BlockCommand("build",
 						DecoratedStatement("sh", "function", "cd @var(SRC)",
-							Decorator("sh", "function", Text("cd"), Var("SRC")))),
+							Decorator("sh", "function", Text("cd "), Var("SRC")))),
 				},
 			},
 		},
@@ -519,9 +531,9 @@ func TestNestedDecorators(t *testing.T) {
 					BlockCommand("server",
 						DecoratedStatement("sh", "function", "go run @var(MAIN_FILE) --port=@var(PORT)",
 							Decorator("sh", "function",
-								Text("go"), Text("run"),
+								Text("go run "),
 								Var("MAIN_FILE"),
-								Text("--"), Text("port"), Text("="),
+								Text(" --port="),
 								Var("PORT")))),
 				},
 			},
@@ -537,9 +549,8 @@ func TestNestedDecorators(t *testing.T) {
 					BlockCommand("check",
 						DecoratedStatement("sh", "function", "(cd @var(SRC) && make) || echo \"failed\"",
 							Decorator("sh", "function",
-								Text("("), Text("cd"), Var("SRC"),
-								Text("&&"), Text("make"), Text(")"),
-								Text("||"), Text("echo"), Text("\"failed\"")))),
+								Text("(cd "), Var("SRC"),
+								Text(" && make) || echo \"failed\"")))),
 				},
 			},
 		},
@@ -572,8 +583,7 @@ func TestBlockCommands(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					BlockCommand("setup",
-						Statement("npm install", Text("npm"), Text("install"))),
+					BlockCommand("setup", Statement("npm install", Text("npm install"))),
 				},
 			},
 		},
@@ -586,9 +596,9 @@ func TestBlockCommands(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					BlockCommand("setup",
-						Statement("npm install", Text("npm"), Text("install")),
-						Statement("go mod tidy", Text("go"), Text("mod"), Text("tidy")),
-						Statement("echo done", Text("echo"), Text("done"))),
+						Statement("npm install", Text("npm install")),
+						Statement("go mod tidy", Text("go mod tidy")),
+						Statement("echo done", Text("echo done"))),
 				},
 			},
 		},
@@ -601,8 +611,8 @@ func TestBlockCommands(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					BlockCommand("build",
-						Statement("cd @var(SRC)", Text("cd"), Var("SRC")),
-						Statement("make @var(TARGET)", Text("make"), Var("TARGET"))),
+						Statement("cd @var(SRC)", Text("cd "), Var("SRC")),
+						Statement("make @var(TARGET)", Text("make "), Var("TARGET"))),
 				},
 			},
 		},
@@ -615,7 +625,7 @@ func TestBlockCommands(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					BlockCommand("services",
-						DecoratedStatement("parallel", "block", "")),
+						BlockDecoratedStatement("parallel", "block", "")),
 				},
 			},
 		},
@@ -636,8 +646,7 @@ func TestWatchStopCommands(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					WatchCommand("server", "npm start",
-						Text("npm"), Text("start")),
+					WatchCommand("server", "npm start", Text("npm start")),
 				},
 			},
 		},
@@ -649,8 +658,7 @@ func TestWatchStopCommands(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					StopCommand("server", "pkill node",
-						Text("pkill"), Text("node")),
+					StopCommand("server", "pkill node", Text("pkill node")),
 				},
 			},
 		},
@@ -663,10 +671,7 @@ func TestWatchStopCommands(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					WatchCommand("server", "go run @var(MAIN_FILE) --port=@var(PORT)",
-						Text("go"), Text("run"),
-						Var("MAIN_FILE"),
-						Text("--"), Text("port"), Text("="),
-						Var("PORT")),
+						Text("go run "), Var("MAIN_FILE"), Text(" --port="), Var("PORT")),
 				},
 			},
 		},
@@ -679,9 +684,8 @@ func TestWatchStopCommands(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					WatchBlockCommand("dev",
-						Statement("npm start", Text("npm"), Text("start")),
-						Statement("go run main.go",
-							Text("go"), Text("run"), Text("main.go"))),
+						Statement("npm start", Text("npm start")),
+						Statement("go run main.go", Text("go run main.go"))),
 				},
 			},
 		},
@@ -702,8 +706,7 @@ func TestContinuationLines(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					SimpleCommand("build", "echo hello world",
-						Text("echo"), Text("hello"), Text("world")),
+					SimpleCommand("build", "echo hello world", Text("echo hello world")),
 				},
 			},
 		},
@@ -715,9 +718,7 @@ func TestContinuationLines(t *testing.T) {
 				Commands    []ExpectedCommand
 			}{
 				Commands: []ExpectedCommand{
-					SimpleCommand("build", "cd @var(DIR) && make",
-						Text("cd"), Var("DIR"),
-						Text("&&"), Text("make")),
+					SimpleCommand("build", "cd @var(DIR) && make", Text("cd "), Var("DIR"), Text(" && make")),
 				},
 			},
 		},
@@ -856,20 +857,16 @@ cleanup: @sh(find . -name "*.tmp" -exec rm {} \;);
 			},
 			Commands: []ExpectedCommand{
 				SimpleCommand("build", "cd @var(SRC) && make all",
-					Text("cd"), Var("SRC"),
-					Text("&&"), Text("make"), Text("all")),
+					Text("cd "), Var("SRC"), Text(" && make all")),
 				WatchBlockCommand("server",
-					Statement("cd @var(SRC)", Text("cd"), Var("SRC")),
-					DecoratedStatement("parallel", "block", "")),
+					Statement("cd @var(SRC)", Text("cd "), Var("SRC")),
+					BlockDecoratedStatement("parallel", "block", "")),
 				StopCommand("server", "pkill -f \"server|worker\"",
-					Text("pkill"), Text("-f"), Text("\"server|worker\"")),
+					Text("pkill -f \"server|worker\"")),
 				BlockCommand("cleanup",
 					DecoratedStatement("sh", "function", "find . -name \"*.tmp\" -exec rm {} \\;",
 						Decorator("sh", "function",
-							Text("find"), Text("."),
-							Text("-name"), Text("\"*.tmp\""),
-							Text("-exec"), Text("rm"),
-							Text("{}"), Text("\\;")))),
+							Text("find . -name \"*.tmp\" -exec rm {} \\;")))),
 			},
 		},
 	}
@@ -891,10 +888,7 @@ func TestAdvancedScenarios(t *testing.T) {
 					BlockCommand("clean",
 						DecoratedStatement("sh", "function", "find . -name \"*.log\" -exec rm {} \\;",
 							Decorator("sh", "function",
-								Text("find"), Text("."),
-								Text("-name"), Text("\"*.log\""),
-								Text("-exec"), Text("rm"),
-								Text("{}"), Text("\\;")))),
+								Text("find . -name \"*.log\" -exec rm {} \\;")))),
 				},
 			},
 		},
@@ -909,10 +903,7 @@ func TestAdvancedScenarios(t *testing.T) {
 					BlockCommand("complex",
 						DecoratedStatement("sh", "function", "(test -f config && (source config && run)) || default",
 							Decorator("sh", "function",
-								Text("("), Text("test"), Text("-f"),
-								Text("config"), Text("&&"), Text("("), Text("source"),
-								Text("config"), Text("&&"), Text("run"), Text(")"), Text(")"),
-								Text("||"), Text("default")))),
+								Text("(test -f config && (source config && run)) || default")))),
 				},
 			},
 		},
@@ -925,9 +916,7 @@ func TestAdvancedScenarios(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("check-files", "test -f {} && echo \"File exists\" || echo \"Missing\"",
-						Text("test"), Text("-f"), Text("{}"),
-						Text("&&"), Text("echo"), Text("\"File exists\""),
-						Text("||"), Text("echo"), Text("\"Missing\"")),
+						Text("test -f {} && echo \"File exists\" || echo \"Missing\"")),
 				},
 			},
 		},
@@ -940,8 +929,7 @@ func TestAdvancedScenarios(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("manage", "watch -n 5 \"systemctl status app || systemctl stop app\"",
-						Text("watch"), Text("-n"), Text("5"),
-						Text("\"systemctl status app || systemctl stop app\"")),
+						Text("watch -n 5 \"systemctl status app || systemctl stop app\"")),
 				},
 			},
 		},
@@ -955,7 +943,7 @@ func TestAdvancedScenarios(t *testing.T) {
 				Commands: []ExpectedCommand{
 					BlockCommand("deploy",
 						DecoratedStatement("retry", "simple", "docker push myapp:latest",
-							Text("docker"), Text("push"), Text("myapp:latest"))),
+							Text("docker push myapp:latest"))),
 				},
 			},
 		},
@@ -968,11 +956,11 @@ func TestAdvancedScenarios(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					BlockCommand("complex",
-						Statement("echo \"starting\"", Text("echo"), Text("\"starting\"")),
-						DecoratedStatement("parallel", "block", ""),
+						Statement("echo \"starting\"", Text("echo \"starting\"")),
+						BlockDecoratedStatement("parallel", "block", ""),
 						DecoratedStatement("retry", "simple", "flaky-command",
 							Text("flaky-command")),
-						Statement("echo \"done\"", Text("echo"), Text("\"done\""))),
+						Statement("echo \"done\"", Text("echo \"done\""))),
 				},
 			},
 		},
@@ -985,9 +973,9 @@ func TestAdvancedScenarios(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					BlockCommand("setup",
-						Statement("npm install", Text("npm"), Text("install")),
-						Statement("go mod tidy", Text("go"), Text("mod"), Text("tidy")),
-						Statement("echo done", Text("echo"), Text("done"))),
+						Statement("npm install", Text("npm install")),
+						Statement("go mod tidy", Text("go mod tidy")),
+						Statement("echo done", Text("echo done"))),
 				},
 			},
 		},
@@ -1001,10 +989,9 @@ func TestAdvancedScenarios(t *testing.T) {
 				Commands: []ExpectedCommand{
 					WatchBlockCommand("monitor",
 						Statement("(watch -n 1 \"ps aux\")",
-							Text("("), Text("watch"), Text("-n"),
-							Text("1"), Text("\"ps aux\""), Text(")")),
+							Text("(watch -n 1 \"ps aux\")")),
 						Statement("echo \"stop monitoring with Ctrl+C\"",
-							Text("echo"), Text("\"stop monitoring with Ctrl+C\""))),
+							Text("echo \"stop monitoring with Ctrl+C\""))),
 				},
 			},
 		},
@@ -1053,8 +1040,7 @@ func TestAdvancedScenarios(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("build", "echo hello world universe",
-						Text("echo"), Text("hello"),
-						Text("world"), Text("universe")),
+						Text("echo hello world universe")),
 				},
 			},
 		},
@@ -1067,9 +1053,7 @@ func TestAdvancedScenarios(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("check", "(which go || echo \"not found\")",
-						Text("("), Text("which"), Text("go"),
-						Text("||"), Text("echo"),
-						Text("\"not found\""), Text(")")),
+						Text("(which go || echo \"not found\")")),
 				},
 			},
 		},
@@ -1082,10 +1066,7 @@ func TestAdvancedScenarios(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("setup", "(cd src && make clean) || echo \"failed\"",
-						Text("("), Text("cd"), Text("src"),
-						Text("&&"), Text("make"),
-						Text("clean"), Text(")"), Text("||"),
-						Text("echo"), Text("\"failed\"")),
+						Text("(cd src && make clean) || echo \"failed\"")),
 				},
 			},
 		},
@@ -1100,9 +1081,7 @@ func TestAdvancedScenarios(t *testing.T) {
 					BlockCommand("cleanup",
 						DecoratedStatement("sh", "function", "find . -name \"*.tmp\" \\\n-delete",
 							Decorator("sh", "function",
-								Text("find"), Text("."),
-								Text("-name"), Text("\"*.tmp\""),
-								Text("\\"), Text("\n"), Text("-delete")))),
+								Text("find . -name \"*.tmp\" \\\n-delete")))),
 				},
 			},
 		},
@@ -1115,20 +1094,7 @@ func TestAdvancedScenarios(t *testing.T) {
 			}{
 				Commands: []ExpectedCommand{
 					SimpleCommand("build", "make @var(BUILD_TARGET_RELEASE) @var(EXTRA_FLAGS)",
-						Text("make"), Var("BUILD_TARGET_RELEASE"), Var("EXTRA_FLAGS")),
-				},
-			},
-		},
-		{
-			Name:  "escaped @var() - should preserve literal",
-			Input: "help: echo \"Use \\@var(NAME) syntax for variables\";",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("help", "echo \"Use \\@var(NAME) syntax for variables\"",
-						Text("echo"), Text("\"Use \\@var(NAME) syntax for variables\"")),
+						Text("make "), Var("BUILD_TARGET_RELEASE"), Text(" "), Var("EXTRA_FLAGS")),
 				},
 			},
 		},

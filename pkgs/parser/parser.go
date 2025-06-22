@@ -845,195 +845,46 @@ func (v *DevcmdVisitor) processCommandTextTokenLevel(ctx *gen.CommandTextContext
 	return v.parseCommandString(originalText)
 }
 
-// parseCommandString with semantic tokenization - preserves meaningful units
+// parseCommandString with simplified tokenization - preserves spaces and structure.
 func (v *DevcmdVisitor) parseCommandString(text string) []CommandElement {
 	var elements []CommandElement
 	i := 0
 
 	for i < len(text) {
-		// Skip whitespace
-		for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
-			i++
-		}
-		if i >= len(text) {
+		// Find the next decorator
+		nextDecoratorIndex := strings.Index(text[i:], "@")
+
+		// If no more decorators, the rest of the string is one text element
+		if nextDecoratorIndex == -1 {
+			if len(text[i:]) > 0 {
+				elements = append(elements, NewTextElement(text[i:]))
+			}
 			break
 		}
 
-		// Handle @var() decorators as semantic units
-		if i < len(text) && text[i] == '@' {
-			decorator, consumed := v.parseDecorator(text[i:])
-			if decorator != nil {
-				elements = append(elements, decorator)
-				i += consumed
-				continue
+		fullDecoratorIndex := i + nextDecoratorIndex
+
+		// Try to parse it as a decorator
+		decorator, consumed := v.parseDecorator(text[fullDecoratorIndex:])
+
+		if decorator != nil {
+			// Add the text before the decorator
+			if fullDecoratorIndex > i {
+				elements = append(elements, NewTextElement(text[i:fullDecoratorIndex]))
 			}
-		}
-
-		// Handle quoted strings as semantic units
-		if i < len(text) && (text[i] == '"' || text[i] == '\'') {
-			quote := text[i]
-			start := i
-			i++ // Skip opening quote
-
-			for i < len(text) && text[i] != quote {
-				// Handle @var() inside quotes
-				if text[i] == '@' {
-					// Add text before @var if any
-					if i > start {
-						elements = append(elements, NewTextElement(text[start:i]))
-					}
-
-					decorator, consumed := v.parseDecorator(text[i:])
-					if decorator != nil {
-						elements = append(elements, decorator)
-						i += consumed
-						start = i
-						continue
-					}
-				}
-
-				// Handle escape sequences
-				if text[i] == '\\' && i+1 < len(text) {
-					i += 2
-				} else {
-					i++
-				}
-			}
-
-			if i < len(text) && text[i] == quote {
-				i++ // Skip closing quote
-			}
-
-			// Add the remaining quoted text as a unit
-			if i > start {
-				elements = append(elements, NewTextElement(text[start:i]))
-			}
-			continue
-		}
-
-		// Parse meaningful tokens instead of character-by-character
-		token, consumed := v.parseSemanticToken(text[i:])
-		if consumed > 0 {
-			elements = append(elements, NewTextElement(token))
-			i += consumed
+			// Add the decorator itself
+			elements = append(elements, decorator)
+			// Move past the decorator
+			i = fullDecoratorIndex + consumed
 		} else {
-			// Fallback: single character
-			elements = append(elements, NewTextElement(string(text[i])))
-			i++
+			// It's not a valid decorator (e.g., just an '@' symbol), so treat it as text and continue searching.
+			// Add text up to and including the current '@' as a single text element.
+			textBeforeAndAt := text[i : fullDecoratorIndex+1]
+			elements = append(elements, NewTextElement(textBeforeAndAt))
+			i = fullDecoratorIndex + 1
 		}
 	}
-
 	return elements
-}
-
-// parseSemanticToken parses meaningful tokens (words, operators, etc.)
-func (v *DevcmdVisitor) parseSemanticToken(text string) (string, int) {
-	if len(text) == 0 {
-		return "", 0
-	}
-
-	// Handle specific multi-character sequences that should stay together
-	patterns := []string{
-		"&&", "||",           // Boolean operators
-		">>", "<<",           // Redirection
-		"==", "!=", "<=", ">=", // Comparison
-		"++", "--",           // Increment/decrement
-		"\\;",                // Escaped semicolon
-		"{}",                 // Shell braces
-		"--port=",            // Common flag patterns
-		"-name", "-exec", "-f", "-t", "-n", // Common single-dash flags
-	}
-
-	// Check for exact pattern matches first
-	for _, pattern := range patterns {
-		if strings.HasPrefix(text, pattern) {
-			return pattern, len(pattern)
-		}
-	}
-
-	// Handle command-line flags dynamically
-	if text[0] == '-' {
-		i := 1
-
-		// Handle --long-option
-		if i < len(text) && text[i] == '-' {
-			i++ // Skip second dash
-			// Read the rest of the flag name
-			for i < len(text) && (isLetter(text[i]) || isDigit(text[i]) || text[i] == '_' || text[i] == '-') {
-				i++
-			}
-			// Include equals and value if present (--port=8080)
-			if i < len(text) && text[i] == '=' {
-				i++
-				for i < len(text) && !isWhitespace(text[i]) && !isStopCharForFlag(text[i]) {
-					i++
-				}
-			}
-		} else {
-			// Handle -short flags (-f, -t, etc.)
-			for i < len(text) && (isLetter(text[i]) || isDigit(text[i])) {
-				i++
-			}
-		}
-
-		if i > 1 {
-			return text[:i], i
-		}
-	}
-
-	// Handle regular words and identifiers (including colons for docker tags)
-	if isWordStart(text[0]) {
-		i := 0
-		for i < len(text) && isWordChar(text[i]) {
-			i++
-		}
-		if i > 0 {
-			return text[:i], i
-		}
-	}
-
-	// Handle single character operators
-	if isFineSplitChar(text[0]) {
-		return string(text[0]), 1
-	}
-
-	// Default single character
-	return string(text[0]), 1
-}
-
-// isWordStart determines if a character can start a word token
-func isWordStart(c byte) bool {
-	return isLetter(c) || isDigit(c) || c == '.' || c == '/'
-}
-
-// isWordChar determines if a character can be part of a word token
-func isWordChar(c byte) bool {
-	return isLetter(c) || isDigit(c) || c == '_' || c == '-' || c == '.' || c == ':' || c == '/'
-}
-
-// isStopCharForFlag determines characters that stop flag parsing
-func isStopCharForFlag(c byte) bool {
-	switch c {
-	case ' ', '\t', '\n', '\r', '&', '|', '<', '>', '(', ')', '{', '}', ';', '\\', '[', ']', ',', '#':
-		return true
-	default:
-		return false
-	}
-}
-
-// Helper function to check if a character is whitespace
-func isWhitespace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
-}
-
-// isFineSplitChar determines characters that should be individual tokens based on test expectations
-func isFineSplitChar(c byte) bool {
-	switch c {
-	case '{', '}', '(', ')', ';', '\\', '[', ']', ',', '#':
-		return true
-	default:
-		return false
-	}
 }
 
 // parseDecorator parses a decorator pattern starting with @
