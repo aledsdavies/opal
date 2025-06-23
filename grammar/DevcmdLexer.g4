@@ -80,6 +80,8 @@ HASH : '#' ;
 DOUBLEQUOTE : '"' ;
 
 // Whitespace and comments - must be at the end
-COMMENT : '#' ~[\r\n]* -> channel(HIDDEN) ;
+// Only treat # as comment when it appears at the beginning of a line
+// Use direct method call since Go target uses 'p' receiver for predicates
+COMMENT : {p.GetCharPositionInLine() == 0}? '#' ~[\r\n]* -> channel(HIDDEN) ;
 NEWLINE : '\r'? '\n' ;
 WS : [ \t]+ -> channel(HIDDEN) ;

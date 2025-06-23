@@ -56,7 +56,7 @@ func devcmdparserParserInit() {
 	}
 	staticData.PredictionContextCache = antlr.NewPredictionContextCache()
 	staticData.serializedATN = []int32{
-		4, 1, 41, 269, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
+		4, 1, 41, 268, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
 		4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7,
 		10, 2, 11, 7, 11, 2, 12, 7, 12, 2, 13, 7, 13, 2, 14, 7, 14, 2, 15, 7, 15,
 		2, 16, 7, 16, 2, 17, 7, 17, 2, 18, 7, 18, 2, 19, 7, 19, 2, 20, 7, 20, 2,
@@ -75,24 +75,24 @@ func devcmdparserParserInit() {
 		3, 18, 165, 8, 18, 1, 19, 1, 19, 1, 19, 5, 19, 170, 8, 19, 10, 19, 12,
 		19, 173, 9, 19, 1, 19, 5, 19, 176, 8, 19, 10, 19, 12, 19, 179, 9, 19, 1,
 		19, 3, 19, 182, 8, 19, 1, 19, 5, 19, 185, 8, 19, 10, 19, 12, 19, 188, 9,
-		19, 1, 20, 1, 20, 1, 20, 1, 20, 1, 20, 1, 20, 5, 20, 196, 8, 20, 10, 20,
-		12, 20, 199, 9, 20, 3, 20, 201, 8, 20, 1, 21, 1, 21, 1, 21, 1, 21, 1, 21,
-		5, 21, 208, 8, 21, 10, 21, 12, 21, 211, 9, 21, 1, 22, 1, 22, 1, 22, 1,
-		22, 1, 23, 5, 23, 218, 8, 23, 10, 23, 12, 23, 221, 9, 23, 1, 24, 1, 24,
+		19, 1, 20, 1, 20, 1, 20, 1, 20, 1, 20, 5, 20, 195, 8, 20, 10, 20, 12, 20,
+		198, 9, 20, 3, 20, 200, 8, 20, 1, 21, 1, 21, 1, 21, 1, 21, 1, 21, 5, 21,
+		207, 8, 21, 10, 21, 12, 21, 210, 9, 21, 1, 22, 1, 22, 1, 22, 1, 22, 1,
+		23, 5, 23, 217, 8, 23, 10, 23, 12, 23, 220, 9, 23, 1, 24, 1, 24, 1, 24,
 		1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1,
 		24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24,
 		1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1,
-		24, 1, 24, 1, 24, 1, 24, 1, 24, 3, 24, 261, 8, 24, 1, 25, 1, 25, 1, 25,
-		1, 25, 1, 25, 1, 25, 1, 25, 0, 0, 26, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18,
-		20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 0, 2, 1,
-		0, 2, 3, 3, 0, 1, 3, 5, 9, 12, 38, 307, 0, 55, 1, 0, 0, 0, 2, 63, 1, 0,
-		0, 0, 4, 75, 1, 0, 0, 0, 6, 77, 1, 0, 0, 0, 8, 80, 1, 0, 0, 0, 10, 89,
-		1, 0, 0, 0, 12, 94, 1, 0, 0, 0, 14, 96, 1, 0, 0, 0, 16, 103, 1, 0, 0, 0,
-		18, 108, 1, 0, 0, 0, 20, 114, 1, 0, 0, 0, 22, 119, 1, 0, 0, 0, 24, 129,
-		1, 0, 0, 0, 26, 131, 1, 0, 0, 0, 28, 137, 1, 0, 0, 0, 30, 139, 1, 0, 0,
-		0, 32, 148, 1, 0, 0, 0, 34, 155, 1, 0, 0, 0, 36, 164, 1, 0, 0, 0, 38, 166,
-		1, 0, 0, 0, 40, 200, 1, 0, 0, 0, 42, 202, 1, 0, 0, 0, 44, 212, 1, 0, 0,
-		0, 46, 219, 1, 0, 0, 0, 48, 260, 1, 0, 0, 0, 50, 262, 1, 0, 0, 0, 52, 54,
+		24, 1, 24, 1, 24, 1, 24, 3, 24, 260, 8, 24, 1, 25, 1, 25, 1, 25, 1, 25,
+		1, 25, 1, 25, 1, 25, 0, 0, 26, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22,
+		24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 0, 2, 1, 0, 2,
+		3, 3, 0, 1, 3, 5, 9, 12, 38, 305, 0, 55, 1, 0, 0, 0, 2, 63, 1, 0, 0, 0,
+		4, 75, 1, 0, 0, 0, 6, 77, 1, 0, 0, 0, 8, 80, 1, 0, 0, 0, 10, 89, 1, 0,
+		0, 0, 12, 94, 1, 0, 0, 0, 14, 96, 1, 0, 0, 0, 16, 103, 1, 0, 0, 0, 18,
+		108, 1, 0, 0, 0, 20, 114, 1, 0, 0, 0, 22, 119, 1, 0, 0, 0, 24, 129, 1,
+		0, 0, 0, 26, 131, 1, 0, 0, 0, 28, 137, 1, 0, 0, 0, 30, 139, 1, 0, 0, 0,
+		32, 148, 1, 0, 0, 0, 34, 155, 1, 0, 0, 0, 36, 164, 1, 0, 0, 0, 38, 166,
+		1, 0, 0, 0, 40, 199, 1, 0, 0, 0, 42, 201, 1, 0, 0, 0, 44, 211, 1, 0, 0,
+		0, 46, 218, 1, 0, 0, 0, 48, 259, 1, 0, 0, 0, 50, 261, 1, 0, 0, 0, 52, 54,
 		3, 2, 1, 0, 53, 52, 1, 0, 0, 0, 54, 57, 1, 0, 0, 0, 55, 53, 1, 0, 0, 0,
 		55, 56, 1, 0, 0, 0, 56, 58, 1, 0, 0, 0, 57, 55, 1, 0, 0, 0, 58, 59, 5,
 		0, 0, 1, 59, 1, 1, 0, 0, 0, 60, 64, 3, 4, 2, 0, 61, 64, 3, 8, 4, 0, 62,
@@ -140,46 +140,46 @@ func devcmdparserParserInit() {
 		0, 0, 181, 180, 1, 0, 0, 0, 181, 182, 1, 0, 0, 0, 182, 186, 1, 0, 0, 0,
 		183, 185, 5, 40, 0, 0, 184, 183, 1, 0, 0, 0, 185, 188, 1, 0, 0, 0, 186,
 		184, 1, 0, 0, 0, 186, 187, 1, 0, 0, 0, 187, 39, 1, 0, 0, 0, 188, 186, 1,
-		0, 0, 0, 189, 201, 3, 14, 7, 0, 190, 201, 3, 18, 9, 0, 191, 201, 3, 16,
-		8, 0, 192, 201, 3, 42, 21, 0, 193, 197, 3, 46, 23, 0, 194, 196, 3, 44,
-		22, 0, 195, 194, 1, 0, 0, 0, 196, 199, 1, 0, 0, 0, 197, 195, 1, 0, 0, 0,
-		197, 198, 1, 0, 0, 0, 198, 201, 1, 0, 0, 0, 199, 197, 1, 0, 0, 0, 200,
-		189, 1, 0, 0, 0, 200, 190, 1, 0, 0, 0, 200, 191, 1, 0, 0, 0, 200, 192,
-		1, 0, 0, 0, 200, 193, 1, 0, 0, 0, 201, 41, 1, 0, 0, 0, 202, 203, 5, 4,
-		0, 0, 203, 204, 5, 15, 0, 0, 204, 205, 5, 6, 0, 0, 205, 209, 3, 46, 23,
-		0, 206, 208, 3, 44, 22, 0, 207, 206, 1, 0, 0, 0, 208, 211, 1, 0, 0, 0,
-		209, 207, 1, 0, 0, 0, 209, 210, 1, 0, 0, 0, 210, 43, 1, 0, 0, 0, 211, 209,
-		1, 0, 0, 0, 212, 213, 5, 12, 0, 0, 213, 214, 5, 40, 0, 0, 214, 215, 3,
-		46, 23, 0, 215, 45, 1, 0, 0, 0, 216, 218, 3, 48, 24, 0, 217, 216, 1, 0,
-		0, 0, 218, 221, 1, 0, 0, 0, 219, 217, 1, 0, 0, 0, 219, 220, 1, 0, 0, 0,
-		220, 47, 1, 0, 0, 0, 221, 219, 1, 0, 0, 0, 222, 261, 3, 50, 25, 0, 223,
-		261, 5, 15, 0, 0, 224, 261, 5, 16, 0, 0, 225, 261, 5, 13, 0, 0, 226, 261,
-		5, 14, 0, 0, 227, 261, 5, 17, 0, 0, 228, 261, 5, 10, 0, 0, 229, 261, 5,
-		11, 0, 0, 230, 261, 5, 8, 0, 0, 231, 261, 5, 9, 0, 0, 232, 261, 5, 34,
-		0, 0, 233, 261, 5, 35, 0, 0, 234, 261, 5, 18, 0, 0, 235, 261, 5, 19, 0,
-		0, 236, 261, 5, 20, 0, 0, 237, 261, 5, 21, 0, 0, 238, 261, 5, 6, 0, 0,
-		239, 261, 5, 5, 0, 0, 240, 261, 5, 12, 0, 0, 241, 261, 5, 22, 0, 0, 242,
-		261, 5, 23, 0, 0, 243, 261, 5, 24, 0, 0, 244, 261, 5, 25, 0, 0, 245, 261,
-		5, 26, 0, 0, 246, 261, 5, 27, 0, 0, 247, 261, 5, 28, 0, 0, 248, 261, 5,
-		29, 0, 0, 249, 261, 5, 30, 0, 0, 250, 261, 5, 31, 0, 0, 251, 261, 5, 32,
-		0, 0, 252, 261, 5, 33, 0, 0, 253, 261, 5, 36, 0, 0, 254, 261, 5, 37, 0,
-		0, 255, 261, 5, 38, 0, 0, 256, 261, 5, 4, 0, 0, 257, 261, 5, 2, 0, 0, 258,
-		261, 5, 3, 0, 0, 259, 261, 5, 1, 0, 0, 260, 222, 1, 0, 0, 0, 260, 223,
-		1, 0, 0, 0, 260, 224, 1, 0, 0, 0, 260, 225, 1, 0, 0, 0, 260, 226, 1, 0,
-		0, 0, 260, 227, 1, 0, 0, 0, 260, 228, 1, 0, 0, 0, 260, 229, 1, 0, 0, 0,
-		260, 230, 1, 0, 0, 0, 260, 231, 1, 0, 0, 0, 260, 232, 1, 0, 0, 0, 260,
-		233, 1, 0, 0, 0, 260, 234, 1, 0, 0, 0, 260, 235, 1, 0, 0, 0, 260, 236,
-		1, 0, 0, 0, 260, 237, 1, 0, 0, 0, 260, 238, 1, 0, 0, 0, 260, 239, 1, 0,
-		0, 0, 260, 240, 1, 0, 0, 0, 260, 241, 1, 0, 0, 0, 260, 242, 1, 0, 0, 0,
-		260, 243, 1, 0, 0, 0, 260, 244, 1, 0, 0, 0, 260, 245, 1, 0, 0, 0, 260,
-		246, 1, 0, 0, 0, 260, 247, 1, 0, 0, 0, 260, 248, 1, 0, 0, 0, 260, 249,
-		1, 0, 0, 0, 260, 250, 1, 0, 0, 0, 260, 251, 1, 0, 0, 0, 260, 252, 1, 0,
-		0, 0, 260, 253, 1, 0, 0, 0, 260, 254, 1, 0, 0, 0, 260, 255, 1, 0, 0, 0,
-		260, 256, 1, 0, 0, 0, 260, 257, 1, 0, 0, 0, 260, 258, 1, 0, 0, 0, 260,
-		259, 1, 0, 0, 0, 261, 49, 1, 0, 0, 0, 262, 263, 5, 4, 0, 0, 263, 264, 5,
-		15, 0, 0, 264, 265, 5, 10, 0, 0, 265, 266, 3, 22, 11, 0, 266, 267, 5, 11,
-		0, 0, 267, 51, 1, 0, 0, 0, 21, 55, 63, 75, 80, 89, 94, 119, 129, 143, 152,
-		157, 164, 171, 177, 181, 186, 197, 200, 209, 219, 260,
+		0, 0, 0, 189, 200, 3, 14, 7, 0, 190, 200, 3, 16, 8, 0, 191, 200, 3, 42,
+		21, 0, 192, 196, 3, 46, 23, 0, 193, 195, 3, 44, 22, 0, 194, 193, 1, 0,
+		0, 0, 195, 198, 1, 0, 0, 0, 196, 194, 1, 0, 0, 0, 196, 197, 1, 0, 0, 0,
+		197, 200, 1, 0, 0, 0, 198, 196, 1, 0, 0, 0, 199, 189, 1, 0, 0, 0, 199,
+		190, 1, 0, 0, 0, 199, 191, 1, 0, 0, 0, 199, 192, 1, 0, 0, 0, 200, 41, 1,
+		0, 0, 0, 201, 202, 5, 4, 0, 0, 202, 203, 5, 15, 0, 0, 203, 204, 5, 6, 0,
+		0, 204, 208, 3, 46, 23, 0, 205, 207, 3, 44, 22, 0, 206, 205, 1, 0, 0, 0,
+		207, 210, 1, 0, 0, 0, 208, 206, 1, 0, 0, 0, 208, 209, 1, 0, 0, 0, 209,
+		43, 1, 0, 0, 0, 210, 208, 1, 0, 0, 0, 211, 212, 5, 12, 0, 0, 212, 213,
+		5, 40, 0, 0, 213, 214, 3, 46, 23, 0, 214, 45, 1, 0, 0, 0, 215, 217, 3,
+		48, 24, 0, 216, 215, 1, 0, 0, 0, 217, 220, 1, 0, 0, 0, 218, 216, 1, 0,
+		0, 0, 218, 219, 1, 0, 0, 0, 219, 47, 1, 0, 0, 0, 220, 218, 1, 0, 0, 0,
+		221, 260, 3, 50, 25, 0, 222, 260, 5, 15, 0, 0, 223, 260, 5, 16, 0, 0, 224,
+		260, 5, 13, 0, 0, 225, 260, 5, 14, 0, 0, 226, 260, 5, 17, 0, 0, 227, 260,
+		5, 10, 0, 0, 228, 260, 5, 11, 0, 0, 229, 260, 5, 8, 0, 0, 230, 260, 5,
+		9, 0, 0, 231, 260, 5, 34, 0, 0, 232, 260, 5, 35, 0, 0, 233, 260, 5, 18,
+		0, 0, 234, 260, 5, 19, 0, 0, 235, 260, 5, 20, 0, 0, 236, 260, 5, 21, 0,
+		0, 237, 260, 5, 6, 0, 0, 238, 260, 5, 5, 0, 0, 239, 260, 5, 12, 0, 0, 240,
+		260, 5, 22, 0, 0, 241, 260, 5, 23, 0, 0, 242, 260, 5, 24, 0, 0, 243, 260,
+		5, 25, 0, 0, 244, 260, 5, 26, 0, 0, 245, 260, 5, 27, 0, 0, 246, 260, 5,
+		28, 0, 0, 247, 260, 5, 29, 0, 0, 248, 260, 5, 30, 0, 0, 249, 260, 5, 31,
+		0, 0, 250, 260, 5, 32, 0, 0, 251, 260, 5, 33, 0, 0, 252, 260, 5, 36, 0,
+		0, 253, 260, 5, 37, 0, 0, 254, 260, 5, 38, 0, 0, 255, 260, 5, 4, 0, 0,
+		256, 260, 5, 2, 0, 0, 257, 260, 5, 3, 0, 0, 258, 260, 5, 1, 0, 0, 259,
+		221, 1, 0, 0, 0, 259, 222, 1, 0, 0, 0, 259, 223, 1, 0, 0, 0, 259, 224,
+		1, 0, 0, 0, 259, 225, 1, 0, 0, 0, 259, 226, 1, 0, 0, 0, 259, 227, 1, 0,
+		0, 0, 259, 228, 1, 0, 0, 0, 259, 229, 1, 0, 0, 0, 259, 230, 1, 0, 0, 0,
+		259, 231, 1, 0, 0, 0, 259, 232, 1, 0, 0, 0, 259, 233, 1, 0, 0, 0, 259,
+		234, 1, 0, 0, 0, 259, 235, 1, 0, 0, 0, 259, 236, 1, 0, 0, 0, 259, 237,
+		1, 0, 0, 0, 259, 238, 1, 0, 0, 0, 259, 239, 1, 0, 0, 0, 259, 240, 1, 0,
+		0, 0, 259, 241, 1, 0, 0, 0, 259, 242, 1, 0, 0, 0, 259, 243, 1, 0, 0, 0,
+		259, 244, 1, 0, 0, 0, 259, 245, 1, 0, 0, 0, 259, 246, 1, 0, 0, 0, 259,
+		247, 1, 0, 0, 0, 259, 248, 1, 0, 0, 0, 259, 249, 1, 0, 0, 0, 259, 250,
+		1, 0, 0, 0, 259, 251, 1, 0, 0, 0, 259, 252, 1, 0, 0, 0, 259, 253, 1, 0,
+		0, 0, 259, 254, 1, 0, 0, 0, 259, 255, 1, 0, 0, 0, 259, 256, 1, 0, 0, 0,
+		259, 257, 1, 0, 0, 0, 259, 258, 1, 0, 0, 0, 260, 49, 1, 0, 0, 0, 261, 262,
+		5, 4, 0, 0, 262, 263, 5, 15, 0, 0, 263, 264, 5, 10, 0, 0, 264, 265, 3,
+		22, 11, 0, 265, 266, 5, 11, 0, 0, 266, 51, 1, 0, 0, 0, 21, 55, 63, 75,
+		80, 89, 94, 119, 129, 143, 152, 157, 164, 171, 177, 181, 186, 196, 199,
+		208, 218, 259,
 	}
 	deserializer := antlr.NewATNDeserializer(nil)
 	staticData.atn = deserializer.Deserialize(staticData.serializedATN)
@@ -3960,7 +3960,6 @@ type IBlockStatementContext interface {
 
 	// Getter signatures
 	FunctionDecorator() IFunctionDecoratorContext
-	SimpleDecorator() ISimpleDecoratorContext
 	BlockDecorator() IBlockDecoratorContext
 	SimpleDecoratorInBlock() ISimpleDecoratorInBlockContext
 	CommandText() ICommandTextContext
@@ -4017,22 +4016,6 @@ func (s *BlockStatementContext) FunctionDecorator() IFunctionDecoratorContext {
 	}
 
 	return t.(IFunctionDecoratorContext)
-}
-
-func (s *BlockStatementContext) SimpleDecorator() ISimpleDecoratorContext {
-	var t antlr.RuleContext
-	for _, ctx := range s.GetChildren() {
-		if _, ok := ctx.(ISimpleDecoratorContext); ok {
-			t = ctx.(antlr.RuleContext)
-			break
-		}
-	}
-
-	if t == nil {
-		return nil
-	}
-
-	return t.(ISimpleDecoratorContext)
 }
 
 func (s *BlockStatementContext) BlockDecorator() IBlockDecoratorContext {
@@ -4159,7 +4142,7 @@ func (p *DevcmdParser) BlockStatement() (localctx IBlockStatementContext) {
 	p.EnterRule(localctx, 40, DevcmdParserRULE_blockStatement)
 	var _la int
 
-	p.SetState(200)
+	p.SetState(199)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -4177,30 +4160,23 @@ func (p *DevcmdParser) BlockStatement() (localctx IBlockStatementContext) {
 		p.EnterOuterAlt(localctx, 2)
 		{
 			p.SetState(190)
-			p.SimpleDecorator()
+			p.BlockDecorator()
 		}
 
 	case 3:
 		p.EnterOuterAlt(localctx, 3)
 		{
 			p.SetState(191)
-			p.BlockDecorator()
+			p.SimpleDecoratorInBlock()
 		}
 
 	case 4:
 		p.EnterOuterAlt(localctx, 4)
 		{
 			p.SetState(192)
-			p.SimpleDecoratorInBlock()
-		}
-
-	case 5:
-		p.EnterOuterAlt(localctx, 5)
-		{
-			p.SetState(193)
 			p.CommandText()
 		}
-		p.SetState(197)
+		p.SetState(196)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -4209,11 +4185,11 @@ func (p *DevcmdParser) BlockStatement() (localctx IBlockStatementContext) {
 
 		for _la == DevcmdParserBACKSLASH {
 			{
-				p.SetState(194)
+				p.SetState(193)
 				p.ContinuationLine()
 			}
 
-			p.SetState(199)
+			p.SetState(198)
 			p.GetErrorHandler().Sync(p)
 			if p.HasError() {
 				goto errorExit
@@ -4395,7 +4371,7 @@ func (p *DevcmdParser) SimpleDecoratorInBlock() (localctx ISimpleDecoratorInBloc
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(202)
+		p.SetState(201)
 		p.Match(DevcmdParserAT)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4403,7 +4379,7 @@ func (p *DevcmdParser) SimpleDecoratorInBlock() (localctx ISimpleDecoratorInBloc
 		}
 	}
 	{
-		p.SetState(203)
+		p.SetState(202)
 		p.Match(DevcmdParserNAME)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4411,7 +4387,7 @@ func (p *DevcmdParser) SimpleDecoratorInBlock() (localctx ISimpleDecoratorInBloc
 		}
 	}
 	{
-		p.SetState(204)
+		p.SetState(203)
 		p.Match(DevcmdParserCOLON)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4419,10 +4395,10 @@ func (p *DevcmdParser) SimpleDecoratorInBlock() (localctx ISimpleDecoratorInBloc
 		}
 	}
 	{
-		p.SetState(205)
+		p.SetState(204)
 		p.CommandText()
 	}
-	p.SetState(209)
+	p.SetState(208)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -4431,11 +4407,11 @@ func (p *DevcmdParser) SimpleDecoratorInBlock() (localctx ISimpleDecoratorInBloc
 
 	for _la == DevcmdParserBACKSLASH {
 		{
-			p.SetState(206)
+			p.SetState(205)
 			p.ContinuationLine()
 		}
 
-		p.SetState(211)
+		p.SetState(210)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -4563,7 +4539,7 @@ func (p *DevcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 	p.EnterRule(localctx, 44, DevcmdParserRULE_continuationLine)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(212)
+		p.SetState(211)
 		p.Match(DevcmdParserBACKSLASH)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4571,7 +4547,7 @@ func (p *DevcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 		}
 	}
 	{
-		p.SetState(213)
+		p.SetState(212)
 		p.Match(DevcmdParserNEWLINE)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4579,7 +4555,7 @@ func (p *DevcmdParser) ContinuationLine() (localctx IContinuationLineContext) {
 		}
 	}
 	{
-		p.SetState(214)
+		p.SetState(213)
 		p.CommandText()
 	}
 
@@ -4720,7 +4696,7 @@ func (p *DevcmdParser) CommandText() (localctx ICommandTextContext) {
 	var _alt int
 
 	p.EnterOuterAlt(localctx, 1)
-	p.SetState(219)
+	p.SetState(218)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -4732,12 +4708,12 @@ func (p *DevcmdParser) CommandText() (localctx ICommandTextContext) {
 	for _alt != 2 && _alt != antlr.ATNInvalidAltNumber {
 		if _alt == 1 {
 			{
-				p.SetState(216)
+				p.SetState(215)
 				p.CommandTextElement()
 			}
 
 		}
-		p.SetState(221)
+		p.SetState(220)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -5041,7 +5017,7 @@ func (s *CommandTextElementContext) Accept(visitor antlr.ParseTreeVisitor) inter
 func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext) {
 	localctx = NewCommandTextElementContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 48, DevcmdParserRULE_commandTextElement)
-	p.SetState(260)
+	p.SetState(259)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -5051,14 +5027,14 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 1:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(222)
+			p.SetState(221)
 			p.InlineDecorator()
 		}
 
 	case 2:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(223)
+			p.SetState(222)
 			p.Match(DevcmdParserNAME)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5069,7 +5045,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 3:
 		p.EnterOuterAlt(localctx, 3)
 		{
-			p.SetState(224)
+			p.SetState(223)
 			p.Match(DevcmdParserNUMBER)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5080,7 +5056,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 4:
 		p.EnterOuterAlt(localctx, 4)
 		{
-			p.SetState(225)
+			p.SetState(224)
 			p.Match(DevcmdParserSTRING)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5091,7 +5067,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 5:
 		p.EnterOuterAlt(localctx, 5)
 		{
-			p.SetState(226)
+			p.SetState(225)
 			p.Match(DevcmdParserSINGLE_STRING)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5102,7 +5078,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 6:
 		p.EnterOuterAlt(localctx, 6)
 		{
-			p.SetState(227)
+			p.SetState(226)
 			p.Match(DevcmdParserPATH_CONTENT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5113,7 +5089,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 7:
 		p.EnterOuterAlt(localctx, 7)
 		{
-			p.SetState(228)
+			p.SetState(227)
 			p.Match(DevcmdParserLPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5124,7 +5100,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 8:
 		p.EnterOuterAlt(localctx, 8)
 		{
-			p.SetState(229)
+			p.SetState(228)
 			p.Match(DevcmdParserRPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5135,7 +5111,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 9:
 		p.EnterOuterAlt(localctx, 9)
 		{
-			p.SetState(230)
+			p.SetState(229)
 			p.Match(DevcmdParserLBRACE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5146,7 +5122,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 10:
 		p.EnterOuterAlt(localctx, 10)
 		{
-			p.SetState(231)
+			p.SetState(230)
 			p.Match(DevcmdParserRBRACE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5157,7 +5133,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 11:
 		p.EnterOuterAlt(localctx, 11)
 		{
-			p.SetState(232)
+			p.SetState(231)
 			p.Match(DevcmdParserLBRACKET)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5168,7 +5144,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 12:
 		p.EnterOuterAlt(localctx, 12)
 		{
-			p.SetState(233)
+			p.SetState(232)
 			p.Match(DevcmdParserRBRACKET)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5179,7 +5155,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 13:
 		p.EnterOuterAlt(localctx, 13)
 		{
-			p.SetState(234)
+			p.SetState(233)
 			p.Match(DevcmdParserAMPERSAND)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5190,7 +5166,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 14:
 		p.EnterOuterAlt(localctx, 14)
 		{
-			p.SetState(235)
+			p.SetState(234)
 			p.Match(DevcmdParserPIPE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5201,7 +5177,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 15:
 		p.EnterOuterAlt(localctx, 15)
 		{
-			p.SetState(236)
+			p.SetState(235)
 			p.Match(DevcmdParserLT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5212,7 +5188,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 16:
 		p.EnterOuterAlt(localctx, 16)
 		{
-			p.SetState(237)
+			p.SetState(236)
 			p.Match(DevcmdParserGT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5223,7 +5199,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 17:
 		p.EnterOuterAlt(localctx, 17)
 		{
-			p.SetState(238)
+			p.SetState(237)
 			p.Match(DevcmdParserCOLON)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5234,7 +5210,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 18:
 		p.EnterOuterAlt(localctx, 18)
 		{
-			p.SetState(239)
+			p.SetState(238)
 			p.Match(DevcmdParserEQUALS)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5245,7 +5221,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 19:
 		p.EnterOuterAlt(localctx, 19)
 		{
-			p.SetState(240)
+			p.SetState(239)
 			p.Match(DevcmdParserBACKSLASH)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5256,7 +5232,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 20:
 		p.EnterOuterAlt(localctx, 20)
 		{
-			p.SetState(241)
+			p.SetState(240)
 			p.Match(DevcmdParserDOT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5267,7 +5243,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 21:
 		p.EnterOuterAlt(localctx, 21)
 		{
-			p.SetState(242)
+			p.SetState(241)
 			p.Match(DevcmdParserCOMMA)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5278,7 +5254,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 22:
 		p.EnterOuterAlt(localctx, 22)
 		{
-			p.SetState(243)
+			p.SetState(242)
 			p.Match(DevcmdParserSLASH)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5289,7 +5265,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 23:
 		p.EnterOuterAlt(localctx, 23)
 		{
-			p.SetState(244)
+			p.SetState(243)
 			p.Match(DevcmdParserDASH)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5300,7 +5276,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 24:
 		p.EnterOuterAlt(localctx, 24)
 		{
-			p.SetState(245)
+			p.SetState(244)
 			p.Match(DevcmdParserSTAR)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5311,7 +5287,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 25:
 		p.EnterOuterAlt(localctx, 25)
 		{
-			p.SetState(246)
+			p.SetState(245)
 			p.Match(DevcmdParserPLUS)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5322,7 +5298,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 26:
 		p.EnterOuterAlt(localctx, 26)
 		{
-			p.SetState(247)
+			p.SetState(246)
 			p.Match(DevcmdParserQUESTION)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5333,7 +5309,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 27:
 		p.EnterOuterAlt(localctx, 27)
 		{
-			p.SetState(248)
+			p.SetState(247)
 			p.Match(DevcmdParserEXCLAIM)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5344,7 +5320,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 28:
 		p.EnterOuterAlt(localctx, 28)
 		{
-			p.SetState(249)
+			p.SetState(248)
 			p.Match(DevcmdParserPERCENT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5355,7 +5331,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 29:
 		p.EnterOuterAlt(localctx, 29)
 		{
-			p.SetState(250)
+			p.SetState(249)
 			p.Match(DevcmdParserCARET)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5366,7 +5342,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 30:
 		p.EnterOuterAlt(localctx, 30)
 		{
-			p.SetState(251)
+			p.SetState(250)
 			p.Match(DevcmdParserTILDE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5377,7 +5353,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 31:
 		p.EnterOuterAlt(localctx, 31)
 		{
-			p.SetState(252)
+			p.SetState(251)
 			p.Match(DevcmdParserUNDERSCORE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5388,7 +5364,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 32:
 		p.EnterOuterAlt(localctx, 32)
 		{
-			p.SetState(253)
+			p.SetState(252)
 			p.Match(DevcmdParserDOLLAR)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5399,7 +5375,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 33:
 		p.EnterOuterAlt(localctx, 33)
 		{
-			p.SetState(254)
+			p.SetState(253)
 			p.Match(DevcmdParserHASH)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5410,7 +5386,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 34:
 		p.EnterOuterAlt(localctx, 34)
 		{
-			p.SetState(255)
+			p.SetState(254)
 			p.Match(DevcmdParserDOUBLEQUOTE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5421,7 +5397,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 35:
 		p.EnterOuterAlt(localctx, 35)
 		{
-			p.SetState(256)
+			p.SetState(255)
 			p.Match(DevcmdParserAT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5432,7 +5408,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 36:
 		p.EnterOuterAlt(localctx, 36)
 		{
-			p.SetState(257)
+			p.SetState(256)
 			p.Match(DevcmdParserWATCH)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5443,7 +5419,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 37:
 		p.EnterOuterAlt(localctx, 37)
 		{
-			p.SetState(258)
+			p.SetState(257)
 			p.Match(DevcmdParserSTOP)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5454,7 +5430,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 	case 38:
 		p.EnterOuterAlt(localctx, 38)
 		{
-			p.SetState(259)
+			p.SetState(258)
 			p.Match(DevcmdParserDEF)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5596,7 +5572,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 	p.EnterRule(localctx, 50, DevcmdParserRULE_inlineDecorator)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(262)
+		p.SetState(261)
 		p.Match(DevcmdParserAT)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5604,7 +5580,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(263)
+		p.SetState(262)
 		p.Match(DevcmdParserNAME)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5612,7 +5588,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(264)
+		p.SetState(263)
 		p.Match(DevcmdParserLPAREN)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5620,11 +5596,11 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(265)
+		p.SetState(264)
 		p.DecoratorContent()
 	}
 	{
-		p.SetState(266)
+		p.SetState(265)
 		p.Match(DevcmdParserRPAREN)
 		if p.HasError() {
 			// Recognition error - abort rule

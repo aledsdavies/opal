@@ -673,13 +673,6 @@ func (v *DevcmdVisitor) processBlockCommand(ctx *gen.BlockCommandContext) []Bloc
 			functionCtx := functionDecorator.(*gen.FunctionDecoratorContext)
 			decoratedStmt := v.processFunctionDecorator(functionCtx)
 			statements = append(statements, decoratedStmt)
-		} else if simpleDecorator := stmtCtx.SimpleDecorator(); simpleDecorator != nil {
-			if v.debug != nil {
-				v.debug.Log("Block statement %d: simple decorator", i)
-			}
-			simpleCtx := simpleDecorator.(*gen.SimpleDecoratorContext)
-			decoratedStmt := v.processSimpleDecorator(simpleCtx)
-			statements = append(statements, decoratedStmt)
 		} else if blockDecorator := stmtCtx.BlockDecorator(); blockDecorator != nil {
 			if v.debug != nil {
 				v.debug.Log("Block statement %d: block decorator", i)
@@ -687,6 +680,45 @@ func (v *DevcmdVisitor) processBlockCommand(ctx *gen.BlockCommandContext) []Bloc
 			blockCtx := blockDecorator.(*gen.BlockDecoratorContext)
 			decoratedStmt := v.processBlockDecorator(blockCtx)
 			statements = append(statements, decoratedStmt)
+		} else if simpleDecoratorInBlock := stmtCtx.SimpleDecoratorInBlock(); simpleDecoratorInBlock != nil {
+			if v.debug != nil {
+				v.debug.Log("Block statement %d: simple decorator in block", i)
+			}
+			// Process the alternative simple decorator syntax
+			simpleInBlockCtx := simpleDecoratorInBlock.(*gen.SimpleDecoratorInBlockContext)
+			decorator := simpleInBlockCtx.NAME().GetText()
+
+			var parts []string
+			cmdText := v.getOriginalText(simpleInBlockCtx.CommandText())
+			cmdText = strings.TrimSpace(cmdText)
+			if cmdText != "" {
+				parts = append(parts, cmdText)
+			}
+
+			for _, contLine := range simpleInBlockCtx.AllContinuationLine() {
+				contCtx := contLine.(*gen.ContinuationLineContext)
+				contText := v.getOriginalText(contCtx.CommandText())
+				contText = strings.TrimLeft(contText, " \t")
+				if contText != "" {
+					parts = append(parts, contText)
+				}
+			}
+
+			commandText := strings.Join(parts, " ")
+
+			// Use semantic parsing for structured elements
+			var elements []CommandElement
+			if commandText != "" {
+				elements = v.parseCommandString(commandText)
+			}
+
+			statements = append(statements, BlockStatement{
+				Elements:      elements,
+				IsDecorated:   true,
+				Decorator:     decorator,
+				DecoratorType: "simple",
+				Command:       commandText,
+			})
 		} else {
 			if v.debug != nil {
 				v.debug.Log("Block statement %d: regular command", i)
