@@ -805,7 +805,7 @@ func TestErrorHandling(t *testing.T) {
 			Name:        "syntax error in command",
 			Input:       "build echo hello;", // Missing colon
 			WantErr:     true,
-			ErrorSubstr: "missing ':'",
+			ErrorSubstr: "syntax error",
 		},
 		{
 			Name:        "missing semicolon in definition",
@@ -1095,6 +1095,405 @@ func TestAdvancedScenarios(t *testing.T) {
 				Commands: []ExpectedCommand{
 					SimpleCommand("build", "make @var(BUILD_TARGET_RELEASE) @var(EXTRA_FLAGS)",
 						Text("make "), Var("BUILD_TARGET_RELEASE"), Text(" "), Var("EXTRA_FLAGS")),
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		runTestCase(t, tc)
+	}
+}
+
+// TestCommandNamingConventions tests various CLI command naming patterns
+// that should be supported by the parser
+func TestCommandNamingConventions(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "Simple command name",
+			Input: "build: echo hello;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("build", "echo hello", Text("echo hello")),
+				},
+			},
+		},
+		{
+			Name:  "Command name with hyphen",
+			Input: "nix-build: echo building;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("nix-build", "echo building", Text("echo building")),
+				},
+			},
+		},
+		{
+			Name:  "Command name with multiple hyphens",
+			Input: "docker-compose-up: docker-compose up -d;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("docker-compose-up", "docker-compose up -d", Text("docker-compose up -d")),
+				},
+			},
+		},
+		{
+			Name:  "Command name with underscore",
+			Input: "run_tests: go test ./...;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("run_tests", "go test ./...", Text("go test ./...")),
+				},
+			},
+		},
+		{
+			Name:  "Command name with mixed separators",
+			Input: "build-and_test: echo mixed;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("build-and_test", "echo mixed", Text("echo mixed")),
+				},
+			},
+		},
+		{
+			Name:  "Command name with numbers",
+			Input: "deploy-v2: echo deploying;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("deploy-v2", "echo deploying", Text("echo deploying")),
+				},
+			},
+		},
+		{
+			Name:  "Long descriptive command name",
+			Input: "start-frontend-dev-server: npm run dev;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("start-frontend-dev-server", "npm run dev", Text("npm run dev")),
+				},
+			},
+		},
+		{
+			Name:        "Command name starting with number (should fail)",
+			Input:       "2build: echo hello;",
+			WantErr:     true,
+			ErrorSubstr: "syntax error",
+		},
+		{
+			Name:        "Command name with special characters (should fail)",
+			Input:       "build@test: echo hello;",
+			WantErr:     true,
+			ErrorSubstr: "syntax error",
+		},
+		{
+			Name:  "Watch command with hyphen",
+			Input: "watch dev-server: npm start;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					WatchCommand("dev-server", "npm start", Text("npm start")),
+				},
+			},
+		},
+		{
+			Name:  "Stop command with hyphen",
+			Input: "stop dev-server: pkill -f \"npm start\";",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					StopCommand("dev-server", "pkill -f \"npm start\"", Text("pkill -f \"npm start\"")),
+				},
+			},
+		},
+		{
+			Name:  "Block command with hyphen",
+			Input: "full-deploy: { build; test; deploy }",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("full-deploy",
+						Statement("build", Text("build")),
+						Statement("test", Text("test")),
+						Statement("deploy", Text("deploy"))),
+				},
+			},
+		},
+		{
+			Name:  "Nested commands with hyphens in block",
+			Input: "ci-pipeline: { lint-code; run-tests; build-app; deploy-staging }",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("ci-pipeline",
+						Statement("lint-code", Text("lint-code")),
+						Statement("run-tests", Text("run-tests")),
+						Statement("build-app", Text("build-app")),
+						Statement("deploy-staging", Text("deploy-staging"))),
+				},
+			},
+		},
+		{
+			Name:  "Command with hyphen and @var decorator",
+			Input: "docker-run: docker run -p @var(PORT):8080 myapp;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("docker-run", "docker run -p @var(PORT):8080 myapp",
+						Text("docker run -p "), Var("PORT"), Text(":8080 myapp")),
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		runTestCase(t, tc)
+	}
+}
+
+// TestVariableNamingConventions tests variable naming with different patterns
+func TestVariableNamingConventions(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:        "Variable with hyphen (should fail - variables typically use underscores)",
+			Input:       "def MY-VAR = value;",
+			WantErr:     true,
+			ErrorSubstr: "syntax error",
+		},
+		{
+			Name:  "Variable with underscore",
+			Input: "def MY_VAR = value;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Definitions: []ExpectedDefinition{
+					Def("MY_VAR", "value"),
+				},
+			},
+		},
+		{
+			Name:  "Variable with numbers",
+			Input: "def PORT_8080 = 8080;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Definitions: []ExpectedDefinition{
+					Def("PORT_8080", "8080"),
+				},
+			},
+		},
+		{
+			Name:        "Variable starting with number (should fail)",
+			Input:       "def 8080_PORT = 8080;",
+			WantErr:     true,
+			ErrorSubstr: "syntax error",
+		},
+	}
+
+	for _, tc := range testCases {
+		runTestCase(t, tc)
+	}
+}
+
+// TestComplexCommandNameScenarios tests edge cases and complex scenarios
+func TestComplexCommandNameScenarios(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "Command name similar to keyword",
+			Input: "watching: echo not a watch command;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("watching", "echo not a watch command", Text("echo not a watch command")),
+				},
+			},
+		},
+		{
+			Name:  "Command name with def prefix",
+			Input: "define-config: echo defining;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("define-config", "echo defining", Text("echo defining")),
+				},
+			},
+		},
+		{
+			Name:  "Very long command name",
+			Input: "start-development-server-with-hot-reload-and-proxy: npm run dev;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("start-development-server-with-hot-reload-and-proxy", "npm run dev", Text("npm run dev")),
+				},
+			},
+		},
+		{
+			Name:  "Single character command name",
+			Input: "a: echo short;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("a", "echo short", Text("echo short")),
+				},
+			},
+		},
+		{
+			Name:        "Command name ending with hyphen (should fail)",
+			Input:       "build-: echo hello;",
+			WantErr:     true,
+			ErrorSubstr: "syntax error",
+		},
+		{
+			Name:        "Command name starting with hyphen (should fail)",
+			Input:       "-build: echo hello;",
+			WantErr:     true,
+			ErrorSubstr: "syntax error",
+		},
+		{
+			Name:  "Multiple consecutive hyphens",
+			Input: "docker--compose: echo double hyphen;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("docker--compose", "echo double hyphen", Text("echo double hyphen")),
+				},
+			},
+		},
+		{
+			Name:  "Mixed case command names",
+			Input: "buildApp: echo camelCase;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					SimpleCommand("buildApp", "echo camelCase", Text("echo camelCase")),
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		runTestCase(t, tc)
+	}
+}
+
+// TestDecoratorNaming tests that decorators can also use hyphens
+func TestDecoratorNaming(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "Decorator with hyphen",
+			Input: "build: @retry-on-fail: echo hello;",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("build",
+						DecoratedStatement("retry-on-fail", "simple", "echo hello", Text("echo hello"))),
+				},
+			},
+		},
+		{
+			Name:  "Function decorator with hyphen",
+			Input: "build: @wait-for(service);",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("build",
+						DecoratedStatement("wait-for", "function", "service",
+							Decorator("wait-for", "function", Text("service")))),
+				},
+			},
+		},
+		{
+			Name:  "Block decorator with hyphen",
+			Input: "deploy: @run-in-parallel: { task1; task2 }",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("deploy",
+						BlockDecoratedStatement("run-in-parallel", "block", "")),
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		runTestCase(t, tc)
+	}
+}
+
+// TestRealWorldNixBuildIssue tests the actual command that failed to parse
+// from the user's commands.cli file
+func TestRealWorldNixBuildIssue(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name: "Nix build command with .# pattern and @var() - real issue",
+			Input: `# Build Nix packages
+nix-build: {
+    echo "📦 Building Nix packages...";
+    nix build .#@var(PROJECT) --print-build-logs;
+    echo "✅ Nix packages built";
+}`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("nix-build",
+						Statement("echo \"📦 Building Nix packages...\"",
+							Text("echo \"📦 Building Nix packages...\"")),
+						Statement("nix build .#@var(PROJECT) --print-build-logs",
+							Text("nix build .#"), Var("PROJECT"), Text(" --print-build-logs")),
+						Statement("echo \"✅ Nix packages built\"",
+							Text("echo \"✅ Nix packages built\""))),
 				},
 			},
 		},

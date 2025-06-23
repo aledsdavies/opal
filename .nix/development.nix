@@ -1,6 +1,33 @@
 # Development environment for devcmd project
-{ pkgs }:
+# Dogfooding our own tool for development commands
+{ pkgs, self ? null }:
 
+let
+  # Import our own library to create the development CLI
+  devcmdLib = import ./lib.nix {
+    inherit pkgs self;
+    lib = pkgs.lib;
+  };
+
+  # Generate the development CLI from our commands.cli file
+  devCLI = if self != null then
+    devcmdLib.mkDevCLI {
+      name = "dev";
+      commandsFile = ../commands.cli;
+      version = "latest";
+      meta = {
+        description = "Devcmd development CLI - dogfooding our own tool";
+        longDescription = ''
+          This CLI is generated from commands.cli using devcmd itself.
+          It provides a streamlined development experience with all
+          necessary commands for building, testing, and maintaining devcmd.
+        '';
+      };
+    }
+  else
+    null;
+
+in
 pkgs.mkShell {
   name = "devcmd-dev";
 
@@ -15,35 +42,45 @@ pkgs.mkShell {
     openjdk17 # Required for ANTLR
 
     # Development tools
-    just
     git
     zsh
 
-    # Optional: code formatting
+    # Code formatting
     nixpkgs-fmt
     gofumpt
-  ];
+  ] ++ pkgs.lib.optional (devCLI != null) devCLI;
 
   # Environment setup
   JAVA_HOME = "${pkgs.openjdk17}/lib/openjdk";
 
   shellHook = ''
-      echo "🔧 Devcmd Development Environment"
+    echo "🔧 Devcmd Development Environment"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    ${if devCLI != null then ''
+      echo "🚀 Development CLI available as 'dev'"
       echo ""
-      echo "Available commands:"
-      just
+      echo "Quick start:"
+      echo "  dev setup          - Initialize development environment"
+      echo "  dev build          - Build the CLI tool"
+      echo "  dev test           - Run tests"
+      echo "  dev ci             - Full CI workflow"
+      echo "  dev info           - Show project information"
       echo ""
-      echo "Tools: Go $(go version | cut -d' ' -f3), Just, ANTLR"
+      echo "All commands: dev --help"
       echo ""
-      echo "Syntax notes:"
-      echo "  @var(NAME) - devcmd variable expansion"
-      echo "  $(cmd)     - shell command substitution (no escaping needed)"
-      echo "  $VAR       - shell variable reference (no escaping needed)"
+      echo "🎯 This CLI demonstrates devcmd's real-world capabilities!"
+    '' else ''
+      echo "⚠️  Development CLI not available (missing self reference)"
+      echo "   To get the full experience: nix develop"
       echo ""
+      echo "Manual commands:"
+      echo "  go build -o devcmd ./cmd/devcmd"
+      echo "  go test ./..."
+    ''}
 
     # Make zsh available
-    export SHELL = ${pkgs.zsh}/bin/zsh
-    # Uncomment to auto-switch to zsh
-    exec ${pkgs.zsh}/bin/zsh
+    export SHELL=${pkgs.zsh}/bin/zsh
   '';
 }

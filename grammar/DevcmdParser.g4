@@ -49,9 +49,13 @@ variableValue : commandText ;
  * COMMAND DEFINITIONS
  * Format: [watch|stop] NAME: body
  * Body can be simple command, block, or decorator
+ *
+ * IMPORTANT: Command names can contain hyphens (nix-build, docker-compose, etc.)
+ * This is handled by the NAME token which supports [A-Za-z][A-Za-z0-9_-]*
  */
 
 // Command with optional watch/stop modifier
+// NAME token explicitly supports hyphens for CLI command conventions
 commandDefinition : (WATCH | STOP)? NAME COLON commandBody ;
 
 // Command body - multiple alternatives for different command types
@@ -67,6 +71,8 @@ commandBody
  * 1. Function: @name(...) - parser handles nested parentheses and newlines
  * 2. Block: @name: { ... }
  * 3. Simple: @name: processed command
+ *
+ * IMPORTANT: Decorator names can also contain hyphens (wait-for, retry-on-fail, etc.)
  */
 
 // Decorated command with labels for visitor compatibility
@@ -76,16 +82,20 @@ decoratedCommand
     | simpleDecorator      #simpleDecoratorLabel
     ;
 
-// UPDATED: Function decorator using separate tokens
+// Function decorator using separate tokens
+// NAME supports hyphens for decorator names like wait-for, retry-on-fail
 functionDecorator : AT NAME LPAREN decoratorContent RPAREN SEMICOLON? ;
 
 // Block decorator: @name: { ... }
+// NAME supports hyphens for decorator names
 blockDecorator : AT decorator COLON blockCommand ;
 
 // Simple decorator: @name: command
+// NAME supports hyphens for decorator names
 simpleDecorator : AT decorator COLON decoratorCommand ;
 
 // Decorator name (kept for compatibility)
+// Explicitly uses NAME which supports hyphens
 decorator : NAME ;
 
 // Content inside @name(...) - handle nested parentheses, @var() decorators, and newlines
@@ -101,7 +111,7 @@ decoratorElement
     ;
 
 // Nested decorator within another decorator (e.g., @var inside @sh)
-// UPDATED: Use AT NAME LPAREN as separate tokens
+// NAME supports hyphens for nested decorator names
 nestedDecorator : AT NAME LPAREN decoratorContent RPAREN ;
 
 // Text elements that can appear in decorator content
@@ -111,7 +121,7 @@ decoratorTextElement
     | DOT | COMMA | SLASH | DASH | STAR | PLUS | QUESTION | EXCLAIM
     | PERCENT | CARET | TILDE | UNDERSCORE | LBRACKET | RBRACKET
     | LBRACE | RBRACE | DOLLAR | HASH | DOUBLEQUOTE
-    | SEMICOLON | WATCH | STOP | DEF | CONTENT
+    | SEMICOLON | WATCH | STOP | DEF
     ;
 
 /**
@@ -164,9 +174,10 @@ commandText : commandTextElement* ;
 
 // Individual elements that can appear in command text
 // Enhanced to include inline decorators like @var(NAME)
+// NAME token supports hyphens so command names like nix-build work correctly
 commandTextElement
     : inlineDecorator       // @var(NAME) etc. - parsed as decorators in command text
-    | NAME                  // Identifiers
+    | NAME                  // Identifiers (supports hyphens for CLI commands)
     | NUMBER                // Numeric literals
     | STRING                // Double quoted strings
     | SINGLE_STRING         // Single quoted strings
@@ -203,9 +214,8 @@ commandTextElement
     | WATCH                 // Allow keywords in command text
     | STOP                  // Allow keywords in command text
     | DEF                   // Allow keywords in command text
-    | CONTENT               // General content
     ;
 
 // Inline decorator in command text (e.g., go run @var(MAIN_FILE))
-// UPDATED: Use AT NAME LPAREN as separate tokens
+// NAME supports hyphens for decorator names
 inlineDecorator : AT NAME LPAREN decoratorContent RPAREN ;

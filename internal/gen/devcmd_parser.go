@@ -33,17 +33,17 @@ func devcmdparserParserInit() {
 	staticData := &DevcmdParserParserStaticData
 	staticData.LiteralNames = []string{
 		"", "'def'", "'watch'", "'stop'", "'@'", "'='", "':'", "';'", "'{'",
-		"'}'", "'('", "')'", "'\\'", "'&'", "'|'", "'<'", "'>'", "", "", "",
-		"", "", "'.'", "','", "'/'", "'-'", "'*'", "'+'", "'?'", "'!'", "'%'",
+		"'}'", "'('", "')'", "'\\'", "", "", "", "", "", "'&'", "'|'", "'<'",
+		"'>'", "'.'", "','", "'/'", "'-'", "'*'", "'+'", "'?'", "'!'", "'%'",
 		"'^'", "'~'", "'_'", "'['", "']'", "'$'", "'#'", "'\"'",
 	}
 	staticData.SymbolicNames = []string{
 		"", "DEF", "WATCH", "STOP", "AT", "EQUALS", "COLON", "SEMICOLON", "LBRACE",
-		"RBRACE", "LPAREN", "RPAREN", "BACKSLASH", "AMPERSAND", "PIPE", "LT",
-		"GT", "STRING", "SINGLE_STRING", "NAME", "NUMBER", "PATH_CONTENT", "DOT",
+		"RBRACE", "LPAREN", "RPAREN", "BACKSLASH", "STRING", "SINGLE_STRING",
+		"NAME", "NUMBER", "PATH_CONTENT", "AMPERSAND", "PIPE", "LT", "GT", "DOT",
 		"COMMA", "SLASH", "DASH", "STAR", "PLUS", "QUESTION", "EXCLAIM", "PERCENT",
 		"CARET", "TILDE", "UNDERSCORE", "LBRACKET", "RBRACKET", "DOLLAR", "HASH",
-		"DOUBLEQUOTE", "CONTENT", "COMMENT", "NEWLINE", "WS",
+		"DOUBLEQUOTE", "COMMENT", "NEWLINE", "WS",
 	}
 	staticData.RuleNames = []string{
 		"program", "line", "variableDefinition", "variableValue", "commandDefinition",
@@ -55,7 +55,7 @@ func devcmdparserParserInit() {
 	}
 	staticData.PredictionContextCache = antlr.NewPredictionContextCache()
 	staticData.serializedATN = []int32{
-		4, 1, 42, 251, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
+		4, 1, 41, 250, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
 		4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7,
 		10, 2, 11, 7, 11, 2, 12, 7, 12, 2, 13, 7, 13, 2, 14, 7, 14, 2, 15, 7, 15,
 		2, 16, 7, 16, 2, 17, 7, 17, 2, 18, 7, 18, 2, 19, 7, 19, 2, 20, 7, 20, 2,
@@ -79,44 +79,44 @@ func devcmdparserParserInit() {
 		23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23,
 		1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1,
 		23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23,
-		1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 3, 23, 243, 8, 23, 1, 24, 1,
-		24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 0, 0, 25, 0, 2, 4, 6, 8, 10, 12,
-		14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
-		0, 2, 1, 0, 2, 3, 3, 0, 1, 3, 5, 9, 12, 39, 288, 0, 53, 1, 0, 0, 0, 2,
-		61, 1, 0, 0, 0, 4, 63, 1, 0, 0, 0, 6, 71, 1, 0, 0, 0, 8, 74, 1, 0, 0, 0,
-		10, 83, 1, 0, 0, 0, 12, 88, 1, 0, 0, 0, 14, 90, 1, 0, 0, 0, 16, 98, 1,
-		0, 0, 0, 18, 103, 1, 0, 0, 0, 20, 108, 1, 0, 0, 0, 22, 113, 1, 0, 0, 0,
-		24, 123, 1, 0, 0, 0, 26, 125, 1, 0, 0, 0, 28, 131, 1, 0, 0, 0, 30, 133,
-		1, 0, 0, 0, 32, 142, 1, 0, 0, 0, 34, 149, 1, 0, 0, 0, 36, 158, 1, 0, 0,
-		0, 38, 160, 1, 0, 0, 0, 40, 191, 1, 0, 0, 0, 42, 193, 1, 0, 0, 0, 44, 200,
-		1, 0, 0, 0, 46, 242, 1, 0, 0, 0, 48, 244, 1, 0, 0, 0, 50, 52, 3, 2, 1,
-		0, 51, 50, 1, 0, 0, 0, 52, 55, 1, 0, 0, 0, 53, 51, 1, 0, 0, 0, 53, 54,
-		1, 0, 0, 0, 54, 56, 1, 0, 0, 0, 55, 53, 1, 0, 0, 0, 56, 57, 5, 0, 0, 1,
-		57, 1, 1, 0, 0, 0, 58, 62, 3, 4, 2, 0, 59, 62, 3, 8, 4, 0, 60, 62, 5, 41,
-		0, 0, 61, 58, 1, 0, 0, 0, 61, 59, 1, 0, 0, 0, 61, 60, 1, 0, 0, 0, 62, 3,
-		1, 0, 0, 0, 63, 64, 5, 1, 0, 0, 64, 65, 5, 19, 0, 0, 65, 67, 5, 5, 0, 0,
-		66, 68, 3, 6, 3, 0, 67, 66, 1, 0, 0, 0, 67, 68, 1, 0, 0, 0, 68, 69, 1,
-		0, 0, 0, 69, 70, 5, 7, 0, 0, 70, 5, 1, 0, 0, 0, 71, 72, 3, 44, 22, 0, 72,
-		7, 1, 0, 0, 0, 73, 75, 7, 0, 0, 0, 74, 73, 1, 0, 0, 0, 74, 75, 1, 0, 0,
-		0, 75, 76, 1, 0, 0, 0, 76, 77, 5, 19, 0, 0, 77, 78, 5, 6, 0, 0, 78, 79,
-		3, 10, 5, 0, 79, 9, 1, 0, 0, 0, 80, 84, 3, 12, 6, 0, 81, 84, 3, 34, 17,
-		0, 82, 84, 3, 30, 15, 0, 83, 80, 1, 0, 0, 0, 83, 81, 1, 0, 0, 0, 83, 82,
-		1, 0, 0, 0, 84, 11, 1, 0, 0, 0, 85, 89, 3, 14, 7, 0, 86, 89, 3, 16, 8,
-		0, 87, 89, 3, 18, 9, 0, 88, 85, 1, 0, 0, 0, 88, 86, 1, 0, 0, 0, 88, 87,
-		1, 0, 0, 0, 89, 13, 1, 0, 0, 0, 90, 91, 5, 4, 0, 0, 91, 92, 5, 19, 0, 0,
-		92, 93, 5, 10, 0, 0, 93, 94, 3, 22, 11, 0, 94, 96, 5, 11, 0, 0, 95, 97,
-		5, 7, 0, 0, 96, 95, 1, 0, 0, 0, 96, 97, 1, 0, 0, 0, 97, 15, 1, 0, 0, 0,
-		98, 99, 5, 4, 0, 0, 99, 100, 3, 20, 10, 0, 100, 101, 5, 6, 0, 0, 101, 102,
+		1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 3, 23, 242, 8, 23, 1, 24, 1, 24, 1,
+		24, 1, 24, 1, 24, 1, 24, 1, 24, 0, 0, 25, 0, 2, 4, 6, 8, 10, 12, 14, 16,
+		18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 0, 2, 1,
+		0, 2, 3, 3, 0, 1, 3, 5, 9, 12, 38, 286, 0, 53, 1, 0, 0, 0, 2, 61, 1, 0,
+		0, 0, 4, 63, 1, 0, 0, 0, 6, 71, 1, 0, 0, 0, 8, 74, 1, 0, 0, 0, 10, 83,
+		1, 0, 0, 0, 12, 88, 1, 0, 0, 0, 14, 90, 1, 0, 0, 0, 16, 98, 1, 0, 0, 0,
+		18, 103, 1, 0, 0, 0, 20, 108, 1, 0, 0, 0, 22, 113, 1, 0, 0, 0, 24, 123,
+		1, 0, 0, 0, 26, 125, 1, 0, 0, 0, 28, 131, 1, 0, 0, 0, 30, 133, 1, 0, 0,
+		0, 32, 142, 1, 0, 0, 0, 34, 149, 1, 0, 0, 0, 36, 158, 1, 0, 0, 0, 38, 160,
+		1, 0, 0, 0, 40, 191, 1, 0, 0, 0, 42, 193, 1, 0, 0, 0, 44, 200, 1, 0, 0,
+		0, 46, 241, 1, 0, 0, 0, 48, 243, 1, 0, 0, 0, 50, 52, 3, 2, 1, 0, 51, 50,
+		1, 0, 0, 0, 52, 55, 1, 0, 0, 0, 53, 51, 1, 0, 0, 0, 53, 54, 1, 0, 0, 0,
+		54, 56, 1, 0, 0, 0, 55, 53, 1, 0, 0, 0, 56, 57, 5, 0, 0, 1, 57, 1, 1, 0,
+		0, 0, 58, 62, 3, 4, 2, 0, 59, 62, 3, 8, 4, 0, 60, 62, 5, 40, 0, 0, 61,
+		58, 1, 0, 0, 0, 61, 59, 1, 0, 0, 0, 61, 60, 1, 0, 0, 0, 62, 3, 1, 0, 0,
+		0, 63, 64, 5, 1, 0, 0, 64, 65, 5, 15, 0, 0, 65, 67, 5, 5, 0, 0, 66, 68,
+		3, 6, 3, 0, 67, 66, 1, 0, 0, 0, 67, 68, 1, 0, 0, 0, 68, 69, 1, 0, 0, 0,
+		69, 70, 5, 7, 0, 0, 70, 5, 1, 0, 0, 0, 71, 72, 3, 44, 22, 0, 72, 7, 1,
+		0, 0, 0, 73, 75, 7, 0, 0, 0, 74, 73, 1, 0, 0, 0, 74, 75, 1, 0, 0, 0, 75,
+		76, 1, 0, 0, 0, 76, 77, 5, 15, 0, 0, 77, 78, 5, 6, 0, 0, 78, 79, 3, 10,
+		5, 0, 79, 9, 1, 0, 0, 0, 80, 84, 3, 12, 6, 0, 81, 84, 3, 34, 17, 0, 82,
+		84, 3, 30, 15, 0, 83, 80, 1, 0, 0, 0, 83, 81, 1, 0, 0, 0, 83, 82, 1, 0,
+		0, 0, 84, 11, 1, 0, 0, 0, 85, 89, 3, 14, 7, 0, 86, 89, 3, 16, 8, 0, 87,
+		89, 3, 18, 9, 0, 88, 85, 1, 0, 0, 0, 88, 86, 1, 0, 0, 0, 88, 87, 1, 0,
+		0, 0, 89, 13, 1, 0, 0, 0, 90, 91, 5, 4, 0, 0, 91, 92, 5, 15, 0, 0, 92,
+		93, 5, 10, 0, 0, 93, 94, 3, 22, 11, 0, 94, 96, 5, 11, 0, 0, 95, 97, 5,
+		7, 0, 0, 96, 95, 1, 0, 0, 0, 96, 97, 1, 0, 0, 0, 97, 15, 1, 0, 0, 0, 98,
+		99, 5, 4, 0, 0, 99, 100, 3, 20, 10, 0, 100, 101, 5, 6, 0, 0, 101, 102,
 		3, 34, 17, 0, 102, 17, 1, 0, 0, 0, 103, 104, 5, 4, 0, 0, 104, 105, 3, 20,
 		10, 0, 105, 106, 5, 6, 0, 0, 106, 107, 3, 32, 16, 0, 107, 19, 1, 0, 0,
-		0, 108, 109, 5, 19, 0, 0, 109, 21, 1, 0, 0, 0, 110, 112, 3, 24, 12, 0,
+		0, 108, 109, 5, 15, 0, 0, 109, 21, 1, 0, 0, 0, 110, 112, 3, 24, 12, 0,
 		111, 110, 1, 0, 0, 0, 112, 115, 1, 0, 0, 0, 113, 111, 1, 0, 0, 0, 113,
 		114, 1, 0, 0, 0, 114, 23, 1, 0, 0, 0, 115, 113, 1, 0, 0, 0, 116, 124, 3,
 		26, 13, 0, 117, 118, 5, 10, 0, 0, 118, 119, 3, 22, 11, 0, 119, 120, 5,
-		11, 0, 0, 120, 124, 1, 0, 0, 0, 121, 124, 5, 41, 0, 0, 122, 124, 3, 28,
+		11, 0, 0, 120, 124, 1, 0, 0, 0, 121, 124, 5, 40, 0, 0, 122, 124, 3, 28,
 		14, 0, 123, 116, 1, 0, 0, 0, 123, 117, 1, 0, 0, 0, 123, 121, 1, 0, 0, 0,
 		123, 122, 1, 0, 0, 0, 124, 25, 1, 0, 0, 0, 125, 126, 5, 4, 0, 0, 126, 127,
-		5, 19, 0, 0, 127, 128, 5, 10, 0, 0, 128, 129, 3, 22, 11, 0, 129, 130, 5,
+		5, 15, 0, 0, 127, 128, 5, 10, 0, 0, 128, 129, 3, 22, 11, 0, 129, 130, 5,
 		11, 0, 0, 130, 27, 1, 0, 0, 0, 131, 132, 7, 1, 0, 0, 132, 29, 1, 0, 0,
 		0, 133, 137, 3, 44, 22, 0, 134, 136, 3, 42, 21, 0, 135, 134, 1, 0, 0, 0,
 		136, 139, 1, 0, 0, 0, 137, 135, 1, 0, 0, 0, 137, 138, 1, 0, 0, 0, 138,
@@ -124,53 +124,53 @@ func devcmdparserParserInit() {
 		0, 0, 0, 142, 146, 3, 44, 22, 0, 143, 145, 3, 42, 21, 0, 144, 143, 1, 0,
 		0, 0, 145, 148, 1, 0, 0, 0, 146, 144, 1, 0, 0, 0, 146, 147, 1, 0, 0, 0,
 		147, 33, 1, 0, 0, 0, 148, 146, 1, 0, 0, 0, 149, 151, 5, 8, 0, 0, 150, 152,
-		5, 41, 0, 0, 151, 150, 1, 0, 0, 0, 151, 152, 1, 0, 0, 0, 152, 153, 1, 0,
+		5, 40, 0, 0, 151, 150, 1, 0, 0, 0, 151, 152, 1, 0, 0, 0, 152, 153, 1, 0,
 		0, 0, 153, 154, 3, 36, 18, 0, 154, 155, 5, 9, 0, 0, 155, 35, 1, 0, 0, 0,
 		156, 159, 1, 0, 0, 0, 157, 159, 3, 38, 19, 0, 158, 156, 1, 0, 0, 0, 158,
 		157, 1, 0, 0, 0, 159, 37, 1, 0, 0, 0, 160, 171, 3, 40, 20, 0, 161, 165,
-		5, 7, 0, 0, 162, 164, 5, 41, 0, 0, 163, 162, 1, 0, 0, 0, 164, 167, 1, 0,
+		5, 7, 0, 0, 162, 164, 5, 40, 0, 0, 163, 162, 1, 0, 0, 0, 164, 167, 1, 0,
 		0, 0, 165, 163, 1, 0, 0, 0, 165, 166, 1, 0, 0, 0, 166, 168, 1, 0, 0, 0,
 		167, 165, 1, 0, 0, 0, 168, 170, 3, 40, 20, 0, 169, 161, 1, 0, 0, 0, 170,
 		173, 1, 0, 0, 0, 171, 169, 1, 0, 0, 0, 171, 172, 1, 0, 0, 0, 172, 175,
 		1, 0, 0, 0, 173, 171, 1, 0, 0, 0, 174, 176, 5, 7, 0, 0, 175, 174, 1, 0,
-		0, 0, 175, 176, 1, 0, 0, 0, 176, 180, 1, 0, 0, 0, 177, 179, 5, 41, 0, 0,
+		0, 0, 175, 176, 1, 0, 0, 0, 176, 180, 1, 0, 0, 0, 177, 179, 5, 40, 0, 0,
 		178, 177, 1, 0, 0, 0, 179, 182, 1, 0, 0, 0, 180, 178, 1, 0, 0, 0, 180,
 		181, 1, 0, 0, 0, 181, 39, 1, 0, 0, 0, 182, 180, 1, 0, 0, 0, 183, 192, 3,
 		12, 6, 0, 184, 188, 3, 44, 22, 0, 185, 187, 3, 42, 21, 0, 186, 185, 1,
 		0, 0, 0, 187, 190, 1, 0, 0, 0, 188, 186, 1, 0, 0, 0, 188, 189, 1, 0, 0,
 		0, 189, 192, 1, 0, 0, 0, 190, 188, 1, 0, 0, 0, 191, 183, 1, 0, 0, 0, 191,
 		184, 1, 0, 0, 0, 192, 41, 1, 0, 0, 0, 193, 194, 5, 12, 0, 0, 194, 195,
-		5, 41, 0, 0, 195, 196, 3, 44, 22, 0, 196, 43, 1, 0, 0, 0, 197, 199, 3,
+		5, 40, 0, 0, 195, 196, 3, 44, 22, 0, 196, 43, 1, 0, 0, 0, 197, 199, 3,
 		46, 23, 0, 198, 197, 1, 0, 0, 0, 199, 202, 1, 0, 0, 0, 200, 198, 1, 0,
 		0, 0, 200, 201, 1, 0, 0, 0, 201, 45, 1, 0, 0, 0, 202, 200, 1, 0, 0, 0,
-		203, 243, 3, 48, 24, 0, 204, 243, 5, 19, 0, 0, 205, 243, 5, 20, 0, 0, 206,
-		243, 5, 17, 0, 0, 207, 243, 5, 18, 0, 0, 208, 243, 5, 21, 0, 0, 209, 243,
-		5, 10, 0, 0, 210, 243, 5, 11, 0, 0, 211, 243, 5, 8, 0, 0, 212, 243, 5,
-		9, 0, 0, 213, 243, 5, 34, 0, 0, 214, 243, 5, 35, 0, 0, 215, 243, 5, 13,
-		0, 0, 216, 243, 5, 14, 0, 0, 217, 243, 5, 15, 0, 0, 218, 243, 5, 16, 0,
-		0, 219, 243, 5, 6, 0, 0, 220, 243, 5, 5, 0, 0, 221, 243, 5, 12, 0, 0, 222,
-		243, 5, 22, 0, 0, 223, 243, 5, 23, 0, 0, 224, 243, 5, 24, 0, 0, 225, 243,
-		5, 25, 0, 0, 226, 243, 5, 26, 0, 0, 227, 243, 5, 27, 0, 0, 228, 243, 5,
-		28, 0, 0, 229, 243, 5, 29, 0, 0, 230, 243, 5, 30, 0, 0, 231, 243, 5, 31,
-		0, 0, 232, 243, 5, 32, 0, 0, 233, 243, 5, 33, 0, 0, 234, 243, 5, 36, 0,
-		0, 235, 243, 5, 37, 0, 0, 236, 243, 5, 38, 0, 0, 237, 243, 5, 4, 0, 0,
-		238, 243, 5, 2, 0, 0, 239, 243, 5, 3, 0, 0, 240, 243, 5, 1, 0, 0, 241,
-		243, 5, 39, 0, 0, 242, 203, 1, 0, 0, 0, 242, 204, 1, 0, 0, 0, 242, 205,
-		1, 0, 0, 0, 242, 206, 1, 0, 0, 0, 242, 207, 1, 0, 0, 0, 242, 208, 1, 0,
-		0, 0, 242, 209, 1, 0, 0, 0, 242, 210, 1, 0, 0, 0, 242, 211, 1, 0, 0, 0,
-		242, 212, 1, 0, 0, 0, 242, 213, 1, 0, 0, 0, 242, 214, 1, 0, 0, 0, 242,
-		215, 1, 0, 0, 0, 242, 216, 1, 0, 0, 0, 242, 217, 1, 0, 0, 0, 242, 218,
-		1, 0, 0, 0, 242, 219, 1, 0, 0, 0, 242, 220, 1, 0, 0, 0, 242, 221, 1, 0,
-		0, 0, 242, 222, 1, 0, 0, 0, 242, 223, 1, 0, 0, 0, 242, 224, 1, 0, 0, 0,
-		242, 225, 1, 0, 0, 0, 242, 226, 1, 0, 0, 0, 242, 227, 1, 0, 0, 0, 242,
-		228, 1, 0, 0, 0, 242, 229, 1, 0, 0, 0, 242, 230, 1, 0, 0, 0, 242, 231,
-		1, 0, 0, 0, 242, 232, 1, 0, 0, 0, 242, 233, 1, 0, 0, 0, 242, 234, 1, 0,
-		0, 0, 242, 235, 1, 0, 0, 0, 242, 236, 1, 0, 0, 0, 242, 237, 1, 0, 0, 0,
-		242, 238, 1, 0, 0, 0, 242, 239, 1, 0, 0, 0, 242, 240, 1, 0, 0, 0, 242,
-		241, 1, 0, 0, 0, 243, 47, 1, 0, 0, 0, 244, 245, 5, 4, 0, 0, 245, 246, 5,
-		19, 0, 0, 246, 247, 5, 10, 0, 0, 247, 248, 3, 22, 11, 0, 248, 249, 5, 11,
-		0, 0, 249, 49, 1, 0, 0, 0, 21, 53, 61, 67, 74, 83, 88, 96, 113, 123, 137,
-		146, 151, 158, 165, 171, 175, 180, 188, 191, 200, 242,
+		203, 242, 3, 48, 24, 0, 204, 242, 5, 15, 0, 0, 205, 242, 5, 16, 0, 0, 206,
+		242, 5, 13, 0, 0, 207, 242, 5, 14, 0, 0, 208, 242, 5, 17, 0, 0, 209, 242,
+		5, 10, 0, 0, 210, 242, 5, 11, 0, 0, 211, 242, 5, 8, 0, 0, 212, 242, 5,
+		9, 0, 0, 213, 242, 5, 34, 0, 0, 214, 242, 5, 35, 0, 0, 215, 242, 5, 18,
+		0, 0, 216, 242, 5, 19, 0, 0, 217, 242, 5, 20, 0, 0, 218, 242, 5, 21, 0,
+		0, 219, 242, 5, 6, 0, 0, 220, 242, 5, 5, 0, 0, 221, 242, 5, 12, 0, 0, 222,
+		242, 5, 22, 0, 0, 223, 242, 5, 23, 0, 0, 224, 242, 5, 24, 0, 0, 225, 242,
+		5, 25, 0, 0, 226, 242, 5, 26, 0, 0, 227, 242, 5, 27, 0, 0, 228, 242, 5,
+		28, 0, 0, 229, 242, 5, 29, 0, 0, 230, 242, 5, 30, 0, 0, 231, 242, 5, 31,
+		0, 0, 232, 242, 5, 32, 0, 0, 233, 242, 5, 33, 0, 0, 234, 242, 5, 36, 0,
+		0, 235, 242, 5, 37, 0, 0, 236, 242, 5, 38, 0, 0, 237, 242, 5, 4, 0, 0,
+		238, 242, 5, 2, 0, 0, 239, 242, 5, 3, 0, 0, 240, 242, 5, 1, 0, 0, 241,
+		203, 1, 0, 0, 0, 241, 204, 1, 0, 0, 0, 241, 205, 1, 0, 0, 0, 241, 206,
+		1, 0, 0, 0, 241, 207, 1, 0, 0, 0, 241, 208, 1, 0, 0, 0, 241, 209, 1, 0,
+		0, 0, 241, 210, 1, 0, 0, 0, 241, 211, 1, 0, 0, 0, 241, 212, 1, 0, 0, 0,
+		241, 213, 1, 0, 0, 0, 241, 214, 1, 0, 0, 0, 241, 215, 1, 0, 0, 0, 241,
+		216, 1, 0, 0, 0, 241, 217, 1, 0, 0, 0, 241, 218, 1, 0, 0, 0, 241, 219,
+		1, 0, 0, 0, 241, 220, 1, 0, 0, 0, 241, 221, 1, 0, 0, 0, 241, 222, 1, 0,
+		0, 0, 241, 223, 1, 0, 0, 0, 241, 224, 1, 0, 0, 0, 241, 225, 1, 0, 0, 0,
+		241, 226, 1, 0, 0, 0, 241, 227, 1, 0, 0, 0, 241, 228, 1, 0, 0, 0, 241,
+		229, 1, 0, 0, 0, 241, 230, 1, 0, 0, 0, 241, 231, 1, 0, 0, 0, 241, 232,
+		1, 0, 0, 0, 241, 233, 1, 0, 0, 0, 241, 234, 1, 0, 0, 0, 241, 235, 1, 0,
+		0, 0, 241, 236, 1, 0, 0, 0, 241, 237, 1, 0, 0, 0, 241, 238, 1, 0, 0, 0,
+		241, 239, 1, 0, 0, 0, 241, 240, 1, 0, 0, 0, 242, 47, 1, 0, 0, 0, 243, 244,
+		5, 4, 0, 0, 244, 245, 5, 15, 0, 0, 245, 246, 5, 10, 0, 0, 246, 247, 3,
+		22, 11, 0, 247, 248, 5, 11, 0, 0, 248, 49, 1, 0, 0, 0, 21, 53, 61, 67,
+		74, 83, 88, 96, 113, 123, 137, 146, 151, 158, 165, 171, 175, 180, 188,
+		191, 200, 241,
 	}
 	deserializer := antlr.NewATNDeserializer(nil)
 	staticData.atn = deserializer.Deserialize(staticData.serializedATN)
@@ -221,15 +221,15 @@ const (
 	DevcmdParserLPAREN        = 10
 	DevcmdParserRPAREN        = 11
 	DevcmdParserBACKSLASH     = 12
-	DevcmdParserAMPERSAND     = 13
-	DevcmdParserPIPE          = 14
-	DevcmdParserLT            = 15
-	DevcmdParserGT            = 16
-	DevcmdParserSTRING        = 17
-	DevcmdParserSINGLE_STRING = 18
-	DevcmdParserNAME          = 19
-	DevcmdParserNUMBER        = 20
-	DevcmdParserPATH_CONTENT  = 21
+	DevcmdParserSTRING        = 13
+	DevcmdParserSINGLE_STRING = 14
+	DevcmdParserNAME          = 15
+	DevcmdParserNUMBER        = 16
+	DevcmdParserPATH_CONTENT  = 17
+	DevcmdParserAMPERSAND     = 18
+	DevcmdParserPIPE          = 19
+	DevcmdParserLT            = 20
+	DevcmdParserGT            = 21
 	DevcmdParserDOT           = 22
 	DevcmdParserCOMMA         = 23
 	DevcmdParserSLASH         = 24
@@ -247,10 +247,9 @@ const (
 	DevcmdParserDOLLAR        = 36
 	DevcmdParserHASH          = 37
 	DevcmdParserDOUBLEQUOTE   = 38
-	DevcmdParserCONTENT       = 39
-	DevcmdParserCOMMENT       = 40
-	DevcmdParserNEWLINE       = 41
-	DevcmdParserWS            = 42
+	DevcmdParserCOMMENT       = 39
+	DevcmdParserNEWLINE       = 40
+	DevcmdParserWS            = 41
 )
 
 // DevcmdParser rules.
@@ -418,7 +417,7 @@ func (p *DevcmdParser) Program() (localctx IProgramContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&2199023779854) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&1099511660558) != 0 {
 		{
 			p.SetState(50)
 			p.Line()
@@ -2274,7 +2273,7 @@ func (p *DevcmdParser) DecoratorContent() (localctx IDecoratorContentContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&3298534881278) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&1649267439614) != 0 {
 		{
 			p.SetState(110)
 			p.DecoratorElement()
@@ -2493,7 +2492,7 @@ func (p *DevcmdParser) DecoratorElement() (localctx IDecoratorElementContext) {
 			}
 		}
 
-	case DevcmdParserDEF, DevcmdParserWATCH, DevcmdParserSTOP, DevcmdParserEQUALS, DevcmdParserCOLON, DevcmdParserSEMICOLON, DevcmdParserLBRACE, DevcmdParserRBRACE, DevcmdParserBACKSLASH, DevcmdParserAMPERSAND, DevcmdParserPIPE, DevcmdParserLT, DevcmdParserGT, DevcmdParserSTRING, DevcmdParserSINGLE_STRING, DevcmdParserNAME, DevcmdParserNUMBER, DevcmdParserPATH_CONTENT, DevcmdParserDOT, DevcmdParserCOMMA, DevcmdParserSLASH, DevcmdParserDASH, DevcmdParserSTAR, DevcmdParserPLUS, DevcmdParserQUESTION, DevcmdParserEXCLAIM, DevcmdParserPERCENT, DevcmdParserCARET, DevcmdParserTILDE, DevcmdParserUNDERSCORE, DevcmdParserLBRACKET, DevcmdParserRBRACKET, DevcmdParserDOLLAR, DevcmdParserHASH, DevcmdParserDOUBLEQUOTE, DevcmdParserCONTENT:
+	case DevcmdParserDEF, DevcmdParserWATCH, DevcmdParserSTOP, DevcmdParserEQUALS, DevcmdParserCOLON, DevcmdParserSEMICOLON, DevcmdParserLBRACE, DevcmdParserRBRACE, DevcmdParserBACKSLASH, DevcmdParserSTRING, DevcmdParserSINGLE_STRING, DevcmdParserNAME, DevcmdParserNUMBER, DevcmdParserPATH_CONTENT, DevcmdParserAMPERSAND, DevcmdParserPIPE, DevcmdParserLT, DevcmdParserGT, DevcmdParserDOT, DevcmdParserCOMMA, DevcmdParserSLASH, DevcmdParserDASH, DevcmdParserSTAR, DevcmdParserPLUS, DevcmdParserQUESTION, DevcmdParserEXCLAIM, DevcmdParserPERCENT, DevcmdParserCARET, DevcmdParserTILDE, DevcmdParserUNDERSCORE, DevcmdParserLBRACKET, DevcmdParserRBRACKET, DevcmdParserDOLLAR, DevcmdParserHASH, DevcmdParserDOUBLEQUOTE:
 		p.EnterOuterAlt(localctx, 4)
 		{
 			p.SetState(122)
@@ -2727,7 +2726,6 @@ type IDecoratorTextElementContext interface {
 	WATCH() antlr.TerminalNode
 	STOP() antlr.TerminalNode
 	DEF() antlr.TerminalNode
-	CONTENT() antlr.TerminalNode
 
 	// IsDecoratorTextElementContext differentiates from other interfaces.
 	IsDecoratorTextElementContext()
@@ -2905,10 +2903,6 @@ func (s *DecoratorTextElementContext) DEF() antlr.TerminalNode {
 	return s.GetToken(DevcmdParserDEF, 0)
 }
 
-func (s *DecoratorTextElementContext) CONTENT() antlr.TerminalNode {
-	return s.GetToken(DevcmdParserCONTENT, 0)
-}
-
 func (s *DecoratorTextElementContext) GetRuleContext() antlr.RuleContext {
 	return s
 }
@@ -2949,7 +2943,7 @@ func (p *DevcmdParser) DecoratorTextElement() (localctx IDecoratorTextElementCon
 		p.SetState(131)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&1099511624686) != 0) {
+		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&549755810798) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -4469,7 +4463,6 @@ type ICommandTextElementContext interface {
 	WATCH() antlr.TerminalNode
 	STOP() antlr.TerminalNode
 	DEF() antlr.TerminalNode
-	CONTENT() antlr.TerminalNode
 
 	// IsCommandTextElementContext differentiates from other interfaces.
 	IsCommandTextElementContext()
@@ -4671,10 +4664,6 @@ func (s *CommandTextElementContext) DEF() antlr.TerminalNode {
 	return s.GetToken(DevcmdParserDEF, 0)
 }
 
-func (s *CommandTextElementContext) CONTENT() antlr.TerminalNode {
-	return s.GetToken(DevcmdParserCONTENT, 0)
-}
-
 func (s *CommandTextElementContext) GetRuleContext() antlr.RuleContext {
 	return s
 }
@@ -4708,7 +4697,7 @@ func (s *CommandTextElementContext) Accept(visitor antlr.ParseTreeVisitor) inter
 func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext) {
 	localctx = NewCommandTextElementContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 46, DevcmdParserRULE_commandTextElement)
-	p.SetState(242)
+	p.SetState(241)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -5129,17 +5118,6 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 			}
 		}
 
-	case 39:
-		p.EnterOuterAlt(localctx, 39)
-		{
-			p.SetState(241)
-			p.Match(DevcmdParserCONTENT)
-			if p.HasError() {
-				// Recognition error - abort rule
-				goto errorExit
-			}
-		}
-
 	case antlr.ATNInvalidAltNumber:
 		goto errorExit
 	}
@@ -5274,7 +5252,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 	p.EnterRule(localctx, 48, DevcmdParserRULE_inlineDecorator)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(244)
+		p.SetState(243)
 		p.Match(DevcmdParserAT)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5282,7 +5260,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(245)
+		p.SetState(244)
 		p.Match(DevcmdParserNAME)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5290,7 +5268,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(246)
+		p.SetState(245)
 		p.Match(DevcmdParserLPAREN)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5298,11 +5276,11 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(247)
+		p.SetState(246)
 		p.DecoratorContent()
 	}
 	{
-		p.SetState(248)
+		p.SetState(247)
 		p.Match(DevcmdParserRPAREN)
 		if p.HasError() {
 			// Recognition error - abort rule

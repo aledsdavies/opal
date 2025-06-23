@@ -21,10 +21,6 @@ DEF : 'def' ;
 WATCH : 'watch' ;
 STOP : 'stop' ;
 
-// REMOVED: Special decorator pattern - let parser handle @name( as separate tokens
-// We now handle @name( as AT NAME LPAREN in the parser
-// AT_NAME_LPAREN : '@' [A-Za-z] [A-Za-z0-9_-]* '(' ;
-
 // Regular decorator start - for @name: syntax and single @
 AT : '@' ;
 
@@ -37,23 +33,26 @@ RBRACE : '}' ;
 LPAREN : '(' ;
 RPAREN : ')' ;
 BACKSLASH : '\\' ;
+
+// String literals - must come before other character tokens
+STRING : '"' (~["\\\r\n] | '\\' .)* '"' ;
+SINGLE_STRING : '\'' (~['\\\r\n] | '\\' .)* '\'' ;
+
+// Identifiers and literals - NAME must be early to capture command names correctly
+// Updated to explicitly support hyphens and underscores in command/decorator names
+NAME : [A-Za-z] [A-Za-z0-9_-]* ;
+NUMBER : '-'? [0-9]+ ('.' [0-9]+)? ;
+
+// Path-like content (handles things like ./src, *.tmp, etc.)
+// More specific pattern to avoid conflicts with NAME
+PATH_CONTENT : [./~] [A-Za-z0-9._/*-]+ ;
+
+// Shell operators and special characters as individual tokens
+// Reordered to put more specific tokens first
 AMPERSAND : '&' ;
 PIPE : '|' ;
 LT : '<' ;
 GT : '>' ;
-
-// String literals
-STRING : '"' (~["\\\r\n] | '\\' .)* '"' ;
-SINGLE_STRING : '\'' (~['\\\r\n] | '\\' .)* '\'' ;
-
-// Identifiers and literals
-NAME : [A-Za-z][A-Za-z0-9_-]* ;
-NUMBER : '-'? [0-9]+ ('.' [0-9]+)? ;
-
-// Path-like content (handles things like ./src, *.tmp, etc.)
-PATH_CONTENT : [./~] [A-Za-z0-9._/*-]* ;
-
-// Shell operators and special characters as individual tokens
 DOT : '.' ;
 COMMA : ',' ;
 SLASH : '/' ;
@@ -72,11 +71,7 @@ DOLLAR : '$' ;
 HASH : '#' ;
 DOUBLEQUOTE : '"' ;
 
-// General content - catch-all for other characters in commands
-// This needs to be carefully ordered to not conflict with other tokens
-CONTENT : ~[ \t\r\n@{}();:"'#] ;
-
-// Whitespace and comments
+// Whitespace and comments - must be at the end
 COMMENT : '#' ~[\r\n]* -> channel(HIDDEN) ;
 NEWLINE : '\r'? '\n' ;
 WS : [ \t]+ -> channel(HIDDEN) ;

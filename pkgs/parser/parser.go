@@ -295,27 +295,80 @@ type SyntaxError struct {
 	Message string
 }
 
+// Enhanced error message simplification with better context awareness
 func simplifyErrorMessage(msg string) string {
+	// Handle block command specific errors
+	if strings.Contains(msg, "expecting") && strings.Contains(msg, "'}'" ) {
+		if strings.Contains(msg, "SEMICOLON") {
+			return "missing '}' - block commands should end with '}', not ';'"
+		}
+		return "missing '}' to close block command"
+	}
+
+	// Handle missing semicolons
 	if strings.Contains(msg, "expecting") && strings.Contains(msg, "';'") {
-		return "missing ';'"
+		return "missing ';' at end of statement"
 	}
+
+	// Handle missing closing brace
 	if strings.Contains(msg, "missing '}'") {
-		return "missing '}'"
+		return "missing '}' - check that all block commands are properly closed"
 	}
+
+	// Handle missing colon
 	if strings.Contains(msg, "missing ':'") {
-		return "missing ':'"
+		return "syntax error - missing ':' after command name"
 	}
+
+	// Handle missing closing parenthesis
 	if strings.Contains(msg, "missing ')'") && strings.Contains(msg, "'\\n'") {
-		return "missing ')' at '\\n'"
+		return "missing ')' - decorator arguments must be closed before line end"
 	}
+
+	// Handle expecting closing brace
 	if strings.Contains(msg, "expecting") && strings.Contains(msg, "'}'") {
-		return "missing '}'"
+		return "expecting '}' to close block command"
 	}
+
+	// Handle no viable alternative errors
 	if strings.Contains(msg, "no viable alternative") {
-		return "syntax error"
+		if strings.Contains(msg, "@") {
+			return "syntax error - invalid decorator syntax"
+		}
+		return "syntax error - unexpected input"
 	}
+
+	// Handle extraneous input
 	if strings.Contains(msg, "extraneous input") {
-		return "unexpected input"
+		if strings.Contains(msg, "';'") {
+			return "unexpected ';' - block commands don't use semicolons inside braces"
+		}
+		return "syntax error - unexpected input"
+	}
+
+	// Handle mismatched input with specific cases
+	if strings.Contains(msg, "mismatched input") {
+		// Handle numbers where identifiers expected
+		if strings.Contains(msg, "expecting NAME") {
+			return "syntax error - invalid identifier (cannot start with number)"
+		}
+
+		if strings.Contains(msg, "expecting") {
+			// Extract what was expected
+			expectStart := strings.Index(msg, "expecting")
+			if expectStart != -1 {
+				expected := msg[expectStart:]
+				if strings.Contains(expected, "'}'" ) {
+					return "found ';' but expected '}' - use '}' to close block commands"
+				}
+			}
+		}
+		return "syntax error - unexpected token"
+	}
+
+	// Handle unexpected input (like starting with dash or number)
+	if strings.Contains(msg, "unexpected input") {
+		return "syntax error - unexpected input"
 	}
 
 	return msg
@@ -805,10 +858,10 @@ func (v *DevcmdVisitor) parseDecorator(text string) (*DecoratorElement, int) {
 		return nil, 0
 	}
 
-	// Find decorator name
+	// Find decorator name - must support hyphens and underscores like the NAME token
 	nameStart := 1
 	nameEnd := nameStart
-	for nameEnd < len(text) && (isLetter(text[nameEnd]) || isDigit(text[nameEnd]) || text[nameEnd] == '_') {
+	for nameEnd < len(text) && (isLetter(text[nameEnd]) || isDigit(text[nameEnd]) || text[nameEnd] == '_' || text[nameEnd] == '-') {
 		nameEnd++
 	}
 

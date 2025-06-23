@@ -1,0 +1,279 @@
+# Devcmd Development Commands
+# Showcasing real-world usage of our own tool
+
+# =============================================================================
+# PROJECT CONFIGURATION
+# =============================================================================
+
+def PROJECT = devcmd;
+def GRAMMAR_DIR = grammar;
+def GEN_DIR = internal/gen;
+def VERSION = $(git describe --tags --always --dirty 2>/dev/null || echo 'dev');
+def BUILD_TIME = $(date -u +%Y-%m-%dT%H:%M:%SZ);
+
+# =============================================================================
+# CORE DEVELOPMENT
+# =============================================================================
+
+# Project setup and initialization
+setup: {
+    echo "🔧 Setting up devcmd development environment...";
+    dev grammar;
+    go mod download;
+    go mod verify;
+    echo "✅ Ready to develop!";
+}
+
+# Generate ANTLR parser
+grammar: {
+    echo "📝 Generating ANTLR parser...";
+    rm -rf @var(GEN_DIR);
+    mkdir -p @var(GEN_DIR);
+    @sh(cd @var(GRAMMAR_DIR) && antlr4 -Dlanguage=Go -package gen -listener -visitor -o ../@var(GEN_DIR) DevcmdLexer.g4 DevcmdParser.g4);
+    echo "✅ Parser generated";
+}
+
+# Build the CLI
+build: {
+    echo "🔨 Building @var(PROJECT) @var(VERSION)...";
+    @sh(if [ ! -f @var(GEN_DIR)/devcmd_lexer.go ]; then dev grammar; fi);
+    go build -ldflags="-s -w -X main.Version=@var(VERSION) -X main.BuildTime=@var(BUILD_TIME)" -o @var(PROJECT) ./cmd/@var(PROJECT);
+    echo "✅ Built: ./@var(PROJECT)";
+}
+
+# Run tests
+test: {
+    echo "🧪 Running tests...";
+    @sh(if [ ! -f @var(GEN_DIR)/devcmd_lexer.go ]; then dev grammar; fi);
+    go test ./...;
+}
+
+# Run tests with coverage
+cover: {
+    echo "📊 Running tests with coverage...";
+    go test -race -coverprofile=coverage.out -covermode=atomic ./...;
+    go tool cover -html=coverage.out -o coverage.html;
+    echo "📊 Coverage report: coverage.html";
+}
+
+# Format code
+fmt: {
+    echo "📝 Formatting code...";
+    @parallel: {
+        @sh(if command -v gofumpt >/dev/null; then gofumpt -w .; else go fmt ./...; fi);
+        @sh(if command -v nixpkgs-fmt >/dev/null; then find . -name '*.nix' -exec nixpkgs-fmt {} +; fi);
+    };
+    echo "✅ Code formatted";
+}
+
+# Run linters
+lint: {
+    echo "🔍 Running linters...";
+    @sh(if command -v golangci-lint >/dev/null; then golangci-lint run --timeout=5m; else go vet ./...; fi);
+    echo "✅ Linting complete";
+}
+
+# Quick checks (format + lint)
+check: {
+    echo "⚡ Running quick checks...";
+    dev fmt;
+    dev lint;
+    echo "✅ Quick checks passed";
+}
+
+# Clean build artifacts
+clean: {
+    echo "🧹 Cleaning build artifacts...";
+    rm -f @var(PROJECT) coverage.out coverage.html;
+    rm -rf result result-*;
+    go clean -cache -testcache;
+    echo "✅ Cleanup complete";
+}
+
+# =============================================================================
+# NIX INTEGRATION
+# =============================================================================
+
+# Build Nix packages
+nix-build: {
+    echo "📦 Building Nix packages...";
+    nix build .#@var(PROJECT) --print-build-logs;
+    echo "✅ Nix packages built";
+}
+
+# Build example CLIs
+examples: {
+    echo "🎯 Building example CLIs...";
+    @parallel: {
+        nix build .#basicDev --print-build-logs;
+        nix build .#webDev --print-build-logs;
+        nix build .#goProject --print-build-logs;
+    };
+    @parallel: {
+        nix build .#rustProject --print-build-logs;
+        nix build .#dataScienceProject --print-build-logs;
+        nix build .#devOpsProject --print-build-logs;
+    };
+    echo "✅ All example CLIs built";
+}
+
+# Test example CLIs
+test-examples: {
+    echo "🧪 Testing example CLIs...";
+    dev examples;
+    @parallel: {
+        @sh(nix run .#basicDev -- --help >/dev/null && echo "✅ basicDev OK" || echo "❌ basicDev failed");
+        @sh(nix run .#webDev -- --help >/dev/null && echo "✅ webDev OK" || echo "❌ webDev failed");
+        @sh(nix run .#goProject -- --help >/dev/null && echo "✅ goProject OK" || echo "❌ goProject failed");
+    };
+    echo "✅ Example testing complete";
+}
+
+# Run Nix tests
+nix-test: {
+    echo "🧪 Running Nix tests...";
+    nix build .#tests --print-build-logs;
+    echo "✅ Nix tests complete";
+}
+
+# Comprehensive Nix validation
+nix-check: {
+    echo "🔍 Running comprehensive Nix validation...";
+    nix flake check --print-build-logs;
+    echo "✅ Nix validation passed";
+}
+
+# =============================================================================
+# DEVELOPMENT WORKFLOWS
+# =============================================================================
+
+# Development workflow (fast iteration)
+dev-flow: {
+    echo "🔄 Running development workflow...";
+    dev setup;
+    dev check;
+    dev test;
+    dev build;
+    echo "✅ Development workflow complete";
+}
+
+# CI workflow (comprehensive testing)
+ci: {
+    echo "🔄 Running CI workflow...";
+    echo "Stage 1: Format & Lint...";
+    dev check;
+    echo "Stage 2: Go Tests...";
+    dev cover;
+    echo "Stage 3: Build...";
+    dev build;
+    echo "Stage 4: Nix Tests...";
+    dev nix-test;
+    echo "Stage 5: Examples...";
+    dev test-examples;
+    echo "🎉 CI workflow complete";
+}
+
+# Release preparation
+release: {
+    echo "📦 Preparing release...";
+    dev clean;
+    dev ci;
+    dev nix-check;
+    echo "📋 Release checklist:";
+    echo "  ✅ All tests passed";
+    echo "  ✅ Code formatted";
+    echo "  ✅ Nix packages validated";
+    echo "  ✅ Example CLIs working";
+    echo "🚀 Ready for release";
+}
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+
+# Show project status
+info: {
+    echo "📊 Project Information";
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
+    echo "Project: @var(PROJECT)";
+    echo "Version: @var(VERSION)";
+    echo "Build time: @var(BUILD_TIME)";
+    echo "";
+    echo "Statistics:";
+    echo "  Grammar files: $(find @var(GRAMMAR_DIR) -name '*.g4' | wc -l)";
+    echo "  Generated files: $(find @var(GEN_DIR) -name '*.go' 2>/dev/null | wc -l || echo 0)";
+    echo "  Go source files: $(find . -name '*.go' -not -path './@var(GEN_DIR)/*' | wc -l)";
+    echo "  Test files: $(find . -name '*_test.go' | wc -l)";
+    echo "  Nix files: $(find . -name '*.nix' | wc -l)";
+    echo "";
+    echo "Tools:";
+    echo "  Go: $(go version 2>/dev/null | cut -d' ' -f3 || echo 'Not found')";
+    echo "  Nix: $(nix --version 2>/dev/null || echo 'Not found')";
+    echo "";
+    echo "Git status:";
+    @sh(git status --porcelain | head -5 || echo "Not a git repository");
+}
+
+# Show available Nix outputs
+nix-info: {
+    echo "📋 Available Nix outputs:";
+    nix flake show;
+}
+
+# Run specific parser tests
+test-parser: {
+    echo "🧪 Running parser tests...";
+    go test -v ./pkgs/parser;
+}
+
+# Run specific generator tests
+test-generator: {
+    echo "🧪 Running generator tests...";
+    go test -v ./pkgs/generator;
+}
+
+# =============================================================================
+# EXAMPLE SHOWCASES
+# =============================================================================
+
+# Demonstrate example CLIs
+demo: {
+    echo "🎭 Devcmd Example Showcase";
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
+    echo "";
+    echo "🔹 Basic Development CLI:";
+    nix run .#basicDev;
+    echo "";
+    echo "🔹 Web Development CLI:";
+    nix run .#webDev;
+    echo "";
+    echo "🔹 Go Project CLI:";
+    nix run .#goProject;
+    echo "";
+    echo "Try running commands like:";
+    echo "  nix run .#basicDev -- build";
+    echo "  nix run .#webDev -- install";
+    echo "  nix run .#goProject -- deps";
+}
+
+# Validate our dogfooding setup
+validate: {
+    echo "🐕 Validating dogfooding setup...";
+    echo "";
+    echo "Testing variable expansion:";
+    echo "  PROJECT = @var(PROJECT)";
+    echo "  VERSION = @var(VERSION)";
+    echo "";
+    echo "Testing parallel execution:";
+    @parallel: {
+        echo "✅ Task 1 complete";
+        echo "✅ Task 2 complete";
+        echo "✅ Task 3 complete";
+    };
+    echo "";
+    echo "Testing shell command substitution:";
+    echo "  Current time: $(date)";
+    echo "  Git branch: $(git branch --show-current 2>/dev/null || echo 'unknown')";
+    echo "";
+    echo "✅ Dogfooding validation complete!";
+}
