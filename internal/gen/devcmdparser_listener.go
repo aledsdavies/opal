@@ -76,6 +76,9 @@ type DevcmdParserListener interface {
 	// EnterBlockStatement is called when entering the blockStatement production.
 	EnterBlockStatement(c *BlockStatementContext)
 
+	// EnterSimpleDecoratorInBlock is called when entering the simpleDecoratorInBlock production.
+	EnterSimpleDecoratorInBlock(c *SimpleDecoratorInBlockContext)
+
 	// EnterContinuationLine is called when entering the continuationLine production.
 	EnterContinuationLine(c *ContinuationLineContext)
 
@@ -156,6 +159,9 @@ type DevcmdParserListener interface {
 
 	// ExitBlockStatement is called when exiting the blockStatement production.
 	ExitBlockStatement(c *BlockStatementContext)
+
+	// ExitSimpleDecoratorInBlock is called when exiting the simpleDecoratorInBlock production.
+	ExitSimpleDecoratorInBlock(c *SimpleDecoratorInBlockContext)
 
 	// ExitContinuationLine is called when exiting the continuationLine production.
 	ExitContinuationLine(c *ContinuationLineContext)

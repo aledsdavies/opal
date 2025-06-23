@@ -145,11 +145,17 @@ nonEmptyBlockStatements
     : blockStatement (SEMICOLON NEWLINE* blockStatement)* SEMICOLON? NEWLINE*
     ;
 
-// Individual statement within a block
+// Individual statement within a block - enhanced to better handle simple decorators
 blockStatement
-    : decoratedCommand                    // Decorators work in blocks
+    : functionDecorator                   // Function decorators with semicolons
+    | simpleDecorator                     // Simple decorators with semicolons
+    | blockDecorator                      // Block decorators (no semicolon)
+    | simpleDecoratorInBlock             // Alternative parsing for @name: command in blocks
     | commandText continuationLine*       // Regular commands (no semicolon in blocks)
     ;
+
+// Enhanced simple decorator parsing for blocks - handles @name: command without semicolon
+simpleDecoratorInBlock : AT NAME COLON commandText continuationLine* ;
 
 /**
  * LINE CONTINUATIONS

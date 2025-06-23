@@ -76,6 +76,9 @@ type DevcmdParserVisitor interface {
 	// Visit a parse tree produced by DevcmdParser#blockStatement.
 	VisitBlockStatement(ctx *BlockStatementContext) interface{}
 
+	// Visit a parse tree produced by DevcmdParser#simpleDecoratorInBlock.
+	VisitSimpleDecoratorInBlock(ctx *SimpleDecoratorInBlockContext) interface{}
+
 	// Visit a parse tree produced by DevcmdParser#continuationLine.
 	VisitContinuationLine(ctx *ContinuationLineContext) interface{}
 

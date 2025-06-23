@@ -99,6 +99,10 @@ func (v *BaseDevcmdParserVisitor) VisitBlockStatement(ctx *BlockStatementContext
 	return v.VisitChildren(ctx)
 }
 
+func (v *BaseDevcmdParserVisitor) VisitSimpleDecoratorInBlock(ctx *SimpleDecoratorInBlockContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
 func (v *BaseDevcmdParserVisitor) VisitContinuationLine(ctx *ContinuationLineContext) interface{} {
 	return v.VisitChildren(ctx)
 }

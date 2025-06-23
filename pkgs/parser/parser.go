@@ -245,6 +245,22 @@ func validateDefinitions(definitions []Definition, lines []string, debug *DebugT
 	defs := make(map[string]int)
 
 	for _, def := range definitions {
+		// Semantic validation: variable names should only use underscores, not hyphens
+		if strings.Contains(def.Name, "-") {
+			var defLine string
+			if def.Line > 0 && def.Line <= len(lines) {
+				defLine = lines[def.Line-1]
+			}
+
+			namePos := strings.Index(defLine, def.Name)
+			if namePos == -1 {
+				namePos = 0
+			}
+
+			return NewDetailedParseError(def.Line, namePos, defLine, debug,
+				"syntax error - variable names cannot contain hyphens, use underscores instead")
+		}
+
 		if line, exists := defs[def.Name]; exists {
 			var defLine string
 			if def.Line > 0 && def.Line <= len(lines) {
@@ -270,6 +286,22 @@ func validateCommands(commands []Command, lines []string, debug *DebugTrace) err
 	registry := NewCommandRegistry(lines, debug)
 
 	for _, cmd := range commands {
+		// Semantic validation: command names shouldn't end with hyphen
+		if strings.HasSuffix(cmd.Name, "-") {
+			var cmdLine string
+			if cmd.Line > 0 && cmd.Line <= len(lines) {
+				cmdLine = lines[cmd.Line-1]
+			}
+
+			namePos := strings.Index(cmdLine, cmd.Name)
+			if namePos == -1 {
+				namePos = 0
+			}
+
+			return NewDetailedParseError(cmd.Line, namePos, cmdLine, debug,
+				"syntax error - command names cannot end with hyphen")
+		}
+
 		if err := registry.RegisterCommand(cmd); err != nil {
 			return err
 		}
@@ -633,11 +665,27 @@ func (v *DevcmdVisitor) processBlockCommand(ctx *gen.BlockCommandContext) []Bloc
 	for i, stmt := range allBlockStmts {
 		stmtCtx := stmt.(*gen.BlockStatementContext)
 
-		if decoratedCmd := stmtCtx.DecoratedCommand(); decoratedCmd != nil {
+		// Check for different types of decorators first
+		if functionDecorator := stmtCtx.FunctionDecorator(); functionDecorator != nil {
 			if v.debug != nil {
-				v.debug.Log("Block statement %d: decorated command", i)
+				v.debug.Log("Block statement %d: function decorator", i)
 			}
-			decoratedStmt := v.processDecoratedCommand(decoratedCmd)
+			functionCtx := functionDecorator.(*gen.FunctionDecoratorContext)
+			decoratedStmt := v.processFunctionDecorator(functionCtx)
+			statements = append(statements, decoratedStmt)
+		} else if simpleDecorator := stmtCtx.SimpleDecorator(); simpleDecorator != nil {
+			if v.debug != nil {
+				v.debug.Log("Block statement %d: simple decorator", i)
+			}
+			simpleCtx := simpleDecorator.(*gen.SimpleDecoratorContext)
+			decoratedStmt := v.processSimpleDecorator(simpleCtx)
+			statements = append(statements, decoratedStmt)
+		} else if blockDecorator := stmtCtx.BlockDecorator(); blockDecorator != nil {
+			if v.debug != nil {
+				v.debug.Log("Block statement %d: block decorator", i)
+			}
+			blockCtx := blockDecorator.(*gen.BlockDecoratorContext)
+			decoratedStmt := v.processBlockDecorator(blockCtx)
 			statements = append(statements, decoratedStmt)
 		} else {
 			if v.debug != nil {
@@ -669,6 +717,35 @@ func (v *DevcmdVisitor) processBlockCommand(ctx *gen.BlockCommandContext) []Bloc
 					v.debug.Log("Skipping empty statement %d", i)
 				}
 				continue
+			}
+
+			// Check if this looks like a simple decorator that wasn't parsed correctly
+			if strings.HasPrefix(commandText, "@") && strings.Contains(commandText, ":") {
+				// Try to parse it manually as a simple decorator
+				parts := strings.SplitN(commandText, ":", 2)
+				if len(parts) == 2 {
+					decoratorName := strings.TrimPrefix(strings.TrimSpace(parts[0]), "@")
+					decoratorCmd := strings.TrimSpace(parts[1])
+
+					if v.debug != nil {
+						v.debug.Log("Manually parsing simple decorator: %s : %s", decoratorName, decoratorCmd)
+					}
+
+					// Use semantic parsing for structured elements
+					var elements []CommandElement
+					if decoratorCmd != "" {
+						elements = v.parseCommandString(decoratorCmd)
+					}
+
+					statements = append(statements, BlockStatement{
+						Command:       decoratorCmd,
+						IsDecorated:   true,
+						Decorator:     decoratorName,
+						DecoratorType: "simple",
+						Elements:      elements,
+					})
+					continue
+				}
 			}
 
 			// Use semantic parsing for structured elements

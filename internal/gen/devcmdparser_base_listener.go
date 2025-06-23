@@ -159,6 +159,12 @@ func (s *BaseDevcmdParserListener) EnterBlockStatement(ctx *BlockStatementContex
 // ExitBlockStatement is called when production blockStatement is exited.
 func (s *BaseDevcmdParserListener) ExitBlockStatement(ctx *BlockStatementContext) {}
 
+// EnterSimpleDecoratorInBlock is called when production simpleDecoratorInBlock is entered.
+func (s *BaseDevcmdParserListener) EnterSimpleDecoratorInBlock(ctx *SimpleDecoratorInBlockContext) {}
+
+// ExitSimpleDecoratorInBlock is called when production simpleDecoratorInBlock is exited.
+func (s *BaseDevcmdParserListener) ExitSimpleDecoratorInBlock(ctx *SimpleDecoratorInBlockContext) {}
+
 // EnterContinuationLine is called when production continuationLine is entered.
 func (s *BaseDevcmdParserListener) EnterContinuationLine(ctx *ContinuationLineContext) {}
 
