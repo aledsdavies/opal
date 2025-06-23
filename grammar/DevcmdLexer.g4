@@ -38,13 +38,21 @@ BACKSLASH : '\\' ;
 STRING : '"' (~["\\\r\n] | '\\' .)* '"' ;
 SINGLE_STRING : '\'' (~['\\\r\n] | '\\' .)* '\'' ;
 
-// Identifiers and literals - NAME must be early to capture command names correctly
-// Updated to explicitly support hyphens and underscores in command/decorator names
+// Semantic token definitions with specific naming conventions
+// Note: We use a single NAME token and handle semantic validation in the parser
+// This avoids lexer ambiguity issues while maintaining semantic correctness
+
+// NAME: General identifier token that covers all naming patterns
+// - Commands: build, nix-build, docker-compose-up, deploy-v2
+// - Decorators: var, sh, parallel, retry-on-fail, wait-for
+// - Variables: SRC, BUILD_DIR, NODE_ENV, PORT_8080, MY_VAR
 NAME : [A-Za-z] [A-Za-z0-9_-]* ;
+
+// NUMBER: Numeric literals including decimals
 NUMBER : '-'? [0-9]+ ('.' [0-9]+)? ;
 
 // Path-like content (handles things like ./src, *.tmp, etc.)
-// More specific pattern to avoid conflicts with NAME
+// More specific pattern to avoid conflicts with names
 PATH_CONTENT : [./~] [A-Za-z0-9._/*-]+ ;
 
 // Shell operators and special characters as individual tokens

@@ -350,7 +350,7 @@ func simplifyErrorMessage(msg string) string {
 	if strings.Contains(msg, "mismatched input") {
 		// Handle numbers where identifiers expected
 		if strings.Contains(msg, "expecting NAME") {
-			return "syntax error - invalid identifier (cannot start with number)"
+			return "syntax error - invalid identifier (cannot start with number or special character)"
 		}
 
 		if strings.Contains(msg, "expecting") {
@@ -483,14 +483,17 @@ func (v *DevcmdVisitor) visitLine(ctx *gen.LineContext) {
 }
 
 func (v *DevcmdVisitor) visitVariableDefinition(ctx *gen.VariableDefinitionContext) {
+	// Use NAME token
 	name := ctx.NAME().GetText()
 
 	var value string
+	// Handle both forms: def NAME = value; and def NAME = ;
 	if varValue := ctx.VariableValue(); varValue != nil {
 		if cmdText := varValue.CommandText(); cmdText != nil {
 			value = v.getOriginalText(cmdText)
 		}
 	}
+	// If no variableValue, value remains empty string
 
 	line := ctx.GetStart().GetLine()
 
@@ -505,6 +508,7 @@ func (v *DevcmdVisitor) visitVariableDefinition(ctx *gen.VariableDefinitionConte
 }
 
 func (v *DevcmdVisitor) visitCommandDefinition(ctx *gen.CommandDefinitionContext) {
+	// Use NAME token
 	name := ctx.NAME().GetText()
 	line := ctx.GetStart().GetLine()
 
@@ -723,6 +727,7 @@ func (v *DevcmdVisitor) processDecoratedCommand(ctx antlr.ParserRuleContext) Blo
 }
 
 func (v *DevcmdVisitor) processFunctionDecorator(decorCtx *gen.FunctionDecoratorContext) BlockStatement {
+	// Use NAME token
 	decorator := decorCtx.NAME().GetText()
 
 	// Get the exact text between the parentheses
