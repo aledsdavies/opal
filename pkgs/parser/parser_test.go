@@ -610,9 +610,9 @@ func TestComplexShellCommands(t *testing.T) {
 					BlockCommand("test-quick",
 						Statement("echo \"⚡ Running quick checks...\"", Text("echo \"⚡ Running quick checks...\"")),
 						DecoratedStatement("sh", "function",
-							"if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofmut -l .; exit 1; fi; fi",
-							// Expect a single text element - no parsing of the complex shell command
-							Decorator("sh", "function", Text("if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofmut -l .; exit 1; fi; fi")))),
+							"if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; fi",
+							// Fixed the typo: changed "gofmut" to "gofumpt"
+							Decorator("sh", "function", Text("if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; fi")))),
 				},
 			},
 		},
