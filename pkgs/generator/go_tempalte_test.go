@@ -89,8 +89,9 @@ func showRelevantCode(t *testing.T, code string, pattern string) {
 				if strings.Contains(lines[j], "exec.Command") ||
 					strings.Contains(lines[j], `"-c"`) ||
 					strings.Contains(lines[j], pattern) ||
-					strings.Contains(lines[j], "errgroup.Group") ||
-					strings.Contains(lines[j], "g.Go(func()") {
+					strings.Contains(lines[j], "sync.WaitGroup") ||
+					strings.Contains(lines[j], "wg.Add(1)") ||
+					strings.Contains(lines[j], "go func()") {
 					prefix = " >> "
 				}
 
@@ -126,6 +127,21 @@ func mustContain(pattern string) func(string) TestResult {
 			ErrorMessage:    "Generated code does not contain expected pattern",
 			Context: map[string]interface{}{
 				"Pattern": pattern,
+			},
+		}
+	}
+}
+
+func mustNotContain(pattern string) func(string) TestResult {
+	return func(code string) TestResult {
+		if !strings.Contains(code, pattern) {
+			return TestResult{Success: true}
+		}
+		return TestResult{
+			Success:      false,
+			ErrorMessage: "Generated code contains forbidden pattern",
+			Context: map[string]interface{}{
+				"ForbiddenPattern": pattern,
 			},
 		}
 	}
@@ -190,6 +206,7 @@ func TestImportsTemplate(t *testing.T) {
 		name     string
 		input    string
 		expected []string
+		forbidden []string
 	}{
 		{
 			name:  "Basic command imports",
@@ -198,6 +215,10 @@ func TestImportsTemplate(t *testing.T) {
 				`"fmt"`,
 				`"os"`,
 				`"os/exec"`,
+			},
+			forbidden: []string{
+				`"golang.org/x/sync/errgroup"`,
+				`"sync"`, // Should not be included for non-parallel commands
 			},
 		},
 		{
@@ -209,11 +230,17 @@ func TestImportsTemplate(t *testing.T) {
 				`"syscall"`,
 				`"path/filepath"`,
 			},
+			forbidden: []string{
+				`"golang.org/x/sync/errgroup"`,
+			},
 		},
 		{
 			name:  "Parallel command imports",
 			input: `build: { @parallel { go build ./app1; go build ./app2 } }`,
 			expected: []string{
+				`"sync"`,
+			},
+			forbidden: []string{
 				`"golang.org/x/sync/errgroup"`,
 			},
 		},
@@ -224,6 +251,9 @@ func TestImportsTemplate(t *testing.T) {
 			validators := []func(string) TestResult{mustCompile()}
 			for _, imp := range tt.expected {
 				validators = append(validators, mustContain(imp))
+			}
+			for _, forbidden := range tt.forbidden {
+				validators = append(validators, mustNotContain(forbidden))
 			}
 			assertGeneratedCode(t, tt.name, tt.input, allOf(validators...))
 		})
@@ -410,13 +440,14 @@ stop server: pkill node;
 	}
 }
 
-// Updated decorator tests for goroutine-based parallel execution
+// Updated decorator tests for standard library parallel execution
 
 func TestDecorators(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  string
 		expect []string
+		forbidden []string
 	}{
 		{
 			name:   "@sh decorator",
@@ -424,7 +455,7 @@ func TestDecorators(t *testing.T) {
 			expect: []string{`echo "Hello World"`},
 		},
 		{
-			name: "@parallel decorator",
+			name: "@parallel decorator with standard library",
 			input: `build: {
     @parallel {
         go build ./cmd/app1;
@@ -432,11 +463,19 @@ func TestDecorators(t *testing.T) {
     }
 }`,
 			expect: []string{
-				"errgroup.Group",
-				"g.Go(func() error",
+				"sync.WaitGroup",
+				"wg.Add(1)",
+				"go func()",
+				"defer wg.Done()",
 				"go build ./cmd/app1",
 				"go build ./cmd/app2",
-				"g.Wait()",
+				"wg.Wait()",
+				"errChan := make(chan error,",
+			},
+			forbidden: []string{
+				"errgroup.Group",
+				"g.Go(func() error",
+				"golang.org/x/sync/errgroup",
 			},
 		},
 	}
@@ -447,8 +486,252 @@ func TestDecorators(t *testing.T) {
 			for _, exp := range tt.expect {
 				validators = append(validators, mustContain(exp))
 			}
+			for _, forbidden := range tt.forbidden {
+				validators = append(validators, mustNotContain(forbidden))
+			}
 			assertGeneratedCode(t, tt.name, tt.input, allOf(validators...))
 		})
+	}
+}
+
+// Test user-defined help commands
+
+func TestUserDefinedHelpCommand(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		shouldHave  []string
+		shouldNotHave []string
+	}{
+		{
+			name: "No user-defined help - generates default",
+			input: `
+build: go build .;
+test: go test ./...;
+`,
+			shouldHave: []string{
+				`case "help", "--help", "-h":`,
+				`c.showHelp()`,
+				`func (c *CLI) showHelp()`,
+				`fmt.Println("Available commands:")`,
+			},
+			shouldNotHave: []string{
+				`func (c *CLI) runHelp(args []string)`,
+			},
+		},
+		{
+			name: "User-defined help - skips default",
+			input: `
+build: go build .;
+test: go test ./...;
+help: echo "Custom help message";
+`,
+			shouldHave: []string{
+				`func (c *CLI) runHelp(args []string)`,
+				`echo "Custom help message"`,
+				`case "help":`,
+			},
+			shouldNotHave: []string{
+				`case "help", "--help", "-h":`,
+				`func (c *CLI) showHelp()`,
+				`fmt.Println("Available commands:")`,
+			},
+		},
+		{
+			name: "User-defined help with complex command",
+			input: `
+build: go build .;
+help: {
+    echo "My Custom CLI";
+    echo "Commands:";
+    echo "  build - Build the project"
+}`,
+			shouldHave: []string{
+				`func (c *CLI) runHelp(args []string)`,
+				`My Custom CLI`,
+				`case "help":`,
+			},
+			shouldNotHave: []string{
+				`case "help", "--help", "-h":`,
+				`func (c *CLI) showHelp()`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cf, err := devcmdParser.Parse(tt.input, false)
+			if err != nil {
+				t.Fatalf("Failed to parse: %v", err)
+			}
+
+			generated, err := GenerateGo(cf)
+			if err != nil {
+				t.Fatalf("Failed to generate: %v", err)
+			}
+
+			// Check for required patterns
+			for _, pattern := range tt.shouldHave {
+				if !strings.Contains(generated, pattern) {
+					t.Errorf("Expected to find pattern: %q", pattern)
+					showRelevantCode(t, generated, pattern)
+				}
+			}
+
+			// Check for forbidden patterns
+			for _, pattern := range tt.shouldNotHave {
+				if strings.Contains(generated, pattern) {
+					t.Errorf("Found forbidden pattern: %q", pattern)
+					showRelevantCode(t, generated, pattern)
+				}
+			}
+
+			// Verify it compiles
+			if result := mustCompile()(generated); !result.Success {
+				t.Errorf("Generated code doesn't compile: %s", result.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestHelpCommandEdgeCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		desc  string
+	}{
+		{
+			name: "Multiple commands including help",
+			input: `
+build: go build .;
+test: go test ./...;
+help: cat README.md;
+deploy: kubectl apply -f k8s/;
+`,
+			desc: "Help among multiple commands should work",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cf, err := devcmdParser.Parse(tt.input, false)
+			if err != nil {
+				t.Fatalf("Failed to parse: %v", err)
+			}
+
+			generated, err := GenerateGo(cf)
+			if err != nil {
+				t.Fatalf("Failed to generate: %v", err)
+			}
+
+			// Should compile without duplicate case errors
+			if result := mustCompile()(generated); !result.Success {
+				t.Errorf("Generated code doesn't compile: %s", result.ErrorMessage)
+				t.Logf("Generated code:\n%s", generated)
+			}
+		})
+	}
+}
+
+// Add new test for help command restrictions
+func TestHelpCommandRestrictions(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectError string
+		description string
+	}{
+		{
+			name: "Watch help should be forbidden",
+			input: `
+watch help: echo "This should be forbidden";
+build: go build .;
+`,
+			expectError: "'help' command cannot be used with 'watch' modifier",
+			description: "Generator should catch watch help",
+		},
+		{
+			name: "Standalone stop help should be forbidden",
+			input: `
+stop help: echo "This should be forbidden";
+build: go build .;
+`,
+			expectError: "'help' command cannot be used with 'stop' modifier",
+			description: "Generator should catch standalone stop help",
+		},
+		{
+			name: "Regular help should be allowed",
+			input: `
+build: go build .;
+test: go test ./...;
+help: echo "Custom help message";
+`,
+			expectError: "",
+			description: "Regular help commands should work fine",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cf, err := devcmdParser.Parse(tt.input, false)
+			if err != nil {
+				t.Fatalf("Failed to parse: %v", err)
+			}
+
+			_, err = GenerateGo(cf)
+
+			if tt.expectError == "" {
+				// Should succeed
+				if err != nil {
+					t.Errorf("Expected no error, but got: %v", err)
+				} else {
+					t.Logf("✅ %s", tt.description)
+				}
+			} else {
+				// Should fail with specific error
+				if err == nil {
+					t.Errorf("Expected error containing %q, but got no error", tt.expectError)
+				} else if !strings.Contains(err.Error(), tt.expectError) {
+					t.Errorf("Expected error containing %q, but got: %v", tt.expectError, err)
+				} else {
+					t.Logf("✅ %s: %v", tt.description, err)
+				}
+			}
+		})
+	}
+}
+
+func TestDefaultHelpFallback(t *testing.T) {
+	input := `
+build: go build .;
+test: go test ./...;
+help: echo "My custom help";
+`
+
+	cf, err := devcmdParser.Parse(input, false)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	generated, err := GenerateGo(cf)
+	if err != nil {
+		t.Fatalf("Failed to generate: %v", err)
+	}
+
+	// When user defines help, default help messages should reference user's help
+	expectedFallbacks := []string{
+		`fmt.Fprintf(os.Stderr, "Run '%s help' for available commands.\n", os.Args[0])`,
+	}
+
+	for _, pattern := range expectedFallbacks {
+		if !strings.Contains(generated, pattern) {
+			t.Errorf("Expected fallback message pattern: %q", pattern)
+		}
+	}
+
+	// Should not have default help function
+	if strings.Contains(generated, `func (c *CLI) showHelp()`) {
+		t.Error("Should not generate default showHelp function when user defines help")
 	}
 }
 
@@ -511,12 +794,15 @@ deploy: {
 			{"ProcessRegistry", "Process registry not included"},
 			{"runInBackground", "Background process support missing"},
 
-			// NEW: Goroutine-based parallel execution instead of shell &; wait
-			{"errgroup.Group", "errgroup not used for parallel execution"},
-			{"g.Go(func() error", "Goroutines not generated for parallel commands"},
+			// Standard library parallel execution instead of errgroup
+			{"sync.WaitGroup", "sync.WaitGroup not used for parallel execution"},
+			{"wg.Add(1)", "WaitGroup Add not called"},
+			{"go func()", "Goroutines not generated for parallel commands"},
+			{"defer wg.Done()", "WaitGroup Done not called"},
 			{"docker build -t myapp:1.0.0", "Parallel docker build command missing"},
 			{"docker push myapp:1.0.0", "Parallel docker push command missing"},
-			{"g.Wait()", "errgroup Wait not called"},
+			{"wg.Wait()", "WaitGroup Wait not called"},
+			{"errChan := make(chan error,", "Error channel not created"},
 
 			// Main structure
 			{"func main()", "Main function missing"},
@@ -550,15 +836,23 @@ deploy: {
 			}
 		}
 
-		// NEW: Verify we DON'T have old shell-style parallel execution
-		if strings.Contains(code, " &; ") || strings.Contains(code, "&; wait") {
-			return TestResult{
-				Success:      false,
-				ErrorMessage: "Found old shell-style parallel execution instead of goroutines",
-				Context: map[string]interface{}{
-					"Found": "Shell background processes (&; wait)",
-					"Expected": "Go routines with errgroup",
-				},
+		// Verify we DON'T have errgroup imports or usage
+		forbiddenPatterns := []string{
+			"golang.org/x/sync/errgroup",
+			"errgroup.Group",
+			"g.Go(func() error",
+		}
+
+		for _, forbidden := range forbiddenPatterns {
+			if strings.Contains(code, forbidden) {
+				return TestResult{
+					Success:      false,
+					ErrorMessage: "Found forbidden errgroup usage",
+					Context: map[string]interface{}{
+						"Found":    forbidden,
+						"Expected": "Standard library sync.WaitGroup",
+					},
+				}
 			}
 		}
 
@@ -566,7 +860,7 @@ deploy: {
 	})
 }
 
-// Test actual compilation
+// Test actual compilation with only standard library
 
 func TestActualCompilation(t *testing.T) {
 	if testing.Short() {
@@ -581,7 +875,7 @@ build: go build -o @var(APP) .;
 test: go test ./...;
 run: ./@var(APP) --port=@var(PORT);
 
-# Test parallel execution
+# Test parallel execution with standard library
 parallel-build: {
     @parallel {
         go build -o @var(APP)-linux .;
@@ -603,9 +897,14 @@ stop dev: @sh(pkill -f "go run");
 		t.Fatalf("Failed to generate: %v", err)
 	}
 
-	// Verify errgroup import is included when parallel commands are present
-	if !strings.Contains(generated, `"golang.org/x/sync/errgroup"`) {
-		t.Errorf("Expected errgroup import for parallel commands")
+	// Verify sync import is included when parallel commands are present
+	if !strings.Contains(generated, `"sync"`) {
+		t.Errorf("Expected sync import for parallel commands")
+	}
+
+	// Verify errgroup is NOT included
+	if strings.Contains(generated, `"golang.org/x/sync/errgroup"`) {
+		t.Errorf("Found forbidden errgroup import - should use standard library only")
 	}
 
 	// Create temp directory
@@ -625,21 +924,14 @@ stop dev: @sh(pkill -f "go run");
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
 
-	// Initialize go.mod with errgroup dependency
+	// Initialize go.mod (without external dependencies)
 	cmd := exec.Command("go", "mod", "init", "testcli")
 	cmd.Dir = tmpDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to init go.mod: %v\nOutput: %s", err, output)
 	}
 
-	// Add errgroup dependency
-	cmd = exec.Command("go", "get", "golang.org/x/sync/errgroup")
-	cmd.Dir = tmpDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("Failed to get errgroup: %v\nOutput: %s", err, output)
-	}
-
-	// Try to build
+	// Try to build (should work with only standard library)
 	cmd = exec.Command("go", "build", "-o", "testcli", ".")
 	cmd.Dir = tmpDir
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -653,7 +945,7 @@ stop dev: @sh(pkill -f "go run");
 			t.Logf("%4d: %s", i+1, line)
 		}
 	} else {
-		t.Log("✅ Generated code compiles successfully")
+		t.Log("✅ Generated code compiles successfully with standard library only")
 
 		// Try to run help
 		cmd = exec.Command("./testcli", "help")
@@ -681,6 +973,16 @@ func TestErrorHandling(t *testing.T) {
 			name:        "Unknown decorator",
 			input:       `test: @unknown(echo hello);`,
 			expectError: "unsupported decorator '@unknown'",
+		},
+		{
+			name:        "Watch help forbidden",
+			input:       `watch help: echo "help";`,
+			expectError: "'help' command cannot be used with 'watch' modifier",
+		},
+		{
+			name:        "Stop help forbidden",
+			input:       `stop help: echo "help";`,
+			expectError: "'help' command cannot be used with 'stop' modifier",
 		},
 	}
 
@@ -718,4 +1020,67 @@ func TestGenerateGoWithTemplate(t *testing.T) {
 	if !strings.Contains(result, "main") {
 		t.Errorf("Expected result to contain 'main', got: %s", result)
 	}
+}
+
+// Test specific standard library parallel patterns
+func TestStandardLibraryParallelPatterns(t *testing.T) {
+	input := `
+parallel-test: {
+    @parallel {
+        echo "Command 1";
+        echo "Command 2";
+        echo "Command 3"
+    }
+}
+`
+
+	assertGeneratedCode(t, "Standard Library Parallel", input, func(code string) TestResult {
+		// Must compile
+		if result := mustCompile()(code); !result.Success {
+			return result
+		}
+
+		// Check for standard library parallel patterns
+		requiredPatterns := []string{
+			"var wg sync.WaitGroup",
+			"errChan := make(chan error, 3)", // Should match number of parallel commands
+			"wg.Add(1)",
+			"go func()",
+			"defer wg.Done()",
+			"wg.Wait()",
+			"close(errChan)",
+			"for err := range errChan",
+		}
+
+		for _, pattern := range requiredPatterns {
+			if !strings.Contains(code, pattern) {
+				return TestResult{
+					Success:         false,
+					ExpectedPattern: pattern,
+					ErrorMessage:    "Missing required standard library parallel pattern",
+				}
+			}
+		}
+
+		// Should NOT contain errgroup patterns
+		forbiddenPatterns := []string{
+			"errgroup.Group",
+			"g.Go(func() error",
+			"golang.org/x/sync/errgroup",
+		}
+
+		for _, pattern := range forbiddenPatterns {
+			if strings.Contains(code, pattern) {
+				return TestResult{
+					Success:      false,
+					ErrorMessage: "Found forbidden errgroup pattern",
+					Context: map[string]interface{}{
+						"ForbiddenPattern": pattern,
+					},
+				}
+			}
+		}
+
+		return TestResult{Success: true}
+	})
 }

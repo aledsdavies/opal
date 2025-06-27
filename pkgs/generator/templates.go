@@ -1,6 +1,6 @@
 package generator
 
-// Updated template component definitions with goroutine-based parallel execution
+// Updated template component definitions with standard library parallel execution and smart help handling
 
 const packageTemplate = `{{define "package"}}package {{.PackageName}}{{end}}`
 
@@ -8,9 +8,6 @@ const importsTemplate = `{{define "imports"}}
 import (
 {{- range .Imports}}
 	"{{.}}"
-{{- end}}
-{{- if .HasParallelCommands}}
-	"golang.org/x/sync/errgroup"
 {{- end}}
 )
 {{end}}`
@@ -189,7 +186,7 @@ const commandSwitchTemplate = `{{define "command-switch"}}
 // Execute runs the CLI with given arguments
 func (c *CLI) Execute() {
 	if len(os.Args) < 2 {
-		c.showHelp()
+		{{if not .HasUserDefinedHelp}}c.showHelp(){{else}}fmt.Fprintf(os.Stderr, "Usage: %s <command>\nRun '%s help' for available commands.\n", os.Args[0], os.Args[0]){{end}}
 		return
 	}
 
@@ -206,27 +203,31 @@ func (c *CLI) Execute() {
 	case "{{.GoCase}}":
 		c.{{.FunctionName}}(args)
 {{- end}}
+{{- if not .HasUserDefinedHelp}}
 	case "help", "--help", "-h":
 		c.showHelp()
+{{- end}}
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
-		c.showHelp()
+		{{if not .HasUserDefinedHelp}}c.showHelp(){{else}}fmt.Fprintf(os.Stderr, "Run '%s help' for available commands.\n", os.Args[0]){{end}}
 		os.Exit(1)
 	}
 {{- else}}
 	switch command {
+{{- if not .HasUserDefinedHelp}}
 	case "help", "--help", "-h":
 		c.showHelp()
+{{- end}}
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
-		c.showHelp()
+		{{if not .HasUserDefinedHelp}}c.showHelp(){{else}}fmt.Fprintf(os.Stderr, "Run '%s help' for available commands.\n", os.Args[0]){{end}}
 		os.Exit(1)
 	}
 {{- end}}
 }
 {{end}}`
 
-const helpFunctionTemplate = `{{define "help-function"}}
+const helpFunctionTemplate = `{{define "help-function"}}{{if not .HasUserDefinedHelp}}
 // showHelp displays available commands
 func (c *CLI) showHelp() {
 	fmt.Println("Available commands:")
@@ -237,7 +238,7 @@ func (c *CLI) showHelp() {
 	fmt.Println("  {{.HelpDescription}}")
 {{- end}}
 }
-{{end}}`
+{{- end}}{{end}}`
 
 const statusFunctionTemplate = `{{define "status-function"}}{{if .HasProcessMgmt}}
 // showStatus displays running processes
@@ -432,66 +433,94 @@ const stopOnlyCommandTemplate = `{{define "stop-only-command"}}
 	}
 {{- end}}`
 
-// NEW: Parallel command template using goroutines and errgroup
+// Updated parallel command template using standard library with proper scoping
 const parallelCommandTemplate = `{{define "parallel-command"}}
-	// Parallel command execution using goroutines
-	g := new(errgroup.Group)
+	// Parallel command execution using standard library goroutines
+	{
+		var wg sync.WaitGroup
+		errChan := make(chan error, {{len .ParallelCommands}})
 
-	{{range .ParallelCommands}}
-	g.Go(func() error {
-		cmd := exec.Command("sh", "-c", ` + "`{{.}}`" + `)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("command failed: %v", err)
+		{{range .ParallelCommands}}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cmd := exec.Command("sh", "-c", ` + "`{{.}}`" + `)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				errChan <- fmt.Errorf("command failed: %v", err)
+				return
+			}
+		}()
+		{{end}}
+
+		// Wait for all goroutines to complete
+		go func() {
+			wg.Wait()
+			close(errChan)
+		}()
+
+		// Check for errors
+		for err := range errChan {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Parallel execution failed: %v\n", err)
+				os.Exit(1)
+			}
 		}
-		return nil
-	})
-	{{end}}
-
-	// Wait for all parallel commands to complete
-	if err := g.Wait(); err != nil {
-		fmt.Fprintf(os.Stderr, "Parallel execution failed: %v\n", err)
-		os.Exit(1)
 	}
 {{- end}}`
 
-// NEW: Mixed command template for commands with both parallel and sequential parts
+// Updated mixed command template with proper scoping for multiple parallel segments
 const mixedCommandTemplate = `{{define "mixed-command"}}
 	// Mixed command with both parallel and sequential execution
-	{{range .CommandSegments}}
+	{{range $index, $segment := .CommandSegments}}
 	{{if .IsParallel}}
-	// Parallel segment
-	g := new(errgroup.Group)
-	{{range .Commands}}
-	g.Go(func() error {
-		cmd := exec.Command("sh", "-c", ` + "`{{.}}`" + `)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("command failed: %v", err)
-		}
-		return nil
-	})
-	{{end}}
+	// Parallel segment using standard library
+	{
+		var wg sync.WaitGroup
+		errChan := make(chan error, {{len .Commands}})
 
-	if err := g.Wait(); err != nil {
-		fmt.Fprintf(os.Stderr, "Parallel execution failed: %v\n", err)
-		os.Exit(1)
+		{{range .Commands}}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cmd := exec.Command("sh", "-c", ` + "`{{.}}`" + `)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				errChan <- fmt.Errorf("command failed: %v", err)
+				return
+			}
+		}()
+		{{end}}
+
+		go func() {
+			wg.Wait()
+			close(errChan)
+		}()
+
+		for err := range errChan {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Parallel execution failed: %v\n", err)
+				os.Exit(1)
+			}
+		}
 	}
 	{{else}}
 	// Sequential command
-	cmd := exec.Command("sh", "-c", ` + "`{{.Command}}`" + `)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	{
+		cmd := exec.Command("sh", "-c", ` + "`{{.Command}}`" + `)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
 
-	if err := cmd.Run(); err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitError.ExitCode())
+		if err := cmd.Run(); err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				os.Exit(exitError.ExitCode())
+			}
+			fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
+			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
-		os.Exit(1)
 	}
 	{{end}}
 	{{end}}

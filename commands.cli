@@ -135,7 +135,7 @@ cover: {
 format: {
     echo "📝 Formatting all code...";
     echo "Formatting Go code...";
-    @parallel: {
+    @parallel {
         @sh(if command -v gofumpt >/dev/null 2>&1; then gofumpt -w .; else go fmt ./...; fi);
         @sh(if command -v nixpkgs-fmt >/dev/null 2>&1; then find . -name '*.nix' -exec nixpkgs-fmt {} +; else echo "⚠️  nixpkgs-fmt not available"; fi);
     };
@@ -180,12 +180,12 @@ nix-build: {
 # Build all example CLIs
 examples: {
     echo "🎯 Building all example CLIs...";
-    @parallel: {
+    @parallel {
         nix build .#basicDev --print-build-logs;
         nix build .#webDev --print-build-logs;
         nix build .#goProject --print-build-logs;
     };
-    @parallel: {
+    @parallel {
         nix build .#rustProject --print-build-logs;
         nix build .#dataScienceProject --print-build-logs;
         nix build .#devOpsProject --print-build-logs;
@@ -199,12 +199,12 @@ test-examples: {
     echo "Building all examples...";
     nix build .#basicDev .#webDev .#goProject .#rustProject .#dataScienceProject .#devOpsProject --print-build-logs;
     echo "Testing all examples...";
-    @parallel: {
+    @parallel {
         @sh(echo "Testing basicDev..."; nix run .#basicDev -- --help >/dev/null || echo "⚠️  basicDev help issues");
         @sh(echo "Testing webDev..."; nix run .#webDev -- --help >/dev/null || echo "⚠️  webDev help issues");
         @sh(echo "Testing goProject..."; nix run .#goProject -- --help >/dev/null || echo "⚠️  goProject help issues");
     };
-    @parallel: {
+    @parallel {
         @sh(echo "Testing rustProject..."; nix run .#rustProject -- --help >/dev/null || echo "⚠️  rustProject help issues");
         @sh(echo "Testing dataScienceProject..."; nix run .#dataScienceProject -- --help >/dev/null || echo "⚠️  dataScienceProject help issues");
         @sh(echo "Testing devOpsProject..."; nix run .#devOpsProject -- --help >/dev/null || echo "⚠️  devOpsProject help issues");
@@ -385,7 +385,7 @@ validate: {
     echo "  VERSION = @var(VERSION)";
     echo "";
     echo "Testing parallel execution:";
-    @parallel: {
+    @parallel {
         echo "✅ Task 1 complete";
         echo "✅ Task 2 complete";
         echo "✅ Task 3 complete";

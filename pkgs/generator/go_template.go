@@ -24,6 +24,7 @@ type TemplateData struct {
 	Imports            []string
 	HasProcessMgmt     bool
 	HasParallelCommands bool
+	HasUserDefinedHelp bool // NEW: Track if user defined help command
 	Commands           []TemplateCommand
 	ProcessMgmtFuncs   []string
 }
@@ -50,7 +51,26 @@ type TemplateCommand struct {
 	HelpDescription  string // Description for help text
 }
 
-// PreprocessCommands converts parser commands into template-ready data with goroutine support
+// validateHelpCommandRestrictions ensures help command isn't used with watch/stop
+func validateHelpCommandRestrictions(commands []parser.Command, sourceLines []string) error {
+	for _, cmd := range commands {
+		if cmd.Name == "help" {
+			if cmd.IsWatch {
+				return createValidationError(
+					"'help' command cannot be used with 'watch' modifier. Help is a special reserved command",
+					cmd.Name, cmd.Line, sourceLines)
+			}
+			if cmd.IsStop {
+				return createValidationError(
+					"'help' command cannot be used with 'stop' modifier. Help is a special reserved command",
+					cmd.Name, cmd.Line, sourceLines)
+			}
+		}
+	}
+	return nil
+}
+
+// PreprocessCommands converts parser commands into template-ready data with standard library support
 func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	if cf == nil {
 		return nil, fmt.Errorf("command file cannot be nil")
@@ -69,6 +89,15 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	commandGroups := make(map[string][]parser.Command)
 	for _, cmd := range cf.Commands {
 		commandGroups[cmd.Name] = append(commandGroups[cmd.Name], cmd)
+	}
+
+	// Check if user defined a help command
+	_, hasUserHelp := commandGroups["help"]
+	data.HasUserDefinedHelp = hasUserHelp
+
+	// Validate help command restrictions FIRST
+	if err := validateHelpCommandRestrictions(cf.Commands, cf.Lines); err != nil {
+		return nil, err
 	}
 
 	// Validate decorators before processing with source context
@@ -116,6 +145,10 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 				"time",
 			}
 			data.Imports = append(data.Imports, additionalImports...)
+		}
+
+		if hasParallelCommands {
+			data.Imports = append(data.Imports, "sync")
 		}
 	} else {
 		// Minimal imports for empty command files
@@ -453,9 +486,6 @@ func buildDecoratedStatementWithContext(stmt parser.BlockStatement, cmdName stri
 	}
 }
 
-// Rest of the functions remain the same as they were in the original file...
-// [Include all the existing helper functions like expandVariablesInText, processElementsWithContext, etc.]
-
 // createDefinitionMap creates a map from variable definitions for quick lookup
 func createDefinitionMap(definitions []parser.Definition) map[string]string {
 	defMap := make(map[string]string)
@@ -691,7 +721,7 @@ func sanitizeFunctionName(name string) string {
 	return "run" + funcName
 }
 
-// GenerateGo creates a Go CLI from a CommandFile using the composable template system with goroutine support
+// GenerateGo creates a Go CLI from a CommandFile using the composable template system with standard library support
 func GenerateGo(cf *parser.CommandFile) (string, error) {
 	// Preprocess the command file into template-ready data
 	data, err := PreprocessCommands(cf)
@@ -722,9 +752,6 @@ func GenerateGo(cf *parser.CommandFile) (string, error) {
 
 	return result, nil
 }
-
-// Existing template registry and helper functions remain the same...
-// [Include TemplateRegistry, NewTemplateRegistry, etc. from the original file]
 
 // TemplateRegistry holds all template components
 type TemplateRegistry struct {
