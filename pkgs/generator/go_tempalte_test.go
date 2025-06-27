@@ -212,7 +212,7 @@ func TestImportsTemplate(t *testing.T) {
 		},
 		{
 			name:  "Parallel command imports",
-			input: `build: { @parallel: { go build ./app1; go build ./app2 } }`,
+			input: `build: { @parallel { go build ./app1; go build ./app2 } }`,
 			expected: []string{
 				`"golang.org/x/sync/errgroup"`,
 			},
@@ -426,7 +426,7 @@ func TestDecorators(t *testing.T) {
 		{
 			name: "@parallel decorator",
 			input: `build: {
-    @parallel: {
+    @parallel {
         go build ./cmd/app1;
         go build ./cmd/app2
     }
@@ -476,7 +476,7 @@ stop server: @sh(pkill -f "go run");
 # Deployment with parallel execution
 deploy: {
     echo "Deploying @var(PROJECT)...";
-    @parallel: {
+    @parallel {
         docker build -t @var(PROJECT):@var(VERSION) .;
         docker push @var(PROJECT):@var(VERSION)
     };
@@ -583,7 +583,7 @@ run: ./@var(APP) --port=@var(PORT);
 
 # Test parallel execution
 parallel-build: {
-    @parallel: {
+    @parallel {
         go build -o @var(APP)-linux .;
         go build -o @var(APP)-windows .
     }

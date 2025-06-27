@@ -672,6 +672,38 @@ func TestComplexShellCommands(t *testing.T) {
 				},
 			},
 		},
+		// Add this test case at the end of the existing testCases slice:
+		{
+			Name: "exact command from real commands.cli file",
+			Input: `test-quick: {
+    echo "⚡ Running quick checks...";
+    echo "🔍 Checking Go formatting...";
+    @sh(if command -v gofumpt >/dev/null 2>&1; then if [ "$(gofumpt -l . | wc -l)" -gt 0 ]; then echo "❌ Go formatting issues:"; gofumpt -l .; exit 1; fi; else if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then echo "❌ Go formatting issues:"; gofmt -l .; exit 1; fi; fi);
+    echo "🔍 Checking Nix formatting...";
+    @sh(if command -v nixpkgs-fmt >/dev/null 2>&1; then nixpkgs-fmt --check . || (echo "❌ Run 'dev format' to fix"; exit 1); else echo "⚠️  nixpkgs-fmt not available, skipping Nix format check"; fi);
+    dev lint;
+    echo "✅ Quick checks passed!";
+}`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-quick",
+						Statement("echo \"⚡ Running quick checks...\"", Text("echo \"⚡ Running quick checks...\"")),
+						Statement("echo \"🔍 Checking Go formatting...\"", Text("echo \"🔍 Checking Go formatting...\"")),
+						DecoratedStatement("sh", "function",
+							"if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofmt -l .; exit 1; fi; fi",
+							Decorator("sh", "function", Text("if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofmt -l .; exit 1; fi; fi"))),
+						Statement("echo \"🔍 Checking Nix formatting...\"", Text("echo \"🔍 Checking Nix formatting...\"")),
+						DecoratedStatement("sh", "function",
+							"if command -v nixpkgs-fmt >/dev/null 2>&1; then nixpkgs-fmt --check . || (echo \"❌ Run 'dev format' to fix\"; exit 1); else echo \"⚠️  nixpkgs-fmt not available, skipping Nix format check\"; fi",
+							Decorator("sh", "function", Text("if command -v nixpkgs-fmt >/dev/null 2>&1; then nixpkgs-fmt --check . || (echo \"❌ Run 'dev format' to fix\"; exit 1); else echo \"⚠️  nixpkgs-fmt not available, skipping Nix format check\"; fi"))),
+						Statement("dev lint", Text("dev lint")),
+						Statement("echo \"✅ Quick checks passed!\"", Text("echo \"✅ Quick checks passed!\""))),
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -841,7 +873,7 @@ func TestBlockCommands(t *testing.T) {
 		},
 		{
 			Name:  "block with decorators",
-			Input: "services: { @parallel: { server; client } }",
+			Input: "services: { @parallel { server; client } }",
 			Expected: struct {
 				Definitions []ExpectedDefinition
 				Commands    []ExpectedCommand
@@ -1055,7 +1087,7 @@ build: cd @var(SRC) && make all;
 # Run commands with parallel execution
 watch server: {
   cd @var(SRC);
-  @parallel: {
+  @parallel {
     ./server --port=8080;
     ./worker --queue=jobs
   };

@@ -8,7 +8,7 @@
  * - Simple commands: build: go build -o bin/app ./cmd;
  * - Block workflows: deploy: { build; test; kubectl apply -f k8s/ }
  * - Process management: watch dev / stop dev command pairs
- * - Decorators: @timeout(30s), @retry(3), @parallel, @var(PORT)
+ * - Decorators: @timeout(30s), @retry(3), @parallel(), @var(PORT)
  * - Line continuations: command \
  *                        --flag value;
  * - Shell features: pipes, redirections, background processes (&)
@@ -61,17 +61,16 @@ commandDefinition : (WATCH | STOP)? NAME COLON commandBody ;
 
 // Command body - multiple alternatives for different command types
 commandBody
-    : decoratedCommand     // @name(...) or @name: ...
+    : decoratedCommand     // @name(...) or @name { ... }
     | blockCommand         // { ... }
     | simpleCommand        // command;
     ;
 
 /**
  * DECORATOR SYNTAX
- * Three forms:
+ * Two forms:
  * 1. Function: @name(...) - parser handles nested parentheses and newlines
- * 2. Block: @name: { ... }
- * 3. Simple: @name: processed command
+ * 2. Block: @name { ... }
  *
  * Decorators use semantic validation: start with letter, allow hyphens/underscores, can end with numbers
  */
@@ -80,20 +79,13 @@ commandBody
 decoratedCommand
     : functionDecorator    #functionDecoratorLabel
     | blockDecorator       #blockDecoratorLabel
-    | simpleDecorator      #simpleDecoratorLabel
     ;
 
 // Function decorator using NAME token - must end with semicolon
 functionDecorator : AT NAME LPAREN decoratorContent RPAREN SEMICOLON ;
 
-// Block decorator: @name: { ... }
-blockDecorator : AT decorator COLON blockCommand ;
-
-// Simple decorator: @name: command - must end with semicolon
-simpleDecorator : AT decorator COLON decoratorCommand SEMICOLON ;
-
-// Decorator name (uses NAME token)
-decorator : NAME ;
+// Block decorator: @name { ... }
+blockDecorator : AT NAME blockCommand ;
 
 // Content inside @name(...) - handle nested parentheses, @var() decorators, and newlines
 decoratorContent : decoratorElement* ;
@@ -128,9 +120,6 @@ decoratorTextElement
 // Simple command with optional line continuations and required semicolon
 simpleCommand : commandText continuationLine* SEMICOLON ;
 
-// Command text without semicolon requirement (for use in simple decorators)
-decoratorCommand : commandText continuationLine* ;
-
 // Block command containing multiple statements with proper newline handling
 blockCommand : LBRACE NEWLINE? blockStatements RBRACE ;
 
@@ -145,16 +134,12 @@ nonEmptyBlockStatements
     : blockStatement (SEMICOLON NEWLINE* blockStatement)* SEMICOLON? NEWLINE*
     ;
 
-// Individual statement within a block - enhanced to handle simple decorators properly
+// Individual statement within a block
 blockStatement
     : functionDecorator                   // Function decorators with semicolons
     | blockDecorator                      // Block decorators (no semicolon)
-    | simpleDecoratorInBlock             // Simple decorators in blocks: @name: command
     | commandText continuationLine*       // Regular commands (no semicolon in blocks)
     ;
-
-// Enhanced simple decorator parsing for blocks - handles @name: command without semicolon
-simpleDecoratorInBlock : AT NAME COLON commandText continuationLine* ;
 
 /**
  * LINE CONTINUATIONS
@@ -210,7 +195,7 @@ commandTextElement
     | DOLLAR                // $ - shell variables and command substitution
     | HASH                  // # - when not comment
     | DOUBLEQUOTE           // " - when not in string
-    | BACKTICK              // ` - backtick command substitution (ADDED)
+    | BACKTICK              // ` - backtick command substitution
     | AT                    // @ - when not decorator start
     | WATCH                 // Allow keywords in command text
     | STOP                  // Allow keywords in command text

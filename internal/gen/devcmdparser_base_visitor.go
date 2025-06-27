@@ -39,23 +39,11 @@ func (v *BaseDevcmdParserVisitor) VisitBlockDecoratorLabel(ctx *BlockDecoratorLa
 	return v.VisitChildren(ctx)
 }
 
-func (v *BaseDevcmdParserVisitor) VisitSimpleDecoratorLabel(ctx *SimpleDecoratorLabelContext) interface{} {
-	return v.VisitChildren(ctx)
-}
-
 func (v *BaseDevcmdParserVisitor) VisitFunctionDecorator(ctx *FunctionDecoratorContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
 func (v *BaseDevcmdParserVisitor) VisitBlockDecorator(ctx *BlockDecoratorContext) interface{} {
-	return v.VisitChildren(ctx)
-}
-
-func (v *BaseDevcmdParserVisitor) VisitSimpleDecorator(ctx *SimpleDecoratorContext) interface{} {
-	return v.VisitChildren(ctx)
-}
-
-func (v *BaseDevcmdParserVisitor) VisitDecorator(ctx *DecoratorContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
@@ -79,10 +67,6 @@ func (v *BaseDevcmdParserVisitor) VisitSimpleCommand(ctx *SimpleCommandContext) 
 	return v.VisitChildren(ctx)
 }
 
-func (v *BaseDevcmdParserVisitor) VisitDecoratorCommand(ctx *DecoratorCommandContext) interface{} {
-	return v.VisitChildren(ctx)
-}
-
 func (v *BaseDevcmdParserVisitor) VisitBlockCommand(ctx *BlockCommandContext) interface{} {
 	return v.VisitChildren(ctx)
 }
@@ -96,10 +80,6 @@ func (v *BaseDevcmdParserVisitor) VisitNonEmptyBlockStatements(ctx *NonEmptyBloc
 }
 
 func (v *BaseDevcmdParserVisitor) VisitBlockStatement(ctx *BlockStatementContext) interface{} {
-	return v.VisitChildren(ctx)
-}
-
-func (v *BaseDevcmdParserVisitor) VisitSimpleDecoratorInBlock(ctx *SimpleDecoratorInBlockContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
