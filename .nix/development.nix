@@ -10,22 +10,24 @@ let
   };
 
   # Generate the development CLI from our commands.cli file
-  devCLI = if self != null then
-    devcmdLib.mkDevCLI {
-      name = "dev";
-      commandsFile = ../commands.cli;
-      version = "latest";
-      meta = {
-        description = "Devcmd development CLI - dogfooding our own tool";
-        longDescription = ''
-          This CLI is generated from commands.cli using devcmd itself.
-          It provides a streamlined development experience with all
-          necessary commands for building, testing, and maintaining devcmd.
-        '';
-      };
-    }
-  else
-    null;
+  devCLI =
+    if self != null then
+      devcmdLib.mkDevCLI
+        {
+          name = "dev";
+          commandsFile = ../commands.cli;
+          version = "latest";
+          meta = {
+            description = "Devcmd development CLI - dogfooding our own tool";
+            longDescription = ''
+              This CLI is generated from commands.cli using devcmd itself.
+              It provides a streamlined development experience with all
+              necessary commands for building, testing, and maintaining devcmd.
+            '';
+          };
+        }
+    else
+      null;
 
 in
 pkgs.mkShell {

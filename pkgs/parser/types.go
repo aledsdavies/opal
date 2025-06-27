@@ -27,10 +27,10 @@ func (t *TextElement) IsDecorator() bool {
 
 // DecoratorElement represents a decorator like @var(SRC) or @sh(...)
 type DecoratorElement struct {
-	Name    string           // "var", "sh", "parallel", etc.
-	Type    string           // "function" or "block"
-	Args    []CommandElement // For function decorators: contents of @name(...)
-	Block   []BlockStatement // For block decorators: @name { ... }
+	Name  string           // "var", "sh", "parallel", etc.
+	Type  string           // "function" or "block"
+	Args  []CommandElement // For function decorators: contents of @name(...)
+	Block []BlockStatement // For block decorators: @name { ... }
 }
 
 func (d *DecoratorElement) String() string {

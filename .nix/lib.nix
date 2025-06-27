@@ -45,22 +45,23 @@ rec {
         let
           # Try different file locations in order of preference
           candidatePaths = [
-            ./commands.cli    # Primary default filename
-            ./commands        # Legacy filename
-            ./devcmd.cli      # Alternative naming
-            ./.devcmd         # Hidden file variant
+            ./commands.cli # Primary default filename
+            ./commands # Legacy filename
+            ./devcmd.cli # Alternative naming
+            ./.devcmd # Hidden file variant
           ];
 
           # Find first existing file
           findExistingFile = paths:
-            if paths == [] then null
+            if paths == [ ] then null
             else
-              let head = builtins.head paths;
-                  tail = builtins.tail paths;
+              let
+                head = builtins.head paths;
+                tail = builtins.tail paths;
               in
-                # Use toString to normalize path for safer checking
-                if builtins.pathExists (toString head) then head
-                else findExistingFile tail;
+              # Use toString to normalize path for safer checking
+              if builtins.pathExists (toString head) then head
+              else findExistingFile tail;
 
           foundPath = findExistingFile candidatePaths;
         in
@@ -82,8 +83,9 @@ rec {
       commandsSrc = pkgs.writeText "commands-content" processedContent;
 
       # Get devcmd parser binary (automatically uses pkgs.system)
-      parserBin = if self != null then self.packages.${pkgs.system}.default
-                  else throw "Self reference required for CLI generation. Use explicit commandsContent if building standalone.";
+      parserBin =
+        if self != null then self.packages.${pkgs.system}.default
+        else throw "Self reference required for CLI generation. Use explicit commandsContent if building standalone.";
 
       # Handle template file path safely
       templatePath =
@@ -186,17 +188,17 @@ rec {
       autoDetectContent =
         let
           candidates = [
-            ./commands.cli    # Primary default
-            ./.commands.cli        # Hidden
+            ./commands.cli # Primary default
+            ./.commands.cli # Hidden
           ];
 
           findFirst = paths:
-            if paths == [] then null
+            if paths == [ ] then null
             else
               let candidate = builtins.head paths;
               in
-                if builtins.pathExists (toString candidate) then tryReadFile candidate
-                else findFirst (builtins.tail paths);
+              if builtins.pathExists (toString candidate) then tryReadFile candidate
+              else findFirst (builtins.tail paths);
         in
         findFirst candidates;
 
@@ -210,8 +212,9 @@ rec {
       commandsSrc = pkgs.writeText "${name}-commands.cli" processedContent;
 
       # Get devcmd binary with better error handling
-      devcmdBin = if self != null then self.packages.${pkgs.system}.default
-                  else throw "Self reference required for CLI generation. Cannot build '${name}' without devcmd parser.";
+      devcmdBin =
+        if self != null then self.packages.${pkgs.system}.default
+        else throw "Self reference required for CLI generation. Cannot build '${name}' without devcmd parser.";
 
       # Template arguments
       templateArgs = lib.optionalString (templateFile != null) "--template ${toString templateFile}";

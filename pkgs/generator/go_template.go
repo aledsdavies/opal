@@ -20,13 +20,13 @@ var supportedDecorators = map[string]bool{
 
 // TemplateData represents preprocessed data for template generation
 type TemplateData struct {
-	PackageName        string
-	Imports            []string
-	HasProcessMgmt     bool
+	PackageName         string
+	Imports             []string
+	HasProcessMgmt      bool
 	HasParallelCommands bool
-	HasUserDefinedHelp bool // NEW: Track if user defined help command
-	Commands           []TemplateCommand
-	ProcessMgmtFuncs   []string
+	HasUserDefinedHelp  bool // NEW: Track if user defined help command
+	Commands            []TemplateCommand
+	ProcessMgmtFuncs    []string
 }
 
 // CommandSegment represents a part of a mixed command (either parallel or sequential)
@@ -38,17 +38,17 @@ type CommandSegment struct {
 
 // TemplateCommand represents a command ready for template generation
 type TemplateCommand struct {
-	Name             string // Original command name
-	FunctionName     string // Sanitized Go function name
-	GoCase           string // Case statement value
-	Type             string // "regular", "watch-stop", "watch-only", "stop-only", "parallel", "mixed"
-	ShellCommand     string // For regular commands
-	WatchCommand     string // For watch part of watch-stop commands
-	StopCommand      string // For stop part of watch-stop commands
-	ParallelCommands []string // For pure parallel commands
+	Name             string           // Original command name
+	FunctionName     string           // Sanitized Go function name
+	GoCase           string           // Case statement value
+	Type             string           // "regular", "watch-stop", "watch-only", "stop-only", "parallel", "mixed"
+	ShellCommand     string           // For regular commands
+	WatchCommand     string           // For watch part of watch-stop commands
+	StopCommand      string           // For stop part of watch-stop commands
+	ParallelCommands []string         // For pure parallel commands
 	CommandSegments  []CommandSegment // For mixed commands
-	IsBackground     bool   // For watch commands
-	HelpDescription  string // Description for help text
+	IsBackground     bool             // For watch commands
+	HelpDescription  string           // Description for help text
 }
 
 // validateHelpCommandRestrictions ensures help command isn't used with watch/stop

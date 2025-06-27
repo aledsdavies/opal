@@ -203,9 +203,9 @@ func TestPackageTemplate(t *testing.T) {
 
 func TestImportsTemplate(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected []string
+		name      string
+		input     string
+		expected  []string
 		forbidden []string
 	}{
 		{
@@ -444,9 +444,9 @@ stop server: pkill node;
 
 func TestDecorators(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		expect []string
+		name      string
+		input     string
+		expect    []string
 		forbidden []string
 	}{
 		{
@@ -498,9 +498,9 @@ func TestDecorators(t *testing.T) {
 
 func TestUserDefinedHelpCommand(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		shouldHave  []string
+		name          string
+		input         string
+		shouldHave    []string
 		shouldNotHave []string
 	}{
 		{

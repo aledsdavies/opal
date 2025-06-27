@@ -330,7 +330,7 @@ type SyntaxError struct {
 // Enhanced error message simplification with better context awareness
 func simplifyErrorMessage(msg string) string {
 	// Handle block command specific errors
-	if strings.Contains(msg, "expecting") && strings.Contains(msg, "'}'" ) {
+	if strings.Contains(msg, "expecting") && strings.Contains(msg, "'}'") {
 		if strings.Contains(msg, "SEMICOLON") {
 			return "missing '}' - block commands should end with '}', not ';'"
 		}
@@ -390,7 +390,7 @@ func simplifyErrorMessage(msg string) string {
 			expectStart := strings.Index(msg, "expecting")
 			if expectStart != -1 {
 				expected := msg[expectStart:]
-				if strings.Contains(expected, "'}'" ) {
+				if strings.Contains(expected, "'}'") {
 					return "found ';' but expected '}' - use '}' to close block commands"
 				}
 			}
@@ -949,14 +949,14 @@ func (v *DevcmdVisitor) parseCommandString(text string) []CommandElement {
 //
 // DECORATOR TYPES:
 // 1. Function Decorator: @name(command)
-//    - Multi-line command execution (command can contain newlines, complex shell syntax)
-//    - Example: @sh(if [ "$(date)" ]; then echo "today"; fi)
-//    - Returns: DecoratorElement{Name: "sh", Type: "function", Args: [parsed command elements]}
+//   - Multi-line command execution (command can contain newlines, complex shell syntax)
+//   - Example: @sh(if [ "$(date)" ]; then echo "today"; fi)
+//   - Returns: DecoratorElement{Name: "sh", Type: "function", Args: [parsed command elements]}
 //
 // 2. Block Decorator: @name { ... }
-//    - Wraps/decorates a block of other commands
-//    - Example: @parallel { server; client }
-//    - Returns: DecoratorElement{Name: "parallel", Type: "block", Block: [statements]}
+//   - Wraps/decorates a block of other commands
+//   - Example: @parallel { server; client }
+//   - Returns: DecoratorElement{Name: "parallel", Type: "block", Block: [statements]}
 //
 // PARSING RULES:
 // - Function decorators use parentheses matching with proper quote awareness
@@ -1053,7 +1053,7 @@ func (v *DevcmdVisitor) parseDecorator(text string) (*DecoratorElement, int) {
 			// Show a sample of the problematic content
 			maxLen := min(100, len(text)-contentStart)
 			if maxLen > 0 {
-				sample := text[contentStart:contentStart+maxLen]
+				sample := text[contentStart : contentStart+maxLen]
 				v.debug.LogError("Content sample: %s", sample)
 			}
 		}
