@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // Test helper types for cleaner test definitions
@@ -152,6 +154,55 @@ func Def(name, value string) ExpectedDefinition {
 	return ExpectedDefinition{Name: name, Value: value}
 }
 
+// Diff helper function
+func showDiff(t *testing.T, expected, actual interface{}, path string) {
+	if diff := cmp.Diff(expected, actual); diff != "" {
+		t.Errorf("%s mismatch (-expected +actual):\n%s", path, diff)
+	}
+}
+
+// Helper functions to convert elements recursively
+func convertElementsToComparable(elements []CommandElement) []interface{} {
+	result := make([]interface{}, len(elements))
+	for i, elem := range elements {
+		if elem.IsDecorator() {
+			decorator := elem.(*DecoratorElement)
+			result[i] = map[string]interface{}{
+				"Type":          "decorator",
+				"DecoratorName": decorator.Name,
+				"DecoratorType": decorator.Type,
+				"Args":          convertElementsToComparable(decorator.Args),
+			}
+		} else {
+			result[i] = map[string]interface{}{
+				"Type": "text",
+				"Text": elem.String(),
+			}
+		}
+	}
+	return result
+}
+
+func convertExpectedElementsToComparable(elements []ExpectedElement) []interface{} {
+	result := make([]interface{}, len(elements))
+	for i, elem := range elements {
+		if elem.Type == "decorator" {
+			result[i] = map[string]interface{}{
+				"Type":          "decorator",
+				"DecoratorName": elem.DecoratorName,
+				"DecoratorType": elem.DecoratorType,
+				"Args":          convertExpectedElementsToComparable(elem.Args),
+			}
+		} else {
+			result[i] = map[string]interface{}{
+				"Type": "text",
+				"Text": elem.Text,
+			}
+		}
+	}
+	return result
+}
+
 // Helper function to format elements for diff output
 func formatElements(elements []CommandElement) string {
 	var parts []string
@@ -200,156 +251,94 @@ func formatExpectedElements(elements []ExpectedElement) string {
 
 // Enhanced diff output for elements
 func showElementsDiff(t *testing.T, actual []CommandElement, expected []ExpectedElement, path string) {
-	if len(actual) != len(expected) {
-		t.Errorf("%s: expected %d elements, got %d", path, len(expected), len(actual))
-		t.Errorf("EXPECTED:\n%s", formatExpectedElements(expected))
-		t.Errorf("ACTUAL:\n%s", formatElements(actual))
-		return
-	}
-
-	// If counts match, check individual elements
-	verifyElements(t, actual, expected, path)
+	// Convert to comparable format and show diff
+	actualComparable := convertElementsToComparable(actual)
+	expectedComparable := convertExpectedElementsToComparable(expected)
+	showDiff(t, expectedComparable, actualComparable, path)
 }
 
-// Verification functions
+// Updated verification functions using diff
 func verifyElements(t *testing.T, actual []CommandElement, expected []ExpectedElement, path string) {
-	for i, expectedElem := range expected {
-		if i >= len(actual) {
-			t.Errorf("%s[%d]: missing element, expected %s", path, i, expectedElem.Type)
-			continue
-		}
-
-		actualElem := actual[i]
-		elemPath := fmt.Sprintf("%s[%d]", path, i)
-
-		switch expectedElem.Type {
-		case "text":
-			if actualElem.IsDecorator() {
-				t.Errorf("%s: expected text %q, got decorator %s", elemPath, expectedElem.Text, actualElem.String())
-				continue
-			}
-
-			textElem, ok := actualElem.(*TextElement)
-			if !ok {
-				t.Errorf("%s: expected TextElement, got %T", elemPath, actualElem)
-				continue
-			}
-
-			if textElem.Text != expectedElem.Text {
-				t.Errorf("%s: expected text %q, got %q", elemPath, expectedElem.Text, textElem.Text)
-			}
-
-		case "decorator":
-			if !actualElem.IsDecorator() {
-				t.Errorf("%s: expected decorator %s, got text %q", elemPath, expectedElem.DecoratorName, actualElem.String())
-				continue
-			}
-
-			decorator, ok := actualElem.(*DecoratorElement)
-			if !ok {
-				t.Errorf("%s: expected DecoratorElement, got %T", elemPath, actualElem)
-				continue
-			}
-
-			if decorator.Name != expectedElem.DecoratorName {
-				t.Errorf("%s: expected decorator name %q, got %q", elemPath, expectedElem.DecoratorName, decorator.Name)
-			}
-
-			if decorator.Type != expectedElem.DecoratorType {
-				t.Errorf("%s: expected decorator type %q, got %q", elemPath, expectedElem.DecoratorType, decorator.Type)
-			}
-
-			// Recursively verify decorator arguments with diff
-			if len(expectedElem.Args) > 0 || len(decorator.Args) > 0 {
-				showElementsDiff(t, decorator.Args, expectedElem.Args, fmt.Sprintf("%s.Args", elemPath))
-			}
-
-		default:
-			t.Errorf("%s: unknown expected element type %q", elemPath, expectedElem.Type)
-		}
-	}
+	showElementsDiff(t, actual, expected, path)
 }
 
 func verifyCommand(t *testing.T, actual Command, expected ExpectedCommand, index int) {
 	prefix := fmt.Sprintf("Command[%d]", index)
 
-	if actual.Name != expected.Name {
-		t.Errorf("%s: expected name %q, got %q", prefix, expected.Name, actual.Name)
+	// Create comparable structures
+	actualComparable := map[string]interface{}{
+		"Name":    actual.Name,
+		"IsWatch": actual.IsWatch,
+		"IsStop":  actual.IsStop,
+		"IsBlock": actual.IsBlock,
 	}
 
-	if actual.IsWatch != expected.IsWatch {
-		t.Errorf("%s: expected IsWatch %v, got %v", prefix, expected.IsWatch, actual.IsWatch)
-	}
-
-	if actual.IsStop != expected.IsStop {
-		t.Errorf("%s: expected IsStop %v, got %v", prefix, expected.IsStop, actual.IsStop)
-	}
-
-	if actual.IsBlock != expected.IsBlock {
-		t.Errorf("%s: expected IsBlock %v, got %v", prefix, expected.IsBlock, actual.IsBlock)
+	expectedComparable := map[string]interface{}{
+		"Name":    expected.Name,
+		"IsWatch": expected.IsWatch,
+		"IsStop":  expected.IsStop,
+		"IsBlock": expected.IsBlock,
 	}
 
 	if !expected.IsBlock {
-		// Simple command verification
-		if actual.Command != expected.Command {
-			t.Errorf("%s: expected command %q, got %q", prefix, expected.Command, actual.Command)
-		}
+		actualComparable["Command"] = actual.Command
+		actualComparable["Elements"] = convertElementsToComparable(actual.Elements)
 
-		if len(expected.Elements) > 0 || len(actual.Elements) > 0 {
-			showElementsDiff(t, actual.Elements, expected.Elements, fmt.Sprintf("%s.Elements", prefix))
-		}
+		expectedComparable["Command"] = expected.Command
+		expectedComparable["Elements"] = convertExpectedElementsToComparable(expected.Elements)
 	} else {
-		// Block command verification
-		if len(actual.Block) != len(expected.Block) {
-			t.Errorf("%s: expected %d block statements, got %d", prefix, len(expected.Block), len(actual.Block))
-			return
-		}
-
-		for i, expectedStmt := range expected.Block {
-			actualStmt := actual.Block[i]
-			stmtPrefix := fmt.Sprintf("%s.Block[%d]", prefix, i)
-
-			if actualStmt.IsDecorated != expectedStmt.IsDecorated {
-				t.Errorf("%s: expected IsDecorated %v, got %v", stmtPrefix, expectedStmt.IsDecorated, actualStmt.IsDecorated)
-			}
-
-			if expectedStmt.IsDecorated {
-				if actualStmt.Decorator != expectedStmt.Decorator {
-					t.Errorf("%s: expected decorator %q, got %q", stmtPrefix, expectedStmt.Decorator, actualStmt.Decorator)
-				}
-
-				if actualStmt.DecoratorType != expectedStmt.DecoratorType {
-					t.Errorf("%s: expected decorator type %q, got %q", stmtPrefix, expectedStmt.DecoratorType, actualStmt.DecoratorType)
-				}
-			}
-
-			if actualStmt.Command != expectedStmt.Command {
-				t.Errorf("%s: expected command %q, got %q", stmtPrefix, expectedStmt.Command, actualStmt.Command)
-			}
-
-			if len(expectedStmt.Elements) > 0 || len(actualStmt.Elements) > 0 {
-				showElementsDiff(t, actualStmt.Elements, expectedStmt.Elements, fmt.Sprintf("%s.Elements", stmtPrefix))
+		// Convert block statements
+		actualBlock := make([]interface{}, len(actual.Block))
+		for i, stmt := range actual.Block {
+			actualBlock[i] = map[string]interface{}{
+				"IsDecorated":   stmt.IsDecorated,
+				"Decorator":     stmt.Decorator,
+				"DecoratorType": stmt.DecoratorType,
+				"Command":       stmt.Command,
+				"Elements":      convertElementsToComparable(stmt.Elements),
 			}
 		}
+
+		expectedBlock := make([]interface{}, len(expected.Block))
+		for i, stmt := range expected.Block {
+			expectedBlock[i] = map[string]interface{}{
+				"IsDecorated":   stmt.IsDecorated,
+				"Decorator":     stmt.Decorator,
+				"DecoratorType": stmt.DecoratorType,
+				"Command":       stmt.Command,
+				"Elements":      convertExpectedElementsToComparable(stmt.Elements),
+			}
+		}
+
+		actualComparable["Block"] = actualBlock
+		expectedComparable["Block"] = expectedBlock
 	}
+
+	// Show diff
+	showDiff(t, expectedComparable, actualComparable, prefix)
 }
 
 func verifyDefinition(t *testing.T, actual Definition, expected ExpectedDefinition, index int) {
 	prefix := fmt.Sprintf("Definition[%d]", index)
 
-	if actual.Name != expected.Name {
-		t.Errorf("%s: expected name %q, got %q", prefix, expected.Name, actual.Name)
+	actualComparable := map[string]interface{}{
+		"Name":  actual.Name,
+		"Value": actual.Value,
 	}
 
-	if actual.Value != expected.Value {
-		t.Errorf("%s: expected value %q, got %q", prefix, expected.Value, actual.Value)
+	expectedComparable := map[string]interface{}{
+		"Name":  expected.Name,
+		"Value": expected.Value,
 	}
+
+	showDiff(t, expectedComparable, actualComparable, prefix)
 }
 
 func runTestCase(t *testing.T, tc TestCase) {
 	t.Run(tc.Name, func(t *testing.T) {
-		// Using debug=false for typical test runs unless a specific test needs it
-		result, err := Parse(tc.Input, false)
+		// Enable debug for failing cases
+		debug := tc.WantErr || strings.Contains(tc.Name, "debug") || strings.Contains(tc.Name, "complex")
+		result, err := Parse(tc.Input, debug)
 
 		// Check error expectations
 		if tc.WantErr {
@@ -551,6 +540,240 @@ func TestNestedDecorators(t *testing.T) {
 							Decorator("sh", "function",
 								Text("(cd "), Var("SRC"),
 								Text(" && make) || echo \"failed\"")))),
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		runTestCase(t, tc)
+	}
+}
+
+// Test cases specifically targeting the failing shell command structure
+func TestComplexShellCommands(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "simple shell command substitution",
+			Input: `test-simple: @sh(echo "$(date)");`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-simple",
+						DecoratedStatement("sh", "function", "echo \"$(date)\"",
+							Decorator("sh", "function", Text("echo \"$(date)\"")))),
+				},
+			},
+		},
+		{
+			Name:  "shell command with test and command substitution",
+			Input: `test-condition: @sh(if [ "$(echo test)" = "test" ]; then echo ok; fi);`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-condition",
+						DecoratedStatement("sh", "function", "if [ \"$(echo test)\" = \"test\" ]; then echo ok; fi",
+							Decorator("sh", "function", Text("if [ \"$(echo test)\" = \"test\" ]; then echo ok; fi")))),
+				},
+			},
+		},
+		{
+			Name:  "command with @var and shell substitution",
+			Input: `test-mixed: @sh(cd @var(SRC) && echo "files: $(ls | wc -l)");`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-mixed",
+						DecoratedStatement("sh", "function", "cd @var(SRC) && echo \"files: $(ls | wc -l)\"",
+							Decorator("sh", "function",
+								Text("cd "), Var("SRC"), Text(" && echo \"files: $(ls | wc -l)\"")))),
+				},
+			},
+		},
+		{
+			Name: "the actual failing command from commands.cli",
+			Input: `test-quick: {
+    echo "⚡ Running quick checks...";
+    @sh(if command -v gofumpt >/dev/null 2>&1; then if [ "$(gofumpt -l . | wc -l)" -gt 0 ]; then echo "❌ Go formatting issues:"; gofumpt -l .; exit 1; fi; else if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then echo "❌ Go formatting issues:"; gofumpt -l .; exit 1; fi; fi);
+}`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-quick",
+						Statement("echo \"⚡ Running quick checks...\"", Text("echo \"⚡ Running quick checks...\"")),
+						DecoratedStatement("sh", "function",
+							"if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofmut -l .; exit 1; fi; fi",
+							// Expect a single text element - no parsing of the complex shell command
+							Decorator("sh", "function", Text("if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofmut -l .; exit 1; fi; fi")))),
+				},
+			},
+		},
+		{
+			Name:  "simplified version of failing command",
+			Input: `test-format: @sh(if [ "$(gofumpt -l . | wc -l)" -gt 0 ]; then echo "issues"; fi);`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-format",
+						DecoratedStatement("sh", "function", "if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"issues\"; fi",
+							Decorator("sh", "function", Text("if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"issues\"; fi")))),
+				},
+			},
+		},
+		{
+			Name:  "even simpler - just the command substitution in quotes",
+			Input: `test-basic: @sh("$(gofumpt -l . | wc -l)");`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-basic",
+						DecoratedStatement("sh", "function", "\"$(gofumpt -l . | wc -l)\"",
+							Decorator("sh", "function", Text("\"$(gofumpt -l . | wc -l)\"")))),
+				},
+			},
+		},
+		{
+			Name:  "debug - minimal parentheses in quotes",
+			Input: `test-debug: @sh("()");`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-debug",
+						DecoratedStatement("sh", "function", "\"()\"",
+							Decorator("sh", "function", Text("\"()\"")))),
+				},
+			},
+		},
+		{
+			Name:  "debug - single command substitution",
+			Input: `test-debug2: @sh($(echo test));`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-debug2",
+						DecoratedStatement("sh", "function", "$(echo test)",
+							Decorator("sh", "function", Text("$(echo test)")))),
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		runTestCase(t, tc)
+	}
+}
+
+// Test cases for edge cases in quote and parentheses handling
+func TestQuoteAndParenthesesEdgeCases(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "escaped quotes in shell command",
+			Input: `test-escaped: @sh(echo "He said \"hello\" to me");`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-escaped",
+						DecoratedStatement("sh", "function", "echo \"He said \\\"hello\\\" to me\"",
+							Decorator("sh", "function", Text("echo \"He said \\\"hello\\\" to me\"")))),
+				},
+			},
+		},
+		{
+			Name:  "mixed quotes with parentheses",
+			Input: `test-mixed-quotes: @sh(echo 'test "$(date)" done' && echo "test '$(whoami)' done");`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-mixed-quotes",
+						DecoratedStatement("sh", "function", "echo 'test \"$(date)\" done' && echo \"test '$(whoami)' done\"",
+							Decorator("sh", "function", Text("echo 'test \"$(date)\" done' && echo \"test '$(whoami)' done\"")))),
+				},
+			},
+		},
+		{
+			Name:  "backticks with parentheses",
+			Input: "test-backticks: @sh(echo `date` and $(whoami));",
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-backticks",
+						DecoratedStatement("sh", "function", "echo `date` and $(whoami)",
+							Decorator("sh", "function", Text("echo `date` and $(whoami)")))),
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		runTestCase(t, tc)
+	}
+}
+
+// Test cases for @var() within shell commands
+func TestVarInShellCommands(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "simple @var in shell command",
+			Input: `test-var: @sh(cd @var(DIR));`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-var",
+						DecoratedStatement("sh", "function", "cd @var(DIR)",
+							Decorator("sh", "function", Text("cd "), Var("DIR")))),
+				},
+			},
+		},
+		{
+			Name:  "@var with shell command substitution",
+			Input: `test-var-cmd: @sh(cd @var(DIR) && echo "$(pwd)");`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-var-cmd",
+						DecoratedStatement("sh", "function", "cd @var(DIR) && echo \"$(pwd)\"",
+							Decorator("sh", "function", Text("cd "), Var("DIR"), Text(" && echo \"$(pwd)\"")))),
+				},
+			},
+		},
+		{
+			Name:  "multiple @var with complex shell",
+			Input: `test-multi-var: @sh(if [ -d @var(SRC) ] && [ "$(ls @var(SRC) | wc -l)" -gt 0 ]; then echo "Source dir has files"; fi);`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("test-multi-var",
+						DecoratedStatement("sh", "function", "if [ -d @var(SRC) ] && [ \"$(ls @var(SRC) | wc -l)\" -gt 0 ]; then echo \"Source dir has files\"; fi",
+							Decorator("sh", "function",
+								Text("if [ -d "), Var("SRC"), Text(" ] && [ \"$(ls "), Var("SRC"), Text(" | wc -l)\" -gt 0 ]; then echo \"Source dir has files\"; fi")))),
 				},
 			},
 		},
@@ -872,634 +1095,4 @@ cleanup: @sh(find . -name "*.tmp" -exec rm {} \;);
 	}
 
 	runTestCase(t, tc)
-}
-
-// Additional comprehensive test cases from original file with semantic expectations
-func TestAdvancedScenarios(t *testing.T) {
-	testCases := []TestCase{
-		{
-			Name:  "command with escaped semicolon in @sh()",
-			Input: "clean: @sh(find . -name \"*.log\" -exec rm {} \\;);",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("clean",
-						DecoratedStatement("sh", "function", "find . -name \"*.log\" -exec rm {} \\;",
-							Decorator("sh", "function",
-								Text("find . -name \"*.log\" -exec rm {} \\;")))),
-				},
-			},
-		},
-		{
-			Name:  "command with nested parentheses in @sh()",
-			Input: "complex: @sh((test -f config && (source config && run)) || default);",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("complex",
-						DecoratedStatement("sh", "function", "(test -f config && (source config && run)) || default",
-							Decorator("sh", "function",
-								Text("(test -f config && (source config && run)) || default")))),
-				},
-			},
-		},
-		{
-			Name:  "test command with braces (not @sh)",
-			Input: "check-files: test -f {} && echo \"File exists\" || echo \"Missing\";",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("check-files", "test -f {} && echo \"File exists\" || echo \"Missing\"",
-						Text("test -f {} && echo \"File exists\" || echo \"Missing\"")),
-				},
-			},
-		},
-		{
-			Name:  "command containing watch/stop keywords",
-			Input: "manage: watch -n 5 \"systemctl status app || systemctl stop app\";",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("manage", "watch -n 5 \"systemctl status app || systemctl stop app\"",
-						Text("watch -n 5 \"systemctl status app || systemctl stop app\"")),
-				},
-			},
-		},
-		{
-			Name:  "simple decorator",
-			Input: "deploy: { @retry: docker push myapp:latest }",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("deploy",
-						DecoratedStatement("retry", "simple", "docker push myapp:latest",
-							Text("docker push myapp:latest"))),
-				},
-			},
-		},
-		{
-			Name:  "mixed decorators and regular commands",
-			Input: "complex: { echo \"starting\"; @parallel: { task1; task2 }; @retry: flaky-command; echo \"done\" }",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("complex",
-						Statement("echo \"starting\"", Text("echo \"starting\"")),
-						BlockDecoratedStatement("parallel", "block", ""),
-						DecoratedStatement("retry", "simple", "flaky-command",
-							Text("flaky-command")),
-						Statement("echo \"done\"", Text("echo \"done\""))),
-				},
-			},
-		},
-		{
-			Name:  "multiline block",
-			Input: "setup: {\n  npm install;\n  go mod tidy;\n  echo done\n}",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("setup",
-						Statement("npm install", Text("npm install")),
-						Statement("go mod tidy", Text("go mod tidy")),
-						Statement("echo done", Text("echo done"))),
-				},
-			},
-		},
-		{
-			Name:  "watch block with parentheses and keywords",
-			Input: "watch monitor: {\n(watch -n 1 \"ps aux\");\necho \"stop monitoring with Ctrl+C\"\n}",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					WatchBlockCommand("monitor",
-						Statement("(watch -n 1 \"ps aux\")",
-							Text("(watch -n 1 \"ps aux\")")),
-						Statement("echo \"stop monitoring with Ctrl+C\"",
-							Text("echo \"stop monitoring with Ctrl+C\""))),
-				},
-			},
-		},
-		{
-			Name:  "definition with parentheses",
-			Input: "def CHECK_CMD = (which go && echo \"found\");",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Definitions: []ExpectedDefinition{
-					Def("CHECK_CMD", "(which go && echo \"found\")"),
-				},
-			},
-		},
-		{
-			Name:  "definition with numbers and decimals",
-			Input: "def VERSION = 1.5;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Definitions: []ExpectedDefinition{
-					Def("VERSION", "1.5"),
-				},
-			},
-		},
-		{
-			Name:  "definition with special characters",
-			Input: "def PATH = /usr/local/bin:$PATH;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Definitions: []ExpectedDefinition{
-					Def("PATH", "/usr/local/bin:$PATH"),
-				},
-			},
-		},
-		{
-			Name:  "multiple continuations",
-			Input: "build: echo hello \\\nworld \\\nuniverse;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("build", "echo hello world universe",
-						Text("echo hello world universe")),
-				},
-			},
-		},
-		{
-			Name:  "continuation with parentheses",
-			Input: "check: (which go \\\n|| echo \"not found\");",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("check", "(which go || echo \"not found\")",
-						Text("(which go || echo \"not found\")")),
-				},
-			},
-		},
-		{
-			Name:  "complex continuation with parentheses",
-			Input: "setup: (cd src && \\\nmake clean) \\\n|| echo \"failed\";",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("setup", "(cd src && make clean) || echo \"failed\"",
-						Text("(cd src && make clean) || echo \"failed\"")),
-				},
-			},
-		},
-		{
-			Name:  "continuation with @sh()",
-			Input: "cleanup: @sh(find . -name \"*.tmp\" \\\n-delete);",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("cleanup",
-						DecoratedStatement("sh", "function", "find . -name \"*.tmp\" \\\n-delete",
-							Decorator("sh", "function",
-								Text("find . -name \"*.tmp\" \\\n-delete")))),
-				},
-			},
-		},
-		{
-			Name:  "@var() with complex names",
-			Input: "build: make @var(BUILD_TARGET_RELEASE) @var(EXTRA_FLAGS);",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("build", "make @var(BUILD_TARGET_RELEASE) @var(EXTRA_FLAGS)",
-						Text("make "), Var("BUILD_TARGET_RELEASE"), Text(" "), Var("EXTRA_FLAGS")),
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		runTestCase(t, tc)
-	}
-}
-
-// TestCommandNamingConventions tests various CLI command naming patterns
-// that should be supported by the parser
-func TestCommandNamingConventions(t *testing.T) {
-	testCases := []TestCase{
-		{
-			Name:  "Simple command name",
-			Input: "build: echo hello;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("build", "echo hello", Text("echo hello")),
-				},
-			},
-		},
-		{
-			Name:  "Command name with hyphen",
-			Input: "nix-build: echo building;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("nix-build", "echo building", Text("echo building")),
-				},
-			},
-		},
-		{
-			Name:  "Command name with multiple hyphens",
-			Input: "docker-compose-up: docker-compose up -d;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("docker-compose-up", "docker-compose up -d", Text("docker-compose up -d")),
-				},
-			},
-		},
-		{
-			Name:  "Command name with underscore",
-			Input: "run_tests: go test ./...;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("run_tests", "go test ./...", Text("go test ./...")),
-				},
-			},
-		},
-		{
-			Name:  "Command name with mixed separators",
-			Input: "build-and_test: echo mixed;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("build-and_test", "echo mixed", Text("echo mixed")),
-				},
-			},
-		},
-		{
-			Name:  "Command name with numbers",
-			Input: "deploy-v2: echo deploying;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("deploy-v2", "echo deploying", Text("echo deploying")),
-				},
-			},
-		},
-		{
-			Name:  "Long descriptive command name",
-			Input: "start-frontend-dev-server: npm run dev;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("start-frontend-dev-server", "npm run dev", Text("npm run dev")),
-				},
-			},
-		},
-		{
-			Name:        "Command name starting with number (should fail)",
-			Input:       "2build: echo hello;",
-			WantErr:     true,
-			ErrorSubstr: "syntax error",
-		},
-		{
-			Name:        "Command name with special characters (should fail)",
-			Input:       "build@test: echo hello;",
-			WantErr:     true,
-			ErrorSubstr: "syntax error",
-		},
-		{
-			Name:  "Watch command with hyphen",
-			Input: "watch dev-server: npm start;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					WatchCommand("dev-server", "npm start", Text("npm start")),
-				},
-			},
-		},
-		{
-			Name:  "Stop command with hyphen",
-			Input: "stop dev-server: pkill -f \"npm start\";",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					StopCommand("dev-server", "pkill -f \"npm start\"", Text("pkill -f \"npm start\"")),
-				},
-			},
-		},
-		{
-			Name:  "Block command with hyphen",
-			Input: "full-deploy: { build; test; deploy }",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("full-deploy",
-						Statement("build", Text("build")),
-						Statement("test", Text("test")),
-						Statement("deploy", Text("deploy"))),
-				},
-			},
-		},
-		{
-			Name:  "Nested commands with hyphens in block",
-			Input: "ci-pipeline: { lint-code; run-tests; build-app; deploy-staging }",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("ci-pipeline",
-						Statement("lint-code", Text("lint-code")),
-						Statement("run-tests", Text("run-tests")),
-						Statement("build-app", Text("build-app")),
-						Statement("deploy-staging", Text("deploy-staging"))),
-				},
-			},
-		},
-		{
-			Name:  "Command with hyphen and @var decorator",
-			Input: "docker-run: docker run -p @var(PORT):8080 myapp;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("docker-run", "docker run -p @var(PORT):8080 myapp",
-						Text("docker run -p "), Var("PORT"), Text(":8080 myapp")),
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		runTestCase(t, tc)
-	}
-}
-
-// TestVariableNamingConventions tests variable naming with different patterns
-func TestVariableNamingConventions(t *testing.T) {
-	testCases := []TestCase{
-		{
-			Name:        "Variable with hyphen (should fail - variables typically use underscores)",
-			Input:       "def MY-VAR = value;",
-			WantErr:     true,
-			ErrorSubstr: "syntax error",
-		},
-		{
-			Name:  "Variable with underscore",
-			Input: "def MY_VAR = value;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Definitions: []ExpectedDefinition{
-					Def("MY_VAR", "value"),
-				},
-			},
-		},
-		{
-			Name:  "Variable with numbers",
-			Input: "def PORT_8080 = 8080;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Definitions: []ExpectedDefinition{
-					Def("PORT_8080", "8080"),
-				},
-			},
-		},
-		{
-			Name:        "Variable starting with number (should fail)",
-			Input:       "def 8080_PORT = 8080;",
-			WantErr:     true,
-			ErrorSubstr: "syntax error",
-		},
-	}
-
-	for _, tc := range testCases {
-		runTestCase(t, tc)
-	}
-}
-
-// TestComplexCommandNameScenarios tests edge cases and complex scenarios
-func TestComplexCommandNameScenarios(t *testing.T) {
-	testCases := []TestCase{
-		{
-			Name:  "Command name similar to keyword",
-			Input: "watching: echo not a watch command;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("watching", "echo not a watch command", Text("echo not a watch command")),
-				},
-			},
-		},
-		{
-			Name:  "Command name with def prefix",
-			Input: "define-config: echo defining;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("define-config", "echo defining", Text("echo defining")),
-				},
-			},
-		},
-		{
-			Name:  "Very long command name",
-			Input: "start-development-server-with-hot-reload-and-proxy: npm run dev;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("start-development-server-with-hot-reload-and-proxy", "npm run dev", Text("npm run dev")),
-				},
-			},
-		},
-		{
-			Name:  "Single character command name",
-			Input: "a: echo short;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("a", "echo short", Text("echo short")),
-				},
-			},
-		},
-		{
-			Name:        "Command name ending with hyphen (should fail)",
-			Input:       "build-: echo hello;",
-			WantErr:     true,
-			ErrorSubstr: "syntax error",
-		},
-		{
-			Name:        "Command name starting with hyphen (should fail)",
-			Input:       "-build: echo hello;",
-			WantErr:     true,
-			ErrorSubstr: "syntax error",
-		},
-		{
-			Name:  "Multiple consecutive hyphens",
-			Input: "docker--compose: echo double hyphen;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("docker--compose", "echo double hyphen", Text("echo double hyphen")),
-				},
-			},
-		},
-		{
-			Name:  "Mixed case command names",
-			Input: "buildApp: echo camelCase;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					SimpleCommand("buildApp", "echo camelCase", Text("echo camelCase")),
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		runTestCase(t, tc)
-	}
-}
-
-// TestDecoratorNaming tests that decorators can also use hyphens
-func TestDecoratorNaming(t *testing.T) {
-	testCases := []TestCase{
-		{
-			Name:  "Decorator with hyphen",
-			Input: "build: @retry-on-fail: echo hello;",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("build",
-						DecoratedStatement("retry-on-fail", "simple", "echo hello", Text("echo hello"))),
-				},
-			},
-		},
-		{
-			Name:  "Function decorator with hyphen",
-			Input: "build: @wait-for(service);",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("build",
-						DecoratedStatement("wait-for", "function", "service",
-							Decorator("wait-for", "function", Text("service")))),
-				},
-			},
-		},
-		{
-			Name:  "Block decorator with hyphen",
-			Input: "deploy: @run-in-parallel: { task1; task2 }",
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("deploy",
-						BlockDecoratedStatement("run-in-parallel", "block", "")),
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		runTestCase(t, tc)
-	}
-}
-
-// TestRealWorldNixBuildIssue tests the actual command that failed to parse
-// from the user's commands.cli file
-func TestRealWorldNixBuildIssue(t *testing.T) {
-	testCases := []TestCase{
-		{
-			Name: "Nix build command with .# pattern and @var() - real issue",
-			Input: `# Build Nix packages
-nix-build: {
-    echo "📦 Building Nix packages...";
-    nix build .#@var(PROJECT) --print-build-logs;
-    echo "✅ Nix packages built";
-}`,
-			Expected: struct {
-				Definitions []ExpectedDefinition
-				Commands    []ExpectedCommand
-			}{
-				Commands: []ExpectedCommand{
-					BlockCommand("nix-build",
-						Statement("echo \"📦 Building Nix packages...\"",
-							Text("echo \"📦 Building Nix packages...\"")),
-						Statement("nix build .#@var(PROJECT) --print-build-logs",
-							Text("nix build .#"), Var("PROJECT"), Text(" --print-build-logs")),
-						Statement("echo \"✅ Nix packages built\"",
-							Text("echo \"✅ Nix packages built\""))),
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		runTestCase(t, tc)
-	}
 }

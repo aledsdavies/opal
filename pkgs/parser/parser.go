@@ -930,7 +930,7 @@ func (v *DevcmdVisitor) parseCommandString(text string) []CommandElement {
 	i := 0
 
 	for i < len(text) {
-		// Find the next decorator
+		// Find the next potential decorator
 		nextDecoratorIndex := strings.Index(text[i:], "@")
 
 		// If no more decorators, the rest of the string is one text element
@@ -943,30 +943,78 @@ func (v *DevcmdVisitor) parseCommandString(text string) []CommandElement {
 
 		fullDecoratorIndex := i + nextDecoratorIndex
 
-		// Try to parse it as a decorator
-		decorator, consumed := v.parseDecorator(text[fullDecoratorIndex:])
+		// Before trying to parse as decorator, check if this looks like a valid decorator
+		// by looking for @name( pattern to avoid false positives
+		isValidDecoratorStart := false
+		if fullDecoratorIndex+1 < len(text) {
+			// Look for @name( pattern
+			nameStart := fullDecoratorIndex + 1
+			nameEnd := nameStart
 
-		if decorator != nil {
-			// Add the text before the decorator
-			if fullDecoratorIndex > i {
-				elements = append(elements, NewTextElement(text[i:fullDecoratorIndex]))
+			// Check if we have a valid name after @
+			for nameEnd < len(text) && (isLetter(text[nameEnd]) || isDigit(text[nameEnd]) || text[nameEnd] == '_' || text[nameEnd] == '-') {
+				nameEnd++
 			}
-			// Add the decorator itself
-			elements = append(elements, decorator)
-			// Move past the decorator
-			i = fullDecoratorIndex + consumed
+
+			// Only consider it a decorator if we have a name followed by (
+			if nameEnd > nameStart && nameEnd < len(text) && text[nameEnd] == '(' {
+				isValidDecoratorStart = true
+
+				if v.debug != nil {
+					v.debug.Log("Found potential decorator: %s", text[fullDecoratorIndex:nameEnd+1])
+				}
+			}
+		}
+
+		if isValidDecoratorStart {
+			// Try to parse it as a decorator
+			decorator, consumed := v.parseDecorator(text[fullDecoratorIndex:])
+
+			if decorator != nil {
+				// Add the text before the decorator
+				if fullDecoratorIndex > i {
+					elements = append(elements, NewTextElement(text[i:fullDecoratorIndex]))
+				}
+				// Add the decorator itself
+				elements = append(elements, decorator)
+				// Move past the decorator
+				i = fullDecoratorIndex + consumed
+
+				if v.debug != nil {
+					v.debug.Log("Successfully parsed decorator: %s, consumed: %d", decorator.Name, consumed)
+				}
+			} else {
+				// Failed to parse as decorator despite looking valid, treat as text
+				if v.debug != nil {
+					v.debug.LogError("Failed to parse apparent decorator at: %s", text[fullDecoratorIndex:fullDecoratorIndex+min(20, len(text)-fullDecoratorIndex)])
+				}
+				elements = append(elements, NewTextElement(text[i:fullDecoratorIndex+1]))
+				i = fullDecoratorIndex + 1
+			}
 		} else {
-			// It's not a valid decorator (e.g., just an '@' symbol), so treat it as text and continue searching.
-			// Add text up to and including the current '@' as a single text element.
-			textBeforeAndAt := text[i : fullDecoratorIndex+1]
-			elements = append(elements, NewTextElement(textBeforeAndAt))
-			i = fullDecoratorIndex + 1
+			// Not a valid decorator pattern (just @ in text), treat as regular text
+			// Find next @ or end of string
+			nextAt := strings.Index(text[fullDecoratorIndex+1:], "@")
+			var endPos int
+			if nextAt == -1 {
+				endPos = len(text)
+			} else {
+				endPos = fullDecoratorIndex + 1 + nextAt
+			}
+
+			elements = append(elements, NewTextElement(text[i:endPos]))
+			i = endPos
 		}
 	}
+
+	if v.debug != nil {
+		v.debug.Log("parseCommandString completed: %d elements", len(elements))
+	}
+
 	return elements
 }
 
-// parseDecorator parses a decorator pattern starting with @
+// Simplified parseDecorator function - treats $() as regular text
 func (v *DevcmdVisitor) parseDecorator(text string) (*DecoratorElement, int) {
 	if len(text) < 2 || text[0] != '@' {
 		return nil, 0
@@ -990,29 +1038,74 @@ func (v *DevcmdVisitor) parseDecorator(text string) (*DecoratorElement, int) {
 		return nil, 0 // Not a function decorator
 	}
 
-	// Find matching closing parenthesis
+	// Simple parentheses matching with proper quote handling
 	parenLevel := 1
 	contentStart := nameEnd + 1
 	i := contentStart
+	inDoubleQuotes := false
+	inSingleQuotes := false
+	inBackticks := false
 
 	for i < len(text) && parenLevel > 0 {
-		switch text[i] {
-		case '(':
-			parenLevel++
-		case ')':
-			parenLevel--
+		ch := text[i]
+
+		// Handle escape sequences - skip escaped characters
+		if ch == '\\' && i+1 < len(text) {
+			i += 2 // Skip the backslash and the escaped character
+			continue
 		}
+
+		// Handle quote states to avoid counting parentheses inside quotes
+		switch ch {
+		case '"':
+			if !inSingleQuotes && !inBackticks {
+				inDoubleQuotes = !inDoubleQuotes
+			}
+		case '\'':
+			if !inDoubleQuotes && !inBackticks {
+				inSingleQuotes = !inSingleQuotes
+			}
+		case '`':
+			if !inDoubleQuotes && !inSingleQuotes {
+				inBackticks = !inBackticks
+			}
+		case '(':
+			// Only count parentheses when not inside quotes
+			if !inDoubleQuotes && !inSingleQuotes && !inBackticks {
+				parenLevel++
+			}
+		case ')':
+			// Only count parentheses when not inside quotes
+			if !inDoubleQuotes && !inSingleQuotes && !inBackticks {
+				parenLevel--
+			}
+		}
+
 		i++
 	}
 
 	if parenLevel != 0 {
+		// Enhanced error logging for debugging
+		if v.debug != nil {
+			v.debug.LogError("Unmatched parentheses in decorator %s", name)
+			v.debug.LogError("Remaining parentheses level: %d", parenLevel)
+			v.debug.LogError("Quote states - double: %v, single: %v, backticks: %v",
+				inDoubleQuotes, inSingleQuotes, inBackticks)
+
+			// Show a sample of the problematic content
+			maxLen := min(100, len(text)-contentStart)
+			if maxLen > 0 {
+				sample := text[contentStart:contentStart+maxLen]
+				v.debug.LogError("Content sample: %s", sample)
+			}
+		}
 		return nil, 0 // Unmatched parentheses
 	}
 
 	contentEnd := i - 1 // Before the closing )
 	content := text[contentStart:contentEnd]
 
-	// Parse the content recursively
+	// Parse the content recursively to handle nested @var() decorators
 	var args []CommandElement
 	if content != "" {
 		args = v.parseCommandString(content)
@@ -1022,6 +1115,10 @@ func (v *DevcmdVisitor) parseDecorator(text string) (*DecoratorElement, int) {
 		Name: name,
 		Type: "function",
 		Args: args,
+	}
+
+	if v.debug != nil {
+		v.debug.Log("Successfully parsed decorator %s with content length %d", name, len(content))
 	}
 
 	return decorator, i // Total length including @name(...)
@@ -1059,4 +1156,12 @@ func NewTextElement(text string) *TextElement {
 	return &TextElement{
 		Text: text,
 	}
+}
+
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -1,6 +1,6 @@
 package generator
 
-// Improved template component definitions with better whitespace control and formatting
+// Updated template component definitions with goroutine-based parallel execution
 
 const packageTemplate = `{{define "package"}}package {{.PackageName}}{{end}}`
 
@@ -8,6 +8,9 @@ const importsTemplate = `{{define "imports"}}
 import (
 {{- range .Imports}}
 	"{{.}}"
+{{- end}}
+{{- if .HasParallelCommands}}
+	"golang.org/x/sync/errgroup"
 {{- end}}
 )
 {{end}}`
@@ -429,6 +432,71 @@ const stopOnlyCommandTemplate = `{{define "stop-only-command"}}
 	}
 {{- end}}`
 
+// NEW: Parallel command template using goroutines and errgroup
+const parallelCommandTemplate = `{{define "parallel-command"}}
+	// Parallel command execution using goroutines
+	g := new(errgroup.Group)
+
+	{{range .ParallelCommands}}
+	g.Go(func() error {
+		cmd := exec.Command("sh", "-c", ` + "`{{.}}`" + `)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("command failed: %v", err)
+		}
+		return nil
+	})
+	{{end}}
+
+	// Wait for all parallel commands to complete
+	if err := g.Wait(); err != nil {
+		fmt.Fprintf(os.Stderr, "Parallel execution failed: %v\n", err)
+		os.Exit(1)
+	}
+{{- end}}`
+
+// NEW: Mixed command template for commands with both parallel and sequential parts
+const mixedCommandTemplate = `{{define "mixed-command"}}
+	// Mixed command with both parallel and sequential execution
+	{{range .CommandSegments}}
+	{{if .IsParallel}}
+	// Parallel segment
+	g := new(errgroup.Group)
+	{{range .Commands}}
+	g.Go(func() error {
+		cmd := exec.Command("sh", "-c", ` + "`{{.}}`" + `)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("command failed: %v", err)
+		}
+		return nil
+	})
+	{{end}}
+
+	if err := g.Wait(); err != nil {
+		fmt.Fprintf(os.Stderr, "Parallel execution failed: %v\n", err)
+		os.Exit(1)
+	}
+	{{else}}
+	// Sequential command
+	cmd := exec.Command("sh", "-c", ` + "`{{.Command}}`" + `)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	if err := cmd.Run(); err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitError.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
+		os.Exit(1)
+	}
+	{{end}}
+	{{end}}
+{{- end}}`
+
 const mainFunctionTemplate = `{{define "main-function"}}
 func main() {
 	cli := NewCLI()
@@ -462,4 +530,4 @@ const masterTemplate = `{{define "main"}}{{template "package" .}}
 {{template "command-functions" .}}
 {{template "main-function" .}}{{end}}
 
-{{define "command-impl"}}{{if eq .Type "regular"}}{{template "regular-command" .}}{{else if eq .Type "watch-stop"}}{{template "watch-stop-command" .}}{{else if eq .Type "watch-only"}}{{template "watch-only-command" .}}{{else if eq .Type "stop-only"}}{{template "stop-only-command" .}}{{end}}{{end}}`
+{{define "command-impl"}}{{if eq .Type "regular"}}{{template "regular-command" .}}{{else if eq .Type "watch-stop"}}{{template "watch-stop-command" .}}{{else if eq .Type "watch-only"}}{{template "watch-only-command" .}}{{else if eq .Type "stop-only"}}{{template "stop-only-command" .}}{{else if eq .Type "parallel"}}{{template "parallel-command" .}}{{else if eq .Type "mixed"}}{{template "mixed-command" .}}{{end}}{{end}}`

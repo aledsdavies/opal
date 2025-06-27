@@ -35,7 +35,7 @@ func devcmdparserParserInit() {
 		"", "'def'", "'watch'", "'stop'", "'@'", "'='", "':'", "';'", "'{'",
 		"'}'", "'('", "')'", "'\\'", "", "", "", "", "", "'&'", "'|'", "'<'",
 		"'>'", "'.'", "','", "'/'", "'-'", "'*'", "'+'", "'?'", "'!'", "'%'",
-		"'^'", "'~'", "'_'", "'['", "']'", "'$'", "'#'", "'\"'",
+		"'^'", "'~'", "'_'", "'['", "']'", "'$'", "'#'", "'\"'", "'`'",
 	}
 	staticData.SymbolicNames = []string{
 		"", "DEF", "WATCH", "STOP", "AT", "EQUALS", "COLON", "SEMICOLON", "LBRACE",
@@ -43,7 +43,7 @@ func devcmdparserParserInit() {
 		"NAME", "NUMBER", "PATH_CONTENT", "AMPERSAND", "PIPE", "LT", "GT", "DOT",
 		"COMMA", "SLASH", "DASH", "STAR", "PLUS", "QUESTION", "EXCLAIM", "PERCENT",
 		"CARET", "TILDE", "UNDERSCORE", "LBRACKET", "RBRACKET", "DOLLAR", "HASH",
-		"DOUBLEQUOTE", "COMMENT", "NEWLINE", "WS",
+		"DOUBLEQUOTE", "BACKTICK", "COMMENT", "NEWLINE", "WS",
 	}
 	staticData.RuleNames = []string{
 		"program", "line", "variableDefinition", "variableValue", "commandDefinition",
@@ -56,7 +56,7 @@ func devcmdparserParserInit() {
 	}
 	staticData.PredictionContextCache = antlr.NewPredictionContextCache()
 	staticData.serializedATN = []int32{
-		4, 1, 41, 268, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
+		4, 1, 42, 269, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
 		4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7,
 		10, 2, 11, 7, 11, 2, 12, 7, 12, 2, 13, 7, 13, 2, 14, 7, 14, 2, 15, 7, 15,
 		2, 16, 7, 16, 2, 17, 7, 17, 2, 18, 7, 18, 2, 19, 7, 19, 2, 20, 7, 20, 2,
@@ -82,21 +82,21 @@ func devcmdparserParserInit() {
 		1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1,
 		24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24,
 		1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1, 24, 1,
-		24, 1, 24, 1, 24, 1, 24, 3, 24, 260, 8, 24, 1, 25, 1, 25, 1, 25, 1, 25,
-		1, 25, 1, 25, 1, 25, 0, 0, 26, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22,
-		24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 0, 2, 1, 0, 2,
-		3, 3, 0, 1, 3, 5, 9, 12, 38, 305, 0, 55, 1, 0, 0, 0, 2, 63, 1, 0, 0, 0,
-		4, 75, 1, 0, 0, 0, 6, 77, 1, 0, 0, 0, 8, 80, 1, 0, 0, 0, 10, 89, 1, 0,
-		0, 0, 12, 94, 1, 0, 0, 0, 14, 96, 1, 0, 0, 0, 16, 103, 1, 0, 0, 0, 18,
-		108, 1, 0, 0, 0, 20, 114, 1, 0, 0, 0, 22, 119, 1, 0, 0, 0, 24, 129, 1,
-		0, 0, 0, 26, 131, 1, 0, 0, 0, 28, 137, 1, 0, 0, 0, 30, 139, 1, 0, 0, 0,
-		32, 148, 1, 0, 0, 0, 34, 155, 1, 0, 0, 0, 36, 164, 1, 0, 0, 0, 38, 166,
+		24, 1, 24, 1, 24, 1, 24, 1, 24, 3, 24, 261, 8, 24, 1, 25, 1, 25, 1, 25,
+		1, 25, 1, 25, 1, 25, 1, 25, 0, 0, 26, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18,
+		20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 0, 2, 1,
+		0, 2, 3, 3, 0, 1, 3, 5, 9, 12, 39, 307, 0, 55, 1, 0, 0, 0, 2, 63, 1, 0,
+		0, 0, 4, 75, 1, 0, 0, 0, 6, 77, 1, 0, 0, 0, 8, 80, 1, 0, 0, 0, 10, 89,
+		1, 0, 0, 0, 12, 94, 1, 0, 0, 0, 14, 96, 1, 0, 0, 0, 16, 103, 1, 0, 0, 0,
+		18, 108, 1, 0, 0, 0, 20, 114, 1, 0, 0, 0, 22, 119, 1, 0, 0, 0, 24, 129,
+		1, 0, 0, 0, 26, 131, 1, 0, 0, 0, 28, 137, 1, 0, 0, 0, 30, 139, 1, 0, 0,
+		0, 32, 148, 1, 0, 0, 0, 34, 155, 1, 0, 0, 0, 36, 164, 1, 0, 0, 0, 38, 166,
 		1, 0, 0, 0, 40, 199, 1, 0, 0, 0, 42, 201, 1, 0, 0, 0, 44, 211, 1, 0, 0,
-		0, 46, 218, 1, 0, 0, 0, 48, 259, 1, 0, 0, 0, 50, 261, 1, 0, 0, 0, 52, 54,
+		0, 46, 218, 1, 0, 0, 0, 48, 260, 1, 0, 0, 0, 50, 262, 1, 0, 0, 0, 52, 54,
 		3, 2, 1, 0, 53, 52, 1, 0, 0, 0, 54, 57, 1, 0, 0, 0, 55, 53, 1, 0, 0, 0,
 		55, 56, 1, 0, 0, 0, 56, 58, 1, 0, 0, 0, 57, 55, 1, 0, 0, 0, 58, 59, 5,
 		0, 0, 1, 59, 1, 1, 0, 0, 0, 60, 64, 3, 4, 2, 0, 61, 64, 3, 8, 4, 0, 62,
-		64, 5, 40, 0, 0, 63, 60, 1, 0, 0, 0, 63, 61, 1, 0, 0, 0, 63, 62, 1, 0,
+		64, 5, 41, 0, 0, 63, 60, 1, 0, 0, 0, 63, 61, 1, 0, 0, 0, 63, 62, 1, 0,
 		0, 0, 64, 3, 1, 0, 0, 0, 65, 66, 5, 1, 0, 0, 66, 67, 5, 15, 0, 0, 67, 68,
 		5, 5, 0, 0, 68, 69, 3, 6, 3, 0, 69, 70, 5, 7, 0, 0, 70, 76, 1, 0, 0, 0,
 		71, 72, 5, 1, 0, 0, 72, 73, 5, 15, 0, 0, 73, 74, 5, 5, 0, 0, 74, 76, 5,
@@ -117,7 +117,7 @@ func devcmdparserParserInit() {
 		118, 3, 24, 12, 0, 117, 116, 1, 0, 0, 0, 118, 121, 1, 0, 0, 0, 119, 117,
 		1, 0, 0, 0, 119, 120, 1, 0, 0, 0, 120, 23, 1, 0, 0, 0, 121, 119, 1, 0,
 		0, 0, 122, 130, 3, 26, 13, 0, 123, 124, 5, 10, 0, 0, 124, 125, 3, 22, 11,
-		0, 125, 126, 5, 11, 0, 0, 126, 130, 1, 0, 0, 0, 127, 130, 5, 40, 0, 0,
+		0, 125, 126, 5, 11, 0, 0, 126, 130, 1, 0, 0, 0, 127, 130, 5, 41, 0, 0,
 		128, 130, 3, 28, 14, 0, 129, 122, 1, 0, 0, 0, 129, 123, 1, 0, 0, 0, 129,
 		127, 1, 0, 0, 0, 129, 128, 1, 0, 0, 0, 130, 25, 1, 0, 0, 0, 131, 132, 5,
 		4, 0, 0, 132, 133, 5, 15, 0, 0, 133, 134, 5, 10, 0, 0, 134, 135, 3, 22,
@@ -128,17 +128,17 @@ func devcmdparserParserInit() {
 		0, 0, 147, 31, 1, 0, 0, 0, 148, 152, 3, 46, 23, 0, 149, 151, 3, 44, 22,
 		0, 150, 149, 1, 0, 0, 0, 151, 154, 1, 0, 0, 0, 152, 150, 1, 0, 0, 0, 152,
 		153, 1, 0, 0, 0, 153, 33, 1, 0, 0, 0, 154, 152, 1, 0, 0, 0, 155, 157, 5,
-		8, 0, 0, 156, 158, 5, 40, 0, 0, 157, 156, 1, 0, 0, 0, 157, 158, 1, 0, 0,
+		8, 0, 0, 156, 158, 5, 41, 0, 0, 157, 156, 1, 0, 0, 0, 157, 158, 1, 0, 0,
 		0, 158, 159, 1, 0, 0, 0, 159, 160, 3, 36, 18, 0, 160, 161, 5, 9, 0, 0,
 		161, 35, 1, 0, 0, 0, 162, 165, 1, 0, 0, 0, 163, 165, 3, 38, 19, 0, 164,
 		162, 1, 0, 0, 0, 164, 163, 1, 0, 0, 0, 165, 37, 1, 0, 0, 0, 166, 177, 3,
-		40, 20, 0, 167, 171, 5, 7, 0, 0, 168, 170, 5, 40, 0, 0, 169, 168, 1, 0,
+		40, 20, 0, 167, 171, 5, 7, 0, 0, 168, 170, 5, 41, 0, 0, 169, 168, 1, 0,
 		0, 0, 170, 173, 1, 0, 0, 0, 171, 169, 1, 0, 0, 0, 171, 172, 1, 0, 0, 0,
 		172, 174, 1, 0, 0, 0, 173, 171, 1, 0, 0, 0, 174, 176, 3, 40, 20, 0, 175,
 		167, 1, 0, 0, 0, 176, 179, 1, 0, 0, 0, 177, 175, 1, 0, 0, 0, 177, 178,
 		1, 0, 0, 0, 178, 181, 1, 0, 0, 0, 179, 177, 1, 0, 0, 0, 180, 182, 5, 7,
 		0, 0, 181, 180, 1, 0, 0, 0, 181, 182, 1, 0, 0, 0, 182, 186, 1, 0, 0, 0,
-		183, 185, 5, 40, 0, 0, 184, 183, 1, 0, 0, 0, 185, 188, 1, 0, 0, 0, 186,
+		183, 185, 5, 41, 0, 0, 184, 183, 1, 0, 0, 0, 185, 188, 1, 0, 0, 0, 186,
 		184, 1, 0, 0, 0, 186, 187, 1, 0, 0, 0, 187, 39, 1, 0, 0, 0, 188, 186, 1,
 		0, 0, 0, 189, 200, 3, 14, 7, 0, 190, 200, 3, 16, 8, 0, 191, 200, 3, 42,
 		21, 0, 192, 196, 3, 46, 23, 0, 193, 195, 3, 44, 22, 0, 194, 193, 1, 0,
@@ -149,37 +149,37 @@ func devcmdparserParserInit() {
 		0, 204, 208, 3, 46, 23, 0, 205, 207, 3, 44, 22, 0, 206, 205, 1, 0, 0, 0,
 		207, 210, 1, 0, 0, 0, 208, 206, 1, 0, 0, 0, 208, 209, 1, 0, 0, 0, 209,
 		43, 1, 0, 0, 0, 210, 208, 1, 0, 0, 0, 211, 212, 5, 12, 0, 0, 212, 213,
-		5, 40, 0, 0, 213, 214, 3, 46, 23, 0, 214, 45, 1, 0, 0, 0, 215, 217, 3,
+		5, 41, 0, 0, 213, 214, 3, 46, 23, 0, 214, 45, 1, 0, 0, 0, 215, 217, 3,
 		48, 24, 0, 216, 215, 1, 0, 0, 0, 217, 220, 1, 0, 0, 0, 218, 216, 1, 0,
 		0, 0, 218, 219, 1, 0, 0, 0, 219, 47, 1, 0, 0, 0, 220, 218, 1, 0, 0, 0,
-		221, 260, 3, 50, 25, 0, 222, 260, 5, 15, 0, 0, 223, 260, 5, 16, 0, 0, 224,
-		260, 5, 13, 0, 0, 225, 260, 5, 14, 0, 0, 226, 260, 5, 17, 0, 0, 227, 260,
-		5, 10, 0, 0, 228, 260, 5, 11, 0, 0, 229, 260, 5, 8, 0, 0, 230, 260, 5,
-		9, 0, 0, 231, 260, 5, 34, 0, 0, 232, 260, 5, 35, 0, 0, 233, 260, 5, 18,
-		0, 0, 234, 260, 5, 19, 0, 0, 235, 260, 5, 20, 0, 0, 236, 260, 5, 21, 0,
-		0, 237, 260, 5, 6, 0, 0, 238, 260, 5, 5, 0, 0, 239, 260, 5, 12, 0, 0, 240,
-		260, 5, 22, 0, 0, 241, 260, 5, 23, 0, 0, 242, 260, 5, 24, 0, 0, 243, 260,
-		5, 25, 0, 0, 244, 260, 5, 26, 0, 0, 245, 260, 5, 27, 0, 0, 246, 260, 5,
-		28, 0, 0, 247, 260, 5, 29, 0, 0, 248, 260, 5, 30, 0, 0, 249, 260, 5, 31,
-		0, 0, 250, 260, 5, 32, 0, 0, 251, 260, 5, 33, 0, 0, 252, 260, 5, 36, 0,
-		0, 253, 260, 5, 37, 0, 0, 254, 260, 5, 38, 0, 0, 255, 260, 5, 4, 0, 0,
-		256, 260, 5, 2, 0, 0, 257, 260, 5, 3, 0, 0, 258, 260, 5, 1, 0, 0, 259,
-		221, 1, 0, 0, 0, 259, 222, 1, 0, 0, 0, 259, 223, 1, 0, 0, 0, 259, 224,
-		1, 0, 0, 0, 259, 225, 1, 0, 0, 0, 259, 226, 1, 0, 0, 0, 259, 227, 1, 0,
-		0, 0, 259, 228, 1, 0, 0, 0, 259, 229, 1, 0, 0, 0, 259, 230, 1, 0, 0, 0,
-		259, 231, 1, 0, 0, 0, 259, 232, 1, 0, 0, 0, 259, 233, 1, 0, 0, 0, 259,
-		234, 1, 0, 0, 0, 259, 235, 1, 0, 0, 0, 259, 236, 1, 0, 0, 0, 259, 237,
-		1, 0, 0, 0, 259, 238, 1, 0, 0, 0, 259, 239, 1, 0, 0, 0, 259, 240, 1, 0,
-		0, 0, 259, 241, 1, 0, 0, 0, 259, 242, 1, 0, 0, 0, 259, 243, 1, 0, 0, 0,
-		259, 244, 1, 0, 0, 0, 259, 245, 1, 0, 0, 0, 259, 246, 1, 0, 0, 0, 259,
-		247, 1, 0, 0, 0, 259, 248, 1, 0, 0, 0, 259, 249, 1, 0, 0, 0, 259, 250,
-		1, 0, 0, 0, 259, 251, 1, 0, 0, 0, 259, 252, 1, 0, 0, 0, 259, 253, 1, 0,
-		0, 0, 259, 254, 1, 0, 0, 0, 259, 255, 1, 0, 0, 0, 259, 256, 1, 0, 0, 0,
-		259, 257, 1, 0, 0, 0, 259, 258, 1, 0, 0, 0, 260, 49, 1, 0, 0, 0, 261, 262,
-		5, 4, 0, 0, 262, 263, 5, 15, 0, 0, 263, 264, 5, 10, 0, 0, 264, 265, 3,
-		22, 11, 0, 265, 266, 5, 11, 0, 0, 266, 51, 1, 0, 0, 0, 21, 55, 63, 75,
-		80, 89, 94, 119, 129, 143, 152, 157, 164, 171, 177, 181, 186, 196, 199,
-		208, 218, 259,
+		221, 261, 3, 50, 25, 0, 222, 261, 5, 15, 0, 0, 223, 261, 5, 16, 0, 0, 224,
+		261, 5, 13, 0, 0, 225, 261, 5, 14, 0, 0, 226, 261, 5, 17, 0, 0, 227, 261,
+		5, 10, 0, 0, 228, 261, 5, 11, 0, 0, 229, 261, 5, 8, 0, 0, 230, 261, 5,
+		9, 0, 0, 231, 261, 5, 34, 0, 0, 232, 261, 5, 35, 0, 0, 233, 261, 5, 18,
+		0, 0, 234, 261, 5, 19, 0, 0, 235, 261, 5, 20, 0, 0, 236, 261, 5, 21, 0,
+		0, 237, 261, 5, 6, 0, 0, 238, 261, 5, 5, 0, 0, 239, 261, 5, 12, 0, 0, 240,
+		261, 5, 22, 0, 0, 241, 261, 5, 23, 0, 0, 242, 261, 5, 24, 0, 0, 243, 261,
+		5, 25, 0, 0, 244, 261, 5, 26, 0, 0, 245, 261, 5, 27, 0, 0, 246, 261, 5,
+		28, 0, 0, 247, 261, 5, 29, 0, 0, 248, 261, 5, 30, 0, 0, 249, 261, 5, 31,
+		0, 0, 250, 261, 5, 32, 0, 0, 251, 261, 5, 33, 0, 0, 252, 261, 5, 36, 0,
+		0, 253, 261, 5, 37, 0, 0, 254, 261, 5, 38, 0, 0, 255, 261, 5, 39, 0, 0,
+		256, 261, 5, 4, 0, 0, 257, 261, 5, 2, 0, 0, 258, 261, 5, 3, 0, 0, 259,
+		261, 5, 1, 0, 0, 260, 221, 1, 0, 0, 0, 260, 222, 1, 0, 0, 0, 260, 223,
+		1, 0, 0, 0, 260, 224, 1, 0, 0, 0, 260, 225, 1, 0, 0, 0, 260, 226, 1, 0,
+		0, 0, 260, 227, 1, 0, 0, 0, 260, 228, 1, 0, 0, 0, 260, 229, 1, 0, 0, 0,
+		260, 230, 1, 0, 0, 0, 260, 231, 1, 0, 0, 0, 260, 232, 1, 0, 0, 0, 260,
+		233, 1, 0, 0, 0, 260, 234, 1, 0, 0, 0, 260, 235, 1, 0, 0, 0, 260, 236,
+		1, 0, 0, 0, 260, 237, 1, 0, 0, 0, 260, 238, 1, 0, 0, 0, 260, 239, 1, 0,
+		0, 0, 260, 240, 1, 0, 0, 0, 260, 241, 1, 0, 0, 0, 260, 242, 1, 0, 0, 0,
+		260, 243, 1, 0, 0, 0, 260, 244, 1, 0, 0, 0, 260, 245, 1, 0, 0, 0, 260,
+		246, 1, 0, 0, 0, 260, 247, 1, 0, 0, 0, 260, 248, 1, 0, 0, 0, 260, 249,
+		1, 0, 0, 0, 260, 250, 1, 0, 0, 0, 260, 251, 1, 0, 0, 0, 260, 252, 1, 0,
+		0, 0, 260, 253, 1, 0, 0, 0, 260, 254, 1, 0, 0, 0, 260, 255, 1, 0, 0, 0,
+		260, 256, 1, 0, 0, 0, 260, 257, 1, 0, 0, 0, 260, 258, 1, 0, 0, 0, 260,
+		259, 1, 0, 0, 0, 261, 49, 1, 0, 0, 0, 262, 263, 5, 4, 0, 0, 263, 264, 5,
+		15, 0, 0, 264, 265, 5, 10, 0, 0, 265, 266, 3, 22, 11, 0, 266, 267, 5, 11,
+		0, 0, 267, 51, 1, 0, 0, 0, 21, 55, 63, 75, 80, 89, 94, 119, 129, 143, 152,
+		157, 164, 171, 177, 181, 186, 196, 199, 208, 218, 260,
 	}
 	deserializer := antlr.NewATNDeserializer(nil)
 	staticData.atn = deserializer.Deserialize(staticData.serializedATN)
@@ -256,9 +256,10 @@ const (
 	DevcmdParserDOLLAR        = 36
 	DevcmdParserHASH          = 37
 	DevcmdParserDOUBLEQUOTE   = 38
-	DevcmdParserCOMMENT       = 39
-	DevcmdParserNEWLINE       = 40
-	DevcmdParserWS            = 41
+	DevcmdParserBACKTICK      = 39
+	DevcmdParserCOMMENT       = 40
+	DevcmdParserNEWLINE       = 41
+	DevcmdParserWS            = 42
 )
 
 // DevcmdParser rules.
@@ -427,7 +428,7 @@ func (p *DevcmdParser) Program() (localctx IProgramContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&1099511660558) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&2199023288334) != 0 {
 		{
 			p.SetState(52)
 			p.Line()
@@ -2327,7 +2328,7 @@ func (p *DevcmdParser) DecoratorContent() (localctx IDecoratorContentContext) {
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&1649267439614) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&3298534881278) != 0 {
 		{
 			p.SetState(116)
 			p.DecoratorElement()
@@ -2546,7 +2547,7 @@ func (p *DevcmdParser) DecoratorElement() (localctx IDecoratorElementContext) {
 			}
 		}
 
-	case DevcmdParserDEF, DevcmdParserWATCH, DevcmdParserSTOP, DevcmdParserEQUALS, DevcmdParserCOLON, DevcmdParserSEMICOLON, DevcmdParserLBRACE, DevcmdParserRBRACE, DevcmdParserBACKSLASH, DevcmdParserSTRING, DevcmdParserSINGLE_STRING, DevcmdParserNAME, DevcmdParserNUMBER, DevcmdParserPATH_CONTENT, DevcmdParserAMPERSAND, DevcmdParserPIPE, DevcmdParserLT, DevcmdParserGT, DevcmdParserDOT, DevcmdParserCOMMA, DevcmdParserSLASH, DevcmdParserDASH, DevcmdParserSTAR, DevcmdParserPLUS, DevcmdParserQUESTION, DevcmdParserEXCLAIM, DevcmdParserPERCENT, DevcmdParserCARET, DevcmdParserTILDE, DevcmdParserUNDERSCORE, DevcmdParserLBRACKET, DevcmdParserRBRACKET, DevcmdParserDOLLAR, DevcmdParserHASH, DevcmdParserDOUBLEQUOTE:
+	case DevcmdParserDEF, DevcmdParserWATCH, DevcmdParserSTOP, DevcmdParserEQUALS, DevcmdParserCOLON, DevcmdParserSEMICOLON, DevcmdParserLBRACE, DevcmdParserRBRACE, DevcmdParserBACKSLASH, DevcmdParserSTRING, DevcmdParserSINGLE_STRING, DevcmdParserNAME, DevcmdParserNUMBER, DevcmdParserPATH_CONTENT, DevcmdParserAMPERSAND, DevcmdParserPIPE, DevcmdParserLT, DevcmdParserGT, DevcmdParserDOT, DevcmdParserCOMMA, DevcmdParserSLASH, DevcmdParserDASH, DevcmdParserSTAR, DevcmdParserPLUS, DevcmdParserQUESTION, DevcmdParserEXCLAIM, DevcmdParserPERCENT, DevcmdParserCARET, DevcmdParserTILDE, DevcmdParserUNDERSCORE, DevcmdParserLBRACKET, DevcmdParserRBRACKET, DevcmdParserDOLLAR, DevcmdParserHASH, DevcmdParserDOUBLEQUOTE, DevcmdParserBACKTICK:
 		p.EnterOuterAlt(localctx, 4)
 		{
 			p.SetState(128)
@@ -2776,6 +2777,7 @@ type IDecoratorTextElementContext interface {
 	DOLLAR() antlr.TerminalNode
 	HASH() antlr.TerminalNode
 	DOUBLEQUOTE() antlr.TerminalNode
+	BACKTICK() antlr.TerminalNode
 	SEMICOLON() antlr.TerminalNode
 	WATCH() antlr.TerminalNode
 	STOP() antlr.TerminalNode
@@ -2941,6 +2943,10 @@ func (s *DecoratorTextElementContext) DOUBLEQUOTE() antlr.TerminalNode {
 	return s.GetToken(DevcmdParserDOUBLEQUOTE, 0)
 }
 
+func (s *DecoratorTextElementContext) BACKTICK() antlr.TerminalNode {
+	return s.GetToken(DevcmdParserBACKTICK, 0)
+}
+
 func (s *DecoratorTextElementContext) SEMICOLON() antlr.TerminalNode {
 	return s.GetToken(DevcmdParserSEMICOLON, 0)
 }
@@ -2997,7 +3003,7 @@ func (p *DevcmdParser) DecoratorTextElement() (localctx IDecoratorTextElementCon
 		p.SetState(137)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&549755810798) != 0) {
+		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&1099511624686) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -4779,6 +4785,7 @@ type ICommandTextElementContext interface {
 	DOLLAR() antlr.TerminalNode
 	HASH() antlr.TerminalNode
 	DOUBLEQUOTE() antlr.TerminalNode
+	BACKTICK() antlr.TerminalNode
 	AT() antlr.TerminalNode
 	WATCH() antlr.TerminalNode
 	STOP() antlr.TerminalNode
@@ -4968,6 +4975,10 @@ func (s *CommandTextElementContext) DOUBLEQUOTE() antlr.TerminalNode {
 	return s.GetToken(DevcmdParserDOUBLEQUOTE, 0)
 }
 
+func (s *CommandTextElementContext) BACKTICK() antlr.TerminalNode {
+	return s.GetToken(DevcmdParserBACKTICK, 0)
+}
+
 func (s *CommandTextElementContext) AT() antlr.TerminalNode {
 	return s.GetToken(DevcmdParserAT, 0)
 }
@@ -5017,7 +5028,7 @@ func (s *CommandTextElementContext) Accept(visitor antlr.ParseTreeVisitor) inter
 func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext) {
 	localctx = NewCommandTextElementContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 48, DevcmdParserRULE_commandTextElement)
-	p.SetState(259)
+	p.SetState(260)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -5398,7 +5409,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 		p.EnterOuterAlt(localctx, 35)
 		{
 			p.SetState(255)
-			p.Match(DevcmdParserAT)
+			p.Match(DevcmdParserBACKTICK)
 			if p.HasError() {
 				// Recognition error - abort rule
 				goto errorExit
@@ -5409,7 +5420,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 		p.EnterOuterAlt(localctx, 36)
 		{
 			p.SetState(256)
-			p.Match(DevcmdParserWATCH)
+			p.Match(DevcmdParserAT)
 			if p.HasError() {
 				// Recognition error - abort rule
 				goto errorExit
@@ -5420,7 +5431,7 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 		p.EnterOuterAlt(localctx, 37)
 		{
 			p.SetState(257)
-			p.Match(DevcmdParserSTOP)
+			p.Match(DevcmdParserWATCH)
 			if p.HasError() {
 				// Recognition error - abort rule
 				goto errorExit
@@ -5431,6 +5442,17 @@ func (p *DevcmdParser) CommandTextElement() (localctx ICommandTextElementContext
 		p.EnterOuterAlt(localctx, 38)
 		{
 			p.SetState(258)
+			p.Match(DevcmdParserSTOP)
+			if p.HasError() {
+				// Recognition error - abort rule
+				goto errorExit
+			}
+		}
+
+	case 39:
+		p.EnterOuterAlt(localctx, 39)
+		{
+			p.SetState(259)
 			p.Match(DevcmdParserDEF)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5572,7 +5594,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 	p.EnterRule(localctx, 50, DevcmdParserRULE_inlineDecorator)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(261)
+		p.SetState(262)
 		p.Match(DevcmdParserAT)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5580,7 +5602,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(262)
+		p.SetState(263)
 		p.Match(DevcmdParserNAME)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5588,7 +5610,7 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(263)
+		p.SetState(264)
 		p.Match(DevcmdParserLPAREN)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -5596,11 +5618,11 @@ func (p *DevcmdParser) InlineDecorator() (localctx IInlineDecoratorContext) {
 		}
 	}
 	{
-		p.SetState(264)
+		p.SetState(265)
 		p.DecoratorContent()
 	}
 	{
-		p.SetState(265)
+		p.SetState(266)
 		p.Match(DevcmdParserRPAREN)
 		if p.HasError() {
 			// Recognition error - abort rule

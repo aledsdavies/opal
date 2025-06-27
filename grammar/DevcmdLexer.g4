@@ -78,6 +78,7 @@ RBRACKET : ']' ;
 DOLLAR : '$' ;
 HASH : '#' ;
 DOUBLEQUOTE : '"' ;
+BACKTICK : '`' ;  // Added backtick support
 
 // Whitespace and comments - must be at the end
 // Only treat # as comment when it appears at the beginning of a line

@@ -88,7 +88,9 @@ func showRelevantCode(t *testing.T, code string, pattern string) {
 				prefix := "    "
 				if strings.Contains(lines[j], "exec.Command") ||
 					strings.Contains(lines[j], `"-c"`) ||
-					strings.Contains(lines[j], pattern) {
+					strings.Contains(lines[j], pattern) ||
+					strings.Contains(lines[j], "errgroup.Group") ||
+					strings.Contains(lines[j], "g.Go(func()") {
 					prefix = " >> "
 				}
 
@@ -206,6 +208,13 @@ func TestImportsTemplate(t *testing.T) {
 				`"time"`,
 				`"syscall"`,
 				`"path/filepath"`,
+			},
+		},
+		{
+			name:  "Parallel command imports",
+			input: `build: { @parallel: { go build ./app1; go build ./app2 } }`,
+			expected: []string{
+				`"golang.org/x/sync/errgroup"`,
 			},
 		},
 	}
@@ -401,18 +410,18 @@ stop server: pkill node;
 	}
 }
 
-// Decorator tests
+// Updated decorator tests for goroutine-based parallel execution
 
 func TestDecorators(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  string
-		expect string
+		expect []string
 	}{
 		{
 			name:   "@sh decorator",
 			input:  `test: @sh(echo "Hello World");`,
-			expect: `echo "Hello World"`,
+			expect: []string{`echo "Hello World"`},
 		},
 		{
 			name: "@parallel decorator",
@@ -422,21 +431,28 @@ func TestDecorators(t *testing.T) {
         go build ./cmd/app2
     }
 }`,
-			expect: `go build ./cmd/app1 &; go build ./cmd/app2 &; wait`,
+			expect: []string{
+				"errgroup.Group",
+				"g.Go(func() error",
+				"go build ./cmd/app1",
+				"go build ./cmd/app2",
+				"g.Wait()",
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertGeneratedCode(t, tt.name, tt.input, allOf(
-				mustCompile(),
-				mustContain(tt.expect),
-			))
+			validators := []func(string) TestResult{mustCompile()}
+			for _, exp := range tt.expect {
+				validators = append(validators, mustContain(exp))
+			}
+			assertGeneratedCode(t, tt.name, tt.input, allOf(validators...))
 		})
 	}
 }
 
-// Full integration tests
+// Updated full integration tests
 
 func TestFullCLIGeneration(t *testing.T) {
 	input := `
@@ -457,7 +473,7 @@ test: go test -v ./...;
 watch server: @sh(go run . --port=@var(PORT));
 stop server: @sh(pkill -f "go run");
 
-# Deployment
+# Deployment with parallel execution
 deploy: {
     echo "Deploying @var(PROJECT)...";
     @parallel: {
@@ -495,10 +511,12 @@ deploy: {
 			{"ProcessRegistry", "Process registry not included"},
 			{"runInBackground", "Background process support missing"},
 
-			// Parallel execution
-			{"docker build -t myapp:1.0.0 . &", "Parallel docker build missing"},
-			{"docker push myapp:1.0.0 &", "Parallel docker push missing"},
-			{"wait", "Wait for parallel commands missing"},
+			// NEW: Goroutine-based parallel execution instead of shell &; wait
+			{"errgroup.Group", "errgroup not used for parallel execution"},
+			{"g.Go(func() error", "Goroutines not generated for parallel commands"},
+			{"docker build -t myapp:1.0.0", "Parallel docker build command missing"},
+			{"docker push myapp:1.0.0", "Parallel docker push command missing"},
+			{"g.Wait()", "errgroup Wait not called"},
 
 			// Main structure
 			{"func main()", "Main function missing"},
@@ -532,6 +550,18 @@ deploy: {
 			}
 		}
 
+		// NEW: Verify we DON'T have old shell-style parallel execution
+		if strings.Contains(code, " &; ") || strings.Contains(code, "&; wait") {
+			return TestResult{
+				Success:      false,
+				ErrorMessage: "Found old shell-style parallel execution instead of goroutines",
+				Context: map[string]interface{}{
+					"Found": "Shell background processes (&; wait)",
+					"Expected": "Go routines with errgroup",
+				},
+			}
+		}
+
 		return TestResult{Success: true}
 	})
 }
@@ -551,6 +581,14 @@ build: go build -o @var(APP) .;
 test: go test ./...;
 run: ./@var(APP) --port=@var(PORT);
 
+# Test parallel execution
+parallel-build: {
+    @parallel: {
+        go build -o @var(APP)-linux .;
+        go build -o @var(APP)-windows .
+    }
+}
+
 watch dev: @sh(go run . --port=@var(PORT) --dev);
 stop dev: @sh(pkill -f "go run");
 `
@@ -563,6 +601,11 @@ stop dev: @sh(pkill -f "go run");
 	generated, err := GenerateGo(cf)
 	if err != nil {
 		t.Fatalf("Failed to generate: %v", err)
+	}
+
+	// Verify errgroup import is included when parallel commands are present
+	if !strings.Contains(generated, `"golang.org/x/sync/errgroup"`) {
+		t.Errorf("Expected errgroup import for parallel commands")
 	}
 
 	// Create temp directory
@@ -582,11 +625,18 @@ stop dev: @sh(pkill -f "go run");
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
 
-	// Initialize go.mod
+	// Initialize go.mod with errgroup dependency
 	cmd := exec.Command("go", "mod", "init", "testcli")
 	cmd.Dir = tmpDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to init go.mod: %v\nOutput: %s", err, output)
+	}
+
+	// Add errgroup dependency
+	cmd = exec.Command("go", "get", "golang.org/x/sync/errgroup")
+	cmd.Dir = tmpDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to get errgroup: %v\nOutput: %s", err, output)
 	}
 
 	// Try to build
@@ -648,5 +698,24 @@ func TestErrorHandling(t *testing.T) {
 				t.Errorf("Expected error containing %q, but got: %v", tt.expectError, err)
 			}
 		})
+	}
+}
+
+// Test that GenerateGoWithTemplate function still exists (for the build error)
+func TestGenerateGoWithTemplate(t *testing.T) {
+	input := `test: echo hello;`
+	cf, err := devcmdParser.Parse(input, false)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	template := `{{.PackageName}} - {{range .Commands}}{{.Name}}{{end}}`
+	result, err := GenerateGoWithTemplate(cf, template)
+	if err != nil {
+		t.Fatalf("GenerateGoWithTemplate failed: %v", err)
+	}
+
+	if !strings.Contains(result, "main") {
+		t.Errorf("Expected result to contain 'main', got: %s", result)
 	}
 }

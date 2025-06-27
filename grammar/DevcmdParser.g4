@@ -116,7 +116,7 @@ decoratorTextElement
     | AMPERSAND | PIPE | LT | GT | COLON | EQUALS | BACKSLASH
     | DOT | COMMA | SLASH | DASH | STAR | PLUS | QUESTION | EXCLAIM
     | PERCENT | CARET | TILDE | UNDERSCORE | LBRACKET | RBRACKET
-    | LBRACE | RBRACE | DOLLAR | HASH | DOUBLEQUOTE
+    | LBRACE | RBRACE | DOLLAR | HASH | DOUBLEQUOTE | BACKTICK
     | SEMICOLON | WATCH | STOP | DEF
     ;
 
@@ -210,6 +210,7 @@ commandTextElement
     | DOLLAR                // $ - shell variables and command substitution
     | HASH                  // # - when not comment
     | DOUBLEQUOTE           // " - when not in string
+    | BACKTICK              // ` - backtick command substitution (ADDED)
     | AT                    // @ - when not decorator start
     | WATCH                 // Allow keywords in command text
     | STOP                  // Allow keywords in command text
