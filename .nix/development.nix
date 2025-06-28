@@ -1,14 +1,12 @@
 # Development environment for devcmd project
 # Dogfooding our own tool for development commands
 { pkgs, self ? null }:
-
 let
   # Import our own library to create the development CLI
   devcmdLib = import ./lib.nix {
     inherit pkgs self;
     lib = pkgs.lib;
   };
-
   # Generate the development CLI from our commands.cli file
   devCLI =
     if self != null then
@@ -28,51 +26,32 @@ let
         }
     else
       null;
-
 in
 pkgs.mkShell {
   name = "devcmd-dev";
-
   buildInputs = with pkgs; [
     # Core Go development
     go
     gopls
     golangci-lint
-
     # ANTLR for grammar generation
     antlr4
     openjdk17 # Required for ANTLR
-
     # Development tools
     git
     zsh
-
     # Code formatting
     nixpkgs-fmt
     gofumpt
   ] ++ pkgs.lib.optional (devCLI != null) devCLI;
-
   # Environment setup
   JAVA_HOME = "${pkgs.openjdk17}/lib/openjdk";
-
   shellHook = ''
     echo "🔧 Devcmd Development Environment"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-
     ${if devCLI != null then ''
-      echo "🚀 Development CLI available as 'dev'"
-      echo ""
-      echo "Quick start:"
-      echo "  dev setup          - Initialize development environment"
-      echo "  dev build          - Build the CLI tool"
-      echo "  dev test           - Run tests"
-      echo "  dev ci             - Full CI workflow"
-      echo "  dev info           - Show project information"
-      echo ""
-      echo "All commands: dev --help"
-      echo ""
-      echo "🎯 This CLI demonstrates devcmd's real-world capabilities!"
+        dev help
     '' else ''
       echo "⚠️  Development CLI not available (missing self reference)"
       echo "   To get the full experience: nix develop"
@@ -81,8 +60,6 @@ pkgs.mkShell {
       echo "  go build -o devcmd ./cmd/devcmd"
       echo "  go test ./..."
     ''}
-
-    # Make zsh available
-    export SHELL=${pkgs.zsh}/bin/zsh
+    exec ${pkgs.zsh}/bin/zsh
   '';
 }

@@ -1,4 +1,4 @@
-  /**
+/**
  * Devcmd Lexer Grammar
  *
  * Lexer for the devcmd language - a declarative syntax for defining
@@ -15,6 +15,29 @@
  * - Shell command syntax: pipes, redirections, background processes
  */
 lexer grammar DevcmdLexer;
+
+// Add predicate function for comment detection
+@lexer::members {
+    func (p *DevcmdLexer) isCommentLine() bool {
+        // Get current position in line
+        pos := p.GetCharPositionInLine()
+
+        // If at start of line, it's a comment
+        if pos == 0 {
+            return true
+        }
+
+        // Look back from current position to start of line
+        // Check if only whitespace (spaces/tabs) precedes current position
+        for i := 1; i <= pos; i++ {
+            char := p.GetInputStream().LA(-i)
+            if char != ' ' && char != '\t' {
+                return false // Non-whitespace found, not a comment line
+            }
+        }
+        return true // Only whitespace found, this is a comment line
+    }
+}
 
 // Keywords - must come first for precedence
 DEF : 'def' ;
@@ -78,11 +101,11 @@ RBRACKET : ']' ;
 DOLLAR : '$' ;
 HASH : '#' ;
 DOUBLEQUOTE : '"' ;
-BACKTICK : '`' ;  // Added backtick support
+BACKTICK : '`' ;
 
 // Whitespace and comments - must be at the end
-// Only treat # as comment when it appears at the beginning of a line
-// Use direct method call since Go target uses 'p' receiver for predicates
-COMMENT : {p.GetCharPositionInLine() == 0}? '#' ~[\r\n]* -> channel(HIDDEN) ;
+// Support # comments that start at beginning of line or after whitespace only
+COMMENT : {p.isCommentLine()}? [ \t]* '#' ~[\r\n]* -> channel(HIDDEN) ;
+
 NEWLINE : '\r'? '\n' ;
 WS : [ \t]+ -> channel(HIDDEN) ;

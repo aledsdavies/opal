@@ -203,65 +203,6 @@ func convertExpectedElementsToComparable(elements []ExpectedElement) []interface
 	return result
 }
 
-// Helper function to format elements for diff output
-func formatElements(elements []CommandElement) string {
-	var parts []string
-	for i, elem := range elements {
-		if elem.IsDecorator() {
-			decorator := elem.(*DecoratorElement)
-			if len(decorator.Args) == 0 {
-				parts = append(parts, fmt.Sprintf("[%d] DECORATOR: @%s()", i, decorator.Name))
-			} else {
-				argStrs := make([]string, len(decorator.Args))
-				for j, arg := range decorator.Args {
-					argStrs[j] = arg.String()
-				}
-				parts = append(parts, fmt.Sprintf("[%d] DECORATOR: @%s(%s)", i, decorator.Name, strings.Join(argStrs, "")))
-			}
-		} else {
-			parts = append(parts, fmt.Sprintf("[%d] TEXT: %q", i, elem.String()))
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func formatExpectedElements(elements []ExpectedElement) string {
-	var parts []string
-	for i, elem := range elements {
-		if elem.Type == "decorator" {
-			if len(elem.Args) == 0 {
-				parts = append(parts, fmt.Sprintf("[%d] DECORATOR: @%s()", i, elem.DecoratorName))
-			} else {
-				var argStrs []string
-				for _, arg := range elem.Args {
-					if arg.Type == "decorator" {
-						argStrs = append(argStrs, fmt.Sprintf("@%s(%s)", arg.DecoratorName, arg.Text))
-					} else {
-						argStrs = append(argStrs, arg.Text)
-					}
-				}
-				parts = append(parts, fmt.Sprintf("[%d] DECORATOR: @%s(%s)", i, elem.DecoratorName, strings.Join(argStrs, "")))
-			}
-		} else {
-			parts = append(parts, fmt.Sprintf("[%d] TEXT: %q", i, elem.Text))
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-// Enhanced diff output for elements
-func showElementsDiff(t *testing.T, actual []CommandElement, expected []ExpectedElement, path string) {
-	// Convert to comparable format and show diff
-	actualComparable := convertElementsToComparable(actual)
-	expectedComparable := convertExpectedElementsToComparable(expected)
-	showDiff(t, expectedComparable, actualComparable, path)
-}
-
-// Updated verification functions using diff
-func verifyElements(t *testing.T, actual []CommandElement, expected []ExpectedElement, path string) {
-	showElementsDiff(t, actual, expected, path)
-}
-
 func verifyCommand(t *testing.T, actual Command, expected ExpectedCommand, index int) {
 	prefix := fmt.Sprintf("Command[%d]", index)
 
@@ -486,6 +427,22 @@ func TestVarDecorators(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "debug backup - DATE assignment with semicolon",
+			Input: `backup-debug2: {
+        @sh(DATE=$(date +%Y%m%d-%H%M%S); echo "test")
+      }`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("backup-debug2",
+						DecoratedStatement("sh", "function", "DATE=$(date +%Y%m%d-%H%M%S); echo \"test\"",
+							Decorator("sh", "function", Text("DATE=$(date +%Y%m%d-%H%M%S); echo \"test\"")))),
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -669,6 +626,34 @@ func TestComplexShellCommands(t *testing.T) {
 					BlockCommand("test-debug2",
 						DecoratedStatement("sh", "function", "$(echo test)",
 							Decorator("sh", "function", Text("$(echo test)")))),
+				},
+			},
+		},
+		// Test case for backup command with complex shell substitution and @var()
+		{
+			Name: "backup command with shell substitution and @var",
+			Input: `backup: {
+        echo "Creating backup...";
+        # Shell command substitution uses regular $() syntax in @sh()
+        @sh(DATE=$(date +%Y%m%d-%H%M%S); echo "Backup timestamp: $DATE");
+        @sh((which kubectl && kubectl exec deployment/database -n @var(KUBE_NAMESPACE) -- pg_dump myapp > backup-$(date +%Y%m%d-%H%M%S).sql) || echo "No database")
+      }`,
+			Expected: struct {
+				Definitions []ExpectedDefinition
+				Commands    []ExpectedCommand
+			}{
+				Commands: []ExpectedCommand{
+					BlockCommand("backup",
+						Statement("echo \"Creating backup...\"", Text("echo \"Creating backup...\"")),
+						DecoratedStatement("sh", "function",
+							"DATE=$(date +%Y%m%d-%H%M%S); echo \"Backup timestamp: $DATE\"",
+							Decorator("sh", "function", Text("DATE=$(date +%Y%m%d-%H%M%S); echo \"Backup timestamp: $DATE\""))),
+						DecoratedStatement("sh", "function",
+							"(which kubectl && kubectl exec deployment/database -n @var(KUBE_NAMESPACE) -- pg_dump myapp > backup-$(date +%Y%m%d-%H%M%S).sql) || echo \"No database\"",
+							Decorator("sh", "function",
+								Text("(which kubectl && kubectl exec deployment/database -n "),
+								Var("KUBE_NAMESPACE"),
+								Text(" -- pg_dump myapp > backup-$(date +%Y%m%d-%H%M%S).sql) || echo \"No database\"")))),
 				},
 			},
 		},

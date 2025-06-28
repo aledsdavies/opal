@@ -34,7 +34,7 @@ grammar: {
     mkdir -p @var(GEN_DIR);
     @sh(cd @var(GRAMMAR_DIR) && antlr4 -Dlanguage=Go -package gen -listener -visitor -o ../@var(GEN_DIR) DevcmdLexer.g4 DevcmdParser.g4);
     echo "Generated files:";
-    @sh(ls -la @var(GEN_DIR)/);
+    @sh(ls -la ../@var(GEN_DIR)/);
     echo "✅ Parser generated";
 }
 
