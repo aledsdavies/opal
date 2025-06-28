@@ -353,8 +353,7 @@ build: {
 	}
 }
 
-// Command generation tests
-
+// Updated command generation tests with correct expectations
 func TestCommandGeneration(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -366,13 +365,13 @@ func TestCommandGeneration(t *testing.T) {
 			name:        "Simple command",
 			input:       `build: go build .;`,
 			expectFunc:  "func (c *CLI) runBuild(args []string)",
-			expectShell: `exec.Command("sh", "-c", ` + "`go build .`)",
+			expectShell: `exec.Command("sh", "-c", "go build .")`,
 		},
 		{
 			name:        "Command with dashes",
 			input:       `test-unit: go test ./...;`,
 			expectFunc:  "func (c *CLI) runTestUnit(args []string)",
-			expectShell: `exec.Command("sh", "-c", ` + "`go test ./...`)",
+			expectShell: `exec.Command("sh", "-c", "go test ./...")`,
 		},
 		{
 			name: "Block command",
@@ -381,7 +380,7 @@ func TestCommandGeneration(t *testing.T) {
     kubectl apply -f k8s/
 }`,
 			expectFunc:  "func (c *CLI) runDeploy(args []string)",
-			expectShell: `exec.Command("sh", "-c", ` + "`echo \"Deploying...\"; kubectl apply -f k8s/`)",
+			expectShell: `exec.Command("sh", "-c", "echo \"Deploying...\"; kubectl apply -f k8s/")`,
 		},
 	}
 
@@ -424,7 +423,7 @@ stop server: pkill node;
 			expect: []string{
 				"runInBackground",
 				`c.runInBackground("server", command)`,
-				`pkill node`,
+				`"pkill node"`, // Now properly escaped
 			},
 		},
 	}
@@ -440,8 +439,7 @@ stop server: pkill node;
 	}
 }
 
-// Updated decorator tests for standard library parallel execution
-
+// Updated decorator tests for standard library parallel execution with proper escaping
 func TestDecorators(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -452,7 +450,7 @@ func TestDecorators(t *testing.T) {
 		{
 			name:   "@sh decorator",
 			input:  `test: @sh(echo "Hello World");`,
-			expect: []string{`echo "Hello World"`},
+			expect: []string{`"echo \"Hello World\""`}, // Now properly escaped
 		},
 		{
 			name: "@parallel decorator with standard library",
@@ -467,8 +465,8 @@ func TestDecorators(t *testing.T) {
 				"wg.Add(1)",
 				"go func()",
 				"defer wg.Done()",
-				"go build ./cmd/app1",
-				"go build ./cmd/app2",
+				`"go build ./cmd/app1"`, // Now properly escaped
+				`"go build ./cmd/app2"`, // Now properly escaped
 				"wg.Wait()",
 				"errChan := make(chan error,",
 			},
@@ -494,8 +492,7 @@ func TestDecorators(t *testing.T) {
 	}
 }
 
-// Test user-defined help commands
-
+// Updated user-defined help command tests with proper escaping expectations
 func TestUserDefinedHelpCommand(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -528,7 +525,7 @@ help: echo "Custom help message";
 `,
 			shouldHave: []string{
 				`func (c *CLI) runHelp(args []string)`,
-				`echo "Custom help message"`,
+				`"echo \"Custom help message\""`, // Now properly escaped
 				`case "help":`,
 			},
 			shouldNotHave: []string{
@@ -548,7 +545,7 @@ help: {
 }`,
 			shouldHave: []string{
 				`func (c *CLI) runHelp(args []string)`,
-				`My Custom CLI`,
+				`"echo \"My Custom CLI\"; echo \"Commands:\"; echo \"  build - Build the project\""`, // Now properly escaped
 				`case "help":`,
 			},
 			shouldNotHave: []string{
@@ -735,7 +732,7 @@ help: echo "My custom help";
 	}
 }
 
-// Updated full integration tests
+// Updated full integration tests with proper escaping expectations
 
 func TestFullCLIGeneration(t *testing.T) {
 	input := `
@@ -774,7 +771,7 @@ deploy: {
 			return compileResult
 		}
 
-		// Check critical features
+		// Check critical features with updated patterns
 		criticalPatterns := []struct {
 			pattern string
 			reason  string
@@ -799,8 +796,8 @@ deploy: {
 			{"wg.Add(1)", "WaitGroup Add not called"},
 			{"go func()", "Goroutines not generated for parallel commands"},
 			{"defer wg.Done()", "WaitGroup Done not called"},
-			{"docker build -t myapp:1.0.0", "Parallel docker build command missing"},
-			{"docker push myapp:1.0.0", "Parallel docker push command missing"},
+			{`"docker build -t myapp:1.0.0 ."`, "Parallel docker build command missing (properly escaped)"},
+			{`"docker push myapp:1.0.0"`, "Parallel docker push command missing (properly escaped)"},
 			{"wg.Wait()", "WaitGroup Wait not called"},
 			{"errChan := make(chan error,", "Error channel not created"},
 
@@ -1040,7 +1037,7 @@ parallel-test: {
 			return result
 		}
 
-		// Check for standard library parallel patterns
+		// Check for standard library parallel patterns with proper escaping
 		requiredPatterns := []string{
 			"var wg sync.WaitGroup",
 			"errChan := make(chan error, 3)", // Should match number of parallel commands
@@ -1050,6 +1047,9 @@ parallel-test: {
 			"wg.Wait()",
 			"close(errChan)",
 			"for err := range errChan",
+			`"echo \"Command 1\""`, // Now properly escaped
+			`"echo \"Command 2\""`, // Now properly escaped
+			`"echo \"Command 3\""`, // Now properly escaped
 		}
 
 		for _, pattern := range requiredPatterns {
@@ -1083,4 +1083,163 @@ parallel-test: {
 
 		return TestResult{Success: true}
 	})
+}
+
+// Updated test for the shell quoting issues that now should be fixed
+func TestShellQuotingIssues(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		description string
+	}{
+		{
+			name:        "Special characters with quotes",
+			input:       `special-chars: echo "Special: !#$%^&*()";`,
+			description: "Commands with special characters in quotes should generate valid shell commands",
+		},
+		{
+			name:        "Mixed quotes",
+			input:       `mixed: echo 'Single quotes' && echo "Double quotes";`,
+			description: "Commands with mixed quote types should be handled properly",
+		},
+		{
+			name:        "Quotes with variables",
+			input:       `def MSG = "Hello World"; test: echo "@var(MSG) with quotes";`,
+			description: "Variable expansion within quoted strings should work",
+		},
+		{
+			name:        "Backticks in commands",
+			input:       "backticks: echo `date` and other stuff;",
+			description: "Commands with backticks should not break Go template generation",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Logf("Testing: %s", tt.description)
+
+			// Parse the input
+			cf, err := devcmdParser.Parse(tt.input, false)
+			if err != nil {
+				t.Fatalf("Failed to parse input: %v", err)
+			}
+
+			// Generate Go code
+			generated, err := GenerateGo(cf)
+			if err != nil {
+				t.Fatalf("Failed to generate Go code: %v", err)
+			}
+
+			// Verify it compiles
+			if result := mustCompile()(generated); !result.Success {
+				t.Errorf("Generated code doesn't compile: %s", result.ErrorMessage)
+				t.Logf("Generated code:\n%s", generated)
+				return
+			}
+
+			// Verify that commands are properly escaped in the generated code
+			expectedEscapePatterns := map[string]string{
+				"special-chars": `"echo \"Special: !#$%^&*()\""`,
+				"mixed":         `"echo 'Single quotes' && echo \"Double quotes\""`,
+				"test":          `"echo \"Hello World with quotes\""`,
+				"backticks":     `"echo ` + "`date`" + ` and other stuff"`,
+			}
+
+			commandName := extractCommandName(tt.input)
+			if expectedPattern, exists := expectedEscapePatterns[commandName]; exists {
+				if !strings.Contains(generated, expectedPattern) {
+					t.Errorf("Expected to find properly escaped command: %q", expectedPattern)
+					t.Logf("Generated code:\n%s", generated)
+				} else {
+					t.Logf("✅ Command properly escaped: %s", expectedPattern)
+				}
+			}
+
+			// Create temp directory and test actual execution
+			tmpDir, err := os.MkdirTemp("", "devcmd_quote_test_*")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer func() {
+				if err := os.RemoveAll(tmpDir); err != nil {
+					t.Logf("Failed to clean up temp dir: %v", err)
+				}
+			}()
+
+			// Write generated code
+			mainFile := filepath.Join(tmpDir, "main.go")
+			if err := os.WriteFile(mainFile, []byte(generated), 0o644); err != nil {
+				t.Fatalf("Failed to write main.go: %v", err)
+			}
+
+			// Initialize go.mod
+			cmd := exec.Command("go", "mod", "init", "testcli")
+			cmd.Dir = tmpDir
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("Failed to init go.mod: %v\nOutput: %s", err, output)
+			}
+
+			// Build the CLI
+			cmd = exec.Command("go", "build", "-o", "testcli", ".")
+			cmd.Dir = tmpDir
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("Generated code failed to compile: %v\nOutput: %s", err, output)
+			}
+
+			if commandName == "" {
+				t.Skip("Could not extract command name for runtime testing")
+				return
+			}
+
+			// Try to run the command
+			t.Logf("Testing runtime execution of command: %s", commandName)
+			cmd = exec.Command("./testcli", commandName)
+			cmd.Dir = tmpDir
+			output, err := cmd.CombinedOutput()
+
+			// Log the result for debugging
+			t.Logf("Command output: %s", string(output))
+			if err != nil {
+				t.Logf("Command error: %v", err)
+
+				// Check if this is the specific shell quoting error we fixed
+				outputStr := string(output)
+				if strings.Contains(outputStr, "unexpected EOF while looking for matching") ||
+					strings.Contains(outputStr, "unterminated quoted string") {
+					t.Errorf("Shell quoting error still detected: %v\nOutput: %s", err, outputStr)
+					t.Errorf("The printf \"%%q\" escaping should have fixed this issue")
+				} else {
+					t.Logf("Command failed but not due to shell quoting issues: %v", err)
+				}
+			} else {
+				t.Logf("✅ Command executed successfully")
+			}
+		})
+	}
+}
+
+// Helper function to extract command name from test input
+func extractCommandName(input string) string {
+	lines := strings.Split(input, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "def ") {
+			continue
+		}
+
+		// Look for pattern: "commandname:"
+		colonIndex := strings.Index(line, ":")
+		if colonIndex > 0 {
+			commandPart := strings.TrimSpace(line[:colonIndex])
+			// Handle watch/stop prefixes
+			if strings.HasPrefix(commandPart, "watch ") {
+				return strings.TrimSpace(commandPart[6:])
+			}
+			if strings.HasPrefix(commandPart, "stop ") {
+				return strings.TrimSpace(commandPart[5:])
+			}
+			return commandPart
+		}
+	}
+	return ""
 }

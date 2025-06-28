@@ -69,49 +69,6 @@
             go = examples.shells.goShell;
             data = examples.shells.dataShell;
 
-            # Complete development shell with explicit CLI generation
-            complete = pkgs.mkShell {
-              name = "devcmd-complete-dev";
-              buildInputs = with pkgs; [
-                # Core development tools
-                go
-                gopls
-                golangci-lint
-                antlr4
-                openjdk17
-                git
-                zsh
-                nixpkgs-fmt
-                gofumpt
-                # Our generated development CLI
-                (devcmdLib.mkDevCLI {
-                  name = "dev";
-                  commandsFile = ./commands.cli;
-                  version = "complete";
-                  meta.description = "Complete devcmd development environment";
-                })
-              ];
-
-              shellHook = ''
-                echo "🔧 Devcmd Complete Development Environment"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo ""
-                echo "🎯 Full-featured development environment with generated CLI"
-                echo ""
-                echo "Core commands:"
-                echo "  dev setup          - Project setup"
-                echo "  dev build          - Build CLI"
-                echo "  dev test           - Run tests"
-                echo "  dev ci             - Full CI workflow"
-                echo "  dev examples       - Build example CLIs"
-                echo "  dev demo           - Show example showcase"
-                echo "  dev validate       - Validate setup"
-                echo ""
-                echo "See all: dev --help"
-                echo ""
-              '';
-            };
-
             # Test environment shell with all tools needed for testing
             testEnv = pkgs.mkShell {
               name = "devcmd-test-env";

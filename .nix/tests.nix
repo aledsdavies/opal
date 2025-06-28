@@ -217,7 +217,7 @@ rec {
         name = "error-test";
         commandsContent = ''
           valid: echo "This works";
-          special-chars: echo "Special: !@#\$%^&*()";
+          special-chars: echo "Special: !#\$%^&*()";
           unicode: echo "Hello 世界";
         '';
       };

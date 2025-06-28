@@ -1,6 +1,6 @@
 package generator
 
-// Updated template component definitions with standard library parallel execution and smart help handling
+// Updated template component definitions with proper shell command escaping
 
 const packageTemplate = `{{define "package"}}package {{.PackageName}}{{end}}`
 
@@ -344,7 +344,7 @@ func (c *CLI) {{.FunctionName}}(args []string) {
 
 const regularCommandTemplate = `{{define "regular-command"}}
 	// Regular command
-	cmd := exec.Command("sh", "-c", ` + "`{{.ShellCommand}}`" + `)
+	cmd := exec.Command("sh", "-c", {{printf "%q" .ShellCommand}})
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -368,14 +368,14 @@ const watchStopCommandTemplate = `{{define "watch-stop-command"}}
 	subcommand := args[0]
 	switch subcommand {
 	case "start":
-		command := ` + "`{{.WatchCommand}}`" + `
+		command := {{printf "%q" .WatchCommand}}
 		if err := c.runInBackground("{{.Name}}", command); err != nil {
 			fmt.Fprintf(os.Stderr, "Error starting {{.Name}}: %v\n", err)
 			os.Exit(1)
 		}
 	case "stop":
 		// Run custom stop command
-		cmd := exec.Command("sh", "-c", ` + "`{{.StopCommand}}`" + `)
+		cmd := exec.Command("sh", "-c", {{printf "%q" .StopCommand}})
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -403,7 +403,7 @@ const watchOnlyCommandTemplate = `{{define "watch-only-command"}}
 	subcommand := args[0]
 	switch subcommand {
 	case "start":
-		command := ` + "`{{.WatchCommand}}`" + `
+		command := {{printf "%q" .WatchCommand}}
 		if err := c.runInBackground("{{.Name}}", command); err != nil {
 			fmt.Fprintf(os.Stderr, "Error starting {{.Name}}: %v\n", err)
 			os.Exit(1)
@@ -425,7 +425,7 @@ const watchOnlyCommandTemplate = `{{define "watch-only-command"}}
 const stopOnlyCommandTemplate = `{{define "stop-only-command"}}
 	// Stop-only command (unusual case)
 	// Run stop command
-	cmd := exec.Command("sh", "-c", ` + "`{{.StopCommand}}`" + `)
+	cmd := exec.Command("sh", "-c", {{printf "%q" .StopCommand}})
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -433,7 +433,7 @@ const stopOnlyCommandTemplate = `{{define "stop-only-command"}}
 	}
 {{- end}}`
 
-// Updated parallel command template using standard library with proper scoping
+// Updated parallel command template using standard library with proper command escaping
 const parallelCommandTemplate = `{{define "parallel-command"}}
 	// Parallel command execution using standard library goroutines
 	{
@@ -444,7 +444,7 @@ const parallelCommandTemplate = `{{define "parallel-command"}}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cmd := exec.Command("sh", "-c", ` + "`{{.}}`" + `)
+			cmd := exec.Command("sh", "-c", {{printf "%q" .}})
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {
@@ -470,7 +470,7 @@ const parallelCommandTemplate = `{{define "parallel-command"}}
 	}
 {{- end}}`
 
-// Updated mixed command template with proper scoping for multiple parallel segments
+// Updated mixed command template with proper command escaping for multiple parallel segments
 const mixedCommandTemplate = `{{define "mixed-command"}}
 	// Mixed command with both parallel and sequential execution
 	{{range $index, $segment := .CommandSegments}}
@@ -484,7 +484,7 @@ const mixedCommandTemplate = `{{define "mixed-command"}}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cmd := exec.Command("sh", "-c", ` + "`{{.}}`" + `)
+			cmd := exec.Command("sh", "-c", {{printf "%q" .}})
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {
@@ -509,7 +509,7 @@ const mixedCommandTemplate = `{{define "mixed-command"}}
 	{{else}}
 	// Sequential command
 	{
-		cmd := exec.Command("sh", "-c", ` + "`{{.Command}}`" + `)
+		cmd := exec.Command("sh", "-c", {{printf "%q" .Command}})
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
@@ -559,4 +559,4 @@ const masterTemplate = `{{define "main"}}{{template "package" .}}
 {{template "command-functions" .}}
 {{template "main-function" .}}{{end}}
 
-{{define "command-impl"}}{{if eq .Type "regular"}}{{template "regular-command" .}}{{else if eq .Type "watch-stop"}}{{template "watch-stop-command" .}}{{else if eq .Type "watch-only"}}{{template "watch-only-command" .}}{{else if eq .Type "stop-only"}}{{template "stop-only-command" .}}{{else if eq .Type "parallel"}}{{template "parallel-command" .}}{{else if eq .Type "mixed"}}{{template "mixed-command" .}}{{end}}{{end}}`
+	{{define "command-impl"}}{{if eq .Type "regular"}}{{template "regular-command" .}}{{else if eq .Type "watch-stop"}}{{template "watch-stop-command" .}}{{else if eq .Type "watch-only"}}{{template "watch-only-command" .}}{{else if eq .Type "stop-only"}}{{template "stop-only-command" .}}{{else if eq .Type "parallel"}}{{template "parallel-command" .}}{{else if eq .Type "mixed"}}{{template "mixed-command" .}}{{end}}{{end}}`
