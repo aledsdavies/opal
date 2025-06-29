@@ -626,56 +626,6 @@ func (v *DevcmdVisitor) processSimpleCommand(ctx *gen.SimpleCommandContext) stri
 	return strings.Join(parts, " ")
 }
 
-// processCommandText processes commandText using the grammar's parsed tokens
-func (v *DevcmdVisitor) processCommandText(ctx *gen.CommandTextContext) []CommandElement {
-	var elements []CommandElement
-
-	if ctx == nil {
-		return elements
-	}
-
-	// Process all commandTextElement tokens from the grammar
-	commandTextElements := ctx.AllCommandTextElement()
-	var currentTextParts []string
-
-	for _, element := range commandTextElements {
-		elementCtx := element.(*gen.CommandTextElementContext)
-
-		// Check if this is a decorator
-		if decoratorCtx := elementCtx.Decorator(); decoratorCtx != nil {
-			// Found a decorator - first flush any accumulated text
-			if len(currentTextParts) > 0 {
-				elements = append(elements, NewTextElement(strings.Join(currentTextParts, "")))
-				currentTextParts = nil
-			}
-
-			// Process the decorator
-			decoratedStmt := v.processDecorator(decoratorCtx.(*gen.DecoratorContext))
-			// Extract just the decorator element from the statement
-			if len(decoratedStmt.Elements) > 0 && decoratedStmt.Elements[0].IsDecorator() {
-				elements = append(elements, decoratedStmt.Elements[0])
-			}
-		} else {
-			// Not a decorator - accumulate the text
-			text := v.getOriginalText(elementCtx)
-			if text != "" {
-				currentTextParts = append(currentTextParts, text)
-			}
-		}
-	}
-
-	// Flush any remaining text
-	if len(currentTextParts) > 0 {
-		elements = append(elements, NewTextElement(strings.Join(currentTextParts, "")))
-	}
-
-	if v.debug != nil {
-		v.debug.Log("processCommandText completed: %d elements", len(elements))
-	}
-
-	return elements
-}
-
 func (v *DevcmdVisitor) processBlockCommand(ctx *gen.BlockCommandContext) []BlockStatement {
 	var statements []BlockStatement
 

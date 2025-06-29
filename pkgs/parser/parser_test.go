@@ -686,7 +686,7 @@ func TestMixedAtSymbolScenarios(t *testing.T) {
 			},
 		},
 		{
-			Name:  "block with mixed @ usage including block decorators",
+			Name: "block with mixed @ usage including block decorators",
 			Input: `complex: {
         echo "Starting deployment...";
         ssh deploy@server.com 'mkdir -p @var(APP_DIR)';
