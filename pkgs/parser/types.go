@@ -2,177 +2,254 @@ package parser
 
 import (
 	"fmt"
-	"strings"
+
+	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/lexer"
 )
 
-// CommandElement represents any element that can appear in command text
-// This supports a proper AST structure for nested decorators
-type CommandElement interface {
-	String() string
-	IsDecorator() bool
+// Parser represents the main parser state
+type Parser struct {
+	tokens    []lexer.Token
+	current   int
+	structure *StructureMap
+	errors    []ParseError
+	config    ParserConfig
+
+	// Fast lookups built during preprocessing
+	decorators map[int]*ast.Decorator
 }
 
-// TextElement represents literal text in commands
-type TextElement struct {
-	Text string
+// StructureMap holds preprocessed structural information
+type StructureMap struct {
+	Variables   []VariableSpan
+	Commands    []CommandSpan
+	Decorators  []DecoratorSpan
+	BlockRanges []BlockRange
 }
 
-func (t *TextElement) String() string {
-	return t.Text
+// VariableSpan represents a variable declaration location
+type VariableSpan struct {
+	NameToken   lexer.Token
+	ValueStart  int // token index
+	ValueEnd    int
+	IsGrouped   bool
+	GroupStart  int // for grouped variables
+	GroupEnd    int
 }
 
-func (t *TextElement) IsDecorator() bool {
-	return false
+// CommandSpan represents a command declaration location
+type CommandSpan struct {
+	TypeToken   lexer.Token // var/watch/stop
+	NameToken   lexer.Token
+	ColonToken  lexer.Token
+	BodyStart   int
+	BodyEnd     int
+	IsBlock     bool
+	Decorators  []int // indices into DecoratorSpan slice
 }
 
-// DecoratorElement represents a decorator like @var(SRC) or @sh(...)
-type DecoratorElement struct {
-	Name  string           // "var", "sh", "parallel", etc.
-	Type  string           // "function" or "block"
-	Args  []CommandElement // For function decorators: contents of @name(...)
-	Block []BlockStatement // For block decorators: @name { ... }
+// DecoratorSpan represents a decorator location with unified args and block support
+type DecoratorSpan struct {
+	AtToken     lexer.Token
+	NameToken   lexer.Token
+	HasArgs     bool
+	ArgsStart   int // ( token index
+	ArgsEnd     int // ) token index
+	HasBlock    bool
+	BlockStart  int // { token index
+	BlockEnd    int // } token index
+	Args        []DecoratorArgSpan
+	StartIndex  int
+	EndIndex    int
 }
 
-func (d *DecoratorElement) String() string {
-	switch d.Type {
-	case "function":
-		var argStrs []string
-		for _, arg := range d.Args {
-			argStrs = append(argStrs, arg.String())
-		}
-		return fmt.Sprintf("@%s(%s)", d.Name, strings.Join(argStrs, ""))
-	case "block":
-		// Block representation would be more complex
-		return fmt.Sprintf("@%s { ... }", d.Name)
+// DecoratorArgSpan represents an argument within decorator parentheses
+type DecoratorArgSpan struct {
+	Name        string // empty for positional args
+	ValueStart  int    // token index
+	ValueEnd    int
+	IsNamed     bool
+}
+
+// BlockRange represents a block command's boundaries
+type BlockRange struct {
+	OpenBrace   lexer.Token
+	CloseBrace  lexer.Token
+	StartIndex  int
+	EndIndex    int
+	Statements  []StatementSpan
+}
+
+// StatementSpan represents a statement within a block
+type StatementSpan struct {
+	Start       int
+	End         int
+	HasDecorator bool
+	DecoratorIndex int // index into DecoratorSpan slice if HasDecorator
+}
+
+// TokenRange represents a range of tokens for AST nodes
+type TokenRange struct {
+	Start int // index into parser.tokens
+	End   int // index into parser.tokens
+}
+
+// Tokens returns the tokens in this range
+func (tr TokenRange) Tokens(p *Parser) []lexer.Token {
+	if tr.Start < 0 || tr.End >= len(p.tokens) || tr.Start > tr.End {
+		return nil
+	}
+	return p.tokens[tr.Start : tr.End+1]
+}
+
+// ErrorType categorizes different kinds of parse errors
+type ErrorType int
+
+const (
+	SyntaxError ErrorType = iota
+	SemanticError
+	DuplicateError
+	ReferenceError
+)
+
+// ParseError represents a parse error with user-friendly context
+type ParseError struct {
+	Type     ErrorType
+	Token    lexer.Token
+	Message  string
+	Context  string
+	Hint     string
+	Related  []lexer.Token // Related tokens for better error messages
+}
+
+// Error implements the error interface
+func (pe ParseError) Error() string {
+	position := fmt.Sprintf("line %d, column %d", pe.Token.Line, pe.Token.Column)
+
+	if pe.Context != "" {
+		return fmt.Sprintf("%s at %s in %s: %s",
+			pe.errorTypeString(), position, pe.Context, pe.Message)
+	}
+
+	return fmt.Sprintf("%s at %s: %s",
+		pe.errorTypeString(), position, pe.Message)
+}
+
+// DetailedError returns a more detailed error message with hints
+func (pe ParseError) DetailedError() string {
+	base := pe.Error()
+	if pe.Hint != "" {
+		return fmt.Sprintf("%s\nHint: %s", base, pe.Hint)
+	}
+	return base
+}
+
+func (pe ParseError) errorTypeString() string {
+	switch pe.Type {
+	case SyntaxError:
+		return "Syntax error"
+	case SemanticError:
+		return "Semantic error"
+	case DuplicateError:
+		return "Duplicate declaration"
+	case ReferenceError:
+		return "Reference error"
 	default:
-		return fmt.Sprintf("@%s", d.Name)
+		return "Parse error"
 	}
 }
 
-func (d *DecoratorElement) IsDecorator() bool {
-	return true
+// ParseResult contains the result of parsing
+type ParseResult struct {
+	Program *ast.Program
+	Errors  []ParseError
 }
 
-// BlockStatement represents a statement within a block command
-// Enhanced to support nested decorator structures
-type BlockStatement struct {
-	// New AST-based approach
-	Elements []CommandElement // Command broken into elements (text + decorators)
-
-	// Legacy fields for backward compatibility
-	Command        string           // Flattened command text (for compatibility)
-	IsDecorated    bool             // Whether this is a decorated command
-	Decorator      string           // The decorator name
-	DecoratorType  string           // "function" or "block"
-	DecoratedBlock []BlockStatement // For block-type decorators
+// HasErrors returns true if there are any parse errors
+func (pr ParseResult) HasErrors() bool {
+	return len(pr.Errors) > 0
 }
 
-// Helper methods for BlockStatement (updated for new structure)
-func (bs *BlockStatement) IsFunction() bool {
-	return bs.IsDecorated && bs.DecoratorType == "function"
-}
-
-func (bs *BlockStatement) IsBlockDecorator() bool {
-	return bs.IsDecorated && bs.DecoratorType == "block"
-}
-
-func (bs *BlockStatement) GetCommand() string {
-	if bs.Command != "" {
-		return bs.Command // Use legacy field if available
+// ErrorSummary returns a summary of all errors
+func (pr ParseResult) ErrorSummary() string {
+	if !pr.HasErrors() {
+		return "No errors"
 	}
 
-	// Generate from elements
-	var parts []string
-	for _, elem := range bs.Elements {
-		parts = append(parts, elem.String())
-	}
-	return strings.Join(parts, "")
-}
+	syntaxCount := 0
+	semanticCount := 0
+	duplicateCount := 0
+	referenceCount := 0
 
-func (bs *BlockStatement) GetDecorator() string {
-	return bs.Decorator
-}
-
-func (bs *BlockStatement) GetNestedBlock() []BlockStatement {
-	return bs.DecoratedBlock
-}
-
-// GetParsedElements returns the structured command elements
-// This is the new API for accessing the parsed structure
-func (bs *BlockStatement) GetParsedElements() []CommandElement {
-	return bs.Elements
-}
-
-// HasNestedDecorators checks if this statement contains nested decorators
-func (bs *BlockStatement) HasNestedDecorators() bool {
-	for _, elem := range bs.Elements {
-		if elem.IsDecorator() {
-			return true
+	for _, err := range pr.Errors {
+		switch err.Type {
+		case SyntaxError:
+			syntaxCount++
+		case SemanticError:
+			semanticCount++
+		case DuplicateError:
+			duplicateCount++
+		case ReferenceError:
+			referenceCount++
 		}
 	}
-	return false
-}
 
-// GetDecorators returns all decorator elements in this statement
-func (bs *BlockStatement) GetDecorators() []*DecoratorElement {
-	var decorators []*DecoratorElement
-	for _, elem := range bs.Elements {
-		if decorator, ok := elem.(*DecoratorElement); ok {
-			decorators = append(decorators, decorator)
-		}
+	summary := fmt.Sprintf("Found %d error(s)", len(pr.Errors))
+	details := []string{}
+
+	if syntaxCount > 0 {
+		details = append(details, fmt.Sprintf("%d syntax", syntaxCount))
 	}
-	return decorators
-}
-
-// Definition represents a variable definition in the command file
-type Definition struct {
-	Name  string // The variable name
-	Value string // The variable value
-	Line  int    // The line number in the source file
-}
-
-// Command represents a command definition in the command file
-// Enhanced to support the new AST structure
-type Command struct {
-	Name    string           // The command name
-	Command string           // The command text for simple commands (legacy)
-	Line    int              // The line number in the source file
-	IsWatch bool             // Whether this is a watch command
-	IsStop  bool             // Whether this is a stop command
-	IsBlock bool             // Whether this is a block command
-	Block   []BlockStatement // The statements for block commands
-
-	// New structured representation
-	Elements []CommandElement // For simple commands broken into elements
-}
-
-// GetParsedElements returns the structured command elements for simple commands
-func (c *Command) GetParsedElements() []CommandElement {
-	return c.Elements
-}
-
-// HasNestedDecorators checks if this command contains nested decorators
-func (c *Command) HasNestedDecorators() bool {
-	if c.IsBlock {
-		for _, stmt := range c.Block {
-			if stmt.HasNestedDecorators() {
-				return true
-			}
-		}
-		return false
+	if semanticCount > 0 {
+		details = append(details, fmt.Sprintf("%d semantic", semanticCount))
+	}
+	if duplicateCount > 0 {
+		details = append(details, fmt.Sprintf("%d duplicate", duplicateCount))
+	}
+	if referenceCount > 0 {
+		details = append(details, fmt.Sprintf("%d reference", referenceCount))
 	}
 
-	for _, elem := range c.Elements {
-		if elem.IsDecorator() {
-			return true
-		}
+	if len(details) > 0 {
+		summary += " (" + joinStrings(details, ", ") + ")"
 	}
-	return false
+
+	return summary
 }
 
-// CommandFile represents the parsed command file
-type CommandFile struct {
-	Definitions []Definition // All variable definitions
-	Commands    []Command    // All command definitions
-	Lines       []string     // Original file lines for error reporting
+// Helper function to join strings (avoiding external dependencies)
+func joinStrings(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	if len(strs) == 1 {
+		return strs[0]
+	}
+
+	result := strs[0]
+	for i := 1; i < len(strs); i++ {
+		result += sep + strs[i]
+	}
+	return result
+}
+
+// ParserConfig holds configuration options for the parser
+type ParserConfig struct {
+	// MaxErrors limits the number of errors collected before stopping
+	MaxErrors int
+
+	// StrictMode enables additional validation
+	StrictMode bool
+
+	// AllowUndefinedVars allows references to undefined variables
+	AllowUndefinedVars bool
+}
+
+// DefaultConfig returns the default parser configuration
+func DefaultConfig() ParserConfig {
+	return ParserConfig{
+		MaxErrors:          50,
+		StrictMode:         false,
+		AllowUndefinedVars: false,
+	}
 }

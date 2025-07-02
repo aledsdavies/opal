@@ -111,7 +111,7 @@ watch frontend: @debounce(500ms) @var(WEBPACK_MODE=development) {
 			generateLargeDevcmdFile(100), // 100 commands
 		},
 		{
-			"DeepNesting",
+			"NestedDecorators",
 			`var complex: @timeout(30s) {
 	echo "Starting complex workflow..."
 	@parallel {
@@ -467,7 +467,7 @@ func TestLexerZeroCopyContract(t *testing.T) {
 
 	// Verify tokens reference original string where possible
 	for _, token := range tokens {
-		if token.Type == IDENTIFIER || token.Type == SHELL_TEXT {
+		if token.Type == IDENTIFIER {
 			// Token value should be a substring of original input
 			if !strings.Contains(input, token.Value) && token.Value != "" {
 				t.Errorf("Token value %q not found in original input - potential unnecessary allocation",
@@ -491,7 +491,7 @@ func TestLexerZeroCopyContract(t *testing.T) {
 
 func TestLexerThroughputContract(t *testing.T) {
 	// Contract: lexer should maintain reasonable throughput for this simple grammar
-	const targetStatementsPerSecond = 8000 // Realistic based on actual benchmark results
+	const targetStatementsPerSecond = 10000 // Increased due to simpler tokenization
 
 	// Generate realistic test input
 	var input strings.Builder

@@ -31,8 +31,8 @@ func init() {
 type LexerMode int
 
 const (
-	LanguageMode LexerMode = iota // Parsing var/command definitions
-	ShellMode                     // Parsing shell command content
+	LanguageMode LexerMode = iota // Standard parsing mode
+	ShellMode                     // Shell command parsing mode
 )
 
 // Pool for working buffers only
@@ -44,14 +44,15 @@ var workBufPool = sync.Pool{
 
 // Lexer tokenizes Devcmd source code with aggressive optimizations
 type Lexer struct {
-	input     []byte // Use []byte for faster operations
-	position  int    // current position in input (points to current char)
-	readPos   int    // current reading position (after current char)
-	ch        byte   // current char under examination (byte for ASCII fast path)
-	line      int    // current line number
-	column    int    // current column number
-	mode      LexerMode
-	modeStack []LexerMode // for nested contexts
+	input     []byte    // Use []byte for faster operations
+	position  int       // current position in input (points to current char)
+	readPos   int       // current reading position (after current char)
+	ch        byte      // current char under examination (byte for ASCII fast path)
+	line      int       // current line number
+	column    int       // current column number
+	afterAt   bool      // Track if we're immediately after @
+	lastToken TokenType // Track the last token type for context
+	mode      LexerMode // Current lexer mode
 }
 
 // estimateTokenCount predicts slice capacity to avoid slice growth
@@ -68,13 +69,18 @@ func estimateTokenCount(inputSize int) int {
 // New creates a new lexer instance with optimized initialization
 func New(input string) *Lexer {
 	l := &Lexer{
-		input:  []byte(input), // Direct conversion for better performance
-		line:   1,
+		input: []byte(input), // Direct conversion for better performance
+		line:  1,
 		column: 0,
 		mode:   LanguageMode,
 	}
 	l.readChar() // initialize first character
 	return l
+}
+
+// setMode allows changing the lexer mode for testing
+func (l *Lexer) setMode(mode LexerMode) {
+	l.mode = mode
 }
 
 // TokenizeToSlice tokenizes to pre-allocated slice for maximum performance
@@ -93,28 +99,25 @@ func (l *Lexer) TokenizeToSlice() []Token {
 	return result
 }
 
-// NextToken returns the next token from the input - optimized version
+// NextToken returns the next token from the input - simplified version
 func (l *Lexer) NextToken() Token {
-	var tok Token
+	tok := l.lexTokenFast()
 
-	// Handle decorators first - they work everywhere
-	if l.ch == '@' && l.isDecoratorStartFast() {
-		return l.lexDecoratorFast()
+	// Update context tracking for decorator names
+	if tok.Type == AT {
+		l.afterAt = true
+	} else if l.afterAt && tok.Type == IDENTIFIER {
+		l.afterAt = false // Reset after processing decorator name
 	}
 
-	// Mode-specific tokenization
-	switch l.mode {
-	case LanguageMode:
-		tok = l.lexLanguageTokenFast()
-	case ShellMode:
-		tok = l.lexShellTokenFast()
-	}
+	// Track last token for context
+	l.lastToken = tok.Type
 
 	return tok
 }
 
-// Fast language token lexing with lookup tables
-func (l *Lexer) lexLanguageTokenFast() Token {
+// Fast token lexing with unified logic
+func (l *Lexer) lexTokenFast() Token {
 	l.skipWhitespaceFast()
 
 	tok := Token{
@@ -122,6 +125,11 @@ func (l *Lexer) lexLanguageTokenFast() Token {
 		Column: l.column,
 	}
 	start := l.position
+
+	// Handle shell mode differently
+	if l.mode == ShellMode {
+		return l.lexShellModeFast(start)
+	}
 
 	switch l.ch {
 	case 0:
@@ -132,14 +140,27 @@ func (l *Lexer) lexLanguageTokenFast() Token {
 		tok.Type = NEWLINE
 		tok.Value = "\n"
 		l.readChar()
+	case '@':
+		tok.Type = AT
+		tok.Value = "@"
+		tok.Semantic = SemOperator
+		tok.Scope = "punctuation.definition.decorator.devcmd"
+		l.readChar()
 	case ':':
 		tok.Type = COLON
 		tok.Value = ":"
+		// Switch to shell mode after colon in language constructs
+		if l.lastToken == IDENTIFIER {
+			l.mode = ShellMode
+		}
 		l.readChar()
-		l.setMode(ShellMode)
 	case '=':
 		tok.Type = EQUALS
 		tok.Value = "="
+		l.readChar()
+	case ',':
+		tok.Type = COMMA
+		tok.Value = ","
 		l.readChar()
 	case '(':
 		tok.Type = LPAREN
@@ -152,13 +173,15 @@ func (l *Lexer) lexLanguageTokenFast() Token {
 	case '{':
 		tok.Type = LBRACE
 		tok.Value = "{"
+		// Switch to shell mode inside braces
+		l.mode = ShellMode
 		l.readChar()
-		l.setMode(ShellMode)
 	case '}':
 		tok.Type = RBRACE
 		tok.Value = "}"
+		// Switch back to language mode after closing brace
+		l.mode = LanguageMode
 		l.readChar()
-		l.setMode(LanguageMode)
 	case '"':
 		return l.lexStringFast('"', DoubleQuoted, start)
 	case '\'':
@@ -172,15 +195,19 @@ func (l *Lexer) lexLanguageTokenFast() Token {
 			return l.lexMultilineCommentFast(start)
 		}
 		fallthrough
+	case '\\':
+		if l.peekChar() == '\n' {
+			return l.lexLineContinuationFast(start)
+		}
+		fallthrough
 	default:
 		if isLetter[l.ch] {
 			return l.lexIdentifierOrKeywordFast(start)
 		} else if isDigit[l.ch] || l.ch == '-' {
-			return l.lexNumberFast(start)
+			return l.lexNumberOrDurationFast(start)
 		} else {
-			tok.Type = ILLEGAL
-			tok.Value = string(l.ch)
-			l.readChar()
+			// For any other character, tokenize it as an identifier (shell symbol)
+			return l.lexSingleCharFast(start)
 		}
 	}
 
@@ -189,31 +216,34 @@ func (l *Lexer) lexLanguageTokenFast() Token {
 	return tok
 }
 
-// Fast shell token lexing
-func (l *Lexer) lexShellTokenFast() Token {
-	l.skipSpacesFast()
-
-	tok := Token{
-		Line:   l.line,
-		Column: l.column,
-	}
-	start := l.position
-
+// lexShellModeFast handles shell command tokenization
+func (l *Lexer) lexShellModeFast(start int) Token {
+	// In shell mode, we primarily emit shell text until we hit structural tokens
 	switch l.ch {
 	case 0:
-		tok.Type = EOF
-		tok.Value = ""
-		return tok
+		return Token{Type: EOF, Value: "", Line: l.line, Column: l.column}
 	case '\n':
-		tok.Type = NEWLINE
-		tok.Value = "\n"
+		l.mode = LanguageMode // Return to language mode on newline
+		tok := Token{Type: NEWLINE, Value: "\n", Line: l.line, Column: l.column}
 		l.readChar()
-		l.setMode(LanguageMode)
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
 	case '}':
-		tok.Type = RBRACE
-		tok.Value = "}"
+		l.mode = LanguageMode // Return to language mode
+		tok := Token{Type: RBRACE, Value: "}", Line: l.line, Column: l.column}
 		l.readChar()
-		l.setMode(LanguageMode)
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+	case '@':
+		// Always create AT token, let parser decide semantics
+		l.mode = LanguageMode
+		tok := Token{Type: AT, Value: "@", Line: l.line, Column: l.column, Semantic: SemOperator}
+		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
 	case '\\':
 		if l.peekChar() == '\n' {
 			return l.lexLineContinuationFast(start)
@@ -222,10 +252,44 @@ func (l *Lexer) lexShellTokenFast() Token {
 	default:
 		return l.lexShellTextFast(start)
 	}
+}
 
-	tok.EndLine = l.line
-	tok.EndColumn = l.column
-	return tok
+// lexSingleCharFast tokenizes single character symbols
+func (l *Lexer) lexSingleCharFast(start int) Token {
+	startLine := l.line
+	startColumn := l.column
+
+	// Read single character
+	char := l.ch
+	l.readChar()
+
+	return Token{
+		Type:      IDENTIFIER, // Treat as identifier for parser flexibility
+		Value:     string(char),
+		Line:      startLine,
+		Column:    startColumn,
+		EndLine:   l.line,
+		EndColumn: l.column,
+		Semantic:  SemOperator, // Single chars are typically operators/symbols
+		Scope:     "punctuation.other.devcmd",
+	}
+}
+
+// afterAtOrWhitespace checks if we're after @ or significant whitespace (performance optimized)
+func (l *Lexer) afterAtOrWhitespace() bool {
+	// Quick check - if we just saw @, definitely parse as decorator
+	if l.lastToken == AT {
+		return true
+	}
+
+	// Otherwise be conservative - only if we have clear decorator context
+	return l.position > 0 && isWhitespace[l.input[l.position-1]]
+}
+
+// isLikelyDecoratorParam is a fast heuristic for decorator parameters
+func (l *Lexer) isLikelyDecoratorParam() bool {
+	// Only if we recently saw a decorator identifier
+	return l.lastToken == IDENTIFIER && l.afterAt
 }
 
 // Fast string lexing with zero-copy optimization when possible
@@ -368,7 +432,7 @@ func getStringScope(stringType StringType) string {
 	}
 }
 
-// Fast identifier/keyword lexing with compile-time keyword map
+// Fast identifier/keyword lexing with simplified logic
 func (l *Lexer) lexIdentifierOrKeywordFast(start int) Token {
 	startLine := l.line
 	startColumn := l.column
@@ -378,28 +442,59 @@ func (l *Lexer) lexIdentifierOrKeywordFast(start int) Token {
 	// Zero-copy string slice
 	value := string(l.input[start:l.position])
 
-	// Fast keyword lookup with branch prediction optimization
+	// Simplified keyword detection
 	var tokenType TokenType
 	var semantic SemanticTokenType
 	var scope string
 
-	switch value {
-	case "var":
-		tokenType = VAR
-		semantic = SemKeyword
-		scope = "keyword.control.var.devcmd"
-	case "watch":
-		tokenType = WATCH
-		semantic = SemKeyword
-		scope = "keyword.control.watch.devcmd"
-	case "stop":
-		tokenType = STOP
-		semantic = SemKeyword
-		scope = "keyword.control.stop.devcmd"
-	default:
+	// Check if we're after an @ symbol for decorator names
+	if l.afterAt {
 		tokenType = IDENTIFIER
-		semantic = SemCommand
-		scope = "entity.name.function.devcmd"
+		semantic = SemDecorator
+		scope = "entity.name.function.decorator.devcmd"
+	} else if l.isInDecoratorParams() {
+		// If we're inside decorator parentheses, this could be a parameter name
+		tokenType = IDENTIFIER
+		semantic = SemParameter
+		scope = "variable.parameter.devcmd"
+	} else {
+		// Fast keyword detection using length
+		switch len(value) {
+		case 3:
+			if value == "var" {
+				tokenType = VAR
+				semantic = SemKeyword
+				scope = "keyword.control.var.devcmd"
+			} else {
+				tokenType = IDENTIFIER
+				semantic = SemCommand
+				scope = "entity.name.function.devcmd"
+			}
+		case 4:
+			if value == "stop" {
+				tokenType = STOP
+				semantic = SemKeyword
+				scope = "keyword.control.stop.devcmd"
+			} else {
+				tokenType = IDENTIFIER
+				semantic = SemCommand
+				scope = "entity.name.function.devcmd"
+			}
+		case 5:
+			if value == "watch" {
+				tokenType = WATCH
+				semantic = SemKeyword
+				scope = "keyword.control.watch.devcmd"
+			} else {
+				tokenType = IDENTIFIER
+				semantic = SemCommand
+				scope = "entity.name.function.devcmd"
+			}
+		default:
+			tokenType = IDENTIFIER
+			semantic = SemCommand
+			scope = "entity.name.function.devcmd"
+		}
 	}
 
 	return Token{
@@ -414,8 +509,57 @@ func (l *Lexer) lexIdentifierOrKeywordFast(start int) Token {
 	}
 }
 
-// Fast number lexing with direct byte operations
-func (l *Lexer) lexNumberFast(start int) Token {
+// isInDecoratorParams checks if we're inside decorator parentheses (optimized)
+func (l *Lexer) isInDecoratorParams() bool {
+	// Fast path: if we haven't seen certain tokens recently, skip expensive check
+	if l.lastToken != LPAREN && l.lastToken != COMMA && l.lastToken != EQUALS {
+		return false
+	}
+
+	// Look backwards for decorator context
+	pos := l.position - 1
+	depth := 0
+	maxLookback := 100 // Reasonable limit
+
+	for pos >= 0 && maxLookback > 0 {
+		ch := l.input[pos]
+		if ch == ')' {
+			depth++
+		} else if ch == '(' {
+			depth--
+			if depth < 0 {
+				// Found opening paren, look back for @identifier pattern
+				pos--
+				// Skip whitespace
+				for pos >= 0 && (l.input[pos] == ' ' || l.input[pos] == '\t') {
+					pos--
+				}
+
+				// Look for identifier before @
+				identEnd := pos + 1
+				for pos >= 0 && (isLetter[l.input[pos]] || isDigit[l.input[pos]] || l.input[pos] == '-' || l.input[pos] == '_') {
+					pos--
+				}
+
+				// Check if we found @ right before the identifier
+				if pos >= 0 && l.input[pos] == '@' && pos + 1 < identEnd {
+					return true
+				}
+				return false
+			}
+		} else if ch == '\n' || ch == ';' || ch == '{' || ch == '}' {
+			// Statement boundary - not in decorator params
+			return false
+		}
+		pos--
+		maxLookback--
+	}
+
+	return false
+}
+
+// Fast number or duration lexing with direct byte operations
+func (l *Lexer) lexNumberOrDurationFast(start int) Token {
 	startLine := l.line
 	startColumn := l.column
 
@@ -437,6 +581,23 @@ func (l *Lexer) lexNumberFast(start int) Token {
 		}
 	}
 
+	// Check if this is followed by a duration unit
+	if l.isDurationUnit() {
+		l.readDurationUnit()
+
+		return Token{
+			Type:      DURATION,
+			Value:     string(l.input[start:l.position]),
+			Line:      startLine,
+			Column:    startColumn,
+			EndLine:   l.line,
+			EndColumn: l.column,
+			Semantic:  SemNumber, // Durations are semantically similar to numbers
+			Scope:     "constant.numeric.duration.devcmd",
+		}
+	}
+
+	// Not a duration, return as number token
 	return Token{
 		Type:      NUMBER,
 		Value:     string(l.input[start:l.position]),
@@ -447,6 +608,76 @@ func (l *Lexer) lexNumberFast(start int) Token {
 		Semantic:  SemNumber,
 		Scope:     "constant.numeric.devcmd",
 	}
+}
+
+// isDurationUnit checks if current position starts a duration unit
+func (l *Lexer) isDurationUnit() bool {
+	if l.ch == 0 {
+		return false
+	}
+
+	// Check for common duration units: ns, us, ms, s, m, h
+	switch l.ch {
+	case 'n':
+		return l.peekChar() == 's' // ns
+	case 'u': // us (microseconds - ASCII version)
+		return l.peekChar() == 's'
+	case 'm':
+		next := l.peekChar()
+		return next == 's' || next == 0 || !isLetter[next] // ms or m (minutes)
+	case 's':
+		next := l.peekChar()
+		return next == 0 || !isLetter[next] // s (seconds)
+	case 'h':
+		next := l.peekChar()
+		return next == 0 || !isLetter[next] // h (hours)
+	}
+
+	// Check for Unicode microsecond symbol (μs) as multi-byte sequence
+	if l.ch == 0xCE && l.peekChar() == 0xBC { // UTF-8 encoding of μ
+		return l.peekCharAt(2) == 's'
+	}
+
+	return false
+}
+
+// readDurationUnit reads the duration unit (ns, us, ms, s, m, h)
+func (l *Lexer) readDurationUnit() {
+	switch l.ch {
+	case 'n':
+		if l.peekChar() == 's' {
+			l.readChar() // consume 'n'
+			l.readChar() // consume 's'
+		}
+	case 'u':
+		if l.peekChar() == 's' {
+			l.readChar() // consume 'u'
+			l.readChar() // consume 's'
+		}
+	case 'm':
+		l.readChar() // consume 'm'
+		if l.ch == 's' {
+			l.readChar() // consume 's' for 'ms'
+		}
+		// else it's just 'm' for minutes
+	case 's', 'h':
+		l.readChar() // consume 's' or 'h'
+	case 0xCE: // First byte of UTF-8 μ
+		if l.peekChar() == 0xBC && l.peekCharAt(2) == 's' {
+			l.readChar() // consume first byte of μ
+			l.readChar() // consume second byte of μ
+			l.readChar() // consume 's'
+		}
+	}
+}
+
+// peekCharAt looks ahead n characters
+func (l *Lexer) peekCharAt(n int) byte {
+	pos := l.readPos + n - 1
+	if pos >= len(l.input) {
+		return 0
+	}
+	return l.input[pos]
 }
 
 // Fast comment lexing
@@ -508,27 +739,38 @@ func (l *Lexer) lexShellTextFast(start int) Token {
 	startColumn := l.column
 
 	for l.ch != 0 {
-		// Stop at decorators
-		if l.ch == '@' && l.isDecoratorStartFast() {
+		// Stop at @ symbol (let parser decide if it's a decorator)
+		if l.ch == '@' {
 			break
 		}
 
-		// Stop at structural tokens
-		if l.ch == '\n' || l.ch == '}' || (l.ch == '\\' && l.peekChar() == '\n') {
+		// Stop at structural tokens that end shell commands
+		if l.ch == '\n' || l.ch == '}' {
+			break
+		}
+
+		// Stop at line continuation
+		if l.ch == '\\' && l.peekChar() == '\n' {
 			break
 		}
 
 		l.readChar()
 	}
 
+	// Don't return empty shell text tokens
+	if l.position == start {
+		// If we haven't consumed any characters, advance by one to avoid infinite loop
+		l.readChar()
+	}
+
 	return Token{
-		Type:      SHELL_TEXT,
+		Type:      IDENTIFIER, // Changed from SHELL_TEXT to IDENTIFIER
 		Value:     string(l.input[start:l.position]),
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemShellText,
+		Semantic:  SemCommand, // Changed from SemShellText to SemCommand
 		Scope:     "source.shell.embedded.devcmd",
 	}
 }
@@ -551,187 +793,6 @@ func (l *Lexer) lexLineContinuationFast(start int) Token {
 		Semantic:  SemOperator,
 		Scope:     "punctuation.separator.continuation.devcmd",
 	}
-}
-
-// Fast decorator detection with minimal lookahead
-func (l *Lexer) isDecoratorStartFast() bool {
-	if l.ch != '@' {
-		return false
-	}
-
-	next := l.peekChar()
-	if !isLetter[next] {
-		return false
-	}
-
-	// Quick lookahead to find ( or {
-	saved := l.position
-	savedCh := l.ch
-
-	l.readChar() // skip @
-	l.readIdentifierFast()
-
-	isDecorator := l.ch == '(' || l.ch == '{'
-
-	// Restore position
-	l.position = saved
-	l.readPos = saved + 1
-	l.ch = savedCh
-
-	return isDecorator
-}
-
-// Optimized decorator lexing with pooled buffer
-func (l *Lexer) lexDecoratorFast() Token {
-	startLine := l.line
-	startColumn := l.column
-	start := l.position
-
-	l.readChar() // skip @
-
-	// Read decorator name with fast identifier reading
-	nameStart := l.position
-	l.readIdentifierFast()
-	nameEnd := l.position
-
-	if nameStart == nameEnd {
-		return Token{
-			Type:     ILLEGAL,
-			Value:    "@",
-			Line:     startLine,
-			Column:   startColumn,
-			Semantic: SemOperator,
-			Scope:    "invalid.illegal.decorator.devcmd",
-		}
-	}
-
-	name := string(l.input[nameStart:nameEnd])
-	var args string
-	var block string
-	var tokenType TokenType
-
-	// Determine decorator form based on what follows
-	switch l.ch {
-	case '(':
-		// @decorator(args) or @decorator(args) { block }
-		l.readChar() // skip (
-		args = l.readBalancedFast('(', ')')
-		if l.ch == ')' {
-			l.readChar() // skip closing )
-		}
-
-		l.skipWhitespaceFast()
-
-		if l.ch == '{' {
-			// @decorator(args) { block }
-			l.readChar() // skip {
-			block = l.readBalancedFast('{', '}')
-			if l.ch == '}' {
-				l.readChar() // skip closing }
-			}
-			tokenType = DECORATOR_CALL_BLOCK
-		} else {
-			// @decorator(args)
-			tokenType = DECORATOR_CALL
-		}
-
-	case '{':
-		// @decorator{ block }
-		l.readChar() // skip {
-		block = l.readBalancedFast('{', '}')
-		if l.ch == '}' {
-			l.readChar() // skip closing }
-		}
-		tokenType = DECORATOR_BLOCK
-
-	default:
-		return Token{
-			Type:     ILLEGAL,
-			Value:    string(l.input[start:l.position]),
-			Line:     startLine,
-			Column:   startColumn,
-			Semantic: SemOperator,
-			Scope:    "invalid.illegal.decorator.devcmd",
-		}
-	}
-
-	// Build decorator value using pooled buffer
-	workBuf := workBufPool.Get().([]byte)
-	defer workBufPool.Put(workBuf[:0])
-
-	workBuf = append(workBuf, '@')
-	workBuf = append(workBuf, name...)
-
-	if args != "" && block != "" {
-		workBuf = append(workBuf, '(')
-		workBuf = append(workBuf, args...)
-		workBuf = append(workBuf, ") { "...)
-		workBuf = append(workBuf, block...)
-		workBuf = append(workBuf, " }"...)
-	} else if args != "" {
-		workBuf = append(workBuf, '(')
-		workBuf = append(workBuf, args...)
-		workBuf = append(workBuf, ')')
-	} else if block != "" {
-		workBuf = append(workBuf, "{ "...)
-		workBuf = append(workBuf, block...)
-		workBuf = append(workBuf, " }"...)
-	}
-
-	return Token{
-		Type:          tokenType,
-		Value:         string(workBuf), // Only allocation here
-		Line:          startLine,
-		Column:        startColumn,
-		EndLine:       l.line,
-		EndColumn:     l.column,
-		DecoratorName: name,
-		Args:          args,
-		Block:         block,
-		Semantic:      SemDecorator,
-		Scope:         "support.function.decorator.devcmd",
-	}
-}
-
-// Fast balanced reading with zero-copy string slicing
-func (l *Lexer) readBalancedFast(open, close byte) string {
-	start := l.position
-	depth := 1 // we already consumed the opening delimiter
-
-	for depth > 0 && l.ch != 0 {
-		switch l.ch {
-		case open:
-			depth++
-		case close:
-			depth--
-			if depth == 0 {
-				// Don't include the closing delimiter
-				result := string(l.input[start:l.position])
-				return result
-			}
-		case '"', '\'', '`':
-			// Handle quoted strings inside balanced content
-			quote := l.ch
-			l.readChar()
-			for l.ch != quote && l.ch != 0 {
-				if l.ch == '\\' {
-					l.readChar()
-					if l.ch != 0 {
-						l.readChar()
-					}
-				} else {
-					l.readChar()
-				}
-			}
-			if l.ch == quote {
-				l.readChar()
-			}
-			continue
-		}
-		l.readChar()
-	}
-
-	return string(l.input[start:l.position])
 }
 
 // Fast identifier reading with lookup table
@@ -779,10 +840,6 @@ func (l *Lexer) peekChar() byte {
 		return 0
 	}
 	return l.input[l.readPos]
-}
-
-func (l *Lexer) setMode(mode LexerMode) {
-	l.mode = mode
 }
 
 // Optimized hex escape reading

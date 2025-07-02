@@ -17,26 +17,23 @@ const (
 	VAR    // var
 	WATCH  // watch
 	STOP   // stop
+	AT     // @
 	COLON  // :
 	EQUALS // =
+	COMMA  // ,
 	LPAREN // (
 	RPAREN // )
 	LBRACE // {
 	RBRACE // }
 
 	// Literals
-	IDENTIFIER // command names, variable names
+	IDENTIFIER // command names, variable names, decorator names, shell symbols
 	NUMBER     // 8080, 3.14, -100
 	STRING     // "quoted", 'single', `backtick`
+	DURATION   // 30s, 5m, 1h, 500ms, 2.5s
 
-	// Decorators (all three forms)
-	DECORATOR_CALL       // @word(args)
-	DECORATOR_BLOCK      // @word{ block }
-	DECORATOR_CALL_BLOCK // @word(args) { block }
-
-	// Shell content
-	SHELL_TEXT // Raw shell command text
-	LINE_CONT  // \ (line continuation)
+	// Continuation
+	LINE_CONT // \ (line continuation)
 
 	// Structure
 	NEWLINE           // statement boundaries
@@ -46,28 +43,27 @@ const (
 
 // Pre-computed token name lookup for fast debugging
 var tokenNames = [...]string{
-	EOF:                  "EOF",
-	ILLEGAL:              "ILLEGAL",
-	VAR:                  "VAR",
-	WATCH:                "WATCH",
-	STOP:                 "STOP",
-	COLON:                "COLON",
-	EQUALS:               "EQUALS",
-	LPAREN:               "LPAREN",
-	RPAREN:               "RPAREN",
-	LBRACE:               "LBRACE",
-	RBRACE:               "RBRACE",
-	IDENTIFIER:           "IDENTIFIER",
-	NUMBER:               "NUMBER",
-	STRING:               "STRING",
-	DECORATOR_CALL:       "DECORATOR_CALL",
-	DECORATOR_BLOCK:      "DECORATOR_BLOCK",
-	DECORATOR_CALL_BLOCK: "DECORATOR_CALL_BLOCK",
-	SHELL_TEXT:           "SHELL_TEXT",
-	LINE_CONT:            "LINE_CONT",
-	NEWLINE:              "NEWLINE",
-	COMMENT:              "COMMENT",
-	MULTILINE_COMMENT:    "MULTILINE_COMMENT",
+	EOF:               "EOF",
+	ILLEGAL:           "ILLEGAL",
+	VAR:               "VAR",
+	WATCH:             "WATCH",
+	STOP:              "STOP",
+	AT:                "AT",
+	COLON:             "COLON",
+	EQUALS:            "EQUALS",
+	COMMA:             "COMMA",
+	LPAREN:            "LPAREN",
+	RPAREN:            "RPAREN",
+	LBRACE:            "LBRACE",
+	RBRACE:            "RBRACE",
+	IDENTIFIER:        "IDENTIFIER",
+	NUMBER:            "NUMBER",
+	STRING:            "STRING",
+	DURATION:          "DURATION",
+	LINE_CONT:         "LINE_CONT",
+	NEWLINE:           "NEWLINE",
+	COMMENT:           "COMMENT",
+	MULTILINE_COMMENT: "MULTILINE_COMMENT",
 }
 
 func (t TokenType) String() string {
@@ -93,12 +89,11 @@ const (
 	SemKeyword   SemanticTokenType = iota // var, watch, stop
 	SemCommand                            // command names after var/watch/stop
 	SemVariable                           // variable names in declarations
-	SemDecorator                          // @timeout, @var, etc.
+	SemDecorator                          // decorator names after @
 	SemString                             // string literals
 	SemNumber                             // numeric literals
 	SemComment                            // comments
-	SemOperator                           // :, =, {, }, (, )
-	SemShellText                          // shell command content
+	SemOperator                           // :, =, {, }, (, ), @, shell operators
 	SemParameter                          // decorator parameter names
 )
 
@@ -113,12 +108,9 @@ type Token struct {
 	EndColumn int
 
 	// String fields grouped together for better cache locality
-	Value         string
-	DecoratorName string // "var", "timeout", "sh", etc.
-	Args          string // raw content inside parentheses
-	Block         string // content inside braces
-	Raw           string // Raw string content before escape processing
-	Scope         string // TextMate-style scope
+	Value string
+	Raw   string // Raw string content before escape processing
+	Scope string // TextMate-style scope
 
 	// Enum fields at end for optimal packing
 	StringType StringType
@@ -158,8 +150,12 @@ type DecoratorArg struct {
 	Column int
 }
 
-// ParseDecoratorArgs parses decorator arguments supporting both positional and named parameters
-// Optimized version with minimal allocations
+// ParseDecoratorArgs parses decorator arguments supporting Kotlin-like named parameters
+// Supports:
+// - Positional: @timeout(30s)
+// - Named: @retry(attempts=3)
+// - Mixed: @timeout(30s, graceful=true)
+// - Reordered: @retry(delay=1s, attempts=3)
 func ParseDecoratorArgs(args string, line, column int) ([]DecoratorArg, error) {
 	if len(strings.TrimSpace(args)) == 0 {
 		return nil, nil
@@ -168,7 +164,7 @@ func ParseDecoratorArgs(args string, line, column int) ([]DecoratorArg, error) {
 	// Pre-allocate for common case of 1-3 args
 	result := make([]DecoratorArg, 0, 3)
 
-	// Split by commas, but respect quoted strings - optimized version
+	// Split by commas, but respect quoted strings
 	parts := splitDecoratorArgsFast(args)
 
 	for _, part := range parts {
@@ -182,6 +178,11 @@ func ParseDecoratorArgs(args string, line, column int) ([]DecoratorArg, error) {
 			// Named parameter: name=value
 			name := strings.TrimSpace(part[:eqIndex])
 			value := strings.TrimSpace(part[eqIndex+1:])
+
+			// Validate parameter name (must be valid identifier)
+			if !isValidParameterName(name) {
+				return nil, fmt.Errorf("invalid parameter name '%s' at line %d, column %d", name, line, column)
+			}
 
 			// Remove quotes from value if present
 			value = unquoteIfNeeded(value)
@@ -204,7 +205,42 @@ func ParseDecoratorArgs(args string, line, column int) ([]DecoratorArg, error) {
 		}
 	}
 
+	// Validate Kotlin-like parameter rules:
+	// Once a named parameter is used, all following parameters must be named
+	foundNamed := false
+	for i, arg := range result {
+		if arg.Name != "" {
+			foundNamed = true
+		} else if foundNamed {
+			return nil, fmt.Errorf("positional argument follows named argument at position %d, line %d, column %d", i+1, line, column)
+		}
+	}
+
 	return result, nil
+}
+
+// isValidParameterName checks if a string is a valid parameter name
+func isValidParameterName(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+
+	// Must start with letter or underscore
+	first := name[0]
+	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
+		return false
+	}
+
+	// Rest can be letters, digits, underscores, or hyphens
+	for i := 1; i < len(name); i++ {
+		ch := name[i]
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+			 (ch >= '0' && ch <= '9') || ch == '_' || ch == '-') {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Fast splitting with minimal allocations
