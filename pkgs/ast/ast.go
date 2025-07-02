@@ -98,7 +98,7 @@ func (v *VariableDecl) SemanticTokens() []lexer.Token {
 	return tokens
 }
 
-// Expression represents any expression (literals, variable references, etc.)
+// Expression represents any expression (literals, identifiers, etc.)
 type Expression interface {
 	Node
 	IsExpression() bool
@@ -112,18 +112,15 @@ const (
 	StringType ExpressionType = iota
 	NumberType
 	DurationType
-	VariableRefType
 	IdentifierType
 )
 
 // StringLiteral represents string values
 type StringLiteral struct {
-	Value        string
-	Raw          string
-	HasVariables bool
-	Variables    []VariableRef
-	Pos          Position
-	Tokens       TokenRange
+	Value  string
+	Raw    string
+	Pos    Position
+	Tokens TokenRange
 
 	// LSP integration
 	StringToken lexer.Token // The actual string token
@@ -142,13 +139,7 @@ func (s *StringLiteral) TokenRange() TokenRange {
 }
 
 func (s *StringLiteral) SemanticTokens() []lexer.Token {
-	// Mark string with any interpolated variables
-	tokens := []lexer.Token{s.StringToken}
-	for _, varRef := range s.Variables {
-		// Add variable reference tokens within the string
-		tokens = append(tokens, varRef.SemanticTokens()...)
-	}
-	return tokens
+	return []lexer.Token{s.StringToken}
 }
 
 func (s *StringLiteral) IsExpression() bool {
@@ -157,22 +148,6 @@ func (s *StringLiteral) IsExpression() bool {
 
 func (s *StringLiteral) GetType() ExpressionType {
 	return StringType
-}
-
-// Resolve processes variable interpolation
-func (s *StringLiteral) Resolve(variables map[string]string) string {
-	if !s.HasVariables {
-		return s.Value
-	}
-
-	result := s.Value
-	for _, varRef := range s.Variables {
-		if value, exists := variables[varRef.Name]; exists {
-			pattern := fmt.Sprintf("@var(%s)", varRef.Name)
-			result = strings.ReplaceAll(result, pattern, value)
-		}
-	}
-	return result
 }
 
 // NumberLiteral represents numeric values
@@ -237,52 +212,6 @@ func (d *DurationLiteral) IsExpression() bool {
 
 func (d *DurationLiteral) GetType() ExpressionType {
 	return DurationType
-}
-
-// VariableRef represents @var(NAME) references - now treated as special decorator
-type VariableRef struct {
-	Name   string
-	Pos    Position
-	Tokens TokenRange
-
-	// LSP support for variable references
-	AtToken   lexer.Token // The @ token
-	NameToken lexer.Token // The variable name token for go-to-definition
-}
-
-func (v *VariableRef) String() string {
-	return fmt.Sprintf("@var(%s)", v.Name)
-}
-
-func (v *VariableRef) Position() Position {
-	return v.Pos
-}
-
-func (v *VariableRef) TokenRange() TokenRange {
-	return v.Tokens
-}
-
-func (v *VariableRef) SemanticTokens() []lexer.Token {
-	// Mark @ as operator and name as variable reference
-	atToken := v.AtToken
-	atToken.Semantic = lexer.SemOperator
-
-	nameToken := v.NameToken
-	nameToken.Semantic = lexer.SemVariable
-
-	return []lexer.Token{atToken, nameToken}
-}
-
-func (v *VariableRef) IsExpression() bool {
-	return true
-}
-
-func (v *VariableRef) GetType() ExpressionType {
-	return VariableRefType
-}
-
-func (v *VariableRef) IsCommandElement() bool {
-	return true
 }
 
 // CommandDecl represents command definitions
@@ -356,11 +285,10 @@ func (c *CommandDecl) SemanticTokens() []lexer.Token {
 }
 
 // CommandType represents the type of command
-// Only watch and stop have semantic meaning - regular commands are just "Command"
 type CommandType int
 
 const (
-	Command      CommandType = iota // Regular commands (simple, block, decorated - all same semantics)
+	Command      CommandType = iota // Regular commands
 	WatchCommand                    // watch NAME: ... (process management)
 	StopCommand                     // stop NAME: ... (process cleanup)
 )
@@ -379,7 +307,6 @@ func (ct CommandType) String() string {
 }
 
 // CommandBody represents the unified body of a command
-// This unifies simple commands and block commands
 type CommandBody struct {
 	// Statements represent the command content
 	// For simple commands: single statement with command elements
@@ -387,7 +314,6 @@ type CommandBody struct {
 	Statements []Statement
 
 	// IsBlock indicates if this was written with block syntax {}
-	// This is preserved for accurate source representation
 	IsBlock bool
 
 	Pos    Position
@@ -486,7 +412,7 @@ func (s *ShellStatement) IsStatement() bool {
 	return true
 }
 
-// CommandElement represents elements within commands (text, decorators, variables)
+// CommandElement represents elements within commands (text, decorators)
 type CommandElement interface {
 	Node
 	IsCommandElement() bool
@@ -512,7 +438,7 @@ func (t *TextElement) TokenRange() TokenRange {
 }
 
 func (t *TextElement) SemanticTokens() []lexer.Token {
-	// Text elements are typically shell content
+	// Text elements are shell content
 	tokens := make([]lexer.Token, len(t.Tokens.All))
 	copy(tokens, t.Tokens.All)
 
@@ -612,12 +538,13 @@ func (d *Decorator) IsExpression() bool {
 }
 
 func (d *Decorator) GetType() ExpressionType {
-	return IdentifierType // Decorators are treated as identifier-like expressions
+	return IdentifierType
 }
 
 func (d *Decorator) IsCommandElement() bool {
 	return true
 }
+
 type DecoratorBlock struct {
 	Statements []Statement
 	Pos        Position
@@ -668,57 +595,6 @@ func (b *DecoratorBlock) SemanticTokens() []lexer.Token {
 	}
 
 	return tokens
-}
-
-// DecoratorArgument represents arguments in decorator parameter lists
-type DecoratorArgument struct {
-	Name   string     // Empty for positional args
-	Value  Expression
-	Pos    Position
-	Tokens TokenRange
-}
-
-func (d *DecoratorArgument) String() string {
-	if d.Name == "" {
-		return d.Value.String()
-	}
-	return fmt.Sprintf("%s=%s", d.Name, d.Value.String())
-}
-
-func (d *DecoratorArgument) Position() Position {
-	return d.Pos
-}
-
-func (d *DecoratorArgument) TokenRange() TokenRange {
-	return d.Tokens
-}
-
-func (d *DecoratorArgument) SemanticTokens() []lexer.Token {
-	var tokens []lexer.Token
-
-	// If named argument, mark name as parameter
-	if d.Name != "" {
-		for _, token := range d.Tokens.All {
-			if token.Type == lexer.IDENTIFIER && token.Value == d.Name {
-				token.Semantic = lexer.SemParameter
-				tokens = append(tokens, token)
-				break
-			}
-		}
-	}
-
-	// Add value tokens
-	tokens = append(tokens, d.Value.SemanticTokens()...)
-
-	return tokens
-}
-
-func (d *DecoratorArgument) IsExpression() bool {
-	return true
-}
-
-func (d *DecoratorArgument) GetType() ExpressionType {
-	return d.Value.GetType()
 }
 
 // Identifier represents identifiers (command names, shell commands, etc.)

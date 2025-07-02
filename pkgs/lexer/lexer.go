@@ -1,6 +1,7 @@
 package lexer
 
 import (
+	"strings"
 	"sync"
 	"unicode/utf8"
 )
@@ -27,12 +28,25 @@ func init() {
 	}
 }
 
-// LexerMode represents the current parsing context
+// LexerMode represents the current parsing context in Devcmd
 type LexerMode int
 
 const (
-	LanguageMode LexerMode = iota // Standard parsing mode
-	ShellMode                     // Shell command parsing mode
+	// LanguageMode: Top-level parsing and decorator parsing
+	// Recognizes: var, watch, stop, @decorators, :, =, {, }, (, ), literals
+	// Examples:
+	//   var PORT = 8080;
+	//   build: npm run build        # : → switches to CommandMode
+	//   @timeout(30s) { ... }       # stays in LanguageMode for decorator parsing
+	LanguageMode LexerMode = iota
+
+	// CommandMode: Inside command bodies (after : or inside {})
+	// Recognizes: shell text as complete units + decorators
+	// Examples:
+	//   build: echo hello; npm test     # "echo hello; npm test" as single shell unit
+	//   deploy: { npm build }           # "npm build" as shell unit inside {}
+	//   server: @timeout(30s) { ... }   # @ switches back to LanguageMode
+	CommandMode
 )
 
 // Pool for working buffers only
@@ -42,7 +56,19 @@ var workBufPool = sync.Pool{
 	},
 }
 
-// Lexer tokenizes Devcmd source code with aggressive optimizations
+// Lexer tokenizes Devcmd source code with mode-based parsing
+//
+// Mode Rules:
+// 1. LanguageMode: Parse language constructs and decorators
+// 2. CommandMode: Parse shell text while recognizing decorators
+//
+// Syntax Sugar Handling:
+// - Simple commands: "cmd: shell" automatically becomes "cmd: { shell }"
+// - Decorators: NEVER get sugar, always require explicit braces
+//
+// Transition Rules:
+// - LanguageMode → CommandMode: after : (simple) or { (block)
+// - CommandMode → LanguageMode: on @ (decorator), } (end block), \n (end simple)
 type Lexer struct {
 	input     []byte    // Use []byte for faster operations
 	position  int       // current position in input (points to current char)
@@ -50,9 +76,9 @@ type Lexer struct {
 	ch        byte      // current char under examination (byte for ASCII fast path)
 	line      int       // current line number
 	column    int       // current column number
-	afterAt   bool      // Track if we're immediately after @
+	afterAt   bool      // Track if we're immediately after @ for decorator parsing
 	lastToken TokenType // Track the last token type for context
-	mode      LexerMode // Current lexer mode
+	mode      LexerMode // Current lexer mode (LanguageMode or CommandMode)
 }
 
 // estimateTokenCount predicts slice capacity to avoid slice growth
@@ -72,7 +98,7 @@ func New(input string) *Lexer {
 		input: []byte(input), // Direct conversion for better performance
 		line:  1,
 		column: 0,
-		mode:   LanguageMode,
+		mode:   LanguageMode, // Always start in LanguageMode
 	}
 	l.readChar() // initialize first character
 	return l
@@ -99,7 +125,7 @@ func (l *Lexer) TokenizeToSlice() []Token {
 	return result
 }
 
-// NextToken returns the next token from the input - simplified version
+// NextToken returns the next token from the input
 func (l *Lexer) NextToken() Token {
 	tok := l.lexTokenFast()
 
@@ -116,141 +142,379 @@ func (l *Lexer) NextToken() Token {
 	return tok
 }
 
-// Fast token lexing with unified logic
+// lexTokenFast performs fast token lexing with mode-aware logic
 func (l *Lexer) lexTokenFast() Token {
 	l.skipWhitespaceFast()
 
-	tok := Token{
-		Line:   l.line,
-		Column: l.column,
-	}
 	start := l.position
 
-	// Handle shell mode differently
-	if l.mode == ShellMode {
-		return l.lexShellModeFast(start)
+	// Handle different modes with explicit rules
+	switch l.mode {
+	case LanguageMode:
+		return l.lexLanguageMode(start)
+	case CommandMode:
+		return l.lexCommandMode(start)
+	default:
+		return l.lexLanguageMode(start) // Default fallback
 	}
+}
 
+// lexLanguageMode handles top-level language constructs and decorator parsing
+// Recognizes: var, watch, stop, @decorators, :, =, {, }, (, ), literals
+func (l *Lexer) lexLanguageMode(start int) Token {
 	switch l.ch {
 	case 0:
-		tok.Type = EOF
-		tok.Value = ""
-		return tok
+		return Token{
+			Type:      EOF,
+			Value:     "",
+			Line:      l.line,
+			Column:    l.column,
+			EndLine:   l.line,
+			EndColumn: l.column,
+		}
+
 	case '\n':
-		tok.Type = NEWLINE
-		tok.Value = "\n"
-		l.readChar()
-	case '@':
-		tok.Type = AT
-		tok.Value = "@"
-		tok.Semantic = SemOperator
-		tok.Scope = "punctuation.definition.decorator.devcmd"
-		l.readChar()
-	case ':':
-		tok.Type = COLON
-		tok.Value = ":"
-		// Switch to shell mode after colon in language constructs
-		if l.lastToken == IDENTIFIER {
-			l.mode = ShellMode
+		tok := Token{
+			Type:      NEWLINE,
+			Value:     "\n",
+			Line:      l.line,
+			Column:    l.column,
 		}
 		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
+	case '@':
+		// Always parse decorators in LanguageMode
+		// Examples: @timeout, @var, @parallel, @sh
+		tok := Token{
+			Type:      AT,
+			Value:     "@",
+			Line:      l.line,
+			Column:    l.column,
+			Semantic:  SemOperator,
+			Scope:     "punctuation.definition.decorator.devcmd",
+		}
+		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
+	case ':':
+		// SYNTAX SUGAR DECISION POINT:
+		// After colon, determine if we switch to CommandMode
+		tok := Token{
+			Type:    COLON,
+			Value:   ":",
+			Line:    l.line,
+			Column:  l.column,
+		}
+		l.readChar()
+
+		// Check if we should switch to CommandMode for simple commands
+		// Rules: switch unless we see { (explicit block) or @ (decorator)
+		if l.shouldSwitchToCommandMode() {
+			l.mode = CommandMode
+		}
+
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
 	case '=':
-		tok.Type = EQUALS
-		tok.Value = "="
+		tok := Token{
+			Type:    EQUALS,
+			Value:   "=",
+			Line:    l.line,
+			Column:  l.column,
+		}
 		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
 	case ',':
-		tok.Type = COMMA
-		tok.Value = ","
+		tok := Token{
+			Type:    COMMA,
+			Value:   ",",
+			Line:    l.line,
+			Column:  l.column,
+		}
 		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
 	case '(':
-		tok.Type = LPAREN
-		tok.Value = "("
+		tok := Token{
+			Type:    LPAREN,
+			Value:   "(",
+			Line:    l.line,
+			Column:  l.column,
+		}
 		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
 	case ')':
-		tok.Type = RPAREN
-		tok.Value = ")"
+		tok := Token{
+			Type:    RPAREN,
+			Value:   ")",
+			Line:    l.line,
+			Column:  l.column,
+		}
 		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
 	case '{':
-		tok.Type = LBRACE
-		tok.Value = "{"
-		// Switch to shell mode inside braces
-		l.mode = ShellMode
+		// Explicit block start - switch to CommandMode
+		// No syntax sugar here - explicit braces mean explicit intent
+		tok := Token{
+			Type:    LBRACE,
+			Value:   "{",
+			Line:    l.line,
+			Column:  l.column,
+		}
+		l.mode = CommandMode
 		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
 	case '}':
-		tok.Type = RBRACE
-		tok.Value = "}"
-		// Switch back to language mode after closing brace
-		l.mode = LanguageMode
+		// Block end - should only happen in error cases in LanguageMode
+		tok := Token{
+			Type:    RBRACE,
+			Value:   "}",
+			Line:    l.line,
+			Column:  l.column,
+		}
 		l.readChar()
+		tok.EndLine = l.line
+		tok.EndColumn = l.column
+		return tok
+
 	case '"':
 		return l.lexStringFast('"', DoubleQuoted, start)
 	case '\'':
 		return l.lexStringFast('\'', SingleQuoted, start)
 	case '`':
 		return l.lexStringFast('`', Backtick, start)
+
 	case '#':
 		return l.lexCommentFast(start)
+
 	case '/':
 		if l.peekChar() == '*' {
 			return l.lexMultilineCommentFast(start)
 		}
 		fallthrough
+
 	case '\\':
 		if l.peekChar() == '\n' {
 			return l.lexLineContinuationFast(start)
 		}
 		fallthrough
+
 	default:
 		if isLetter[l.ch] {
 			return l.lexIdentifierOrKeywordFast(start)
 		} else if isDigit[l.ch] || l.ch == '-' {
 			return l.lexNumberOrDurationFast(start)
 		} else {
-			// For any other character, tokenize it as an identifier (shell symbol)
+			// Single character tokens
 			return l.lexSingleCharFast(start)
 		}
 	}
-
-	tok.EndLine = l.line
-	tok.EndColumn = l.column
-	return tok
 }
 
-// lexShellModeFast handles shell command tokenization
-func (l *Lexer) lexShellModeFast(start int) Token {
-	// In shell mode, we primarily emit shell text until we hit structural tokens
+// lexCommandMode handles shell text and decorators inside command bodies
+// Recognizes: shell text as complete units + decorators (switches back to LanguageMode)
+func (l *Lexer) lexCommandMode(start int) Token {
 	switch l.ch {
 	case 0:
+		// EOF in CommandMode - switch back to LanguageMode
+		l.mode = LanguageMode
 		return Token{Type: EOF, Value: "", Line: l.line, Column: l.column}
+
 	case '\n':
-		l.mode = LanguageMode // Return to language mode on newline
+		// Newline in CommandMode - end of simple command, back to LanguageMode
+		// This handles the syntax sugar: "cmd: shell" where \n ends the command
+		l.mode = LanguageMode
 		tok := Token{Type: NEWLINE, Value: "\n", Line: l.line, Column: l.column}
 		l.readChar()
 		tok.EndLine = l.line
 		tok.EndColumn = l.column
 		return tok
+
 	case '}':
-		l.mode = LanguageMode // Return to language mode
+		// End of explicit block - back to LanguageMode
+		l.mode = LanguageMode
 		tok := Token{Type: RBRACE, Value: "}", Line: l.line, Column: l.column}
 		l.readChar()
 		tok.EndLine = l.line
 		tok.EndColumn = l.column
 		return tok
+
 	case '@':
-		// Always create AT token, let parser decide semantics
-		l.mode = LanguageMode
+		// @ in CommandMode - always tokenize separately for parser to handle
+		// This allows both decorators and inline @var() usage:
+		// deploy: { @parallel { npm build } }  # @parallel is decorator
+		// build: echo @var(PORT)               # @var is inline usage
+		if l.isDecoratorStart() {
+			// Switch to LanguageMode for decorator parsing
+			l.mode = LanguageMode
+		}
+		// Always tokenize @ separately - let parser determine semantics
 		tok := Token{Type: AT, Value: "@", Line: l.line, Column: l.column, Semantic: SemOperator}
 		l.readChar()
 		tok.EndLine = l.line
 		tok.EndColumn = l.column
 		return tok
+
 	case '\\':
 		if l.peekChar() == '\n' {
+			// Line continuation - stay in CommandMode
 			return l.lexLineContinuationFast(start)
 		}
-		fallthrough
-	default:
+		// Otherwise treat as shell text
 		return l.lexShellTextFast(start)
+
+	case ' ', '\t', '\r', '\f':
+		// Skip whitespace in CommandMode and look for actual shell content
+		l.skipWhitespaceFast()
+		if l.ch == 0 || l.ch == '\n' || l.ch == '}' || (l.ch == '@' && l.isDecoratorStart()) {
+			// If we hit a boundary after whitespace, handle it normally
+			return l.lexCommandMode(l.position)
+		}
+		// Otherwise start lexing shell text from current position
+		return l.lexShellTextFast(l.position)
+
+	default:
+		// Everything else in CommandMode is shell text
+		return l.lexShellTextFast(start)
+	}
+}
+
+// shouldSwitchToCommandMode determines if we should switch to CommandMode after ':'
+// This implements the syntax sugar logic:
+// - "cmd: shell" → switch to CommandMode (sugar applies)
+// - "cmd: { ... }" → don't switch (explicit braces, no sugar)
+// - "cmd: @decorator ..." → don't switch (decorator, LanguageMode continues)
+func (l *Lexer) shouldSwitchToCommandMode() bool {
+	// Save current position to peek ahead
+	savedPos := l.position
+	savedReadPos := l.readPos
+	savedCh := l.ch
+	savedLine := l.line
+	savedColumn := l.column
+
+	// Skip whitespace to see what follows the colon
+	l.skipWhitespaceFast()
+
+	// Don't switch to CommandMode if we see:
+	// - '{' (explicit block syntax, no sugar)
+	// - '@' (decorator follows, stay in LanguageMode)
+	// - '\n' or EOF (empty command)
+	shouldSwitch := l.ch != '{' && l.ch != '@' && l.ch != '\n' && l.ch != 0
+
+	// Restore position
+	l.position = savedPos
+	l.readPos = savedReadPos
+	l.ch = savedCh
+	l.line = savedLine
+	l.column = savedColumn
+
+	return shouldSwitch
+}
+
+// isDecoratorStart checks if @ starts a decorator vs inline @var() usage
+// This determines whether to switch to LanguageMode for decorator parsing
+// Decorators: @timeout, @parallel, @retry, @sh, @watch-files, etc.
+// Inline usage: @var(NAME) within shell text
+func (l *Lexer) isDecoratorStart() bool {
+	// Look ahead to see if this is a decorator name
+	if l.peekChar() == 0 || !isLetter[l.peekChar()] {
+		return false
+	}
+
+	// Save position for lookahead
+	savedPos := l.position
+	savedReadPos := l.readPos
+	savedCh := l.ch
+
+	// Read the identifier after @
+	l.readChar() // skip @
+	start := l.position
+	for l.ch != 0 && (isIdentPart[l.ch] || l.ch == '-') {
+		l.readChar()
+	}
+	identifier := string(l.input[start:l.position])
+
+	// Restore position
+	l.position = savedPos
+	l.readPos = savedReadPos
+	l.ch = savedCh
+
+	// @var is inline usage (stays in CommandMode), everything else is a decorator (switches to LanguageMode)
+	return identifier != "var"
+}
+
+// lexShellTextFast lexes shell command text as complete units
+// This preserves shell semantics: "echo hello; npm test" is one command unit
+func (l *Lexer) lexShellTextFast(start int) Token {
+	startLine := l.line
+	startColumn := l.column
+
+	// Don't skip leading whitespace here - it's handled by the caller
+	// We want to preserve the exact shell command text
+
+	for l.ch != 0 {
+		// Stop at structural boundaries that end shell commands
+		if l.ch == '\n' || l.ch == '}' {
+			break
+		}
+
+		// Stop at ALL @ symbols (both decorators and inline @var usage)
+		// This allows proper tokenization of both @timeout and @var
+		if l.ch == '@' {
+			break
+		}
+
+		// Stop at line continuation
+		if l.ch == '\\' && l.peekChar() == '\n' {
+			break
+		}
+
+		l.readChar()
+	}
+
+	// Handle case where we didn't consume any characters
+	if l.position <= start {
+		if l.ch != 0 {
+			// Advance by one to avoid infinite loop
+			l.readChar()
+		}
+	}
+
+	value := string(l.input[start:l.position])
+
+	// Only trim trailing whitespace, preserve leading space for accurate shell commands
+	value = strings.TrimRight(value, " \t\r\f")
+
+	return Token{
+		Type:      IDENTIFIER,
+		Value:     value,
+		Line:      startLine,
+		Column:    startColumn,
+		EndLine:   l.line,
+		EndColumn: l.column,
+		Semantic:  SemCommand,
+		Scope:     "source.shell.embedded.devcmd",
 	}
 }
 
@@ -273,23 +537,6 @@ func (l *Lexer) lexSingleCharFast(start int) Token {
 		Semantic:  SemOperator, // Single chars are typically operators/symbols
 		Scope:     "punctuation.other.devcmd",
 	}
-}
-
-// afterAtOrWhitespace checks if we're after @ or significant whitespace (performance optimized)
-func (l *Lexer) afterAtOrWhitespace() bool {
-	// Quick check - if we just saw @, definitely parse as decorator
-	if l.lastToken == AT {
-		return true
-	}
-
-	// Otherwise be conservative - only if we have clear decorator context
-	return l.position > 0 && isWhitespace[l.input[l.position-1]]
-}
-
-// isLikelyDecoratorParam is a fast heuristic for decorator parameters
-func (l *Lexer) isLikelyDecoratorParam() bool {
-	// Only if we recently saw a decorator identifier
-	return l.lastToken == IDENTIFIER && l.afterAt
 }
 
 // Fast string lexing with zero-copy optimization when possible
@@ -733,48 +980,6 @@ func (l *Lexer) lexMultilineCommentFast(start int) Token {
 	}
 }
 
-// Fast shell text lexing
-func (l *Lexer) lexShellTextFast(start int) Token {
-	startLine := l.line
-	startColumn := l.column
-
-	for l.ch != 0 {
-		// Stop at @ symbol (let parser decide if it's a decorator)
-		if l.ch == '@' {
-			break
-		}
-
-		// Stop at structural tokens that end shell commands
-		if l.ch == '\n' || l.ch == '}' {
-			break
-		}
-
-		// Stop at line continuation
-		if l.ch == '\\' && l.peekChar() == '\n' {
-			break
-		}
-
-		l.readChar()
-	}
-
-	// Don't return empty shell text tokens
-	if l.position == start {
-		// If we haven't consumed any characters, advance by one to avoid infinite loop
-		l.readChar()
-	}
-
-	return Token{
-		Type:      IDENTIFIER, // Changed from SHELL_TEXT to IDENTIFIER
-		Value:     string(l.input[start:l.position]),
-		Line:      startLine,
-		Column:    startColumn,
-		EndLine:   l.line,
-		EndColumn: l.column,
-		Semantic:  SemCommand, // Changed from SemShellText to SemCommand
-		Scope:     "source.shell.embedded.devcmd",
-	}
-}
-
 // Fast line continuation lexing
 func (l *Lexer) lexLineContinuationFast(start int) Token {
 	startLine := l.line
@@ -809,18 +1014,11 @@ func (l *Lexer) skipWhitespaceFast() {
 	}
 }
 
-// Fast space skipping (preserves newlines)
-func (l *Lexer) skipSpacesFast() {
-	for l.ch == ' ' || l.ch == '\t' {
-		l.readChar()
-	}
-}
-
 // Optimized character reading with byte operations
 func (l *Lexer) readChar() {
 	if l.readPos >= len(l.input) {
 		l.ch = 0 // represents EOF
-		l.position = l.readPos // FIX: Update position even at EOF
+		l.position = l.readPos
 	} else {
 		l.ch = l.input[l.readPos]
 		l.position = l.readPos

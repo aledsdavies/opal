@@ -172,12 +172,15 @@ func (p *Parser) buildCommandBody(span CommandSpan) *ast.CommandBody {
 		}
 	}
 
-	if span.IsBlock {
-		if span.BodyStart < len(p.tokens) && p.tokens[span.BodyStart].Type == lexer.LBRACE {
-			return p.buildExplicitBlockCommandBody(span)
-		} else {
-			return p.buildImplicitBlockCommandBody(span)
-		}
+	// Check if this starts with a brace - if so, it's definitely a block
+	if span.BodyStart < len(p.tokens) && p.tokens[span.BodyStart].Type == lexer.LBRACE {
+		return p.buildExplicitBlockCommandBody(span)
+	}
+
+	// Check if we have decorators with blocks - create implicit block
+	if span.IsBlock && len(span.Decorators) > 0 {
+		// Build implicit block containing decorators
+		return p.buildImplicitBlockCommandBody(span)
 	}
 
 	return p.buildSimpleCommandBody(span)
@@ -296,12 +299,13 @@ func (p *Parser) buildExplicitBlockCommandBody(span CommandSpan) *ast.CommandBod
 	}
 }
 
-// parseBlockStatementsManual manually parses block statements
+// parseBlockStatementsManual manually parses block statements with correct separator logic
 func (p *Parser) parseBlockStatementsManual(start, end int) []ast.Statement {
 	statements := []ast.Statement{}
 
 	i := start
 	for i < end {
+		// Skip whitespace and newlines at the beginning
 		for i < end && (isWhitespace(p.tokens[i]) || p.tokens[i].Type == lexer.NEWLINE) {
 			i++
 		}
@@ -313,18 +317,48 @@ func (p *Parser) parseBlockStatementsManual(start, end int) []ast.Statement {
 		stmtStart := i
 		stmtEnd := i
 
-		for stmtEnd < end {
-			if p.tokens[stmtEnd].Type == lexer.NEWLINE {
-				stmtEnd--
-				break
+		// Find statement boundary - only newlines separate statements
+		// Semicolons are part of shell commands, not statement separators
+		inParens := 0
+		inBraces := 0
+		foundBoundary := false
+
+		for stmtEnd < end && !foundBoundary {
+			token := p.tokens[stmtEnd]
+
+			// Track parentheses and braces for nesting
+			if token.Type == lexer.LPAREN {
+				inParens++
+			} else if token.Type == lexer.RPAREN {
+				inParens--
+			} else if token.Type == lexer.LBRACE {
+				inBraces++
+			} else if token.Type == lexer.RBRACE {
+				inBraces--
 			}
-			if p.tokens[stmtEnd].Type == lexer.IDENTIFIER && p.tokens[stmtEnd].Value == ";" {
-				stmtEnd--
-				break
+
+			// Check for statement boundaries when not nested
+			if inParens == 0 && inBraces == 0 {
+				if token.Type == lexer.NEWLINE {
+					stmtEnd-- // Don't include newline in statement
+					foundBoundary = true
+					break
+				}
 			}
 			stmtEnd++
 		}
 
+		// If we didn't find a boundary, the statement goes to the end
+		if !foundBoundary {
+			stmtEnd = end - 1
+		}
+
+		// Trim trailing whitespace from statement end
+		for stmtEnd >= stmtStart && (isWhitespace(p.tokens[stmtEnd]) || p.tokens[stmtEnd].Type == lexer.NEWLINE) {
+			stmtEnd--
+		}
+
+		// Create statement if we have valid content
 		if stmtEnd >= stmtStart {
 			elements := p.buildCommandElements(stmtStart, stmtEnd)
 
@@ -345,24 +379,63 @@ func (p *Parser) parseBlockStatementsManual(start, end int) []ast.Statement {
 			}
 		}
 
-		i = stmtEnd + 1
-		for i < end && (p.tokens[i].Type == lexer.NEWLINE ||
-			(p.tokens[i].Type == lexer.IDENTIFIER && p.tokens[i].Value == ";")) {
-			i++
+		// Move to next statement start
+		if foundBoundary {
+			i = stmtEnd + 1
+			// Skip newlines and whitespace
+			for i < end && (p.tokens[i].Type == lexer.NEWLINE || isWhitespace(p.tokens[i])) {
+				i++
+			}
+		} else {
+			// No more statements
+			break
 		}
 	}
 
 	return statements
 }
 
-// buildImplicitBlockCommandBody handles implicit blocks
+// buildImplicitBlockCommandBody handles implicit blocks - Updated to properly handle decorators with blocks
 func (p *Parser) buildImplicitBlockCommandBody(span CommandSpan) *ast.CommandBody {
+	// For commands with decorators that have blocks, create a single statement
+	// containing the decorators as elements
+	elements := []ast.CommandElement{}
+
+	// Build decorators as command elements
+	for _, decoratorIndex := range span.Decorators {
+		if decoratorIndex < len(p.structure.Decorators) {
+			decoratorSpan := p.structure.Decorators[decoratorIndex]
+			if decorator := p.buildDecorator(decoratorSpan); decorator != nil {
+				elements = append(elements, decorator)
+			}
+		}
+	}
+
+	// Create a single statement with the decorator elements
+	stmt := &ast.ShellStatement{
+		Elements: elements,
+		Pos: ast.Position{
+			Line:   span.NameToken.Line,
+			Column: span.NameToken.Column,
+		},
+	}
+
+	var tokens []lexer.Token
+	if span.BodyStart <= span.BodyEnd && span.BodyEnd < len(p.tokens) {
+		tokens = p.tokens[span.BodyStart : span.BodyEnd+1]
+	}
+
 	return &ast.CommandBody{
-		Statements: []ast.Statement{},
+		Statements: []ast.Statement{stmt},
 		IsBlock:    true,
 		Pos: ast.Position{
 			Line:   span.NameToken.Line,
 			Column: span.NameToken.Column,
+		},
+		Tokens: ast.TokenRange{
+			Start: p.tokens[span.BodyStart],
+			End:   p.tokens[span.BodyEnd],
+			All:   tokens,
 		},
 	}
 }
@@ -395,6 +468,7 @@ func (p *Parser) buildCommandElements(start, end int) []ast.CommandElement {
 	i := start
 
 	for i <= end {
+		// Skip whitespace
 		for i <= end && isWhitespace(p.tokens[i]) {
 			i++
 		}
@@ -404,18 +478,27 @@ func (p *Parser) buildCommandElements(start, end int) []ast.CommandElement {
 		}
 
 		// Check for decorators first
-		if decorator, exists := p.decorators[i]; exists {
-			elements = append(elements, decorator)
-			decoratorEnd := p.findDecoratorEnd(i)
-			i = decoratorEnd + 1
-			continue
+		if p.tokens[i].Type == lexer.AT && i+1 <= end && p.tokens[i+1].Type == lexer.IDENTIFIER {
+			// This is a decorator like @var(NAME)
+			decoratorStart := i
+			decoratorEnd := p.findDecoratorEndInTokens(i, end)
+
+			if decoratorEnd > decoratorStart {
+				decorator := p.buildDecoratorFromTokens(decoratorStart, decoratorEnd)
+				if decorator != nil {
+					elements = append(elements, decorator)
+				}
+				i = decoratorEnd + 1
+				continue
+			}
 		}
 
-		// Collect text tokens until we hit a special construct
+		// Collect consecutive text tokens
 		textTokens := []lexer.Token{}
 
 		for i <= end {
-			if _, isDecorator := p.decorators[i]; isDecorator {
+			// Stop at decorator boundaries
+			if p.tokens[i].Type == lexer.AT && i+1 <= end && p.tokens[i+1].Type == lexer.IDENTIFIER {
 				break
 			}
 
@@ -423,6 +506,7 @@ func (p *Parser) buildCommandElements(start, end int) []ast.CommandElement {
 			i++
 		}
 
+		// Create text element if we have tokens
 		if len(textTokens) > 0 {
 			text := p.combineTokensToText(textTokens)
 			if len(text) > 0 {
@@ -443,6 +527,107 @@ func (p *Parser) buildCommandElements(start, end int) []ast.CommandElement {
 	}
 
 	return elements
+}
+
+// findDecoratorEndInTokens finds the end of a decorator sequence starting at start
+func (p *Parser) findDecoratorEndInTokens(start, maxEnd int) int {
+	if start >= len(p.tokens) || p.tokens[start].Type != lexer.AT {
+		return start
+	}
+
+	i := start + 1 // Skip @
+
+	// Skip decorator name
+	if i < len(p.tokens) && p.tokens[i].Type == lexer.IDENTIFIER {
+		i++
+	}
+
+	// Check for parentheses
+	if i < len(p.tokens) && p.tokens[i].Type == lexer.LPAREN {
+		depth := 1
+		i++ // Skip opening paren
+
+		for i <= maxEnd && depth > 0 {
+			if p.tokens[i].Type == lexer.LPAREN {
+				depth++
+			} else if p.tokens[i].Type == lexer.RPAREN {
+				depth--
+			}
+			i++
+		}
+	}
+
+	return i - 1 // Return last token index of decorator
+}
+
+// buildDecoratorFromTokens builds a decorator from a token range
+func (p *Parser) buildDecoratorFromTokens(start, end int) *ast.Decorator {
+	if start >= len(p.tokens) || p.tokens[start].Type != lexer.AT {
+		return nil
+	}
+
+	if start+1 >= len(p.tokens) || p.tokens[start+1].Type != lexer.IDENTIFIER {
+		return nil
+	}
+
+	atToken := p.tokens[start]
+	nameToken := p.tokens[start+1]
+
+	decorator := &ast.Decorator{
+		Name: nameToken.Value,
+		Args: []ast.Expression{},
+		Pos: ast.Position{
+			Line:   atToken.Line,
+			Column: atToken.Column,
+		},
+		AtToken:   atToken,
+		NameToken: nameToken,
+	}
+
+	// Check for arguments
+	if start+2 < len(p.tokens) && p.tokens[start+2].Type == lexer.LPAREN {
+		// Find closing paren
+		parenStart := start + 2
+		parenEnd := -1
+		depth := 1
+
+		for i := parenStart + 1; i <= end && i < len(p.tokens); i++ {
+			if p.tokens[i].Type == lexer.LPAREN {
+				depth++
+			} else if p.tokens[i].Type == lexer.RPAREN {
+				depth--
+				if depth == 0 {
+					parenEnd = i
+					break
+				}
+			}
+		}
+
+		if parenEnd > parenStart {
+			// Parse arguments inside parentheses
+			argTokens := p.tokens[parenStart+1 : parenEnd]
+			if len(argTokens) > 0 {
+				expr := p.buildExpression(argTokens)
+				if expr != nil {
+					decorator.Args = append(decorator.Args, expr)
+				}
+			}
+		}
+	}
+
+	// Set token range
+	endToken := nameToken
+	if end < len(p.tokens) {
+		endToken = p.tokens[end]
+	}
+
+	decorator.Tokens = ast.TokenRange{
+		Start: atToken,
+		End:   endToken,
+		All:   p.tokens[start : end+1],
+	}
+
+	return decorator
 }
 
 // buildDecorator constructs a Decorator from a DecoratorSpan with unified args and block support
@@ -468,23 +653,8 @@ func (p *Parser) buildDecorator(span DecoratorSpan) *ast.Decorator {
 			argTokens := p.tokens[argSpan.ValueStart : argSpan.ValueEnd+1]
 			expr := p.buildExpression(argTokens)
 			if expr != nil {
-				if argSpan.IsNamed {
-					decorator.Args = append(decorator.Args, &ast.DecoratorArgument{
-						Name:  argSpan.Name,
-						Value: expr,
-						Pos: ast.Position{
-							Line:   argTokens[0].Line,
-							Column: argTokens[0].Column,
-						},
-						Tokens: ast.TokenRange{
-							Start: argTokens[0],
-							End:   argTokens[len(argTokens)-1],
-							All:   argTokens,
-						},
-					})
-				} else {
-					decorator.Args = append(decorator.Args, expr)
-				}
+				// All decorator arguments are just expressions now - no named arguments struct
+				decorator.Args = append(decorator.Args, expr)
 			}
 		}
 	}
@@ -542,7 +712,7 @@ func (p *Parser) buildDecoratorBlock(span DecoratorSpan) *ast.DecoratorBlock {
 	}
 }
 
-// buildExpression constructs an Expression from tokens
+// buildExpression constructs an Expression from tokens with improved decorator handling
 func (p *Parser) buildExpression(tokens []lexer.Token) ast.Expression {
 	if len(tokens) == 0 {
 		return nil
@@ -568,6 +738,7 @@ func (p *Parser) buildSingleTokenExpression(token lexer.Token) ast.Expression {
 		All:   []lexer.Token{token},
 	}
 
+	// Trust the lexer's token types
 	switch token.Type {
 	case lexer.STRING:
 		value := token.Value
@@ -577,13 +748,11 @@ func (p *Parser) buildSingleTokenExpression(token lexer.Token) ast.Expression {
 		}
 
 		return &ast.StringLiteral{
-			Value:        value,
-			Raw:          raw,
-			HasVariables: false, // Will be handled by decorators now
-			Variables:    []ast.VariableRef{},
-			Pos:          pos,
-			Tokens:       tokenRange,
-			StringToken:  token,
+			Value:       value,
+			Raw:         raw,
+			Pos:         pos,
+			Tokens:      tokenRange,
+			StringToken: token,
 		}
 
 	case lexer.NUMBER:
@@ -603,24 +772,7 @@ func (p *Parser) buildSingleTokenExpression(token lexer.Token) ast.Expression {
 		}
 
 	case lexer.IDENTIFIER:
-		if _, err := strconv.ParseInt(token.Value, 10, 64); err == nil {
-			return &ast.NumberLiteral{
-				Value:  token.Value,
-				Pos:    pos,
-				Tokens: tokenRange,
-				Token:  token,
-			}
-		}
-
-		if isDuration(token.Value) {
-			return &ast.DurationLiteral{
-				Value:  token.Value,
-				Pos:    pos,
-				Tokens: tokenRange,
-				Token:  token,
-			}
-		}
-
+		// For identifiers in decorator arguments, create proper Identifier nodes
 		return &ast.Identifier{
 			Name:   token.Value,
 			Pos:    pos,
@@ -650,19 +802,66 @@ func (p *Parser) buildSingleTokenExpression(token lexer.Token) ast.Expression {
 	}
 }
 
-// buildComplexExpression handles multi-token expressions
+// buildComplexExpression handles multi-token expressions with improved decorator parsing
 func (p *Parser) buildComplexExpression(tokens []lexer.Token) ast.Expression {
 	if len(tokens) == 0 {
 		return nil
 	}
 
-	// Check if this is a decorator pattern
+	// Check if this is a decorator pattern: @identifier(args)
 	if len(tokens) >= 4 && tokens[0].Type == lexer.AT &&
 		tokens[1].Type == lexer.IDENTIFIER &&
 		tokens[2].Type == lexer.LPAREN {
 
-		// This might be a decorator like @var(NAME) - check if we have it preprocessed
-		if decorator, exists := p.decorators[p.findTokenIndex(tokens[0])]; exists {
+		// Find the matching closing paren
+		depth := 1
+		closeParen := -1
+		for i := 3; i < len(tokens); i++ {
+			if tokens[i].Type == lexer.LPAREN {
+				depth++
+			} else if tokens[i].Type == lexer.RPAREN {
+				depth--
+				if depth == 0 {
+					closeParen = i
+					break
+				}
+			}
+		}
+
+		if closeParen > 3 {
+			// This is a complete decorator pattern
+			atToken := tokens[0]
+			nameToken := tokens[1]
+
+			decorator := &ast.Decorator{
+				Name: nameToken.Value,
+				Args: []ast.Expression{},
+				Pos: ast.Position{
+					Line:   atToken.Line,
+					Column: atToken.Column,
+				},
+				AtToken:   atToken,
+				NameToken: nameToken,
+			}
+
+			// Parse arguments between parentheses
+			if closeParen > 3 {
+				argTokens := tokens[3:closeParen]
+				if len(argTokens) > 0 {
+					expr := p.buildExpression(argTokens)
+					if expr != nil {
+						decorator.Args = append(decorator.Args, expr)
+					}
+				}
+			}
+
+			// Set token range
+			decorator.Tokens = ast.TokenRange{
+				Start: atToken,
+				End:   tokens[closeParen],
+				All:   tokens[0 : closeParen+1],
+			}
+
 			return decorator
 		}
 	}
@@ -688,10 +887,8 @@ func (p *Parser) buildComplexExpression(tokens []lexer.Token) ast.Expression {
 	value := combined.String()
 
 	return &ast.StringLiteral{
-		Value:        value,
-		Raw:          value,
-		HasVariables: false,
-		Variables:    []ast.VariableRef{},
+		Value: value,
+		Raw:   value,
 		Pos: ast.Position{
 			Line:   firstToken.Line,
 			Column: firstToken.Column,
@@ -787,6 +984,7 @@ func (p *Parser) combineTokensToText(tokens []lexer.Token) string {
 					result.WriteByte(' ')
 				}
 			} else if prevToken.Line < token.Line {
+				// Don't add space for newlines
 				if token.Type != lexer.NEWLINE && prevToken.Type != lexer.NEWLINE {
 					result.WriteByte(' ')
 				}
@@ -798,7 +996,9 @@ func (p *Parser) combineTokensToText(tokens []lexer.Token) string {
 		}
 	}
 
-	return result.String()
+	// Trim any trailing spaces
+	str := result.String()
+	return strings.TrimRight(str, " \t")
 }
 
 // buildDecoratorNodes pre-builds Decorator nodes during preprocessing

@@ -264,57 +264,98 @@ func (p *Parser) preprocessCommand(start int) int {
 		commandStart++
 	}
 
-	// Parse decorators without permanently advancing body position
-	originalBodyStart := commandStart
-	decoratorIndices := []int{}
-	currentPos := commandStart
-
-	// Collect all decorators first
-	for currentPos < len(p.tokens) && p.tokens[currentPos].Type == lexer.AT {
-		decoratorIndex := len(p.structure.Decorators)
-		decoratorEnd := p.preprocessDecorator(currentPos)
-		if decoratorEnd > currentPos {
-			decoratorIndices = append(decoratorIndices, decoratorIndex)
-			currentPos = decoratorEnd
-
-			// Skip whitespace after decorator
-			for currentPos < len(p.tokens) && (isWhitespace(p.tokens[currentPos]) || p.tokens[currentPos].Type == lexer.NEWLINE) {
-				currentPos++
-			}
-		} else {
-			break
-		}
-	}
-
 	// Determine block type and body boundaries correctly
 	var bodyStart, bodyEnd int
 	var isBlock bool
+	var decoratorIndices []int
 
-	if currentPos < len(p.tokens) && p.tokens[currentPos].Type == lexer.LBRACE {
-		// Explicit block: decorators followed by { statements }
+	if commandStart < len(p.tokens) && p.tokens[commandStart].Type == lexer.LBRACE {
+		// Explicit block: { statements }
 		isBlock = true
-		bodyStart = currentPos // Points to the opening brace
-		bodyEnd = p.findMatchingBracePreprocessing(currentPos)
+		bodyStart = commandStart // Points to the opening brace
+		bodyEnd = p.findMatchingBracePreprocessing(commandStart)
 		if bodyEnd == -1 {
-			p.addError(p.tokens[currentPos], "unclosed block",
+			p.addError(p.tokens[commandStart], "unclosed block",
 				"block command", "add closing '}' after block statements")
 			return len(p.tokens)
 		}
-	} else if p.hasDecoratorBlocks(decoratorIndices) {
-		// Decorators with their own blocks handle execution
-		isBlock = true
-		bodyStart = originalBodyStart // Points to first decorator
-		bodyEnd = currentPos - 1      // End of last decorator
-	} else if len(decoratorIndices) > 0 && p.hasImplicitBlockDecorator(decoratorIndices) {
-		// Implicit block: decorator contains the command (like @sh(echo hello))
-		isBlock = true
-		bodyStart = originalBodyStart // Points to first decorator
-		bodyEnd = currentPos - 1      // End of last decorator
 	} else {
-		// Simple command: may have decorators but followed by plain text
-		isBlock = false
-		bodyStart = currentPos // After decorators
-		bodyEnd = p.findCommandBodyEnd(bodyStart, false)
+		// Check if we have decorators with blocks at the start
+		currentPos := commandStart
+		hasDecoratorWithBlock := false
+
+		// Peek ahead to see if we have a decorator with a block
+		if currentPos < len(p.tokens) && p.tokens[currentPos].Type == lexer.AT {
+			// Look for decorator pattern: @name(...) { ... }
+			tempPos := currentPos
+			if tempDecEnd := p.peekDecoratorEnd(tempPos); tempDecEnd > tempPos {
+				// Check if there's a block after the decorator
+				afterDec := tempDecEnd + 1
+				// Skip whitespace
+				for afterDec < len(p.tokens) && (isWhitespace(p.tokens[afterDec]) || p.tokens[afterDec].Type == lexer.NEWLINE) {
+					afterDec++
+				}
+				if afterDec < len(p.tokens) && p.tokens[afterDec].Type == lexer.LBRACE {
+					hasDecoratorWithBlock = true
+				}
+			}
+		}
+
+		if hasDecoratorWithBlock {
+			// Command with decorator that has a block
+			// The entire thing becomes an implicit block
+			isBlock = true
+			bodyStart = commandStart
+			// Find the end of the decorator and its block
+			bodyEnd = p.findDecoratorWithBlockEnd(commandStart)
+		} else {
+			// Simple command or command with regular decorators
+			// Parse any decorators first
+			originalBodyStart := commandStart
+			currentPos := commandStart
+
+			// Collect decorators (only those without blocks)
+			for currentPos < len(p.tokens) && p.tokens[currentPos].Type == lexer.AT {
+				// Peek to see if this decorator will have a block
+				tempDecEnd := p.peekDecoratorEnd(currentPos)
+				afterDec := tempDecEnd + 1
+				// Skip whitespace
+				for afterDec < len(p.tokens) && (isWhitespace(p.tokens[afterDec]) || p.tokens[afterDec].Type == lexer.NEWLINE) {
+					afterDec++
+				}
+
+				if afterDec < len(p.tokens) && p.tokens[afterDec].Type == lexer.LBRACE {
+					// This decorator has a block - don't add it to decorators list
+					// The whole thing becomes an implicit block
+					isBlock = true
+					bodyStart = currentPos
+					bodyEnd = p.findDecoratorWithBlockEnd(currentPos)
+					decoratorIndices = []int{} // Clear any decorators we collected
+					break
+				} else {
+					// Regular decorator without block
+					decoratorIndex := len(p.structure.Decorators)
+					decoratorEnd := p.preprocessDecorator(currentPos)
+					if decoratorEnd > currentPos {
+						decoratorIndices = append(decoratorIndices, decoratorIndex)
+						currentPos = decoratorEnd
+
+						// Skip whitespace after decorator
+						for currentPos < len(p.tokens) && (isWhitespace(p.tokens[currentPos]) || p.tokens[currentPos].Type == lexer.NEWLINE) {
+							currentPos++
+						}
+					} else {
+						break
+					}
+				}
+			}
+
+			if !isBlock {
+				// Simple command body starts after decorators
+				bodyStart = currentPos
+				bodyEnd = p.findCommandBodyEnd(bodyStart, false)
+			}
+		}
 	}
 
 	p.structure.Commands = append(p.structure.Commands, CommandSpan{
@@ -850,4 +891,58 @@ func isValidIdentifierName(name string) bool {
 	}
 
 	return true
+}
+
+// Add these helper methods at the end of the file
+
+// peekDecoratorEnd looks ahead to find the end of a decorator without modifying state
+func (p *Parser) peekDecoratorEnd(start int) int {
+	if start >= len(p.tokens) || p.tokens[start].Type != lexer.AT {
+		return start
+	}
+
+	i := start + 1
+
+	// Skip decorator name
+	if i < len(p.tokens) && p.tokens[i].Type == lexer.IDENTIFIER {
+		i++
+	} else {
+		return start
+	}
+
+	// Check for arguments
+	if i < len(p.tokens) && p.tokens[i].Type == lexer.LPAREN {
+		depth := 1
+		i++
+		for i < len(p.tokens) && depth > 0 {
+			if p.tokens[i].Type == lexer.LPAREN {
+				depth++
+			} else if p.tokens[i].Type == lexer.RPAREN {
+				depth--
+			}
+			i++
+		}
+	}
+
+	return i - 1
+}
+
+// findDecoratorWithBlockEnd finds the end of a decorator with its block
+func (p *Parser) findDecoratorWithBlockEnd(start int) int {
+	if start >= len(p.tokens) || p.tokens[start].Type != lexer.AT {
+		return start
+	}
+
+	// Process the decorator
+	decoratorEnd := p.preprocessDecorator(start)
+
+	// The decorator preprocessing should have found the block
+	if len(p.structure.Decorators) > 0 {
+		lastDecorator := p.structure.Decorators[len(p.structure.Decorators)-1]
+		if lastDecorator.HasBlock {
+			return lastDecorator.BlockEnd
+		}
+	}
+
+	return decoratorEnd
 }

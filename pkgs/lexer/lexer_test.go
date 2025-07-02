@@ -288,16 +288,11 @@ func TestNumbers(t *testing.T) {
 	}
 }
 
-func TestShellMode(t *testing.T) {
-	input := "var test: echo hello world"
+func TestCommandMode(t *testing.T) {
+	input := "build: echo hello world"
 	lexer := New(input)
 
 	// Should start in language mode
-	var1 := lexer.NextToken()
-	if var1.Type != VAR {
-		t.Errorf("Expected VAR, got %s", var1.Type)
-	}
-
 	ident := lexer.NextToken()
 	if ident.Type != IDENTIFIER {
 		t.Errorf("Expected IDENTIFIER, got %s", ident.Type)
@@ -308,9 +303,9 @@ func TestShellMode(t *testing.T) {
 		t.Errorf("Expected COLON, got %s", colon.Type)
 	}
 
-	// After colon, should be in shell mode
+	// After colon, should switch to command mode for simple commands
 	shellText := lexer.NextToken()
-	if shellText.Type != IDENTIFIER { // Changed from SHELL_TEXT to IDENTIFIER
+	if shellText.Type != IDENTIFIER {
 		t.Errorf("Expected IDENTIFIER, got %s", shellText.Type)
 	}
 
@@ -319,15 +314,93 @@ func TestShellMode(t *testing.T) {
 	}
 }
 
+func TestSemicolonInShellCommand(t *testing.T) {
+	// Test that semicolons are part of shell commands, not separators
+	input := "build: echo hello; echo world"
+	lexer := New(input)
+
+	ident := lexer.NextToken()
+	if ident.Type != IDENTIFIER || ident.Value != "build" {
+		t.Errorf("Expected IDENTIFIER 'build', got %s %q", ident.Type, ident.Value)
+	}
+
+	colon := lexer.NextToken()
+	if colon.Type != COLON {
+		t.Errorf("Expected COLON, got %s", colon.Type)
+	}
+
+	// The entire shell command should be one token including the semicolon
+	shellText := lexer.NextToken()
+	if shellText.Type != IDENTIFIER {
+		t.Errorf("Expected IDENTIFIER, got %s", shellText.Type)
+	}
+
+	expectedShellText := "echo hello; echo world"
+	if diff := cmp.Diff(expectedShellText, shellText.Value); diff != "" {
+		t.Errorf("Shell text mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestBlockWithSemicolons(t *testing.T) {
+	// Test that semicolons inside blocks are part of shell commands
+	input := "deploy: { cd src; make clean; make install }"
+	lexer := New(input)
+
+	// deploy
+	ident := lexer.NextToken()
+	if ident.Type != IDENTIFIER || ident.Value != "deploy" {
+		t.Errorf("Expected IDENTIFIER 'deploy', got %s %q", ident.Type, ident.Value)
+	}
+
+	// :
+	colon := lexer.NextToken()
+	if colon.Type != COLON {
+		t.Errorf("Expected COLON, got %s", colon.Type)
+	}
+
+	// {
+	lbrace := lexer.NextToken()
+	if lbrace.Type != LBRACE {
+		t.Errorf("Expected LBRACE, got %s", lbrace.Type)
+	}
+
+	// The shell command with semicolons should be a single token
+	shellCmd := lexer.NextToken()
+	if shellCmd.Type != IDENTIFIER {
+		t.Errorf("Expected IDENTIFIER, got %s", shellCmd.Type)
+	}
+
+	expectedCmd := "cd src; make clean; make install"
+	if diff := cmp.Diff(expectedCmd, shellCmd.Value); diff != "" {
+		t.Errorf("Shell command mismatch (-want +got):\n%s", diff)
+
+		// Debug: show all remaining tokens
+		t.Logf("Remaining tokens:")
+		for {
+			tok := lexer.NextToken()
+			t.Logf("  %s %q", tok.Type, tok.Value)
+			if tok.Type == EOF {
+				break
+			}
+		}
+	}
+
+	// }
+	rbrace := lexer.NextToken()
+	if rbrace.Type != RBRACE {
+		t.Errorf("Expected RBRACE, got %s", rbrace.Type)
+	}
+}
+
 func TestLineContinuation(t *testing.T) {
 	input := "echo hello \\\nworld"
 	lexer := New(input)
 
-	// Simulate being in shell mode
-	lexer.setMode(ShellMode)
+	// Simulate being in command mode
+	lexer.setMode(CommandMode)
 
 	shellText1 := lexer.NextToken()
-	if shellText1.Type != IDENTIFIER { // Changed from SHELL_TEXT to IDENTIFIER
+	if shellText1.Type != IDENTIFIER {
 		t.Errorf("Expected IDENTIFIER, got %s", shellText1.Type)
 	}
 
@@ -341,7 +414,7 @@ func TestLineContinuation(t *testing.T) {
 	}
 
 	shellText2 := lexer.NextToken()
-	if shellText2.Type != IDENTIFIER { // Changed from SHELL_TEXT to IDENTIFIER
+	if shellText2.Type != IDENTIFIER {
 		t.Errorf("Expected IDENTIFIER, got %s", shellText2.Type)
 	}
 
@@ -372,14 +445,14 @@ func TestPosition(t *testing.T) {
 
 func TestComplexExample(t *testing.T) {
 	input := `
-var server: @timeout(30s) {
+var PORT = 8080
+
+server: @timeout(30s) {
 	echo "Starting server..."
 	node app.js
 }
 
-watch tests: @var(NODE_ENV=test) {
-	npm test
-}
+watch tests: npm test
 
 stop all: pkill -f "node|npm"
 `
@@ -420,8 +493,8 @@ stop all: pkill -f "node|npm"
 	if stopCount != 1 {
 		t.Errorf("Expected 1 STOP token, got %d", stopCount)
 	}
-	if atCount != 2 {
-		t.Errorf("Expected 2 AT tokens, got %d", atCount)
+	if atCount != 1 {
+		t.Errorf("Expected 1 AT token, got %d", atCount)
 	}
 }
 
@@ -475,6 +548,239 @@ func TestNestedDecorators(t *testing.T) {
 	}
 }
 
+func TestModeTransitions(t *testing.T) {
+	// Debug: Simple command case
+	t.Run("debug simple command", func(t *testing.T) {
+		input := "build: echo hello"
+		lexer := New(input)
+
+		// Step 0: build
+		token := lexer.NextToken()
+		t.Logf("Step 0: token=%s, mode=%v (LanguageMode=0, CommandMode=1)", token.Type, lexer.mode)
+		if token.Type != IDENTIFIER || lexer.mode != LanguageMode {
+			t.Errorf("Step 0: expected IDENTIFIER in LanguageMode, got %s in mode %v", token.Type, lexer.mode)
+		}
+
+		// Step 1: :
+		token = lexer.NextToken()
+		t.Logf("Step 1: token=%s, mode=%v (LanguageMode=0, CommandMode=1)", token.Type, lexer.mode)
+		if token.Type != COLON {
+			t.Errorf("Step 1: expected COLON, got %s", token.Type)
+		}
+		// For simple commands, COLON should switch to CommandMode
+		if lexer.mode != CommandMode {
+			t.Errorf("Step 1: expected CommandMode (1) after COLON, got mode %v", lexer.mode)
+		}
+
+		// Step 2: echo hello
+		token = lexer.NextToken()
+		t.Logf("Step 2: token=%s, mode=%v, value=%q", token.Type, lexer.mode, token.Value)
+		if token.Type != IDENTIFIER || lexer.mode != CommandMode {
+			t.Errorf("Step 2: expected IDENTIFIER in CommandMode, got %s in mode %v", token.Type, lexer.mode)
+		}
+
+		// Step 3: EOF
+		token = lexer.NextToken()
+		t.Logf("Step 3: token=%s, mode=%v", token.Type, lexer.mode)
+		if token.Type != EOF {
+			t.Errorf("Step 3: expected EOF, got %s", token.Type)
+		}
+		// EOF should switch back to LanguageMode
+		if lexer.mode != LanguageMode {
+			t.Errorf("Step 3: expected LanguageMode (0) after EOF, got mode %v", lexer.mode)
+		}
+	})
+
+	tests := []struct {
+		name     string
+		input    string
+		expected []struct {
+			token TokenType
+			mode  LexerMode
+		}
+	}{
+		{
+			name:  "simple command transitions",
+			input: "build: echo hello",
+			expected: []struct {
+				token TokenType
+				mode  LexerMode
+			}{
+				{IDENTIFIER, LanguageMode}, // build (starts in LanguageMode)
+				{COLON, CommandMode},       // : (switches to CommandMode because shouldSwitchToCommandMode() = true)
+				{IDENTIFIER, CommandMode},  // echo hello (stays in CommandMode)
+				{EOF, LanguageMode},        // EOF (switches back to LanguageMode on newline/EOF)
+			},
+		},
+		{
+			name:  "explicit block transitions",
+			input: "build: { echo hello }",
+			expected: []struct {
+				token TokenType
+				mode  LexerMode
+			}{
+				{IDENTIFIER, LanguageMode}, // build (starts in LanguageMode)
+				{COLON, LanguageMode},      // : (stays in LanguageMode because shouldSwitchToCommandMode() = false due to {)
+				{LBRACE, CommandMode},      // { (switches to CommandMode)
+				{IDENTIFIER, CommandMode},  // echo hello (stays in CommandMode)
+				{RBRACE, LanguageMode},     // } (switches back to LanguageMode)
+				{EOF, LanguageMode},        // EOF (stays in LanguageMode)
+			},
+		},
+		{
+			name:  "decorator in command",
+			input: "build: { @timeout(30s) { echo hello } }",
+			expected: []struct {
+				token TokenType
+				mode  LexerMode
+			}{
+				{IDENTIFIER, LanguageMode}, // build (starts in LanguageMode)
+				{COLON, LanguageMode},      // : (stays in LanguageMode because { follows)
+				{LBRACE, CommandMode},      // { (switches to CommandMode)
+				{AT, LanguageMode},         // @ (switches to LanguageMode for decorator parsing)
+				{IDENTIFIER, LanguageMode}, // timeout (stays in LanguageMode)
+				{LPAREN, LanguageMode},     // ( (stays in LanguageMode)
+				{DURATION, LanguageMode},   // 30s (stays in LanguageMode)
+				{RPAREN, LanguageMode},     // ) (stays in LanguageMode)
+				{LBRACE, CommandMode},      // { (switches to CommandMode)
+				{IDENTIFIER, CommandMode},  // echo hello (stays in CommandMode)
+				{RBRACE, LanguageMode},     // } (switches back to LanguageMode)
+				{RBRACE, LanguageMode},     // } (stays in LanguageMode)
+				{EOF, LanguageMode},        // EOF (stays in LanguageMode)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+
+			for i, expected := range test.expected {
+				token := lexer.NextToken()
+				if token.Type != expected.token {
+					t.Errorf("Step %d: expected token %s, got %s", i, expected.token, token.Type)
+				}
+
+				// Check mode after token is processed
+				if lexer.mode != expected.mode {
+					t.Errorf("Step %d: expected mode %v, got %v (after token %s)",
+						i, expected.mode, lexer.mode, token.Type)
+				}
+			}
+		})
+	}
+}
+
+func TestSyntaxSugarDetection(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		shouldSwitchToCommandMode bool
+	}{
+		{
+			name:           "simple command gets sugar",
+			input:          "build: echo hello",
+			shouldSwitchToCommandMode: true,
+		},
+		{
+			name:           "explicit block no sugar",
+			input:          "build: { echo hello }",
+			shouldSwitchToCommandMode: false,
+		},
+		{
+			name:           "decorator no sugar",
+			input:          "build: @timeout(30s) { echo hello }",
+			shouldSwitchToCommandMode: false,
+		},
+		{
+			name:           "empty command no sugar",
+			input:          "build:",
+			shouldSwitchToCommandMode: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+
+			// Skip to colon
+			lexer.NextToken() // identifier
+			lexer.NextToken() // colon
+
+			// After colon, check if we switched to CommandMode
+			nextToken := lexer.NextToken()
+
+			if test.shouldSwitchToCommandMode {
+				// Should be in CommandMode, so next token should be shell text
+				if nextToken.Type != IDENTIFIER || nextToken.Semantic != SemCommand {
+					t.Errorf("Expected shell command token, got %s with semantic %v",
+						nextToken.Type, nextToken.Semantic)
+				}
+			} else {
+				// Should not switch to CommandMode immediately
+				// Next token should be structural (LBRACE, AT) or EOF/NEWLINE
+				if nextToken.Type == IDENTIFIER && nextToken.Semantic == SemCommand {
+					t.Errorf("Unexpected switch to CommandMode, got shell command token: %s %q",
+						nextToken.Type, nextToken.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestDecoratorVsInlineVar(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectedAT  int // Number of AT tokens expected
+		description string
+	}{
+		{
+			name:        "decorator @timeout",
+			input:       "@timeout(30s)",
+			expectedAT:  1,
+			description: "Should tokenize @timeout as decorator",
+		},
+		{
+			name:        "inline @var usage",
+			input:       "echo @var(PORT)",
+			expectedAT:  1,
+			description: "Should tokenize @ in @var() as AT token, let parser handle semantics",
+		},
+		{
+			name:        "mixed usage",
+			input:       "@timeout(30s) { echo @var(PORT) }",
+			expectedAT:  2,
+			description: "Both @ symbols should be tokenized",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			atCount := 0
+			for _, token := range tokens {
+				if token.Type == AT {
+					atCount++
+				}
+			}
+
+			if atCount != test.expectedAT {
+				t.Errorf("%s: expected %d AT tokens, got %d",
+					test.description, test.expectedAT, atCount)
+
+				// Debug output
+				t.Logf("All tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+			}
+		})
+	}
+}
+
 func TestGetSemanticTokens(t *testing.T) {
 	input := `var server: echo "hello"`
 
@@ -496,7 +802,7 @@ func TestGetSemanticTokens(t *testing.T) {
 }
 
 func TestTokenizeToSlice(t *testing.T) {
-	input := `var server: @timeout(30s) { echo "test"; node app.js; }`
+	input := `var server: @timeout(30s) { echo "test"; node app.js }`
 
 	// Test TokenizeToSlice method
 	lexer := New(input)

@@ -5,7 +5,11 @@ import (
 	"strings"
 )
 
-// TokenType represents the type of token
+// TokenType represents the type of token in Devcmd
+//
+// Devcmd uses mode-based lexing with two primary contexts:
+// - LanguageMode: Top-level constructs and decorator parsing
+// - CommandMode: Shell text with decorator recognition
 type TokenType int
 
 const (
@@ -13,32 +17,32 @@ const (
 	EOF TokenType = iota
 	ILLEGAL
 
-	// Language structure tokens
-	VAR    // var
-	WATCH  // watch
-	STOP   // stop
-	AT     // @
-	COLON  // :
-	EQUALS // =
-	COMMA  // ,
-	LPAREN // (
-	RPAREN // )
-	LBRACE // {
-	RBRACE // }
+	// Language structure tokens (LanguageMode and CommandMode boundaries)
+	VAR    // var - keyword for variable declarations
+	WATCH  // watch - keyword for process management commands
+	STOP   // stop - keyword for cleanup commands
+	AT     // @ - decorator prefix (switches CommandMode → LanguageMode)
+	COLON  // : - command separator (LanguageMode → CommandMode transition point)
+	EQUALS // = - assignment operator in variable declarations
+	COMMA  // , - separator in decorator parameters and variable groups
+	LPAREN // ( - decorator parameter start
+	RPAREN // ) - decorator parameter end
+	LBRACE // { - explicit block start (LanguageMode → CommandMode)
+	RBRACE // } - block end (CommandMode → LanguageMode)
 
-	// Literals
-	IDENTIFIER // command names, variable names, decorator names, shell symbols
-	NUMBER     // 8080, 3.14, -100
-	STRING     // "quoted", 'single', `backtick`
-	DURATION   // 30s, 5m, 1h, 500ms, 2.5s
+	// Literals (recognized in both modes with context-specific semantics)
+	IDENTIFIER // command names, variable names, decorator names, shell text
+	NUMBER     // numeric literals: 8080, 3.14, -100
+	STRING     // quoted strings: "hello", 'world', `template`
+	DURATION   // time literals: 30s, 5m, 1h, 500ms, 2.5s
 
-	// Continuation
-	LINE_CONT // \ (line continuation)
+	// Continuation and structure
+	LINE_CONT // \ - line continuation (preserves mode)
+	NEWLINE   // \n - statement boundary (CommandMode → LanguageMode for simple commands)
 
-	// Structure
-	NEWLINE           // statement boundaries
-	COMMENT           // # single line comments
-	MULTILINE_COMMENT // /* multiline comments */
+	// Comments (recognized in both modes)
+	COMMENT           // # - single line comments
+	MULTILINE_COMMENT // /* */ - multiline comments
 )
 
 // Pre-computed token name lookup for fast debugging
@@ -77,21 +81,23 @@ func (t TokenType) String() string {
 type StringType int
 
 const (
-	DoubleQuoted StringType = iota // "string"
-	SingleQuoted                   // 'string'
-	Backtick                       // `string`
+	DoubleQuoted StringType = iota // "string" - supports escape sequences
+	SingleQuoted                   // 'string' - literal strings
+	Backtick                       // `string` - template strings with extended escapes
 )
 
 // SemanticTokenType represents semantic categories for syntax highlighting
+// These provide rich context for IDE features like syntax highlighting,
+// go-to-definition, and hover information
 type SemanticTokenType int
 
 const (
 	SemKeyword   SemanticTokenType = iota // var, watch, stop
-	SemCommand                            // command names after var/watch/stop
+	SemCommand                            // command names and shell text
 	SemVariable                           // variable names in declarations
 	SemDecorator                          // decorator names after @
 	SemString                             // string literals
-	SemNumber                             // numeric literals
+	SemNumber                             // numeric literals and durations
 	SemComment                            // comments
 	SemOperator                           // :, =, {, }, (, ), @, shell operators
 	SemParameter                          // decorator parameter names
@@ -99,6 +105,10 @@ const (
 
 // Token represents a single token with position information
 // Optimized for memory layout and cache efficiency
+//
+// Usage in Mode-Based Lexing:
+// - LanguageMode: Produces structured tokens (VAR, WATCH, AT, etc.)
+// - CommandMode: Produces shell text as IDENTIFIER tokens + structural boundaries
 type Token struct {
 	Type      TokenType
 	Semantic  SemanticTokenType
@@ -108,9 +118,9 @@ type Token struct {
 	EndColumn int
 
 	// String fields grouped together for better cache locality
-	Value string
-	Raw   string // Raw string content before escape processing
-	Scope string // TextMate-style scope
+	Value string // Actual token content
+	Raw   string // Raw string content before escape processing (for strings)
+	Scope string // TextMate-style scope for syntax highlighting
 
 	// Enum fields at end for optimal packing
 	StringType StringType
@@ -143,19 +153,30 @@ type LSPSemanticToken struct {
 }
 
 // DecoratorArg represents a single decorator argument
+// Supports Kotlin-like named parameters for enhanced readability
+//
+// Examples:
+// - Positional: @timeout(30s) → DecoratorArg{Value: "30s"}
+// - Named: @retry(attempts=3) → DecoratorArg{Name: "attempts", Value: "3"}
 type DecoratorArg struct {
 	Name   string // empty string for positional args
-	Value  string
-	Line   int
+	Value  string // argument value (unquoted)
+	Line   int    // source position for error reporting
 	Column int
 }
 
 // ParseDecoratorArgs parses decorator arguments supporting Kotlin-like named parameters
-// Supports:
+//
+// Supported Patterns:
 // - Positional: @timeout(30s)
 // - Named: @retry(attempts=3)
-// - Mixed: @timeout(30s, graceful=true)
-// - Reordered: @retry(delay=1s, attempts=3)
+// - Mixed: @timeout(30s, graceful=true) - positional must come first
+// - Reordered: @retry(delay=1s, attempts=3) - named can be in any order
+//
+// Rules (Kotlin-style):
+// - Once a named parameter is used, all following parameters must be named
+// - Parameter names must be valid identifiers (letters, digits, -, _)
+// - Values can be quoted or unquoted
 func ParseDecoratorArgs(args string, line, column int) ([]DecoratorArg, error) {
 	if len(strings.TrimSpace(args)) == 0 {
 		return nil, nil
@@ -220,6 +241,7 @@ func ParseDecoratorArgs(args string, line, column int) ([]DecoratorArg, error) {
 }
 
 // isValidParameterName checks if a string is a valid parameter name
+// Rules: start with letter/underscore, contain letters/digits/hyphens/underscores
 func isValidParameterName(name string) bool {
 	if len(name) == 0 {
 		return false
@@ -301,6 +323,7 @@ func unquoteIfNeeded(s string) string {
 // Syntax highlighting utility functions - optimized versions
 
 // GetSemanticTokens extracts all tokens with semantic information for syntax highlighting
+// Excludes EOF token for cleaner IDE integration
 func GetSemanticTokens(input string) ([]Token, error) {
 	lexer := New(input)
 
@@ -314,13 +337,13 @@ func GetSemanticTokens(input string) ([]Token, error) {
 }
 
 // ToLSPSemanticTokensArray converts tokens to LSP semantic tokens array format
-// Optimized with pre-allocation
+// Uses delta encoding as required by the Language Server Protocol
 func ToLSPSemanticTokensArray(tokens []Token) []uint32 {
 	if len(tokens) == 0 {
 		return []uint32{}
 	}
 
-	// Each token produces 5 uint32 values
+	// Each token produces 5 uint32 values: deltaLine, deltaChar, length, tokenType, modifiers
 	result := make([]uint32, 0, len(tokens)*5)
 	var prevLine, prevChar uint32
 
@@ -330,7 +353,7 @@ func ToLSPSemanticTokensArray(tokens []Token) []uint32 {
 		length := uint32(len(token.Value))
 		tokenType := uint32(token.Semantic)
 
-		// LSP uses delta encoding
+		// LSP uses delta encoding for efficiency
 		deltaLine := line - prevLine
 		var deltaChar uint32
 		if deltaLine == 0 {
@@ -349,7 +372,7 @@ func ToLSPSemanticTokensArray(tokens []Token) []uint32 {
 }
 
 // GetTextMateGrammarScopes returns all unique TextMate scopes used
-// Optimized with pre-sized map
+// Useful for building syntax highlighting grammars
 func GetTextMateGrammarScopes(tokens []Token) []string {
 	if len(tokens) == 0 {
 		return nil
