@@ -728,6 +728,113 @@ func TestSyntaxSugarDetection(t *testing.T) {
 	}
 }
 
+func TestDecoratorShapeDetection(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		shouldTokenize bool
+		description    string
+	}{
+		// ✅ Valid decorator shapes - should tokenize @ separately
+		{
+			name:           "decorator with parentheses",
+			input:          "cmd: echo @timeout(30s)",
+			shouldTokenize: true,
+			description:    "@timeout(30s) follows decorator shape",
+		},
+		{
+			name:           "decorator with block",
+			input:          "cmd: echo @parallel { npm test }",
+			shouldTokenize: true,
+			description:    "@parallel { } follows decorator shape",
+		},
+		{
+			name:           "var usage with parentheses",
+			input:          "cmd: echo @var(PORT)",
+			shouldTokenize: true,
+			description:    "@var(PORT) follows decorator shape",
+		},
+		{
+			name:           "decorator with hyphen",
+			input:          "cmd: echo @watch-files(pattern='*.js')",
+			shouldTokenize: true,
+			description:    "@watch-files() follows decorator shape",
+		},
+
+		// ❌ Invalid shapes - should NOT tokenize @ separately
+		{
+			name:           "email address",
+			input:          "cmd: echo admin@company.com",
+			shouldTokenize: false,
+			description:    "admin@company.com is email, not decorator shape",
+		},
+		{
+			name:           "docker image digest",
+			input:          "cmd: docker run nginx@sha256:abc123def456",
+			shouldTokenize: false,
+			description:    "nginx@sha256:... is docker image, not decorator shape",
+		},
+		{
+			name:           "npm package version",
+			input:          "cmd: npm install react@18.2.0",
+			shouldTokenize: false,
+			description:    "react@18.2.0 is package version, not decorator shape",
+		},
+		{
+			name:           "url with auth",
+			input:          "cmd: curl user@domain:pass",
+			shouldTokenize: false,
+			description:    "user@domain:pass is URL auth, not decorator shape",
+		},
+		{
+			name:           "at symbol followed by number",
+			input:          "cmd: echo version@123",
+			shouldTokenize: false,
+			description:    "version@123 doesn't follow decorator shape",
+		},
+
+		// Special cases that need careful handling
+		{
+			name:           "git reference with braces",
+			input:          "cmd: git show HEAD@{2.days.ago}",
+			shouldTokenize: false,
+			description:    "HEAD@{...} is git reference, not decorator shape",
+		},
+		{
+			name:           "shell array syntax",
+			input:          "cmd: echo ${array[@]}",
+			shouldTokenize: false,
+			description:    "${array[@]} is shell syntax, not decorator shape",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			hasATToken := false
+			for _, token := range tokens {
+				if token.Type == AT {
+					hasATToken = true
+					break
+				}
+			}
+
+			if hasATToken != test.shouldTokenize {
+				t.Errorf("%s: expected @ tokenization to be %v, got %v",
+					test.description, test.shouldTokenize, hasATToken)
+
+				// Debug output
+				t.Logf("All tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+			}
+		})
+	}
+}
+
 func TestDecoratorVsInlineVar(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -743,7 +850,7 @@ func TestDecoratorVsInlineVar(t *testing.T) {
 		},
 		{
 			name:        "inline @var usage",
-			input:       "echo @var(PORT)",
+			input:       "cmd: echo @var(PORT)",
 			expectedAT:  1,
 			description: "Should tokenize @ in @var() as AT token, let parser handle semantics",
 		},
@@ -752,6 +859,24 @@ func TestDecoratorVsInlineVar(t *testing.T) {
 			input:       "@timeout(30s) { echo @var(PORT) }",
 			expectedAT:  2,
 			description: "Both @ symbols should be tokenized",
+		},
+		{
+			name:        "email should not tokenize @",
+			input:       "cmd: echo admin@company.com",
+			expectedAT:  0,
+			description: "Email addresses should not trigger @ tokenization",
+		},
+		{
+			name:        "docker image should not tokenize @",
+			input:       "cmd: docker run nginx@sha256:abc123",
+			expectedAT:  0,
+			description: "Docker image digests should not trigger @ tokenization",
+		},
+		{
+			name:        "shell array should not tokenize @",
+			input:       "cmd: echo ${array[@]}",
+			expectedAT:  0,
+			description: "Shell array syntax should not trigger @ tokenization",
 		},
 	}
 
@@ -775,6 +900,309 @@ func TestDecoratorVsInlineVar(t *testing.T) {
 				t.Logf("All tokens:")
 				for i, token := range tokens {
 					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestVarInMiddleOfText(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []struct {
+			tokenType TokenType
+			value     string
+		}
+	}{
+		{
+			name:  "var in quoted string",
+			input: `cmd: echo "Port is @var(PORT) and host is @var(HOST)"`,
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "cmd"},
+				{COLON, ":"},
+				{IDENTIFIER, `echo "Port is`},
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "PORT"},
+				{RPAREN, ")"},
+				{IDENTIFIER, `and host is`},
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "HOST"},
+				{RPAREN, ")"},
+				{IDENTIFIER, `"`},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "var mixed with email",
+			input: `cmd: echo "API: @var(API_URL), contact: admin@company.com"`,
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "cmd"},
+				{COLON, ":"},
+				{IDENTIFIER, `echo "API:`},
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "API_URL"},
+				{RPAREN, ")"},
+				{IDENTIFIER, `, contact: admin@company.com"`},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "var in script parameters",
+			input: `cmd: node app.js --port @var(PORT) --email admin@company.com`,
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "cmd"},
+				{COLON, ":"},
+				{IDENTIFIER, `node app.js --port`},
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "PORT"},
+				{RPAREN, ")"},
+				{IDENTIFIER, `--email admin@company.com`},
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expected) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
+
+				// Debug: show all actual tokens
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+				return
+			}
+
+			for i, expected := range test.expected {
+				actual := tokens[i]
+				if actual.Type != expected.tokenType {
+					t.Errorf("Token %d: expected type %s, got %s", i, expected.tokenType, actual.Type)
+				}
+				if actual.Value != expected.value {
+					t.Errorf("Token %d: expected value %q, got %q", i, expected.value, actual.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestShellCommandsWithAtSymbols(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		expectedTokens []struct {
+			tokenType TokenType
+			value     string
+		}
+	}{
+		{
+			name:  "email addresses in shell commands",
+			input: "notify: echo 'Alert sent to admin@company.com'",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "notify"},
+				{COLON, ":"},
+				{IDENTIFIER, "echo 'Alert sent to admin@company.com'"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "docker image with digest",
+			input: "deploy: docker run nginx@sha256:abc123def456",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "deploy"},
+				{COLON, ":"},
+				{IDENTIFIER, "docker run nginx@sha256:abc123def456"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "git operations with @",
+			input: "backup: git show HEAD@{2.days.ago}",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "backup"},
+				{COLON, ":"},
+				{IDENTIFIER, "git show HEAD@{2.days.ago}"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "ssh commands",
+			input: "connect: ssh user@hostname.com",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "connect"},
+				{COLON, ":"},
+				{IDENTIFIER, "ssh user@hostname.com"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "npm package versions",
+			input: "setup: npm install react@18.2.0 typescript@^4.9.0",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "setup"},
+				{COLON, ":"},
+				{IDENTIFIER, "npm install react@18.2.0 typescript@^4.9.0"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "shell arrays and parameters",
+			input: "test: echo ${array[@]} and $@",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{IDENTIFIER, "echo ${array[@]} and $@"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "mixed legitimate @ and decorator",
+			input: "deploy: @timeout(30s) { echo 'Deploying to admin@prod.com' }",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "deploy"},
+				{COLON, ":"},
+				{AT, "@"},
+				{IDENTIFIER, "timeout"},
+				{LPAREN, "("},
+				{DURATION, "30s"},
+				{RPAREN, ")"},
+				{LBRACE, "{"},
+				{IDENTIFIER, "echo 'Deploying to admin@prod.com'"},
+				{RBRACE, "}"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "inline @var usage vs email",
+			input: "server: node app.js --port @var(PORT) --admin admin@company.com",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "server"},
+				{COLON, ":"},
+				{IDENTIFIER, "node app.js --port"},
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "PORT"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "--admin admin@company.com"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "multiple emails in one command",
+			input: "notify: mail -s 'Alert' admin@company.com,ops@company.com < log.txt",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "notify"},
+				{COLON, ":"},
+				{IDENTIFIER, "mail -s 'Alert' admin@company.com,ops@company.com < log.txt"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "URL with authentication",
+			input: "fetch: curl -u user@domain:pass https://api.service.com",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "fetch"},
+				{COLON, ":"},
+				{IDENTIFIER, "curl -u user@domain:pass https://api.service.com"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "decorator followed by email in same block",
+			input: "deploy: @parallel { echo 'Notify admin@company.com'; kubectl apply -f k8s/ }",
+			expectedTokens: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "deploy"},
+				{COLON, ":"},
+				{AT, "@"},
+				{IDENTIFIER, "parallel"},
+				{LBRACE, "{"},
+				{IDENTIFIER, "echo 'Notify admin@company.com'; kubectl apply -f k8s/"},
+				{RBRACE, "}"},
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expectedTokens) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expectedTokens), len(tokens))
+
+				// Debug: show all actual tokens
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+				return
+			}
+
+			for i, expected := range test.expectedTokens {
+				actual := tokens[i]
+				if actual.Type != expected.tokenType {
+					t.Errorf("Token %d: expected type %s, got %s", i, expected.tokenType, actual.Type)
+				}
+				if actual.Value != expected.value {
+					t.Errorf("Token %d: expected value %q, got %q", i, expected.value, actual.Value)
 				}
 			}
 		})
