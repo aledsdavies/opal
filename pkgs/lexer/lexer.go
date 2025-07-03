@@ -36,6 +36,8 @@ const (
 	LanguageMode LexerMode = iota
 	// CommandMode: Inside command bodies (after : or inside {})
 	CommandMode
+	// VariableValueMode: Parsing variable values (after var NAME =)
+	VariableValueMode
 )
 
 // Pool for working buffers only
@@ -51,6 +53,14 @@ type BraceContext struct {
 	mode  LexerMode
 }
 
+// VariableContext tracks variable parsing state
+type VariableContext struct {
+	inVarDecl       bool // Are we inside a var declaration?
+	inVarGroup      bool // Are we inside var ( ... )?
+	expectingValue  bool // Are we expecting a variable value (after =)?
+	varGroupLevel   int  // Nesting level of var groups
+}
+
 // Lexer tokenizes Devcmd source code with mode-based parsing
 type Lexer struct {
 	input      []byte
@@ -63,6 +73,7 @@ type Lexer struct {
 	lastToken  TokenType
 	mode       LexerMode
 	braceStack []BraceContext // Stack-based bracket tracking
+	varContext VariableContext // Variable parsing context
 }
 
 // New creates a new lexer instance with optimized initialization
@@ -73,6 +84,7 @@ func New(input string) *Lexer {
 		column:     0,
 		mode:       LanguageMode,
 		braceStack: make([]BraceContext, 0, 16), // Pre-allocate for common nesting
+		varContext: VariableContext{},
 	}
 	l.readChar()
 	return l
@@ -138,6 +150,9 @@ func (l *Lexer) TokenizeToSlice() []Token {
 func (l *Lexer) NextToken() Token {
 	tok := l.lexTokenFast()
 
+	// Update variable context based on tokens
+	l.updateVariableContext(tok)
+
 	if tok.Type == AT {
 		l.afterAt = true
 	} else if l.afterAt && tok.Type == IDENTIFIER {
@@ -146,6 +161,59 @@ func (l *Lexer) NextToken() Token {
 
 	l.lastToken = tok.Type
 	return tok
+}
+
+// updateVariableContext updates the variable parsing context based on the current token
+func (l *Lexer) updateVariableContext(tok Token) {
+	switch tok.Type {
+	case VAR:
+		l.varContext.inVarDecl = true
+		l.varContext.expectingValue = false
+	case LPAREN:
+		if l.varContext.inVarDecl {
+			l.varContext.inVarGroup = true
+			l.varContext.varGroupLevel++
+		}
+	case RPAREN:
+		if l.varContext.inVarGroup {
+			l.varContext.varGroupLevel--
+			if l.varContext.varGroupLevel == 0 {
+				l.varContext.inVarGroup = false
+				l.varContext.inVarDecl = false
+				l.varContext.expectingValue = false
+			}
+		}
+	case EQUALS:
+		if l.varContext.inVarDecl {
+			l.varContext.expectingValue = true
+			l.mode = VariableValueMode
+		}
+	case NEWLINE:
+		// Newline terminates variable declaration unless we're in a var group
+		if l.varContext.inVarDecl && !l.varContext.inVarGroup {
+			l.varContext.inVarDecl = false
+			l.varContext.expectingValue = false
+			l.mode = LanguageMode
+		}
+		// In var group, newline just ends the current variable value
+		if l.varContext.expectingValue {
+			l.varContext.expectingValue = false
+			l.mode = LanguageMode
+		}
+	case EOF:
+		// EOF terminates everything
+		l.varContext = VariableContext{}
+		l.mode = LanguageMode
+	default:
+		// After consuming a variable value, we're no longer expecting one
+		if l.varContext.expectingValue && l.mode == VariableValueMode {
+			// Check if this token looks like a variable value
+			if tok.Type == IDENTIFIER || tok.Type == STRING || tok.Type == NUMBER || tok.Type == DURATION {
+				l.varContext.expectingValue = false
+				l.mode = LanguageMode
+			}
+		}
+	}
 }
 
 // lexTokenFast performs fast token lexing with mode-aware logic
@@ -158,8 +226,97 @@ func (l *Lexer) lexTokenFast() Token {
 		return l.lexLanguageMode(start)
 	case CommandMode:
 		return l.lexCommandMode(start)
+	case VariableValueMode:
+		return l.lexVariableValueMode(start)
 	default:
 		return l.lexLanguageMode(start)
+	}
+}
+
+// lexVariableValueMode handles variable value parsing with complex identifier support
+func (l *Lexer) lexVariableValueMode(start int) Token {
+	switch l.ch {
+	case 0:
+		l.mode = LanguageMode
+		return Token{Type: EOF, Value: "", Line: l.line, Column: l.column}
+	case '\n':
+		// Newline terminates variable value
+		tok := Token{Type: NEWLINE, Value: "\n", Line: l.line, Column: l.column}
+		l.readChar()
+		tok.EndLine, tok.EndColumn = l.line, l.column
+		return tok
+	case '"':
+		return l.lexStringFast('"', DoubleQuoted, start)
+	case '\'':
+		return l.lexStringFast('\'', SingleQuoted, start)
+	case '`':
+		return l.lexStringFast('`', Backtick, start)
+	case ')':
+		// Closing paren terminates variable value in var groups
+		if l.varContext.inVarGroup {
+			tok := Token{Type: RPAREN, Value: ")", Line: l.line, Column: l.column}
+			l.readChar()
+			tok.EndLine, tok.EndColumn = l.line, l.column
+			return tok
+		}
+		// Otherwise, it's part of the variable value
+		return l.lexComplexVariableValue(start)
+	case ',':
+		// Comma terminates variable value in var groups
+		if l.varContext.inVarGroup {
+			tok := Token{Type: COMMA, Value: ",", Line: l.line, Column: l.column}
+			l.readChar()
+			tok.EndLine, tok.EndColumn = l.line, l.column
+			return tok
+		}
+		// Otherwise, it's part of the variable value
+		return l.lexComplexVariableValue(start)
+	default:
+		// Check if it's a simple number or duration first
+		if isDigit[l.ch] || l.ch == '-' {
+			return l.lexNumberOrDurationFast(start)
+		}
+		// Otherwise, treat as complex variable value
+		return l.lexComplexVariableValue(start)
+	}
+}
+
+// lexComplexVariableValue lexes complex variable values like URLs, paths, etc.
+func (l *Lexer) lexComplexVariableValue(start int) Token {
+	startLine := l.line
+	startColumn := l.column
+
+	for l.ch != 0 && !l.isVariableValueTerminator() {
+		l.readChar()
+	}
+
+	value := strings.TrimRight(string(l.input[start:l.position]), " \t\r\f")
+
+	return Token{
+		Type:      IDENTIFIER,
+		Value:     value,
+		Line:      startLine,
+		Column:    startColumn,
+		EndLine:   l.line,
+		EndColumn: l.column,
+		Semantic:  SemCommand,
+		Scope:     "variable.other.devcmd",
+	}
+}
+
+// isVariableValueTerminator checks if the current character terminates a variable value
+func (l *Lexer) isVariableValueTerminator() bool {
+	switch l.ch {
+	case '\n', 0: // Newline or EOF always terminates
+		return true
+	case ')':
+		// Closing paren terminates if we're in a var group
+		return l.varContext.inVarGroup
+	case ',':
+		// Comma terminates if we're in a var group
+		return l.varContext.inVarGroup
+	default:
+		return false
 	}
 }
 

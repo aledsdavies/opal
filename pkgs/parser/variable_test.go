@@ -205,7 +205,9 @@ func TestVariableUsageInCommands(t *testing.T) {
 			Expected: Program(
 				Var("SRC", "./src"),
 				Cmd("deploy", Block(
-					Statement(Text("cd "), At("var", "SRC"), Text("; make clean; make install")),
+					Text("cd "),
+					At("var", "SRC"),
+					Text("; make clean; make install"),
 				)),
 			),
 		},
@@ -214,10 +216,101 @@ func TestVariableUsageInCommands(t *testing.T) {
 			Input: "var TIMEOUT = 30s\ntest: @timeout(@var(TIMEOUT)) { npm test }",
 			Expected: Program(
 				Var("TIMEOUT", DurationExpr("30s")),
-				// Command body is an implicit block containing the decorator
-				// The decorator owns the { npm test } block
-				Cmd("test", Block(
-					At("timeout", At("var", "TIMEOUT"), Block("npm test")),
+				CmdWith(Decorator("timeout", At("var", "TIMEOUT")), "test", Simple(
+					Text("npm test"),
+				)),
+			),
+		},
+		{
+			Name:  "complex variable usage with multiple decorators",
+			Input: "var ENV = production\nvar TIME = 5m\ndeploy: @env(NODE_ENV=@var(ENV)) @timeout(@var(TIME)) { npm run deploy }",
+			Expected: Program(
+				Var("ENV", "production"),
+				Var("TIME", DurationExpr("5m")),
+				CmdWith([]ExpectedDecorator{
+					Decorator("env", "NODE_ENV=@var(ENV)"),
+					Decorator("timeout", At("var", "TIME")),
+				}, "deploy", Simple(
+					Text("npm run deploy"),
+				)),
+			),
+		},
+		{
+			Name:  "variables in watch commands",
+			Input: "var SRC = ./src\nwatch build: @debounce(500ms) { echo \"Building @var(SRC)\" }",
+			Expected: Program(
+				Var("SRC", "./src"),
+				WatchWith(Decorator("debounce", "500ms"), "build", Simple(
+					Text("echo \"Building "),
+					At("var", "SRC"),
+					Text("\""),
+				)),
+			),
+		},
+		{
+			Name:  "variables in stop commands",
+			Input: "var PROCESS = myapp\nstop server: pkill -f @var(PROCESS)",
+			Expected: Program(
+				Var("PROCESS", "myapp"),
+				Stop("server", Simple(
+					Text("pkill -f "),
+					At("var", "PROCESS"),
+				)),
+			),
+		},
+		{
+			Name:  "variables with function decorators",
+			Input: "var SRC = ./src\nbuild: echo \"Files: @sh(ls @var(SRC) | wc -l)\"",
+			Expected: Program(
+				Var("SRC", "./src"),
+				Cmd("build", Simple(
+					Text("echo \"Files: "),
+					At("sh", "ls @var(SRC) | wc -l"),
+					Text("\""),
+				)),
+			),
+		},
+		{
+			Name:  "variables with nested shell content",
+			Input: "var HOST = server.com\nvar PORT = 22\nconnect: ssh -p @var(PORT) user@@var(HOST)",
+			Expected: Program(
+				Var("HOST", "server.com"),
+				Var("PORT", "22"),
+				Cmd("connect", Simple(
+					Text("ssh -p "),
+					At("var", "PORT"),
+					Text(" user@"),
+					At("var", "HOST"),
+				)),
+			),
+		},
+		{
+			Name:  "variables in complex command chains",
+			Input: "var SRC = ./src\nvar DEST = ./dist\nvar ENV = prod\nbuild: cd @var(SRC) && npm run build:@var(ENV) && cp -r dist/* @var(DEST)/",
+			Expected: Program(
+				Var("SRC", "./src"),
+				Var("DEST", "./dist"),
+				Var("ENV", "prod"),
+				Cmd("build", Simple(
+					Text("cd "),
+					At("var", "SRC"),
+					Text(" && npm run build:"),
+					At("var", "ENV"),
+					Text(" && cp -r dist/* "),
+					At("var", "DEST"),
+					Text("/"),
+				)),
+			),
+		},
+		{
+			Name:  "variables in conditional expressions",
+			Input: "var ENV = production\ncheck: test \"@var(ENV)\" = \"production\" && echo \"prod mode\" || echo \"dev mode\"",
+			Expected: Program(
+				Var("ENV", "production"),
+				Cmd("check", Simple(
+					Text("test \""),
+					At("var", "ENV"),
+					Text("\" = \"production\" && echo \"prod mode\" || echo \"dev mode\""),
 				)),
 			),
 		},
@@ -228,3 +321,97 @@ func TestVariableUsageInCommands(t *testing.T) {
 	}
 }
 
+func TestVariableEdgeCases(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "variable with special characters in name",
+			Input: "var API_BASE_URL_V2 = https://api.example.com/v2",
+			Expected: Program(
+				Var("API_BASE_URL_V2", "https://api.example.com/v2"),
+			),
+		},
+		{
+			Name:  "variable with mixed case",
+			Input: "var NodeEnv = development",
+			Expected: Program(
+				Var("NodeEnv", "development"),
+			),
+		},
+		{
+			Name:  "variable with numbers in name",
+			Input: "var API_V2_URL = https://api.example.com/v2",
+			Expected: Program(
+				Var("API_V2_URL", "https://api.example.com/v2"),
+			),
+		},
+		{
+			Name:  "variable with very long value",
+			Input: "var LONG_VALUE = this-is-a-very-long-value-that-spans-multiple-words-and-contains-hyphens",
+			Expected: Program(
+				Var("LONG_VALUE", "this-is-a-very-long-value-that-spans-multiple-words-and-contains-hyphens"),
+			),
+		},
+		{
+			Name:  "variable with value containing equals",
+			Input: "var QUERY = name=value&other=data",
+			Expected: Program(
+				Var("QUERY", "name=value&other=data"),
+			),
+		},
+		{
+			Name:  "variable with quoted value containing spaces",
+			Input: "var MESSAGE = \"Hello World from Devcmd\"",
+			Expected: Program(
+				Var("MESSAGE", "Hello World from Devcmd"),
+			),
+		},
+		{
+			Name:  "variables with similar names",
+			Input: "var API_URL = https://api.com\nvar API_URL_V2 = https://api.com/v2",
+			Expected: Program(
+				Var("API_URL", "https://api.com"),
+				Var("API_URL_V2", "https://api.com/v2"),
+			),
+		},
+		{
+			Name:  "variable usage in quoted strings",
+			Input: "var NAME = World\ngreet: echo \"Hello @var(NAME)!\"",
+			Expected: Program(
+				Var("NAME", "World"),
+				Cmd("greet", Simple(
+					Text("echo \"Hello "),
+					At("var", "NAME"),
+					Text("!\""),
+				)),
+			),
+		},
+		{
+			Name:  "variable usage with shell operators",
+			Input: "var FILE = data.txt\nprocess: cat @var(FILE) | grep pattern | sort",
+			Expected: Program(
+				Var("FILE", "data.txt"),
+				Cmd("process", Simple(
+					Text("cat "),
+					At("var", "FILE"),
+					Text(" | grep pattern | sort"),
+				)),
+			),
+		},
+		{
+			Name:  "variable usage in file paths",
+			Input: "var HOME = /home/user\nbackup: cp important.txt @var(HOME)/backup/",
+			Expected: Program(
+				Var("HOME", "/home/user"),
+				Cmd("backup", Simple(
+					Text("cp important.txt "),
+					At("var", "HOME"),
+					Text("/backup/"),
+				)),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}

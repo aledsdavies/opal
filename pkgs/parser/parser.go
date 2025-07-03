@@ -6,440 +6,717 @@ import (
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/aledsdavies/devcmd/pkgs/lexer"
+	"github.com/aledsdavies/devcmd/pkgs/stdlib"
 )
 
-// Parse parses devcmd source code and returns an AST
-func Parse(source string) (*ast.Program, error) {
-	return ParseWithConfig(source, DefaultConfig())
+// Parser implements a recursive descent parser for the Devcmd language
+type Parser struct {
+	lexer    *lexer.Lexer
+	current  lexer.Token
+	previous lexer.Token
+	tokens   []lexer.Token
+	pos      int
 }
 
-// ParseWithConfig parses with custom configuration
-func ParseWithConfig(source string, config ParserConfig) (*ast.Program, error) {
-	result := ParseToResult(source, config)
-
-	if result.HasErrors() {
-		// Return the first error as the primary error
-		return result.Program, result.Errors[0]
-	}
-
-	return result.Program, nil
-}
-
-// ParseToResult parses and returns detailed results including all errors
-func ParseToResult(source string, config ParserConfig) ParseResult {
-	// Tokenize the source
-	tokens, err := lexer.GetSemanticTokens(source)
-	if err != nil {
-		return ParseResult{
-			Program: nil,
-			Errors: []ParseError{{
-				Type:    SyntaxError,
-				Token:   lexer.Token{Line: 1, Column: 1},
-				Message: "lexer error: " + err.Error(),
-				Context: "tokenization",
-				Hint:    "check for invalid characters or syntax",
-			}},
-		}
-	}
-
-	// Create parser
-	parser := &Parser{
-		tokens:     tokens,
-		current:    0,
-		structure:  &StructureMap{},
-		errors:     []ParseError{},
-		config:     config,
-		decorators: make(map[int]*ast.Decorator),
-	}
-
-	// Two-pass parsing
-	program := parser.parse()
-
-	return ParseResult{
-		Program: program,
-		Errors:  parser.errors,
-	}
-}
-
-// ParseWithErrorReport parses and returns a formatted error report
-func ParseWithErrorReport(source string) (*ast.Program, string) {
-	sourceLines := strings.Split(source, "\n")
-	result := ParseToResult(source, DefaultConfig())
-
-	if result.HasErrors() {
-		errorReport := FormatErrorReport(result.Errors, sourceLines)
-		return result.Program, errorReport
-	}
-
-	return result.Program, ""
-}
-
-// ValidateOnly checks for errors without building a full AST
-func ValidateOnly(source string) []ParseError {
-	result := ParseToResult(source, ParserConfig{
-		MaxErrors:          100,
-		StrictMode:         true,
-		AllowUndefinedVars: false,
-	})
-
-	return result.Errors
-}
-
-// Main parser implementation
-
-// parse performs the two-pass parsing process
-func (p *Parser) parse() *ast.Program {
-	// Pass 1: Preprocessing - structural analysis
-	p.preprocessTokens()
-
-	// Build fast lookup maps for Pass 2
-	p.buildDecoratorNodes()
-
-	// Pass 2: AST construction
-	program := p.buildAST()
-
-	return program
-}
-
-// Utility functions for external use
-
-// GetSourceContext returns lines of source around an error for display
-func GetSourceContext(source string, lineNumber int, contextLines int) []string {
-	lines := strings.Split(source, "\n")
-
-	start := lineNumber - contextLines - 1
-	end := lineNumber + contextLines
-
-	if start < 0 {
-		start = 0
-	}
-	if end > len(lines) {
-		end = len(lines)
-	}
-
-	context := make([]string, 0, end-start)
-	for i := start; i < end; i++ {
-		context = append(context, lines[i])
-	}
-
-	return context
-}
-
-// GetValidDecorators returns a list of valid decorator names
-func GetValidDecorators() []string {
-	return []string{
-		"timeout",
-		"retry",
-		"parallel",
-		"sh",
-		"env",
-		"cwd",
-		"confirm",
-		"debounce",
-		"watch-files",
-		"var", // @var is now just another decorator
-	}
-}
-
-// ExplainError provides detailed explanation for error codes
-func ExplainError(err ParseError) string {
-	contextualMsgs := NewContextualErrorMessages()
-	return contextualMsgs.GetHelpForError(err)
-}
-
-// SuggestFix returns quick fix suggestions for an error
-func SuggestFix(err ParseError, sourceLine string) *QuickFix {
-	return generateQuickFixForError(err, sourceLine)
-}
-
-// Debug utilities
-
-// DebugTokens returns a formatted view of tokens for debugging
-func DebugTokens(source string) string {
-	tokens, err := lexer.GetSemanticTokens(source)
-	if err != nil {
-		return "Error tokenizing: " + err.Error()
-	}
-
-	var result strings.Builder
-	result.WriteString("Tokens:\n")
-
-	for i, token := range tokens {
-		result.WriteString(fmt.Sprintf("%3d: %-15s %q at %d:%d\n",
-			i, token.Type.String(), token.Value, token.Line, token.Column))
-	}
-
-	return result.String()
-}
-
-// DebugStructure returns a formatted view of the structure map
-func DebugStructure(source string) string {
-	result := ParseToResult(source, DefaultConfig())
+// Parse creates a parser and parses the input string into an AST
+func Parse(input string) (*ast.Program, error) {
+	lex := lexer.New(input)
+	tokens := lex.TokenizeToSlice()
 
 	parser := &Parser{
-		tokens:    make([]lexer.Token, 0),
-		structure: &StructureMap{},
-		config:    DefaultConfig(),
+		lexer:  lex,
+		tokens: tokens,
+		pos:    0,
 	}
 
-	tokens, _ := lexer.GetSemanticTokens(source)
-	parser.tokens = tokens
-	parser.preprocessTokens()
-
-	var debug strings.Builder
-	debug.WriteString("Structure Map:\n\n")
-
-	debug.WriteString("Variables:\n")
-	for i, varSpan := range parser.structure.Variables {
-		debug.WriteString(fmt.Sprintf("  %d: %s = tokens[%d:%d] (grouped: %v)\n",
-			i, varSpan.NameToken.Value, varSpan.ValueStart, varSpan.ValueEnd, varSpan.IsGrouped))
+	if len(tokens) > 0 {
+		parser.current = tokens[0]
 	}
 
-	debug.WriteString("\nCommands:\n")
-	for i, cmdSpan := range parser.structure.Commands {
-		cmdType := "command"
-		if cmdSpan.TypeToken.Type == lexer.WATCH {
-			cmdType = "watch"
-		} else if cmdSpan.TypeToken.Type == lexer.STOP {
-			cmdType = "stop"
-		}
-		debug.WriteString(fmt.Sprintf("  %d: %s %s body[%d:%d] (block: %v, decorators: %v)\n",
-			i, cmdType, cmdSpan.NameToken.Value, cmdSpan.BodyStart, cmdSpan.BodyEnd,
-			cmdSpan.IsBlock, len(cmdSpan.Decorators)))
-	}
+	return parser.parseProgram()
+}
 
-	debug.WriteString("\nDecorators:\n")
-	for i, decorator := range parser.structure.Decorators {
-		debug.WriteString(fmt.Sprintf("  %d: @%s hasArgs=%v hasBlock=%v at tokens[%d:%d]\n",
-			i, decorator.NameToken.Value, decorator.HasArgs, decorator.HasBlock,
-			decorator.StartIndex, decorator.EndIndex))
+// advance moves to the next token
+func (p *Parser) advance() {
+	if p.pos < len(p.tokens)-1 {
+		p.previous = p.current
+		p.pos++
+		p.current = p.tokens[p.pos]
 	}
+}
 
-	if len(result.Errors) > 0 {
-		debug.WriteString("\nErrors:\n")
-		for i, err := range result.Errors {
-			debug.WriteString(fmt.Sprintf("  %d: %s\n", i, err.Error()))
+// peek returns the next token without consuming it
+func (p *Parser) peek() lexer.Token {
+	if p.pos+1 < len(p.tokens) {
+		return p.tokens[p.pos+1]
+	}
+	return lexer.Token{Type: lexer.EOF}
+}
+
+// match checks if current token matches any of the given types
+func (p *Parser) match(types ...lexer.TokenType) bool {
+	for _, t := range types {
+		if p.current.Type == t {
+			return true
 		}
 	}
-
-	return debug.String()
+	return false
 }
 
-// Performance utilities
-
-// ParserStats holds statistics about parser performance
-type ParserStats struct {
-	TokenCount      int
-	VariableCount   int
-	CommandCount    int
-	DecoratorCount  int
-	ErrorCount      int
-	PreprocessTime  int64 // nanoseconds
-	BuildTime       int64 // nanoseconds
+// consume advances if current token matches, otherwise returns error
+func (p *Parser) consume(tokenType lexer.TokenType, message string) error {
+	if p.current.Type == tokenType {
+		p.advance()
+		return nil
+	}
+	return fmt.Errorf("%s at line %d, column %d: expected %s, got %s",
+		message, p.current.Line, p.current.Column, tokenType, p.current.Type)
 }
 
-// ParseWithStats parses and returns performance statistics
-func ParseWithStats(source string) (*ast.Program, ParserStats, error) {
-	result := ParseToResult(source, DefaultConfig())
-
-	stats := ParserStats{
-		ErrorCount: len(result.Errors),
+// synchronize recovers from parse errors by finding the next statement boundary
+func (p *Parser) synchronize() {
+	for p.current.Type != lexer.EOF {
+		if p.current.Type == lexer.NEWLINE {
+			p.advance()
+			return
+		}
+		p.advance()
 	}
-
-	if result.Program != nil {
-		stats.VariableCount = len(result.Program.Variables)
-		stats.CommandCount = len(result.Program.Commands)
-
-		// Count decorators by walking the AST
-		decorators := ast.FindDecorators(result.Program)
-		stats.DecoratorCount = len(decorators)
-	}
-
-	var err error
-	if result.HasErrors() {
-		err = result.Errors[0]
-	}
-
-	return result.Program, stats, err
 }
 
-// Batch processing utilities
-
-// ParseMultiple parses multiple devcmd files and returns results
-func ParseMultiple(sources map[string]string) map[string]ParseResult {
-	results := make(map[string]ParseResult)
-
-	for name, source := range sources {
-		results[name] = ParseToResult(source, DefaultConfig())
+// parseProgram parses the entire program
+func (p *Parser) parseProgram() (*ast.Program, error) {
+	program := &ast.Program{
+		Variables: []ast.VariableDecl{},
+		VarGroups: []ast.VarGroup{},
+		Commands:  []ast.CommandDecl{},
 	}
 
-	return results
-}
+	// Skip initial newlines and comments
+	p.skipWhitespaceAndComments()
 
-// ValidateMultiple validates multiple files and returns aggregated errors
-func ValidateMultiple(sources map[string]string) map[string][]ParseError {
-	errors := make(map[string][]ParseError)
-
-	for name, source := range sources {
-		fileErrors := ValidateOnly(source)
-		if len(fileErrors) > 0 {
-			errors[name] = fileErrors
+	for p.current.Type != lexer.EOF {
+		switch p.current.Type {
+		case lexer.VAR:
+			if p.peek().Type == lexer.LPAREN {
+				// Grouped variables: var ( ... )
+				varGroup, err := p.parseVarGroup()
+				if err != nil {
+					return nil, err
+				}
+				program.VarGroups = append(program.VarGroups, *varGroup)
+			} else {
+				// Individual variable: var NAME = VALUE
+				varDecl, err := p.parseVariableDecl()
+				if err != nil {
+					return nil, err
+				}
+				program.Variables = append(program.Variables, *varDecl)
+			}
+		case lexer.WATCH, lexer.STOP, lexer.IDENTIFIER:
+			// Commands
+			command, err := p.parseCommand()
+			if err != nil {
+				return nil, err
+			}
+			program.Commands = append(program.Commands, *command)
+		case lexer.NEWLINE, lexer.COMMENT, lexer.MULTILINE_COMMENT:
+			p.advance()
+		default:
+			return nil, fmt.Errorf("unexpected token %s at line %d, column %d",
+				p.current.Type, p.current.Line, p.current.Column)
 		}
 	}
 
-	return errors
+	return program, nil
 }
 
-// Variable interpolation utilities
+// parseVariableDecl parses: var NAME = VALUE
+func (p *Parser) parseVariableDecl() (*ast.VariableDecl, error) {
+	startPos := p.current
 
-// InterpolateVariables replaces all @var() decorators in a program with their values
-func InterpolateVariables(program *ast.Program) *ast.Program {
-	// Build variable lookup map
-	variables := make(map[string]string)
-	for _, varDecl := range program.Variables {
-		if stringVal, ok := varDecl.Value.(*ast.StringLiteral); ok {
-			variables[varDecl.Name] = stringVal.Value
+	if err := p.consume(lexer.VAR, "expected 'var'"); err != nil {
+		return nil, err
+	}
+
+	if !p.match(lexer.IDENTIFIER) {
+		return nil, fmt.Errorf("expected variable name at line %d, column %d",
+			p.current.Line, p.current.Column)
+	}
+
+	nameToken := p.current
+	name := p.current.Value
+	p.advance()
+
+	if err := p.consume(lexer.EQUALS, "expected '=' after variable name"); err != nil {
+		return nil, err
+	}
+
+	value, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+
+	// Skip optional newline
+	if p.match(lexer.NEWLINE) {
+		p.advance()
+	}
+
+	return &ast.VariableDecl{
+		Name:       name,
+		Value:      value,
+		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+		NameToken:  nameToken,
+		ValueToken: p.previous,
+	}, nil
+}
+
+// parseVarGroup parses: var ( NAME1 = VALUE1; NAME2 = VALUE2; ... )
+func (p *Parser) parseVarGroup() (*ast.VarGroup, error) {
+	startPos := p.current
+
+	varToken := p.current
+	if err := p.consume(lexer.VAR, "expected 'var'"); err != nil {
+		return nil, err
+	}
+
+	openParen := p.current
+	if err := p.consume(lexer.LPAREN, "expected '(' after 'var'"); err != nil {
+		return nil, err
+	}
+
+	var variables []ast.VariableDecl
+	p.skipWhitespaceAndComments()
+
+	for !p.match(lexer.RPAREN) && p.current.Type != lexer.EOF {
+		if !p.match(lexer.IDENTIFIER) {
+			return nil, fmt.Errorf("expected variable name at line %d, column %d",
+				p.current.Line, p.current.Column)
+		}
+
+		nameToken := p.current
+		name := p.current.Value
+		p.advance()
+
+		if err := p.consume(lexer.EQUALS, "expected '=' after variable name"); err != nil {
+			return nil, err
+		}
+
+		value, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+
+		variables = append(variables, ast.VariableDecl{
+			Name:       name,
+			Value:      value,
+			Pos:        ast.Position{Line: nameToken.Line, Column: nameToken.Column},
+			NameToken:  nameToken,
+			ValueToken: p.previous,
+		})
+
+		p.skipWhitespaceAndComments()
+	}
+
+	closeParen := p.current
+	if err := p.consume(lexer.RPAREN, "expected ')' after variable group"); err != nil {
+		return nil, err
+	}
+
+	// Skip optional newline
+	if p.match(lexer.NEWLINE) {
+		p.advance()
+	}
+
+	return &ast.VarGroup{
+		Variables:  variables,
+		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+		VarToken:   varToken,
+		OpenParen:  openParen,
+		CloseParen: closeParen,
+	}, nil
+}
+
+// parseCommand parses: [watch|stop] NAME: BODY
+func (p *Parser) parseCommand() (*ast.CommandDecl, error) {
+	startPos := p.current
+
+	var cmdType ast.CommandType = ast.Command
+	var typeToken *lexer.Token
+
+	// Check for watch/stop keywords
+	if p.match(lexer.WATCH) {
+		cmdType = ast.WatchCommand
+		token := p.current
+		typeToken = &token
+		p.advance()
+	} else if p.match(lexer.STOP) {
+		cmdType = ast.StopCommand
+		token := p.current
+		typeToken = &token
+		p.advance()
+	}
+
+	if !p.match(lexer.IDENTIFIER) {
+		return nil, fmt.Errorf("expected command name at line %d, column %d",
+			p.current.Line, p.current.Column)
+	}
+
+	nameToken := p.current
+	name := p.current.Value
+	p.advance()
+
+	colonToken := p.current
+	if err := p.consume(lexer.COLON, "expected ':' after command name"); err != nil {
+		return nil, err
+	}
+
+	body, err := p.parseCommandBody()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ast.CommandDecl{
+		Name:       name,
+		Type:       cmdType,
+		Body:       *body,
+		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+		TypeToken:  typeToken,
+		NameToken:  nameToken,
+		ColonToken: colonToken,
+	}, nil
+}
+
+// parseCommandBody parses the body of a command (simple or block)
+func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
+	startPos := p.current
+
+	// Skip whitespace after colon
+	for p.match(lexer.NEWLINE) {
+		p.advance()
+	}
+
+	// Check for explicit block: { ... }
+	if p.match(lexer.LBRACE) {
+		return p.parseExplicitBlock()
+	}
+
+	// Parse simple command (with potential syntax sugar)
+	content, err := p.parseCommandContent()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ast.CommandBody{
+		Content: content,
+		IsBlock: false,
+		Pos:     ast.Position{Line: startPos.Line, Column: startPos.Column},
+	}, nil
+}
+
+// parseExplicitBlock parses: { content }
+func (p *Parser) parseExplicitBlock() (*ast.CommandBody, error) {
+	startPos := p.current
+
+	openBrace := p.current
+	if err := p.consume(lexer.LBRACE, "expected '{'"); err != nil {
+		return nil, err
+	}
+
+	p.skipWhitespaceAndComments()
+
+	content, err := p.parseCommandContent()
+	if err != nil {
+		return nil, err
+	}
+
+	p.skipWhitespaceAndComments()
+
+	closeBrace := p.current
+	if err := p.consume(lexer.RBRACE, "expected '}'"); err != nil {
+		return nil, err
+	}
+
+	return &ast.CommandBody{
+		Content:    content,
+		IsBlock:    true,
+		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+		OpenBrace:  &openBrace,
+		CloseBrace: &closeBrace,
+	}, nil
+}
+
+// parseCommandContent parses the content within a command body
+func (p *Parser) parseCommandContent() (ast.CommandContent, error) {
+	// Check for decorators first
+	if p.match(lexer.AT) {
+		return p.parseDecoratedContent()
+	}
+
+	// Parse shell content
+	return p.parseShellContent()
+}
+
+// parseDecoratedContent parses: @decorator1 @decorator2 ... content
+func (p *Parser) parseDecoratedContent() (*ast.DecoratedContent, error) {
+	startPos := p.current
+
+	var decorators []ast.Decorator
+
+	// Parse all leading decorators
+	for p.match(lexer.AT) {
+		decorator, err := p.parseDecorator()
+		if err != nil {
+			return nil, err
+		}
+		decorators = append(decorators, *decorator)
+	}
+
+	// Parse the content that follows
+	content, err := p.parseCommandContent()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ast.DecoratedContent{
+		Decorators: decorators,
+		Content:    content,
+		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+	}, nil
+}
+
+// parseDecorator parses: @name or @name(args)
+func (p *Parser) parseDecorator() (*ast.Decorator, error) {
+	startPos := p.current
+
+	atToken := p.current
+	if err := p.consume(lexer.AT, "expected '@'"); err != nil {
+		return nil, err
+	}
+
+	if !p.match(lexer.IDENTIFIER) {
+		return nil, fmt.Errorf("expected decorator name at line %d, column %d",
+			p.current.Line, p.current.Column)
+	}
+
+	nameToken := p.current
+	name := p.current.Value
+	p.advance()
+
+	// Validate decorator exists
+	if !stdlib.IsValidDecorator(name) {
+		return nil, fmt.Errorf("unknown decorator @%s at line %d, column %d",
+			name, nameToken.Line, nameToken.Column)
+	}
+
+	// Validate this is a block decorator
+	if !stdlib.IsBlockDecorator(name) {
+		return nil, fmt.Errorf("@%s is not a block decorator at line %d, column %d",
+			name, nameToken.Line, nameToken.Column)
+	}
+
+	var args []ast.Expression
+
+	// Check for arguments: @name(arg1, arg2, ...)
+	if p.match(lexer.LPAREN) {
+		p.advance()
+
+		// Parse arguments
+		for !p.match(lexer.RPAREN) && p.current.Type != lexer.EOF {
+			arg, err := p.parseExpression()
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, arg)
+
+			// Comma separator
+			if p.match(lexer.COMMA) {
+				p.advance()
+			} else if !p.match(lexer.RPAREN) {
+				return nil, fmt.Errorf("expected ',' or ')' in decorator arguments at line %d, column %d",
+					p.current.Line, p.current.Column)
+			}
+		}
+
+		if err := p.consume(lexer.RPAREN, "expected ')' after decorator arguments"); err != nil {
+			return nil, err
+		}
+	}
+
+	// TODO: Validate arguments match decorator signature
+	// This would require converting ast.Expression to string for validation
+
+	return &ast.Decorator{
+		Name:      name,
+		Args:      args,
+		Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
+		AtToken:   atToken,
+		NameToken: nameToken,
+	}, nil
+}
+
+// parseShellContent parses mixed shell content with text and function decorators
+func (p *Parser) parseShellContent() (*ast.ShellContent, error) {
+	startPos := p.current
+
+	var parts []ast.ShellPart
+
+	// Parse until we hit a terminator
+	for !p.isCommandTerminator() {
+		if p.match(lexer.AT) {
+			// Check if this is a function decorator
+			if p.isFunctionDecorator() {
+				funcDec, err := p.parseFunctionDecorator()
+				if err != nil {
+					return nil, err
+				}
+				parts = append(parts, funcDec)
+			} else {
+				// This @ is part of regular text (like email)
+				textPart, err := p.parseTextPart()
+				if err != nil {
+					return nil, err
+				}
+				parts = append(parts, textPart)
+			}
 		} else {
-			variables[varDecl.Name] = varDecl.Value.String()
-		}
-	}
-
-	// Create a copy of the program with interpolated values
-	interpolated := &ast.Program{
-		Variables: program.Variables, // Keep variable declarations as-is
-		Commands:  make([]ast.CommandDecl, len(program.Commands)),
-		Pos:       program.Pos,
-		Tokens:    program.Tokens,
-	}
-
-	// Interpolate each command
-	for i, cmd := range program.Commands {
-		interpolated.Commands[i] = *interpolateCommand(&cmd, variables)
-	}
-
-	return interpolated
-}
-
-// interpolateCommand interpolates variables in a single command
-func interpolateCommand(cmd *ast.CommandDecl, variables map[string]string) *ast.CommandDecl {
-	interpolatedCmd := *cmd // Copy command
-
-	// Interpolate decorators
-	interpolatedCmd.Decorators = make([]ast.Decorator, len(cmd.Decorators))
-	for i, decorator := range cmd.Decorators {
-		interpolatedCmd.Decorators[i] = *interpolateDecorator(&decorator, variables)
-	}
-
-	// Interpolate command body
-	interpolatedCmd.Body = *interpolateCommandBody(&cmd.Body, variables)
-
-	return &interpolatedCmd
-}
-
-// interpolateDecorator handles decorator interpolation
-func interpolateDecorator(decorator *ast.Decorator, variables map[string]string) *ast.Decorator {
-	// For @var decorators, replace with the actual value as a text element
-	if decorator.Name == "var" && len(decorator.Args) > 0 {
-		if identifier, ok := decorator.Args[0].(*ast.Identifier); ok {
-			if value, exists := variables[identifier.Name]; exists {
-				// Create a text element instead of the @var decorator
-				return &ast.Decorator{
-					Name: "text", // Special internal decorator for interpolated text
-					Args: []ast.Expression{
-						&ast.StringLiteral{
-							Value: value,
-							Pos:   decorator.Pos,
-						},
-					},
-					Pos:       decorator.Pos,
-					Tokens:    decorator.Tokens,
-					AtToken:   decorator.AtToken,
-					NameToken: decorator.NameToken,
-				}
+			// Regular text
+			textPart, err := p.parseTextPart()
+			if err != nil {
+				return nil, err
 			}
+			parts = append(parts, textPart)
 		}
 	}
 
-	// For other decorators, return as-is (they might have their own interpolation logic)
-	return decorator
+	return &ast.ShellContent{
+		Parts: parts,
+		Pos:   ast.Position{Line: startPos.Line, Column: startPos.Column},
+	}, nil
 }
 
-// interpolateCommandBody interpolates variables in command body
-func interpolateCommandBody(body *ast.CommandBody, variables map[string]string) *ast.CommandBody {
-	interpolatedBody := *body // Copy body
+// parseFunctionDecorator parses: @name(args) - inline function decorators
+func (p *Parser) parseFunctionDecorator() (*ast.FunctionDecorator, error) {
+	startPos := p.current
 
-	// Interpolate statements
-	interpolatedBody.Statements = make([]ast.Statement, len(body.Statements))
-	for i, stmt := range body.Statements {
-		interpolatedBody.Statements[i] = interpolateStatement(stmt, variables)
+	atToken := p.current
+	if err := p.consume(lexer.AT, "expected '@'"); err != nil {
+		return nil, err
 	}
 
-	return &interpolatedBody
-}
+	if !p.match(lexer.IDENTIFIER) {
+		return nil, fmt.Errorf("expected function decorator name at line %d, column %d",
+			p.current.Line, p.current.Column)
+	}
 
-// interpolateStatement interpolates variables in a statement
-func interpolateStatement(stmt ast.Statement, variables map[string]string) ast.Statement {
-	if shellStmt, ok := stmt.(*ast.ShellStatement); ok {
-		interpolatedStmt := *shellStmt // Copy statement
+	nameToken := p.current
+	name := p.current.Value
+	p.advance()
 
-		// Interpolate elements
-		interpolatedStmt.Elements = make([]ast.CommandElement, 0, len(shellStmt.Elements))
-		for _, element := range shellStmt.Elements {
-			interpolated := interpolateCommandElement(element, variables)
-			if interpolated != nil {
-				interpolatedStmt.Elements = append(interpolatedStmt.Elements, interpolated)
+	// Validate decorator exists
+	if !stdlib.IsValidDecorator(name) {
+		return nil, fmt.Errorf("unknown decorator @%s at line %d, column %d",
+			name, nameToken.Line, nameToken.Column)
+	}
+
+	// Validate this is a function decorator
+	if !stdlib.IsFunctionDecorator(name) {
+		return nil, fmt.Errorf("@%s is not a function decorator at line %d, column %d",
+			name, nameToken.Line, nameToken.Column)
+	}
+
+	var args []ast.Expression
+	var openParen, closeParen *lexer.Token
+
+	// Parse arguments if present
+	if p.match(lexer.LPAREN) {
+		open := p.current
+		openParen = &open
+		p.advance()
+
+		// Parse arguments
+		for !p.match(lexer.RPAREN) && p.current.Type != lexer.EOF {
+			arg, err := p.parseExpression()
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, arg)
+
+			// Comma separator
+			if p.match(lexer.COMMA) {
+				p.advance()
+			} else if !p.match(lexer.RPAREN) {
+				return nil, fmt.Errorf("expected ',' or ')' in function decorator arguments at line %d, column %d",
+					p.current.Line, p.current.Column)
 			}
 		}
 
-		return &interpolatedStmt
-	}
-
-	return stmt
-}
-
-// interpolateCommandElement interpolates variables in command elements
-func interpolateCommandElement(element ast.CommandElement, variables map[string]string) ast.CommandElement {
-	if decorator, ok := element.(*ast.Decorator); ok && decorator.Name == "var" {
-		// Replace @var(NAME) with actual value
-		if len(decorator.Args) > 0 {
-			if identifier, ok := decorator.Args[0].(*ast.Identifier); ok {
-				if value, exists := variables[identifier.Name]; exists {
-					return &ast.TextElement{
-						Text:   value,
-						Pos:    decorator.Pos,
-						Tokens: decorator.Tokens,
-					}
-				}
-			}
-		}
-		// If variable not found, keep the decorator (will be caught in validation)
-		return decorator
-	}
-
-	if textElement, ok := element.(*ast.TextElement); ok {
-		// Handle @var() within text content
-		interpolatedText := interpolateTextContent(textElement.Text, variables)
-		if interpolatedText != textElement.Text {
-			return &ast.TextElement{
-				Text:   interpolatedText,
-				Pos:    textElement.Pos,
-				Tokens: textElement.Tokens,
-			}
+		close := p.current
+		closeParen = &close
+		if err := p.consume(lexer.RPAREN, "expected ')' after function decorator arguments"); err != nil {
+			return nil, err
 		}
 	}
 
-	return element
+	// TODO: Validate arguments match decorator signature
+
+	return &ast.FunctionDecorator{
+		Name:       name,
+		Args:       args,
+		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+		AtToken:    atToken,
+		NameToken:  nameToken,
+		OpenParen:  openParen,
+		CloseParen: closeParen,
+	}, nil
 }
 
-// interpolateTextContent handles @var() within text strings
-func interpolateTextContent(text string, variables map[string]string) string {
-	result := text
+// parseTextPart parses plain text within shell content
+func (p *Parser) parseTextPart() (*ast.TextPart, error) {
+	startPos := p.current
 
-	// Simple pattern replacement for @var(NAME)
-	for varName, value := range variables {
-		pattern := fmt.Sprintf("@var(%s)", varName)
-		result = strings.ReplaceAll(result, pattern, value)
+	var textBuilder strings.Builder
+
+	for !p.isCommandTerminator() && !p.isFunctionDecorator() {
+		if p.match(lexer.LINE_CONT) {
+			// Handle line continuation: \ + newline
+			p.advance()
+			textBuilder.WriteRune(' ') // Replace continuation with space
+		} else {
+			textBuilder.WriteString(p.current.Value)
+			p.advance()
+		}
+
+		// Stop if we hit a function decorator
+		if p.match(lexer.AT) && p.isFunctionDecorator() {
+			break
+		}
 	}
 
-	return result
+	return &ast.TextPart{
+		Text: strings.TrimSpace(textBuilder.String()),
+		Pos:  ast.Position{Line: startPos.Line, Column: startPos.Column},
+	}, nil
+}
+
+// parseExpression parses literals, identifiers, and function decorators
+func (p *Parser) parseExpression() (ast.Expression, error) {
+	switch p.current.Type {
+	case lexer.STRING:
+		return p.parseStringLiteral()
+	case lexer.NUMBER:
+		return p.parseNumberLiteral()
+	case lexer.DURATION:
+		return p.parseDurationLiteral()
+	case lexer.IDENTIFIER:
+		return p.parseIdentifier()
+	case lexer.AT:
+		if p.isFunctionDecorator() {
+			return p.parseFunctionDecorator()
+		}
+		return nil, fmt.Errorf("unexpected '@' at line %d, column %d",
+			p.current.Line, p.current.Column)
+	default:
+		return nil, fmt.Errorf("unexpected token in expression: %s at line %d, column %d",
+			p.current.Type, p.current.Line, p.current.Column)
+	}
+}
+
+// parseStringLiteral parses string literals
+func (p *Parser) parseStringLiteral() (*ast.StringLiteral, error) {
+	startPos := p.current
+
+	token := p.current
+	value := p.current.Value
+	p.advance()
+
+	return &ast.StringLiteral{
+		Value:       value,
+		Raw:         token.Raw,
+		Pos:         ast.Position{Line: startPos.Line, Column: startPos.Column},
+		StringToken: token,
+	}, nil
+}
+
+// parseNumberLiteral parses number literals
+func (p *Parser) parseNumberLiteral() (*ast.NumberLiteral, error) {
+	startPos := p.current
+
+	token := p.current
+	value := p.current.Value
+	p.advance()
+
+	return &ast.NumberLiteral{
+		Value: value,
+		Pos:   ast.Position{Line: startPos.Line, Column: startPos.Column},
+		Token: token,
+	}, nil
+}
+
+// parseDurationLiteral parses duration literals
+func (p *Parser) parseDurationLiteral() (*ast.DurationLiteral, error) {
+	startPos := p.current
+
+	token := p.current
+	value := p.current.Value
+	p.advance()
+
+	return &ast.DurationLiteral{
+		Value: value,
+		Pos:   ast.Position{Line: startPos.Line, Column: startPos.Column},
+		Token: token,
+	}, nil
+}
+
+// parseIdentifier parses identifiers
+func (p *Parser) parseIdentifier() (*ast.Identifier, error) {
+	startPos := p.current
+
+	token := p.current
+	name := p.current.Value
+	p.advance()
+
+	return &ast.Identifier{
+		Name:  name,
+		Pos:   ast.Position{Line: startPos.Line, Column: startPos.Column},
+		Token: token,
+	}, nil
+}
+
+// Helper methods
+
+// skipWhitespaceAndComments skips whitespace and comments
+func (p *Parser) skipWhitespaceAndComments() {
+	for p.match(lexer.NEWLINE, lexer.COMMENT, lexer.MULTILINE_COMMENT) {
+		p.advance()
+	}
+}
+
+// isCommandTerminator checks if we've reached the end of a command
+func (p *Parser) isCommandTerminator() bool {
+	return p.match(lexer.NEWLINE, lexer.RBRACE, lexer.EOF)
+}
+
+// isFunctionDecorator checks if @ starts a function decorator
+func (p *Parser) isFunctionDecorator() bool {
+	if !p.match(lexer.AT) {
+		return false
+	}
+
+	// Look ahead to see if it's @identifier
+	if p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.IDENTIFIER {
+		name := p.tokens[p.pos+1].Value
+
+		// Check if it's a known function decorator
+		if stdlib.IsFunctionDecorator(name) {
+			return true
+		}
+
+		// Check if it has parentheses (likely a function decorator)
+		if p.pos+2 < len(p.tokens) && p.tokens[p.pos+2].Type == lexer.LPAREN {
+			return stdlib.IsValidDecorator(name)
+		}
+	}
+
+	return false
 }

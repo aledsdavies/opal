@@ -127,20 +127,13 @@ func TestVarDecorators(t *testing.T) {
 	}
 }
 
-func TestDecoratorsWithArguments(t *testing.T) {
+func TestBlockDecorators(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "valid @sh function decorator",
-			Input: "test: @sh(echo hello)",
-			Expected: Program(
-				CmdWith(At("sh", "echo hello"), "test", Block()),
-			),
-		},
-		{
-			Name:  "valid @timeout function decorator",
+			Name:  "valid @timeout block decorator",
 			Input: "deploy: @timeout(30s) { echo deploying }",
 			Expected: Program(
-				CmdWith(At("timeout", "30s"), "deploy", Block(
+				CmdWith(Decorator("timeout", "30s"), "deploy", Simple(
 					Text("echo deploying"),
 				)),
 			),
@@ -149,7 +142,7 @@ func TestDecoratorsWithArguments(t *testing.T) {
 			Name:  "valid @env decorator with argument",
 			Input: "setup: @env(NODE_ENV=production) { npm start }",
 			Expected: Program(
-				CmdWith(At("env", "NODE_ENV=production"), "setup", Block(
+				CmdWith(Decorator("env", "NODE_ENV=production"), "setup", Simple(
 					Text("npm start"),
 				)),
 			),
@@ -158,7 +151,7 @@ func TestDecoratorsWithArguments(t *testing.T) {
 			Name:  "valid @confirm decorator",
 			Input: "dangerous: @confirm(\"Are you sure?\") { rm -rf /tmp/* }",
 			Expected: Program(
-				CmdWith(At("confirm", "Are you sure?"), "dangerous", Block(
+				CmdWith(Decorator("confirm", "Are you sure?"), "dangerous", Simple(
 					Text("rm -rf /tmp/*"),
 				)),
 			),
@@ -167,7 +160,7 @@ func TestDecoratorsWithArguments(t *testing.T) {
 			Name:  "valid @debounce decorator",
 			Input: "watch-changes: @debounce(500ms) { npm run build }",
 			Expected: Program(
-				CmdWith(At("debounce", "500ms"), "watch-changes", Block(
+				CmdWith(Decorator("debounce", "500ms"), "watch-changes", Simple(
 					Text("npm run build"),
 				)),
 			),
@@ -176,45 +169,36 @@ func TestDecoratorsWithArguments(t *testing.T) {
 			Name:  "valid @cwd decorator",
 			Input: "build-lib: @cwd(./lib) { make all }",
 			Expected: Program(
-				CmdWith(At("cwd", "./lib"), "build-lib", Block(
+				CmdWith(Decorator("cwd", "./lib"), "build-lib", Simple(
 					Text("make all"),
 				)),
 			),
 		},
-	}
-
-	for _, tc := range testCases {
-		RunTestCase(t, tc)
-	}
-}
-
-func TestDecoratorsWithBlocks(t *testing.T) {
-	testCases := []TestCase{
 		{
-			Name:  "valid @parallel block decorator",
+			Name:  "valid @parallel block decorator with multiple statements",
 			Input: "services: @parallel { server; client }",
 			Expected: Program(
-				CmdWith(At("parallel"), "services", Block(
+				CmdWith(Decorator("parallel"), "services", Block(
 					Text("server"),
 					Text("client"),
 				)),
 			),
 		},
 		{
-			Name:  "valid @retry block decorator",
+			Name:  "valid @retry block decorator with multiple statements",
 			Input: "flaky-test: @retry { npm test; echo 'done' }",
 			Expected: Program(
-				CmdWith(At("retry"), "flaky-test", Block(
+				CmdWith(Decorator("retry"), "flaky-test", Block(
 					Text("npm test"),
 					Text("echo 'done'"),
 				)),
 			),
 		},
 		{
-			Name:  "valid @watch-files block decorator",
+			Name:  "valid @watch-files block decorator with multiple statements",
 			Input: "monitor: @watch-files { echo 'checking'; sleep 1 }",
 			Expected: Program(
-				CmdWith(At("watch-files"), "monitor", Block(
+				CmdWith(Decorator("watch-files"), "monitor", Block(
 					Text("echo 'checking'"),
 					Text("sleep 1"),
 				)),
@@ -224,7 +208,58 @@ func TestDecoratorsWithBlocks(t *testing.T) {
 			Name:  "empty block with decorators",
 			Input: "parallel-empty: @parallel { }",
 			Expected: Program(
-				CmdWith(At("parallel"), "parallel-empty", Block()),
+				CmdWith(Decorator("parallel"), "parallel-empty", Simple()),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
+func TestFunctionDecorators(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "function decorator @sh() within shell content",
+			Input: "build: echo start && @sh(cd @var(SRC)) && echo done",
+			Expected: Program(
+				Cmd("build", Simple(
+					Text("echo start && "),
+					At("sh", "cd @var(SRC)"),
+					Text(" && echo done"),
+				)),
+			),
+		},
+		{
+			Name:  "function decorator @sh() with complex command",
+			Input: "deploy: @sh(deploy.sh @var(ENV) && echo success || echo failed)",
+			Expected: Program(
+				Cmd("deploy", Simple(
+					At("sh", "deploy.sh @var(ENV) && echo success || echo failed"),
+				)),
+			),
+		},
+		{
+			Name:  "mixed function decorators and text",
+			Input: "info: echo \"Date: @sh(date)\" and \"User: @sh(whoami)\"",
+			Expected: Program(
+				Cmd("info", Simple(
+					Text("echo \"Date: "),
+					At("sh", "date"),
+					Text("\" and \"User: "),
+					At("sh", "whoami"),
+					Text("\""),
+				)),
+			),
+		},
+		{
+			Name:  "function decorator with @var argument",
+			Input: "test: @sh(test -f @var(CONFIG_FILE) && echo exists || echo missing)",
+			Expected: Program(
+				Cmd("test", Simple(
+					At("sh", "test -f @var(CONFIG_FILE) && echo exists || echo missing"),
+				)),
 			),
 		},
 	}
@@ -237,58 +272,53 @@ func TestDecoratorsWithBlocks(t *testing.T) {
 func TestNestedDecorators(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "@sh() with @var()",
-			Input: "build: @sh(cd @var(SRC))",
-			Expected: Program(
-				CmdWith(At("sh", "cd @var(SRC)"), "build", Block()),
-			),
-		},
-		{
-			Name:  "@timeout with @sh nested",
+			Name:  "block decorator with function decorator inside",
 			Input: "deploy: @timeout(30s) { @sh(deploy.sh @var(ENV)) }",
 			Expected: Program(
-				CmdWith(At("timeout", "30s"), "deploy", Block(
+				CmdWith(Decorator("timeout", "30s"), "deploy", Simple(
 					At("sh", "deploy.sh @var(ENV)"),
 				)),
 			),
 		},
 		{
-			Name:  "@parallel with @var() in statements",
+			Name:  "parallel with mixed content",
 			Input: "multi: @parallel { echo @var(MSG1); echo @var(MSG2) }",
 			Expected: Program(
-				CmdWith(At("parallel"), "multi", Block(
-					Simple(Text("echo "), At("var", "MSG1")),
-					Simple(Text("echo "), At("var", "MSG2")),
+				CmdWith(Decorator("parallel"), "multi", Block(
+					Text("echo "),
+					At("var", "MSG1"),
+					Text("echo "),
+					At("var", "MSG2"),
 				)),
 			),
 		},
 		{
-			Name:  "@env with @var() values",
+			Name:  "decorator with @var in argument",
 			Input: "setup: @env(PATH=@var(CUSTOM_PATH)) { which custom-tool }",
 			Expected: Program(
-				CmdWith(At("env", "PATH=@var(CUSTOM_PATH)"), "setup", Block(
+				CmdWith(Decorator("env", "PATH=@var(CUSTOM_PATH)"), "setup", Simple(
 					Text("which custom-tool"),
 				)),
 			),
 		},
 		{
-			Name:  "multiple decorators with @var",
+			Name:  "multiple decorators",
 			Input: "complex: @timeout(30s) @env(NODE_ENV=@var(ENV)) { npm start }",
 			Expected: Program(
-				CmdWith([]interface{}{
-					At("timeout", "30s"),
-					At("env", "NODE_ENV=@var(ENV)"),
-				}, "complex", Block(
+				CmdWith([]ExpectedDecorator{
+					Decorator("timeout", "30s"),
+					Decorator("env", "NODE_ENV=@var(ENV)"),
+				}, "complex", Simple(
 					Text("npm start"),
 				)),
 			),
 		},
 		{
-			Name:  "@cwd with @var path and @sh command",
-			Input: "build: @cwd(@var(BUILD_DIR)) { @sh(make clean && make all) }",
+			Name:  "decorator with @var as argument",
+			Input: "build: @cwd(@var(BUILD_DIR)) { make clean && make all }",
 			Expected: Program(
-				CmdWith(At("cwd", At("var", "BUILD_DIR")), "build", Block(
-					At("sh", "make clean && make all"),
+				CmdWith(Decorator("cwd", At("var", "BUILD_DIR")), "build", Simple(
+					Text("make clean && make all"),
 				)),
 			),
 		},
@@ -305,7 +335,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with no arguments",
 			Input: "sync: @parallel { task1; task2 }",
 			Expected: Program(
-				CmdWith(At("parallel"), "sync", Block(
+				CmdWith(Decorator("parallel"), "sync", Block(
 					Text("task1"),
 					Text("task2"),
 				)),
@@ -315,7 +345,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with single string argument",
 			Input: "ask: @confirm(\"Are you sure?\") { rm -rf /tmp/* }",
 			Expected: Program(
-				CmdWith(At("confirm", "Are you sure?"), "ask", Block(
+				CmdWith(Decorator("confirm", "Are you sure?"), "ask", Simple(
 					Text("rm -rf /tmp/*"),
 				)),
 			),
@@ -324,7 +354,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with duration argument",
 			Input: "slow: @timeout(5m) { sleep 300 }",
 			Expected: Program(
-				CmdWith(At("timeout", "5m"), "slow", Block(
+				CmdWith(Decorator("timeout", "5m"), "slow", Simple(
 					Text("sleep 300"),
 				)),
 			),
@@ -333,7 +363,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with number argument",
 			Input: "retry-task: @retry(3) { flaky-command }",
 			Expected: Program(
-				CmdWith(At("retry", "3"), "retry-task", Block(
+				CmdWith(Decorator("retry", "3"), "retry-task", Simple(
 					Text("flaky-command"),
 				)),
 			),
@@ -342,7 +372,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with multiple arguments",
 			Input: "watch-files: @debounce(500ms, \"src/**/*\") { npm run build }",
 			Expected: Program(
-				CmdWith(At("debounce", "500ms", "src/**/*"), "watch-files", Block(
+				CmdWith(Decorator("debounce", "500ms", "src/**/*"), "watch-files", Simple(
 					Text("npm run build"),
 				)),
 			),
@@ -351,11 +381,11 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "multiple decorators on one command",
 			Input: "complex: @timeout(30s) @retry(3) @env(NODE_ENV=test) { npm test }",
 			Expected: Program(
-				CmdWith([]interface{}{
-					At("timeout", "30s"),
-					At("retry", "3"),
-					At("env", "NODE_ENV=test"),
-				}, "complex", Block(
+				CmdWith([]ExpectedDecorator{
+					Decorator("timeout", "30s"),
+					Decorator("retry", "3"),
+					Decorator("env", "NODE_ENV=test"),
+				}, "complex", Simple(
 					Text("npm test"),
 				)),
 			),
@@ -364,7 +394,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with @var argument",
 			Input: "deploy: @cwd(@var(BUILD_DIR)) { make install }",
 			Expected: Program(
-				CmdWith(At("cwd", At("var", "BUILD_DIR")), "deploy", Block(
+				CmdWith(Decorator("cwd", At("var", "BUILD_DIR")), "deploy", Simple(
 					Text("make install"),
 				)),
 			),
@@ -373,24 +403,8 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with mixed argument types",
 			Input: "advanced: @watch-files(@var(PATTERN), 1s, true) { rebuild }",
 			Expected: Program(
-				CmdWith(At("watch-files", At("var", "PATTERN"), "1s", "true"), "advanced", Block(
+				CmdWith(Decorator("watch-files", At("var", "PATTERN"), "1s", "true"), "advanced", Simple(
 					Text("rebuild"),
-				)),
-			),
-		},
-		{
-			Name:  "decorator on simple command",
-			Input: "quick: @sh(echo hello && sleep 1)",
-			Expected: Program(
-				CmdWith(At("sh", "echo hello && sleep 1"), "quick", Block()),
-			),
-		},
-		{
-			Name:  "nested decorators in block",
-			Input: "nested: { @timeout(10s) { @sh(long-task); echo done } }",
-			Expected: Program(
-				Cmd("nested", Block(
-					At("timeout", "10s"),
 				)),
 			),
 		},
@@ -398,14 +412,16 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with string containing @ symbol",
 			Input: "email: @sh(echo \"Contact us @ support@company.com\")",
 			Expected: Program(
-				CmdWith(At("sh", "echo \"Contact us @ support@company.com\""), "email", Block()),
+				Cmd("email", Simple(
+					At("sh", "echo \"Contact us @ support@company.com\""),
+				)),
 			),
 		},
 		{
 			Name:  "decorator with boolean argument",
 			Input: "deploy: @confirm(true) { ./deploy.sh }",
 			Expected: Program(
-				CmdWith(At("confirm", "true"), "deploy", Block(
+				CmdWith(Decorator("confirm", "true"), "deploy", Simple(
 					Text("./deploy.sh"),
 				)),
 			),
@@ -414,7 +430,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with negative number",
 			Input: "adjust: @offset(-5) { process }",
 			Expected: Program(
-				CmdWith(At("offset", "-5"), "adjust", Block(
+				CmdWith(Decorator("offset", "-5"), "adjust", Simple(
 					Text("process"),
 				)),
 			),
@@ -423,7 +439,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with decimal number",
 			Input: "scale: @factor(1.5) { scale-service }",
 			Expected: Program(
-				CmdWith(At("factor", "1.5"), "scale", Block(
+				CmdWith(Decorator("factor", "1.5"), "scale", Simple(
 					Text("scale-service"),
 				)),
 			),
@@ -432,12 +448,12 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "multiple decorators with different argument types",
 			Input: "complex: @timeout(30s) @retry(3) @env(\"NODE_ENV=test\") @confirm(false) { test-suite }",
 			Expected: Program(
-				CmdWith([]interface{}{
-					At("timeout", "30s"),
-					At("retry", "3"),
-					At("env", "NODE_ENV=test"),
-					At("confirm", "false"),
-				}, "complex", Block(
+				CmdWith([]ExpectedDecorator{
+					Decorator("timeout", "30s"),
+					Decorator("retry", "3"),
+					Decorator("env", "NODE_ENV=test"),
+					Decorator("confirm", "false"),
+				}, "complex", Simple(
 					Text("test-suite"),
 				)),
 			),
@@ -446,7 +462,7 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with no arguments but parentheses",
 			Input: "test: @parallel() { task1; task2 }",
 			Expected: Program(
-				CmdWith(At("parallel"), "test", Block(
+				CmdWith(Decorator("parallel"), "test", Block(
 					Text("task1"),
 					Text("task2"),
 				)),

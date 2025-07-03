@@ -11,7 +11,6 @@ import (
 type Node interface {
 	String() string
 	Position() Position
-	// LSP and Tree-sitter integration
 	TokenRange() TokenRange
 	SemanticTokens() []lexer.Token
 }
@@ -20,29 +19,33 @@ type Node interface {
 type Position struct {
 	Line   int
 	Column int
-	// Enhanced for LSP
 	Offset int // Byte offset in source
 }
 
 // TokenRange represents the span of tokens for this AST node
 type TokenRange struct {
-	Start lexer.Token // First token of this node
-	End   lexer.Token // Last token of this node
-	All   []lexer.Token // All tokens that comprise this node
+	Start lexer.Token
+	End   lexer.Token
+	All   []lexer.Token
 }
 
-// Program represents the root of the AST (entire devcmd file)
+// Program represents the root of the CST (entire devcmd file)
+// Preserves concrete syntax for LSP, Tree-sitter, and formatting tools
 type Program struct {
 	Variables []VariableDecl
+	VarGroups []VarGroup    // Grouped variable declarations: var ( ... )
 	Commands  []CommandDecl
 	Pos       Position
-	Tokens    TokenRange // All tokens in the file
+	Tokens    TokenRange
 }
 
 func (p *Program) String() string {
 	var parts []string
 	for _, v := range p.Variables {
 		parts = append(parts, v.String())
+	}
+	for _, g := range p.VarGroups {
+		parts = append(parts, g.String())
 	}
 	for _, c := range p.Commands {
 		parts = append(parts, c.String())
@@ -65,13 +68,13 @@ func (p *Program) SemanticTokens() []lexer.Token {
 // VariableDecl represents variable declarations (both individual and grouped)
 type VariableDecl struct {
 	Name   string
-	Value  Expression // Could be string, number, identifier, etc.
+	Value  Expression
 	Pos    Position
 	Tokens TokenRange
 
 	// LSP-specific information
-	NameToken  lexer.Token // The variable name token for go-to-definition
-	ValueToken lexer.Token // The value token for hover info
+	NameToken  lexer.Token
+	ValueToken lexer.Token
 }
 
 func (v *VariableDecl) String() string {
@@ -87,10 +90,8 @@ func (v *VariableDecl) TokenRange() TokenRange {
 }
 
 func (v *VariableDecl) SemanticTokens() []lexer.Token {
-	// Return tokens with proper semantic highlighting
 	tokens := []lexer.Token{v.NameToken, v.ValueToken}
 	for _, token := range v.Tokens.All {
-		// Ensure variable names are marked as SemVariable
 		if token.Type == lexer.IDENTIFIER && token.Value == v.Name {
 			token.Semantic = lexer.SemVariable
 		}
@@ -98,12 +99,63 @@ func (v *VariableDecl) SemanticTokens() []lexer.Token {
 	return tokens
 }
 
+// VarGroup represents grouped variable declarations: var ( NAME = value; ANOTHER = value )
+// Preserves the concrete syntax for formatting and LSP features
+type VarGroup struct {
+	Variables []VariableDecl
+	Pos       Position
+	Tokens    TokenRange
+
+	// Concrete syntax tokens for precise formatting
+	VarToken   lexer.Token  // The "var" keyword
+	OpenParen  lexer.Token  // The "(" token
+	CloseParen lexer.Token  // The ")" token
+}
+
+func (g *VarGroup) String() string {
+	var parts []string
+	parts = append(parts, "var (")
+	for _, v := range g.Variables {
+		parts = append(parts, fmt.Sprintf("  %s = %s", v.Name, v.Value.String()))
+	}
+	parts = append(parts, ")")
+	return strings.Join(parts, "\n")
+}
+
+func (g *VarGroup) Position() Position {
+	return g.Pos
+}
+
+func (g *VarGroup) TokenRange() TokenRange {
+	return g.Tokens
+}
+
+func (g *VarGroup) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+
+	// Add structural tokens with proper semantics
+	varToken := g.VarToken
+	varToken.Semantic = lexer.SemKeyword
+	tokens = append(tokens, varToken)
+
+	tokens = append(tokens, g.OpenParen)
+
+	// Add variable tokens
+	for _, v := range g.Variables {
+		tokens = append(tokens, v.SemanticTokens()...)
+	}
+
+	tokens = append(tokens, g.CloseParen)
+
+	return tokens
+}
+
 // Expression represents any expression (literals, identifiers, etc.)
 type Expression interface {
 	Node
 	IsExpression() bool
-	// LSP support for expressions
 	GetType() ExpressionType
+	toTreeSitter() map[string]interface{}
 }
 
 type ExpressionType int
@@ -121,9 +173,7 @@ type StringLiteral struct {
 	Raw    string
 	Pos    Position
 	Tokens TokenRange
-
-	// LSP integration
-	StringToken lexer.Token // The actual string token
+	StringToken lexer.Token
 }
 
 func (s *StringLiteral) String() string {
@@ -150,12 +200,28 @@ func (s *StringLiteral) GetType() ExpressionType {
 	return StringType
 }
 
+func (s *StringLiteral) toTreeSitter() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "string_literal",
+		"value": s.Value,
+		"raw": s.Raw,
+		"start_position": map[string]int{
+			"row":    s.Pos.Line - 1,
+			"column": s.Pos.Column - 1,
+		},
+		"end_position": map[string]int{
+			"row":    s.Tokens.End.Line - 1,
+			"column": s.Tokens.End.Column - 1,
+		},
+	}
+}
+
 // NumberLiteral represents numeric values
 type NumberLiteral struct {
 	Value  string
 	Pos    Position
 	Tokens TokenRange
-	Token  lexer.Token // The number token
+	Token  lexer.Token
 }
 
 func (n *NumberLiteral) String() string {
@@ -182,12 +248,27 @@ func (n *NumberLiteral) GetType() ExpressionType {
 	return NumberType
 }
 
+func (n *NumberLiteral) toTreeSitter() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "number_literal",
+		"value": n.Value,
+		"start_position": map[string]int{
+			"row":    n.Pos.Line - 1,
+			"column": n.Pos.Column - 1,
+		},
+		"end_position": map[string]int{
+			"row":    n.Tokens.End.Line - 1,
+			"column": n.Tokens.End.Column - 1,
+		},
+	}
+}
+
 // DurationLiteral represents duration values like 30s, 5m
 type DurationLiteral struct {
 	Value  string
 	Pos    Position
 	Tokens TokenRange
-	Token  lexer.Token // The duration token
+	Token  lexer.Token
 }
 
 func (d *DurationLiteral) String() string {
@@ -214,395 +295,27 @@ func (d *DurationLiteral) GetType() ExpressionType {
 	return DurationType
 }
 
-// CommandDecl represents command definitions
-type CommandDecl struct {
-	Name       string
-	Type       CommandType // Command, WatchCommand, StopCommand
-	Decorators []Decorator
-	Body       CommandBody // Unified command body
-	Pos        Position
-	Tokens     TokenRange
-
-	// LSP support
-	TypeToken lexer.Token // The var/watch/stop token
-	NameToken lexer.Token // The command name token
-}
-
-func (c *CommandDecl) String() string {
-	var parts []string
-
-	// Add decorators
-	for _, decorator := range c.Decorators {
-		parts = append(parts, decorator.String())
-	}
-
-	// Add command declaration
-	typeStr := ""
-	switch c.Type {
-	case WatchCommand:
-		typeStr = "watch "
-	case StopCommand:
-		typeStr = "stop "
-	case Command:
-		typeStr = "" // No prefix for regular commands
-	}
-
-	parts = append(parts, fmt.Sprintf("%s%s: %s", typeStr, c.Name, c.Body.String()))
-	return strings.Join(parts, " ")
-}
-
-func (c *CommandDecl) Position() Position {
-	return c.Pos
-}
-
-func (c *CommandDecl) TokenRange() TokenRange {
-	return c.Tokens
-}
-
-func (c *CommandDecl) SemanticTokens() []lexer.Token {
-	var tokens []lexer.Token
-
-	// Add type and name tokens with proper semantics
-	if c.TypeToken.Type != lexer.ILLEGAL {
-		typeToken := c.TypeToken
-		typeToken.Semantic = lexer.SemKeyword
-		tokens = append(tokens, typeToken)
-	}
-
-	nameToken := c.NameToken
-	nameToken.Semantic = lexer.SemCommand
-	tokens = append(tokens, nameToken)
-
-	// Add decorator tokens
-	for _, decorator := range c.Decorators {
-		tokens = append(tokens, decorator.SemanticTokens()...)
-	}
-
-	// Add body tokens
-	tokens = append(tokens, c.Body.SemanticTokens()...)
-
-	return tokens
-}
-
-// CommandType represents the type of command
-type CommandType int
-
-const (
-	Command      CommandType = iota // Regular commands
-	WatchCommand                    // watch NAME: ... (process management)
-	StopCommand                     // stop NAME: ... (process cleanup)
-)
-
-func (ct CommandType) String() string {
-	switch ct {
-	case Command:
-		return "command"
-	case WatchCommand:
-		return "watch"
-	case StopCommand:
-		return "stop"
-	default:
-		return "unknown"
+func (d *DurationLiteral) toTreeSitter() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "duration_literal",
+		"value": d.Value,
+		"start_position": map[string]int{
+			"row":    d.Pos.Line - 1,
+			"column": d.Pos.Column - 1,
+		},
+		"end_position": map[string]int{
+			"row":    d.Tokens.End.Line - 1,
+			"column": d.Tokens.End.Column - 1,
+		},
 	}
 }
 
-// CommandBody represents the unified body of a command
-type CommandBody struct {
-	// Statements represent the command content
-	// For simple commands: single statement with command elements
-	// For block commands: multiple statements
-	Statements []Statement
-
-	// IsBlock indicates if this was written with block syntax {}
-	IsBlock bool
-
-	Pos    Position
-	Tokens TokenRange
-
-	// For block commands with explicit braces
-	OpenBrace  *lexer.Token // Optional - only for explicit blocks
-	CloseBrace *lexer.Token // Optional - only for explicit blocks
-}
-
-func (b *CommandBody) String() string {
-	if b.IsBlock && len(b.Statements) > 0 {
-		var parts []string
-		parts = append(parts, "{")
-		for _, stmt := range b.Statements {
-			parts = append(parts, "  "+stmt.String())
-		}
-		parts = append(parts, "}")
-		return strings.Join(parts, "\n")
-	}
-
-	// Simple command - just concatenate statements
-	var parts []string
-	for _, stmt := range b.Statements {
-		parts = append(parts, stmt.String())
-	}
-	return strings.Join(parts, "; ")
-}
-
-func (b *CommandBody) Position() Position {
-	return b.Pos
-}
-
-func (b *CommandBody) TokenRange() TokenRange {
-	return b.Tokens
-}
-
-func (b *CommandBody) SemanticTokens() []lexer.Token {
-	var tokens []lexer.Token
-
-	// Add structural tokens for blocks
-	if b.OpenBrace != nil {
-		tokens = append(tokens, *b.OpenBrace)
-	}
-
-	// Add statement tokens
-	for _, stmt := range b.Statements {
-		tokens = append(tokens, stmt.SemanticTokens()...)
-	}
-
-	if b.CloseBrace != nil {
-		tokens = append(tokens, *b.CloseBrace)
-	}
-
-	return tokens
-}
-
-// Statement represents any statement within a command
-type Statement interface {
-	Node
-	IsStatement() bool
-}
-
-// ShellStatement represents shell commands
-type ShellStatement struct {
-	Elements []CommandElement
-	Pos      Position
-	Tokens   TokenRange
-}
-
-func (s *ShellStatement) String() string {
-	var parts []string
-	for _, elem := range s.Elements {
-		parts = append(parts, elem.String())
-	}
-	return strings.Join(parts, "")
-}
-
-func (s *ShellStatement) Position() Position {
-	return s.Pos
-}
-
-func (s *ShellStatement) TokenRange() TokenRange {
-	return s.Tokens
-}
-
-func (s *ShellStatement) SemanticTokens() []lexer.Token {
-	var tokens []lexer.Token
-	for _, elem := range s.Elements {
-		tokens = append(tokens, elem.SemanticTokens()...)
-	}
-	return tokens
-}
-
-func (s *ShellStatement) IsStatement() bool {
-	return true
-}
-
-// CommandElement represents elements within commands (text, decorators)
-type CommandElement interface {
-	Node
-	IsCommandElement() bool
-}
-
-// TextElement represents literal text in commands
-type TextElement struct {
-	Text   string
-	Pos    Position
-	Tokens TokenRange
-}
-
-func (t *TextElement) String() string {
-	return t.Text
-}
-
-func (t *TextElement) Position() Position {
-	return t.Pos
-}
-
-func (t *TextElement) TokenRange() TokenRange {
-	return t.Tokens
-}
-
-func (t *TextElement) SemanticTokens() []lexer.Token {
-	// Text elements are shell content
-	tokens := make([]lexer.Token, len(t.Tokens.All))
-	copy(tokens, t.Tokens.All)
-
-	for i := range tokens {
-		if tokens[i].Semantic == lexer.SemCommand {
-			// Keep command semantic
-		} else {
-			tokens[i].Semantic = lexer.SemCommand
-		}
-	}
-
-	return tokens
-}
-
-func (t *TextElement) IsCommandElement() bool {
-	return true
-}
-
-// Decorator represents decorators with unified args and block support
-type Decorator struct {
-	Name  string
-	Args  []Expression     // Arguments within parentheses
-	Block *DecoratorBlock  // Optional block content
-	Pos   Position
-	Tokens TokenRange
-
-	// LSP support
-	AtToken   lexer.Token // @ symbol
-	NameToken lexer.Token // Decorator name
-}
-
-func (d *Decorator) String() string {
-	var parts []string
-
-	// Add decorator name
-	name := fmt.Sprintf("@%s", d.Name)
-
-	// Add arguments if present
-	if len(d.Args) > 0 {
-		var argStrs []string
-		for _, arg := range d.Args {
-			argStrs = append(argStrs, arg.String())
-		}
-		name += fmt.Sprintf("(%s)", strings.Join(argStrs, ", "))
-	}
-
-	parts = append(parts, name)
-
-	// Add block if present
-	if d.Block != nil {
-		parts = append(parts, d.Block.String())
-	}
-
-	return strings.Join(parts, " ")
-}
-
-func (d *Decorator) Position() Position {
-	return d.Pos
-}
-
-func (d *Decorator) TokenRange() TokenRange {
-	return d.Tokens
-}
-
-func (d *Decorator) SemanticTokens() []lexer.Token {
-	var tokens []lexer.Token
-
-	// @ token as operator
-	atToken := d.AtToken
-	atToken.Semantic = lexer.SemOperator
-	tokens = append(tokens, atToken)
-
-	// Decorator name - special handling for @var
-	nameToken := d.NameToken
-	if d.Name == "var" || d.Name == "env" {
-		nameToken.Semantic = lexer.SemVariable // @var, @env are variable-like
-	} else {
-		nameToken.Semantic = lexer.SemDecorator
-	}
-	tokens = append(tokens, nameToken)
-
-	// Argument tokens
-	for _, arg := range d.Args {
-		tokens = append(tokens, arg.SemanticTokens()...)
-	}
-
-	// Block tokens
-	if d.Block != nil {
-		tokens = append(tokens, d.Block.SemanticTokens()...)
-	}
-
-	return tokens
-}
-
-func (d *Decorator) IsExpression() bool {
-	return true
-}
-
-func (d *Decorator) GetType() ExpressionType {
-	return IdentifierType
-}
-
-func (d *Decorator) IsCommandElement() bool {
-	return true
-}
-
-type DecoratorBlock struct {
-	Statements []Statement
-	Pos        Position
-	Tokens     TokenRange
-
-	// Structural tokens
-	OpenBrace  *lexer.Token
-	CloseBrace *lexer.Token
-}
-
-func (b *DecoratorBlock) String() string {
-	if len(b.Statements) == 0 {
-		return "{}"
-	}
-
-	var parts []string
-	parts = append(parts, "{")
-	for _, stmt := range b.Statements {
-		parts = append(parts, "  "+stmt.String())
-	}
-	parts = append(parts, "}")
-	return strings.Join(parts, "\n")
-}
-
-func (b *DecoratorBlock) Position() Position {
-	return b.Pos
-}
-
-func (b *DecoratorBlock) TokenRange() TokenRange {
-	return b.Tokens
-}
-
-func (b *DecoratorBlock) SemanticTokens() []lexer.Token {
-	var tokens []lexer.Token
-
-	// Add brace tokens
-	if b.OpenBrace != nil {
-		tokens = append(tokens, *b.OpenBrace)
-	}
-
-	// Add statement tokens
-	for _, stmt := range b.Statements {
-		tokens = append(tokens, stmt.SemanticTokens()...)
-	}
-
-	if b.CloseBrace != nil {
-		tokens = append(tokens, *b.CloseBrace)
-	}
-
-	return tokens
-}
-
-// Identifier represents identifiers (command names, shell commands, etc.)
+// Identifier represents identifiers
 type Identifier struct {
 	Name   string
 	Pos    Position
 	Tokens TokenRange
-	Token  lexer.Token // The identifier token
+	Token  lexer.Token
 }
 
 func (i *Identifier) String() string {
@@ -629,13 +342,468 @@ func (i *Identifier) GetType() ExpressionType {
 	return IdentifierType
 }
 
-func (i *Identifier) IsCommandElement() bool {
+func (i *Identifier) toTreeSitter() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "identifier",
+		"name": i.Name,
+		"start_position": map[string]int{
+			"row":    i.Pos.Line - 1,
+			"column": i.Pos.Column - 1,
+		},
+		"end_position": map[string]int{
+			"row":    i.Tokens.End.Line - 1,
+			"column": i.Tokens.End.Column - 1,
+		},
+	}
+}
+
+// CommandDecl represents command definitions with concrete syntax preservation
+type CommandDecl struct {
+	Name       string
+	Type       CommandType
+	Body       CommandBody
+	Pos        Position
+	Tokens     TokenRange
+
+	// Concrete syntax tokens for precise formatting and LSP
+	TypeToken  *lexer.Token // The watch/stop keyword (nil for regular commands)
+	NameToken  lexer.Token  // The command name token
+	ColonToken lexer.Token  // The ":" token
+}
+
+func (c *CommandDecl) String() string {
+	typeStr := ""
+	switch c.Type {
+	case WatchCommand:
+		typeStr = "watch "
+	case StopCommand:
+		typeStr = "stop "
+	case Command:
+		typeStr = ""
+	}
+
+	return fmt.Sprintf("%s%s: %s", typeStr, c.Name, c.Body.String())
+}
+
+func (c *CommandDecl) Position() Position {
+	return c.Pos
+}
+
+func (c *CommandDecl) TokenRange() TokenRange {
+	return c.Tokens
+}
+
+func (c *CommandDecl) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+
+	if c.TypeToken != nil && c.TypeToken.Type != lexer.ILLEGAL {
+		typeToken := *c.TypeToken
+		typeToken.Semantic = lexer.SemKeyword
+		tokens = append(tokens, typeToken)
+	}
+
+	nameToken := c.NameToken
+	nameToken.Semantic = lexer.SemCommand
+	tokens = append(tokens, nameToken)
+
+	tokens = append(tokens, c.Body.SemanticTokens()...)
+
+	return tokens
+}
+
+// CommandType represents the type of command
+type CommandType int
+
+const (
+	Command      CommandType = iota
+	WatchCommand
+	StopCommand
+)
+
+func (ct CommandType) String() string {
+	switch ct {
+	case Command:
+		return "command"
+	case WatchCommand:
+		return "watch"
+	case StopCommand:
+		return "stop"
+	default:
+		return "unknown"
+	}
+}
+
+// CommandBody represents the unified body of a command with concrete syntax preservation
+type CommandBody struct {
+	Content CommandContent
+	IsBlock bool        // Indicates if this uses explicit block syntax {}
+	Pos     Position
+	Tokens  TokenRange
+
+	// Concrete syntax tokens for precise formatting
+	OpenBrace  *lexer.Token // The "{" token (nil for simple commands)
+	CloseBrace *lexer.Token // The "}" token (nil for simple commands)
+}
+
+func (b *CommandBody) String() string {
+	if b.IsBlock {
+		return fmt.Sprintf("{ %s }", b.Content.String())
+	}
+	return b.Content.String()
+}
+
+func (b *CommandBody) Position() Position {
+	return b.Pos
+}
+
+func (b *CommandBody) TokenRange() TokenRange {
+	return b.Tokens
+}
+
+func (b *CommandBody) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+
+	if b.OpenBrace != nil {
+		tokens = append(tokens, *b.OpenBrace)
+	}
+
+	tokens = append(tokens, b.Content.SemanticTokens()...)
+
+	if b.CloseBrace != nil {
+		tokens = append(tokens, *b.CloseBrace)
+	}
+
+	return tokens
+}
+
+// CommandContent represents the content within a command body
+type CommandContent interface {
+	Node
+	IsCommandContent() bool
+}
+
+// ShellContent represents shell command content with potential inline decorators
+// This supports mixed content like: echo "Building on port @var(PORT)"
+type ShellContent struct {
+	Parts  []ShellPart // Mixed content: text and inline decorators
+	Pos    Position
+	Tokens TokenRange
+}
+
+func (s *ShellContent) String() string {
+	var parts []string
+	for _, part := range s.Parts {
+		parts = append(parts, part.String())
+	}
+	return strings.Join(parts, "")
+}
+
+func (s *ShellContent) Position() Position {
+	return s.Pos
+}
+
+func (s *ShellContent) TokenRange() TokenRange {
+	return s.Tokens
+}
+
+func (s *ShellContent) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+	for _, part := range s.Parts {
+		tokens = append(tokens, part.SemanticTokens()...)
+	}
+	return tokens
+}
+
+func (s *ShellContent) IsCommandContent() bool {
 	return true
+}
+
+// ShellPart represents a part of shell content (text or inline decorator)
+type ShellPart interface {
+	Node
+	IsShellPart() bool
+}
+
+// TextPart represents plain text within shell content
+type TextPart struct {
+	Text   string
+	Pos    Position
+	Tokens TokenRange
+}
+
+func (t *TextPart) String() string {
+	return t.Text
+}
+
+func (t *TextPart) Position() Position {
+	return t.Pos
+}
+
+func (t *TextPart) TokenRange() TokenRange {
+	return t.Tokens
+}
+
+func (t *TextPart) SemanticTokens() []lexer.Token {
+	tokens := make([]lexer.Token, len(t.Tokens.All))
+	copy(tokens, t.Tokens.All)
+
+	// Mark all tokens as shell content
+	for i := range tokens {
+		if tokens[i].Semantic != lexer.SemCommand {
+			tokens[i].Semantic = lexer.SemShellText
+		}
+	}
+
+	return tokens
+}
+
+func (t *TextPart) IsShellPart() bool {
+	return true
+}
+
+// DecoratedContent represents shell content with decorators
+// This handles cases like: @timeout(30s) { node app.js }
+// Multiple decorators in sequence within blocks are valid:
+// deploy: { @parallel() {}; @retry(3) {} }
+type DecoratedContent struct {
+	Decorators []Decorator  // Leading decorators (valid when nested in blocks)
+	Content    CommandContent // The actual content (can be ShellContent or nested DecoratedContent)
+	Pos        Position
+	Tokens     TokenRange
+}
+
+func (d *DecoratedContent) String() string {
+	var parts []string
+
+	for _, decorator := range d.Decorators {
+		parts = append(parts, decorator.String())
+	}
+
+	parts = append(parts, d.Content.String())
+
+	return strings.Join(parts, " ")
+}
+
+func (d *DecoratedContent) Position() Position {
+	return d.Pos
+}
+
+func (d *DecoratedContent) TokenRange() TokenRange {
+	return d.Tokens
+}
+
+func (d *DecoratedContent) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+
+	for _, decorator := range d.Decorators {
+		tokens = append(tokens, decorator.SemanticTokens()...)
+	}
+
+	tokens = append(tokens, d.Content.SemanticTokens()...)
+
+	return tokens
+}
+
+func (d *DecoratedContent) IsCommandContent() bool {
+	return true
+}
+
+// Decorator represents decorators
+type Decorator struct {
+	Name  string
+	Args  []Expression // Arguments within parentheses
+	Pos   Position
+	Tokens TokenRange
+
+	// LSP support
+	AtToken   lexer.Token
+	NameToken lexer.Token
+}
+
+func (d *Decorator) String() string {
+	name := fmt.Sprintf("@%s", d.Name)
+
+	if len(d.Args) > 0 {
+		var argStrs []string
+		for _, arg := range d.Args {
+			argStrs = append(argStrs, arg.String())
+		}
+		name += fmt.Sprintf("(%s)", strings.Join(argStrs, ", "))
+	}
+
+	return name
+}
+
+func (d *Decorator) Position() Position {
+	return d.Pos
+}
+
+func (d *Decorator) TokenRange() TokenRange {
+	return d.Tokens
+}
+
+func (d *Decorator) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+
+	atToken := d.AtToken
+	atToken.Semantic = lexer.SemOperator
+	tokens = append(tokens, atToken)
+
+	nameToken := d.NameToken
+	if d.Name == "var" || d.Name == "env" {
+		nameToken.Semantic = lexer.SemVariable
+	} else {
+		nameToken.Semantic = lexer.SemDecorator
+	}
+	tokens = append(tokens, nameToken)
+
+	for _, arg := range d.Args {
+		tokens = append(tokens, arg.SemanticTokens()...)
+	}
+
+	return tokens
+}
+
+func (d *Decorator) toTreeSitter() map[string]interface{} {
+	node := map[string]interface{}{
+		"type": "decorator",
+		"name": d.Name,
+		"start_position": map[string]int{
+			"row":    d.Pos.Line - 1,
+			"column": d.Pos.Column - 1,
+		},
+		"end_position": map[string]int{
+			"row":    d.Tokens.End.Line - 1,
+			"column": d.Tokens.End.Column - 1,
+		},
+	}
+
+	if len(d.Args) > 0 {
+		args := make([]interface{}, len(d.Args))
+		for i, arg := range d.Args {
+			args[i] = arg.toTreeSitter()
+		}
+		node["args"] = args
+	}
+
+	return node
+}
+
+// FunctionDecorator represents inline decorators like @var(NAME) or @sh(command)
+// These appear WITHIN shell content and return values
+type FunctionDecorator struct {
+	Name  string
+	Args  []Expression
+	Pos   Position
+	Tokens TokenRange
+
+	// Concrete syntax tokens for precise formatting and LSP
+	AtToken     lexer.Token  // The "@" symbol
+	NameToken   lexer.Token  // The decorator name token
+	OpenParen   *lexer.Token // The "(" token (nil if no args)
+	CloseParen  *lexer.Token // The ")" token (nil if no args)
+}
+
+func (f *FunctionDecorator) String() string {
+	name := fmt.Sprintf("@%s", f.Name)
+
+	if len(f.Args) > 0 {
+		var argStrs []string
+		for _, arg := range f.Args {
+			argStrs = append(argStrs, arg.String())
+		}
+		name += fmt.Sprintf("(%s)", strings.Join(argStrs, ", "))
+	}
+
+	return name
+}
+
+func (f *FunctionDecorator) Position() Position {
+	return f.Pos
+}
+
+func (f *FunctionDecorator) TokenRange() TokenRange {
+	return f.Tokens
+}
+
+func (f *FunctionDecorator) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+
+	// @ token as operator
+	atToken := f.AtToken
+	atToken.Semantic = lexer.SemOperator
+	tokens = append(tokens, atToken)
+
+	// Function decorator name with proper semantic
+	nameToken := f.NameToken
+	if f.Name == "var" || f.Name == "sh" {
+		nameToken.Semantic = lexer.SemVariable
+	} else {
+		nameToken.Semantic = lexer.SemDecorator
+	}
+	tokens = append(tokens, nameToken)
+
+	// Add parentheses if present
+	if f.OpenParen != nil {
+		openParen := *f.OpenParen
+		openParen.Semantic = lexer.SemOperator
+		tokens = append(tokens, openParen)
+	}
+
+	// Add argument tokens
+	for _, arg := range f.Args {
+		tokens = append(tokens, arg.SemanticTokens()...)
+	}
+
+	if f.CloseParen != nil {
+		closeParen := *f.CloseParen
+		closeParen.Semantic = lexer.SemOperator
+		tokens = append(tokens, closeParen)
+	}
+
+	return tokens
+}
+
+func (f *FunctionDecorator) IsExpression() bool {
+	return true
+}
+
+func (f *FunctionDecorator) GetType() ExpressionType {
+	return IdentifierType
+}
+
+func (f *FunctionDecorator) IsShellPart() bool {
+	return true
+}
+
+func (f *FunctionDecorator) toTreeSitter() map[string]interface{} {
+	node := map[string]interface{}{
+		"type": "function_decorator",
+		"name": f.Name,
+		"start_position": map[string]int{
+			"row":    f.Pos.Line - 1,
+			"column": f.Pos.Column - 1,
+		},
+		"end_position": map[string]int{
+			"row":    f.Tokens.End.Line - 1,
+			"column": f.Tokens.End.Column - 1,
+		},
+	}
+
+	if len(f.Args) > 0 {
+		args := make([]interface{}, len(f.Args))
+		for i, arg := range f.Args {
+			args[i] = arg.toTreeSitter()
+		}
+		node["args"] = args
+	}
+
+	return node
 }
 
 // Utility functions for AST traversal and analysis
 
-// Walk traverses the AST and calls fn for each node
+// Walk traverses the CST and calls fn for each node
 func Walk(node Node, fn func(Node) bool) {
 	if !fn(node) {
 		return
@@ -646,52 +814,79 @@ func Walk(node Node, fn func(Node) bool) {
 		for _, v := range n.Variables {
 			Walk(&v, fn)
 		}
+		for _, g := range n.VarGroups {
+			Walk(&g, fn)
+		}
 		for _, c := range n.Commands {
 			Walk(&c, fn)
 		}
+	case *VarGroup:
+		for _, v := range n.Variables {
+			Walk(&v, fn)
+		}
 	case *CommandDecl:
+		Walk(&n.Body, fn)
+	case *CommandBody:
+		Walk(n.Content, fn)
+	case *ShellContent:
+		for _, part := range n.Parts {
+			Walk(part, fn)
+		}
+	case *TextPart:
+		// Leaf node - plain text
+	case *DecoratedContent:
 		for _, d := range n.Decorators {
 			Walk(&d, fn)
 		}
-		Walk(&n.Body, fn)
-	case *CommandBody:
-		for _, stmt := range n.Statements {
-			Walk(stmt, fn)
-		}
-	case *ShellStatement:
-		for _, elem := range n.Elements {
-			Walk(elem, fn)
-		}
+		Walk(n.Content, fn)
 	case *Decorator:
 		for _, arg := range n.Args {
 			Walk(arg, fn)
 		}
-		if n.Block != nil {
-			Walk(n.Block, fn)
-		}
-	case *DecoratorBlock:
-		for _, stmt := range n.Statements {
-			Walk(stmt, fn)
+	case *FunctionDecorator:
+		for _, arg := range n.Args {
+			Walk(arg, fn)
 		}
 	}
 }
 
 // Helper functions for backward compatibility and convenience
 
-// IsSimpleCommand checks if a command body represents a simple (non-block) command
+// IsSimpleCommand checks if a command body represents a simple (non-decorated) command
 func (b *CommandBody) IsSimpleCommand() bool {
-	return !b.IsBlock && len(b.Statements) == 1
+	_, isShell := b.Content.(*ShellContent)
+	return !b.IsBlock && isShell
 }
 
-// GetSimpleElements returns the elements of a simple command
-// Returns nil if this is not a simple command
-func (b *CommandBody) GetSimpleElements() []CommandElement {
-	if b.IsSimpleCommand() {
-		if shell, ok := b.Statements[0].(*ShellStatement); ok {
-			return shell.Elements
+// GetShellText returns the shell text if this is a simple shell command
+func (b *CommandBody) GetShellText() string {
+	if shell, ok := b.Content.(*ShellContent); ok {
+		var textParts []string
+		for _, part := range shell.Parts {
+			if textPart, ok := part.(*TextPart); ok {
+				textParts = append(textParts, textPart.Text)
+			} else if funcDecorator, ok := part.(*FunctionDecorator); ok {
+				textParts = append(textParts, funcDecorator.String())
+			}
+		}
+		return strings.Join(textParts, "")
+	}
+	return ""
+}
+
+// GetInlineDecorators returns all inline decorators within shell content
+func (b *CommandBody) GetInlineDecorators() []*FunctionDecorator {
+	var decorators []*FunctionDecorator
+
+	if shell, ok := b.Content.(*ShellContent); ok {
+		for _, part := range shell.Parts {
+			if funcDecorator, ok := part.(*FunctionDecorator); ok {
+				decorators = append(decorators, funcDecorator)
+			}
 		}
 	}
-	return nil
+
+	return decorators
 }
 
 // FindVariableReferences finds all @var() decorator references in the AST
@@ -700,6 +895,18 @@ func FindVariableReferences(node Node) []*Decorator {
 
 	Walk(node, func(n Node) bool {
 		if decorator, ok := n.(*Decorator); ok && decorator.Name == "var" {
+			refs = append(refs, decorator)
+		}
+		if funcDecorator, ok := n.(*FunctionDecorator); ok && funcDecorator.Name == "var" {
+			// Convert to regular decorator for compatibility
+			decorator := &Decorator{
+				Name:      funcDecorator.Name,
+				Args:      funcDecorator.Args,
+				Pos:       funcDecorator.Pos,
+				Tokens:    funcDecorator.Tokens,
+				AtToken:   funcDecorator.AtToken,
+				NameToken: funcDecorator.NameToken,
+			}
 			refs = append(refs, decorator)
 		}
 		return true
@@ -726,10 +933,19 @@ func FindDecorators(node Node) []Decorator {
 func ValidateVariableReferences(program *Program) []error {
 	var errors []error
 
-	// Collect defined variables
+	// Collect defined variables from both individual and grouped declarations
 	defined := make(map[string]bool)
+
+	// Individual variables
 	for _, varDecl := range program.Variables {
 		defined[varDecl.Name] = true
+	}
+
+	// Grouped variables
+	for _, varGroup := range program.VarGroups {
+		for _, varDecl := range varGroup.Variables {
+			defined[varDecl.Name] = true
+		}
 	}
 
 	// Check all @var() decorator references
@@ -747,59 +963,24 @@ func ValidateVariableReferences(program *Program) []error {
 	return errors
 }
 
-// LSP Integration Functions
-
-// FindNodeAtPosition finds the AST node at a specific position (for hover, go-to-def)
-func FindNodeAtPosition(root Node, line, column int) Node {
-	var found Node
-
-	Walk(root, func(n Node) bool {
-		tokenRange := n.TokenRange()
-
-		// Check if position is within this node's range
-		if isPositionInRange(line, column, tokenRange) {
-			found = n
-			return true // Continue to find most specific node
-		}
-		return false
-	})
-
-	return found
-}
-
-// isPositionInRange checks if a position falls within a token range
-func isPositionInRange(line, column int, tokenRange TokenRange) bool {
-	start := tokenRange.Start
-	end := tokenRange.End
-
-	// Single line check
-	if start.Line == end.Line {
-		return line == start.Line && column >= start.Column && column <= end.Column
-	}
-
-	// Multi-line check
-	if line < start.Line || line > end.Line {
-		return false
-	}
-
-	if line == start.Line {
-		return column >= start.Column
-	}
-
-	if line == end.Line {
-		return column <= end.Column
-	}
-
-	return true // Middle lines
-}
-
 // GetDefinitionForVariable finds the variable declaration for a given reference
 func GetDefinitionForVariable(program *Program, varName string) *VariableDecl {
+	// Search individual variables
 	for _, varDecl := range program.Variables {
 		if varDecl.Name == varName {
 			return &varDecl
 		}
 	}
+
+	// Search grouped variables
+	for _, varGroup := range program.VarGroups {
+		for _, varDecl := range varGroup.Variables {
+			if varDecl.Name == varName {
+				return &varDecl
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -818,184 +999,3 @@ func GetReferencesForVariable(program *Program, varName string) []*Decorator {
 
 	return references
 }
-
-// GetCompletionsAtPosition returns possible completions at a position
-func GetCompletionsAtPosition(program *Program, line, column int) []CompletionItem {
-	var completions []CompletionItem
-
-	node := FindNodeAtPosition(program, line, column)
-	if node == nil {
-		return completions
-	}
-
-	// Add variable completions for @var() contexts
-	if isInVariableContext(node) {
-		for _, varDecl := range program.Variables {
-			completions = append(completions, CompletionItem{
-				Label:  varDecl.Name,
-				Kind:   VariableCompletion,
-				Detail: fmt.Sprintf("var %s = %s", varDecl.Name, varDecl.Value.String()),
-			})
-		}
-	}
-
-	// Add decorator completions for @ contexts
-	if isInDecoratorContext(node) {
-		decoratorNames := []string{"timeout", "retry", "confirm", "env", "restart-on", "debounce", "var", "parallel", "sh"}
-		for _, name := range decoratorNames {
-			completions = append(completions, CompletionItem{
-				Label: name,
-				Kind:  DecoratorCompletion,
-				Detail: fmt.Sprintf("@%s decorator", name),
-			})
-		}
-	}
-
-	return completions
-}
-
-// CompletionItem represents an LSP completion item
-type CompletionItem struct {
-	Label  string
-	Kind   CompletionKind
-	Detail string
-}
-
-type CompletionKind int
-
-const (
-	VariableCompletion CompletionKind = iota
-	DecoratorCompletion
-	CommandCompletion
-)
-
-// Helper functions for context detection
-func isInVariableContext(node Node) bool {
-	// Check if we're in a @var() context
-	if decorator, ok := node.(*Decorator); ok && decorator.Name == "var" {
-		return true
-	}
-	return false
-}
-
-func isInDecoratorContext(node Node) bool {
-	// Check if we're after an @ symbol
-	if decorator, ok := node.(*Decorator); ok {
-		return decorator != nil
-	}
-	return false
-}
-
-// Tree-sitter Integration Functions
-
-// GetTreeSitterNode converts AST to Tree-sitter compatible structure
-func (p *Program) ToTreeSitterJSON() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "program",
-		"children": []interface{}{
-			p.variablesToTreeSitter(),
-			p.commandsToTreeSitter(),
-		},
-		"start_position": map[string]int{
-			"row":    p.Pos.Line - 1,
-			"column": p.Pos.Column - 1,
-		},
-		"end_position": map[string]int{
-			"row":    p.Tokens.End.Line - 1,
-			"column": p.Tokens.End.Column - 1,
-		},
-	}
-}
-
-func (p *Program) variablesToTreeSitter() []interface{} {
-	var vars []interface{}
-	for _, varDecl := range p.Variables {
-		vars = append(vars, map[string]interface{}{
-			"type": "variable_declaration",
-			"name": varDecl.Name,
-			"value": varDecl.Value.String(),
-			"start_position": map[string]int{
-				"row":    varDecl.Pos.Line - 1,
-				"column": varDecl.Pos.Column - 1,
-			},
-		})
-	}
-	return vars
-}
-
-func (p *Program) commandsToTreeSitter() []interface{} {
-	var cmds []interface{}
-	for _, cmdDecl := range p.Commands {
-		cmd := map[string]interface{}{
-			"type": "command_declaration",
-			"name": cmdDecl.Name,
-			"command_type": cmdDecl.Type.String(),
-			"start_position": map[string]int{
-				"row":    cmdDecl.Pos.Line - 1,
-				"column": cmdDecl.Pos.Column - 1,
-			},
-		}
-
-		if len(cmdDecl.Decorators) > 0 {
-			var decorators []interface{}
-			for _, decorator := range cmdDecl.Decorators {
-				decorators = append(decorators, map[string]interface{}{
-					"type": "decorator",
-					"name": decorator.Name,
-					"args": len(decorator.Args),
-					"has_block": decorator.Block != nil,
-				})
-			}
-			cmd["decorators"] = decorators
-		}
-
-		cmds = append(cmds, cmd)
-	}
-	return cmds
-}
-
-// GetSemanticTokensForLSP returns all semantic tokens for LSP highlighting
-func (p *Program) GetSemanticTokensForLSP() []lexer.LSPSemanticToken {
-	allTokens := p.SemanticTokens()
-	lspTokens := make([]lexer.LSPSemanticToken, len(allTokens))
-
-	for i, token := range allTokens {
-		lspTokens[i] = token.ToLSPSemanticToken()
-	}
-
-	return lspTokens
-}
-
-// GetDiagnostics returns validation errors as LSP diagnostics
-func (p *Program) GetDiagnostics() []Diagnostic {
-	var diagnostics []Diagnostic
-
-	// Variable validation
-	errors := ValidateVariableReferences(p)
-	for _, err := range errors {
-		// Extract position from error (would need more sophisticated error types)
-		diagnostics = append(diagnostics, Diagnostic{
-			Message:  err.Error(),
-			Severity: ErrorSeverity,
-			Source:   "devcmd",
-		})
-	}
-
-	return diagnostics
-}
-
-// Diagnostic represents an LSP diagnostic
-type Diagnostic struct {
-	Message  string
-	Severity DiagnosticSeverity
-	Source   string
-}
-
-type DiagnosticSeverity int
-
-const (
-	ErrorSeverity DiagnosticSeverity = iota
-	WarningSeverity
-	InfoSeverity
-	HintSeverity
-)

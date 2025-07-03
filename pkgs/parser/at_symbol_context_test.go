@@ -364,7 +364,9 @@ func TestMixedAtSymbolScenarios(t *testing.T) {
 			Name:  "email and decorator in same command",
 			Input: "notify: @sh(echo \"Build complete\" | mail admin@company.com)",
 			Expected: Program(
-				CmdWith(At("sh", "echo \"Build complete\" | mail admin@company.com"), "notify", Block()),
+				Cmd("notify", Simple(
+					At("sh", "echo \"Build complete\" | mail admin@company.com"),
+				)),
 			),
 		},
 		{

@@ -40,165 +40,131 @@ func Var(name string, value interface{}) ExpectedVariable {
 	}
 }
 
+// DurationExpr creates a duration expression for test expectations
+func DurationExpr(value string) ExpectedExpression {
+	return ExpectedExpression{
+		Type:  "duration",
+		Value: value,
+	}
+}
+
 // Cmd creates a simple command: NAME: BODY
 func Cmd(name string, body interface{}) ExpectedCommand {
 	return ExpectedCommand{
-		Name:       name,
-		Type:       ast.Command,
-		Decorators: []ExpectedDecorator{},
-		Body:       toCommandBody(body),
+		Name: name,
+		Type: ast.Command,
+		Body: toCommandBody(body),
 	}
 }
 
 // CmdWith creates a command with decorators: @decorator NAME: BODY
+// This is syntax sugar for: NAME: { @decorator ... }
 func CmdWith(decorators interface{}, name string, body interface{}) ExpectedCommand {
 	return ExpectedCommand{
-		Name:       name,
-		Type:       ast.Command,
-		Decorators: toDecorators(decorators),
-		Body:       toCommandBody(body),
+		Name: name,
+		Type: ast.Command,
+		Body: ExpectedCommandBody{
+			IsBlock: true,
+			Content: toCommandContentWithDecorators(decorators, body),
+		},
 	}
 }
 
 // Watch creates a watch command: watch NAME: BODY
 func Watch(name string, body interface{}) ExpectedCommand {
 	return ExpectedCommand{
-		Name:       name,
-		Type:       ast.WatchCommand,
-		Decorators: []ExpectedDecorator{},
-		Body:       toCommandBody(body),
+		Name: name,
+		Type: ast.WatchCommand,
+		Body: toCommandBody(body),
 	}
 }
 
 // WatchWith creates a watch command with decorators
 func WatchWith(decorators interface{}, name string, body interface{}) ExpectedCommand {
 	return ExpectedCommand{
-		Name:       name,
-		Type:       ast.WatchCommand,
-		Decorators: toDecorators(decorators),
-		Body:       toCommandBody(body),
+		Name: name,
+		Type: ast.WatchCommand,
+		Body: ExpectedCommandBody{
+			IsBlock: true,
+			Content: toCommandContentWithDecorators(decorators, body),
+		},
 	}
 }
 
 // Stop creates a stop command: stop NAME: BODY
 func Stop(name string, body interface{}) ExpectedCommand {
 	return ExpectedCommand{
-		Name:       name,
-		Type:       ast.StopCommand,
-		Decorators: []ExpectedDecorator{},
-		Body:       toCommandBody(body),
+		Name: name,
+		Type: ast.StopCommand,
+		Body: toCommandBody(body),
 	}
 }
 
 // StopWith creates a stop command with decorators
 func StopWith(decorators interface{}, name string, body interface{}) ExpectedCommand {
 	return ExpectedCommand{
-		Name:       name,
-		Type:       ast.StopCommand,
-		Decorators: toDecorators(decorators),
-		Body:       toCommandBody(body),
+		Name: name,
+		Type: ast.StopCommand,
+		Body: ExpectedCommandBody{
+			IsBlock: true,
+			Content: toCommandContentWithDecorators(decorators, body),
+		},
 	}
 }
 
-// Block creates a block command body: { stmt1; stmt2; ... }
-func Block(statements ...interface{}) ExpectedCommandBody {
-	var stmts []ExpectedStatement
-	for _, stmt := range statements {
-		stmts = append(stmts, toStatement(stmt))
-	}
+// Block creates a block command body: { content }
+func Block(content ...interface{}) ExpectedCommandBody {
 	return ExpectedCommandBody{
-		IsBlock:    true,
-		Statements: stmts,
+		IsBlock: true,
+		Content: toCommandContent(content...),
 	}
 }
 
 // Simple creates a simple command body (single line)
-func Simple(elements ...interface{}) ExpectedCommandBody {
-	var elems []ExpectedCommandElement
-	for _, elem := range elements {
-		elems = append(elems, toElement(elem))
-	}
+func Simple(parts ...interface{}) ExpectedCommandBody {
 	return ExpectedCommandBody{
-		IsBlock:  false,
-		Elements: elems,
+		IsBlock: false,
+		Content: ExpectedShellContent{
+			Parts: toShellParts(parts...),
+		},
 	}
 }
 
-// Text creates a text element
-func Text(text string) ExpectedCommandElement {
-	return ExpectedCommandElement{
+// Text creates a text part
+func Text(text string) ExpectedShellPart {
+	return ExpectedShellPart{
 		Type: "text",
 		Text: text,
 	}
 }
 
-// Helper functions for backward compatibility with old test patterns
-func StringExpr(value string) string                  { return value }
-func NumberExpr(value string) string                  { return value }
-func DurationExpr(value string) ExpectedExpression {
-	return ExpectedExpression{Type: "duration", Value: value}
-}
-func IdentifierExpr(value string) string              { return value }
-func Statement(elements ...interface{}) []interface{} { return elements }
-
-// At creates a decorator (@decorator or @decorator(args) or @decorator{block})
-func At(name string, args ...interface{}) interface{} {
-	if len(args) == 0 {
-		// Simple decorator: @name
-		return ExpectedDecorator{Name: name, Args: []ExpectedExpression{}}
-	}
-
-	// Check if last argument is a block
-	lastArg := args[len(args)-1]
-	if body, ok := lastArg.(ExpectedCommandBody); ok && body.IsBlock {
-		// Decorator with block: @name(args...) { block }
-		var decoratorArgs []ExpectedExpression
-		for _, arg := range args[:len(args)-1] {
-			decoratorArgs = append(decoratorArgs, toExpression(arg))
-		}
-		return ExpectedDecorator{
-			Name:  name,
-			Args:  decoratorArgs,
-			Block: &body,
-		}
-	}
-
-	// For @var decorator specifically, handle the variable reference
-	if name == "var" && len(args) == 1 {
-		if argStr, ok := args[0].(string); ok {
-			return ExpectedDecorator{
-				Name: name,
-				Args: []ExpectedExpression{
-					{Type: "identifier", Value: argStr},
-				},
-			}
-		}
-	}
-
-	// Handle special @var(TIMEOUT) pattern in decorator arguments
-	if len(args) == 1 {
-		if argStr, ok := args[0].(string); ok && strings.HasPrefix(argStr, "@var(") && strings.HasSuffix(argStr, ")") {
-			// Extract variable name from @var(NAME)
-			varName := argStr[5 : len(argStr)-1] // Remove "@var(" and ")"
-			return ExpectedExpression{
-				Type:          "decorator",
-				Value:         argStr,
-				DecoratorName: "var",
-				DecoratorArgs: []ExpectedExpression{
-					{Type: "identifier", Value: varName},
-				},
-			}
-		}
-	}
-
-	// Decorator with arguments: @name(args...)
+// At creates a function decorator within shell content: @var(NAME)
+func At(name string, args ...interface{}) ExpectedShellPart {
 	var decoratorArgs []ExpectedExpression
 	for _, arg := range args {
 		decoratorArgs = append(decoratorArgs, toExpression(arg))
 	}
 
-	// Check if this should be a command element or expression
-	return ExpectedDecorator{Name: name, Args: decoratorArgs}
+	return ExpectedShellPart{
+		Type: "function_decorator",
+		FunctionDecorator: &ExpectedFunctionDecorator{
+			Name: name,
+			Args: decoratorArgs,
+		},
+	}
+}
+
+// Decorator creates a block decorator: @timeout(30s)
+func Decorator(name string, args ...interface{}) ExpectedDecorator {
+	var decoratorArgs []ExpectedExpression
+	for _, arg := range args {
+		decoratorArgs = append(decoratorArgs, toExpression(arg))
+	}
+
+	return ExpectedDecorator{
+		Name: name,
+		Args: decoratorArgs,
+	}
 }
 
 // Helper conversion functions
@@ -221,47 +187,13 @@ func toExpression(v interface{}) ExpectedExpression {
 		return ExpectedExpression{Type: "number", Value: strconv.Itoa(val)}
 	case ExpectedExpression:
 		return val
-	case ExpectedDecorator:
-		return ExpectedExpression{
-			Type:          "decorator",
-			Value:         "@" + val.Name,
-			DecoratorName: val.Name,
-			DecoratorArgs: val.Args,
-		}
+	case ExpectedFunctionDecorator:
+		return ExpectedExpression{Type: "function_decorator", Value: "@" + val.Name}
 	default:
 		// Try to convert to string and handle as identifier
 		str := fmt.Sprintf("%v", val)
 		return ExpectedExpression{Type: "identifier", Value: strings.Trim(str, "\"")}
 	}
-}
-
-// isDurationString checks if a string looks like a duration (30s, 5m, etc.)
-func isDurationString(s string) bool {
-	if len(s) < 2 {
-		return false
-	}
-
-	suffixes := []string{"ns", "us", "μs", "ms", "s", "m", "h"}
-	for _, suffix := range suffixes {
-		if strings.HasSuffix(s, suffix) {
-			prefix := s[:len(s)-len(suffix)]
-			if _, err := strconv.ParseFloat(prefix, 64); err == nil {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// isNumericString checks if a string represents a number
-func isNumericString(s string) bool {
-	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return true
-	}
-	if _, err := strconv.ParseFloat(s, 64); err == nil {
-		return true
-	}
-	return false
 }
 
 func toCommandBody(v interface{}) ExpectedCommandBody {
@@ -270,11 +202,99 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 		return val
 	case string:
 		return Simple(Text(val))
-	case []interface{}:
-		return Simple(val...)
 	default:
-		return ExpectedCommandBody{}
+		return ExpectedCommandBody{
+			IsBlock: false,
+			Content: ExpectedShellContent{
+				Parts: []ExpectedShellPart{Text("")},
+			},
+		}
 	}
+}
+
+func toCommandContent(items ...interface{}) ExpectedCommandContent {
+	if len(items) == 0 {
+		return ExpectedShellContent{Parts: []ExpectedShellPart{}}
+	}
+
+	// Check if first item is a decorator
+	if dec, ok := items[0].(ExpectedDecorator); ok {
+		// This is decorated content
+		decorators := []ExpectedDecorator{dec}
+
+		// Look for more decorators
+		contentStart := 1
+		for i := 1; i < len(items); i++ {
+			if nextDec, ok := items[i].(ExpectedDecorator); ok {
+				decorators = append(decorators, nextDec)
+				contentStart = i + 1
+			} else {
+				break
+			}
+		}
+
+		// Rest is the content
+		var content ExpectedCommandContent
+		if contentStart < len(items) {
+			content = toCommandContent(items[contentStart:]...)
+		} else {
+			content = ExpectedShellContent{Parts: []ExpectedShellPart{}}
+		}
+
+		return ExpectedDecoratedContent{
+			Decorators: decorators,
+			Content:    content,
+		}
+	}
+
+	// This is shell content
+	return ExpectedShellContent{
+		Parts: toShellParts(items...),
+	}
+}
+
+func toCommandContentWithDecorators(decorators interface{}, body interface{}) ExpectedCommandContent {
+	decoratorList := toDecorators(decorators)
+
+	// Convert body to content
+	var content ExpectedCommandContent
+	switch v := body.(type) {
+	case ExpectedCommandBody:
+		content = v.Content
+	case string:
+		content = ExpectedShellContent{
+			Parts: []ExpectedShellPart{Text(v)},
+		}
+	default:
+		content = ExpectedShellContent{
+			Parts: []ExpectedShellPart{},
+		}
+	}
+
+	return ExpectedDecoratedContent{
+		Decorators: decoratorList,
+		Content:    content,
+	}
+}
+
+func toShellParts(items ...interface{}) []ExpectedShellPart {
+	var parts []ExpectedShellPart
+	for _, item := range items {
+		switch v := item.(type) {
+		case ExpectedShellPart:
+			parts = append(parts, v)
+		case string:
+			parts = append(parts, Text(v))
+		case ExpectedFunctionDecorator:
+			parts = append(parts, ExpectedShellPart{
+				Type: "function_decorator",
+				FunctionDecorator: &v,
+			})
+		default:
+			parts = append(parts, Text(fmt.Sprintf("%v", v)))
+		}
+	}
+	return parts
 }
 
 func toDecorators(v interface{}) []ExpectedDecorator {
@@ -296,46 +316,35 @@ func toDecorators(v interface{}) []ExpectedDecorator {
 	}
 }
 
-func toStatement(v interface{}) ExpectedStatement {
-	switch val := v.(type) {
-	case ExpectedStatement:
-		return val
-	case string:
-		return ExpectedStatement{Elements: []ExpectedCommandElement{Text(val)}}
-	case []interface{}:
-		var elements []ExpectedCommandElement
-		for _, elem := range val {
-			elements = append(elements, toElement(elem))
-		}
-		return ExpectedStatement{Elements: elements}
-	case ExpectedCommandElement:
-		return ExpectedStatement{Elements: []ExpectedCommandElement{val}}
-	case ExpectedDecorator:
-		return ExpectedStatement{Elements: []ExpectedCommandElement{
-			{Type: "decorator", Decorator: &val},
-		}}
-	default:
-		return ExpectedStatement{}
+// Helper functions for string validation
+func isDurationString(s string) bool {
+	if len(s) < 2 {
+		return false
 	}
+
+	suffixes := []string{"ns", "us", "μs", "ms", "s", "m", "h"}
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(s, suffix) {
+			prefix := s[:len(s)-len(suffix)]
+			if _, err := strconv.ParseFloat(prefix, 64); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
-func toElement(v interface{}) ExpectedCommandElement {
-	switch val := v.(type) {
-	case ExpectedCommandElement:
-		return val
-	case string:
-		return Text(val)
-	case ExpectedDecorator:
-		return ExpectedCommandElement{
-			Type:      "decorator",
-			Decorator: &val,
-		}
-	default:
-		return Text("")
+func isNumericString(s string) bool {
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return true
 	}
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return true
+	}
+	return false
 }
 
-// Test helper types (kept for internal use)
+// Test helper types for the new CST structure
 type ExpectedProgram struct {
 	Variables []ExpectedVariable
 	Commands  []ExpectedCommand
@@ -347,39 +356,52 @@ type ExpectedVariable struct {
 }
 
 type ExpectedCommand struct {
-	Name       string
-	Type       ast.CommandType
-	Decorators []ExpectedDecorator
-	Body       ExpectedCommandBody
+	Name string
+	Type ast.CommandType
+	Body ExpectedCommandBody
 }
 
 type ExpectedCommandBody struct {
-	IsBlock    bool
-	Elements   []ExpectedCommandElement
-	Statements []ExpectedStatement
+	IsBlock bool
+	Content ExpectedCommandContent
 }
 
-type ExpectedStatement struct {
-	Elements []ExpectedCommandElement
+type ExpectedCommandContent interface {
+	IsExpectedCommandContent() bool
 }
 
-type ExpectedCommandElement struct {
-	Type      string
-	Text      string
-	Decorator *ExpectedDecorator
+type ExpectedShellContent struct {
+	Parts []ExpectedShellPart
+}
+
+func (s ExpectedShellContent) IsExpectedCommandContent() bool { return true }
+
+type ExpectedDecoratedContent struct {
+	Decorators []ExpectedDecorator
+	Content    ExpectedCommandContent
+}
+
+func (d ExpectedDecoratedContent) IsExpectedCommandContent() bool { return true }
+
+type ExpectedShellPart struct {
+	Type              string
+	Text              string
+	FunctionDecorator *ExpectedFunctionDecorator
 }
 
 type ExpectedDecorator struct {
-	Name  string
-	Args  []ExpectedExpression
-	Block *ExpectedCommandBody // Add support for decorator blocks
+	Name string
+	Args []ExpectedExpression
+}
+
+type ExpectedFunctionDecorator struct {
+	Name string
+	Args []ExpectedExpression
 }
 
 type ExpectedExpression struct {
-	Type          string
-	Value         string
-	DecoratorName string
-	DecoratorArgs []ExpectedExpression
+	Type  string
+	Value string
 }
 
 // Test case structure
@@ -391,7 +413,7 @@ type TestCase struct {
 	Expected    ExpectedProgram
 }
 
-// Comparison helpers (updated to handle duration properly)
+// Comparison helpers for the new CST structure
 func expressionToComparable(expr ast.Expression) interface{} {
 	switch e := expr.(type) {
 	case *ast.StringLiteral:
@@ -405,7 +427,6 @@ func expressionToComparable(expr ast.Expression) interface{} {
 			"Value": e.Value,
 		}
 	case *ast.DurationLiteral:
-		// Keep duration literals as duration type
 		return map[string]interface{}{
 			"Type":  "duration",
 			"Value": e.Value,
@@ -415,18 +436,15 @@ func expressionToComparable(expr ast.Expression) interface{} {
 			"Type":  "identifier",
 			"Value": e.Name,
 		}
-	case *ast.Decorator:
+	case *ast.FunctionDecorator:
 		args := make([]interface{}, len(e.Args))
 		for i, arg := range e.Args {
 			args[i] = expressionToComparable(arg)
 		}
 		return map[string]interface{}{
-			"Type":  "decorator",
-			"Value": "@" + e.Name, // Add the Value field to match expected format
-			"Decorator": map[string]interface{}{
-				"Name": e.Name,
-				"Args": args,
-			},
+			"Type":  "function_decorator",
+			"Name":  e.Name,
+			"Args":  args,
 		}
 	default:
 		return map[string]interface{}{
@@ -437,153 +455,145 @@ func expressionToComparable(expr ast.Expression) interface{} {
 }
 
 func expectedExpressionToComparable(expr ExpectedExpression) interface{} {
-	result := map[string]interface{}{
+	return map[string]interface{}{
 		"Type":  expr.Type,
 		"Value": expr.Value,
 	}
-
-	if expr.Type == "decorator" {
-		args := make([]interface{}, len(expr.DecoratorArgs))
-		for i, arg := range expr.DecoratorArgs {
-			args[i] = expectedExpressionToComparable(arg)
-		}
-		result["Decorator"] = map[string]interface{}{
-			"Name": expr.DecoratorName,
-			"Args": args,
-		}
-	}
-
-	return result
 }
 
-func commandElementToComparable(elem ast.CommandElement) interface{} {
-	switch e := elem.(type) {
-	case *ast.TextElement:
+func shellPartToComparable(part ast.ShellPart) interface{} {
+	switch p := part.(type) {
+	case *ast.TextPart:
 		return map[string]interface{}{
 			"Type": "text",
-			"Text": e.Text,
+			"Text": p.Text,
 		}
-	case *ast.Decorator:
-		args := make([]interface{}, len(e.Args))
-		for i, arg := range e.Args {
+	case *ast.FunctionDecorator:
+		args := make([]interface{}, len(p.Args))
+		for i, arg := range p.Args {
 			args[i] = expressionToComparable(arg)
 		}
-		decoratorMap := map[string]interface{}{
-			"Name": e.Name,
-			"Args": args,
-		}
-		// Handle decorator block if present
-		if e.Block != nil {
-			// Convert DecoratorBlock to CommandBody format for comparison
-			blockBody := ast.CommandBody{
-				Statements: e.Block.Statements,
-				IsBlock:    true,
-			}
-			decoratorMap["Block"] = commandBodyToComparable(blockBody)
-		}
 		return map[string]interface{}{
-			"Type":      "decorator",
-			"Decorator": decoratorMap,
+			"Type": "function_decorator",
+			"FunctionDecorator": map[string]interface{}{
+				"Name": p.Name,
+				"Args": args,
+			},
 		}
 	default:
 		return map[string]interface{}{
 			"Type": "unknown",
-			"Text": elem.String(),
+			"Text": part.String(),
 		}
 	}
 }
 
-func expectedCommandElementToComparable(elem ExpectedCommandElement) interface{} {
+func expectedShellPartToComparable(part ExpectedShellPart) interface{} {
 	result := map[string]interface{}{
-		"Type": elem.Type,
+		"Type": part.Type,
 	}
 
-	switch elem.Type {
+	switch part.Type {
 	case "text":
-		result["Text"] = elem.Text
-	case "decorator":
-		if elem.Decorator != nil {
-			args := make([]interface{}, len(elem.Decorator.Args))
-			for i, arg := range elem.Decorator.Args {
+		result["Text"] = part.Text
+	case "function_decorator":
+		if part.FunctionDecorator != nil {
+			args := make([]interface{}, len(part.FunctionDecorator.Args))
+			for i, arg := range part.FunctionDecorator.Args {
 				args[i] = expectedExpressionToComparable(arg)
 			}
-			decoratorMap := map[string]interface{}{
-				"Name": elem.Decorator.Name,
+			result["FunctionDecorator"] = map[string]interface{}{
+				"Name": part.FunctionDecorator.Name,
 				"Args": args,
 			}
-			// Handle decorator block if present
-			if elem.Decorator.Block != nil {
-				decoratorMap["Block"] = expectedCommandBodyToComparable(*elem.Decorator.Block)
-			}
-			result["Decorator"] = decoratorMap
 		}
 	}
 
 	return result
+}
+
+func commandContentToComparable(content ast.CommandContent) interface{} {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		parts := make([]interface{}, len(c.Parts))
+		for i, part := range c.Parts {
+			parts[i] = shellPartToComparable(part)
+		}
+		return map[string]interface{}{
+			"Type":  "shell",
+			"Parts": parts,
+		}
+	case *ast.DecoratedContent:
+		decorators := make([]interface{}, len(c.Decorators))
+		for i, decorator := range c.Decorators {
+			args := make([]interface{}, len(decorator.Args))
+			for j, arg := range decorator.Args {
+				args[j] = expressionToComparable(arg)
+			}
+			decorators[i] = map[string]interface{}{
+				"Name": decorator.Name,
+				"Args": args,
+			}
+		}
+		return map[string]interface{}{
+			"Type":       "decorated",
+			"Decorators": decorators,
+			"Content":    commandContentToComparable(c.Content),
+		}
+	default:
+		return map[string]interface{}{
+			"Type": "unknown",
+		}
+	}
+}
+
+func expectedCommandContentToComparable(content ExpectedCommandContent) interface{} {
+	switch c := content.(type) {
+	case ExpectedShellContent:
+		parts := make([]interface{}, len(c.Parts))
+		for i, part := range c.Parts {
+			parts[i] = expectedShellPartToComparable(part)
+		}
+		return map[string]interface{}{
+			"Type":  "shell",
+			"Parts": parts,
+		}
+	case ExpectedDecoratedContent:
+		decorators := make([]interface{}, len(c.Decorators))
+		for i, decorator := range c.Decorators {
+			args := make([]interface{}, len(decorator.Args))
+			for j, arg := range decorator.Args {
+				args[j] = expectedExpressionToComparable(arg)
+			}
+			decorators[i] = map[string]interface{}{
+				"Name": decorator.Name,
+				"Args": args,
+			}
+		}
+		return map[string]interface{}{
+			"Type":       "decorated",
+			"Decorators": decorators,
+			"Content":    expectedCommandContentToComparable(c.Content),
+		}
+	default:
+		return map[string]interface{}{
+			"Type": "unknown",
+		}
+	}
 }
 
 func commandBodyToComparable(body ast.CommandBody) interface{} {
-	result := map[string]interface{}{
+	return map[string]interface{}{
 		"IsBlock": body.IsBlock,
+		"Content": commandContentToComparable(body.Content),
 	}
-
-	if body.IsBlock {
-		statements := make([]interface{}, len(body.Statements))
-		for i, stmt := range body.Statements {
-			if shell, ok := stmt.(*ast.ShellStatement); ok {
-				elements := make([]interface{}, len(shell.Elements))
-				for j, elem := range shell.Elements {
-					elements[j] = commandElementToComparable(elem)
-				}
-				statements[i] = map[string]interface{}{
-					"Elements": elements,
-				}
-			}
-		}
-		result["Statements"] = statements
-	} else {
-		if len(body.Statements) > 0 {
-			if shell, ok := body.Statements[0].(*ast.ShellStatement); ok {
-				elements := make([]interface{}, len(shell.Elements))
-				for i, elem := range shell.Elements {
-					elements[i] = commandElementToComparable(elem)
-				}
-				result["Elements"] = elements
-			}
-		} else {
-			result["Elements"] = []interface{}{}
-		}
-	}
-
-	return result
 }
 
 func expectedCommandBodyToComparable(body ExpectedCommandBody) interface{} {
-	result := map[string]interface{}{
+	return map[string]interface{}{
 		"IsBlock": body.IsBlock,
+		"Content": expectedCommandContentToComparable(body.Content),
 	}
-
-	if body.IsBlock {
-		statements := make([]interface{}, len(body.Statements))
-		for i, stmt := range body.Statements {
-			elements := make([]interface{}, len(stmt.Elements))
-			for j, elem := range stmt.Elements {
-				elements[j] = expectedCommandElementToComparable(elem)
-			}
-			statements[i] = map[string]interface{}{
-				"Elements": elements,
-			}
-		}
-		result["Statements"] = statements
-	} else {
-		elements := make([]interface{}, len(body.Elements))
-		for i, elem := range body.Elements {
-			elements[i] = expectedCommandElementToComparable(elem)
-		}
-		result["Elements"] = elements
-	}
-
-	return result
 }
 
 func RunTestCase(t *testing.T, tc TestCase) {
@@ -634,42 +644,16 @@ func RunTestCase(t *testing.T, tc TestCase) {
 			for i, expectedCmd := range tc.Expected.Commands {
 				actualCmd := program.Commands[i]
 
-				actualDecorators := make([]interface{}, len(actualCmd.Decorators))
-				for j, decorator := range actualCmd.Decorators {
-					args := make([]interface{}, len(decorator.Args))
-					for k, arg := range decorator.Args {
-						args[k] = expressionToComparable(arg)
-					}
-					actualDecorators[j] = map[string]interface{}{
-						"Name": decorator.Name,
-						"Args": args,
-					}
-				}
-
-				expectedDecorators := make([]interface{}, len(expectedCmd.Decorators))
-				for j, decorator := range expectedCmd.Decorators {
-					args := make([]interface{}, len(decorator.Args))
-					for k, arg := range decorator.Args {
-						args[k] = expectedExpressionToComparable(arg)
-					}
-					expectedDecorators[j] = map[string]interface{}{
-						"Name": decorator.Name,
-						"Args": args,
-					}
-				}
-
 				actualComparable := map[string]interface{}{
-					"Name":       actualCmd.Name,
-					"Type":       actualCmd.Type,
-					"Decorators": actualDecorators,
-					"Body":       commandBodyToComparable(actualCmd.Body),
+					"Name": actualCmd.Name,
+					"Type": actualCmd.Type,
+					"Body": commandBodyToComparable(actualCmd.Body),
 				}
 
 				expectedComparable := map[string]interface{}{
-					"Name":       expectedCmd.Name,
-					"Type":       expectedCmd.Type,
-					"Decorators": expectedDecorators,
-					"Body":       expectedCommandBodyToComparable(expectedCmd.Body),
+					"Name": expectedCmd.Name,
+					"Type": expectedCmd.Type,
+					"Body": expectedCommandBodyToComparable(expectedCmd.Body),
 				}
 
 				if diff := cmp.Diff(expectedComparable, actualComparable); diff != "" {

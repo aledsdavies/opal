@@ -130,35 +130,28 @@ func TestWatchStopCommands(t *testing.T) {
 			Input: "watch dev: { npm start; go run main.go }",
 			Expected: Program(
 				Watch("dev", Block(
-					"npm start",
-					"go run main.go",
+					Text("npm start"),
+					Text("go run main.go"),
 				)),
 			),
 		},
 		{
-			Name:  "watch with decorators",
-			Input: "watch api: @env(NODE_ENV=development) { npm run dev }",
+			Name:  "watch with timeout decorator",
+			Input: "watch build: @timeout(60s) { npm run watch:build }",
 			Expected: Program(
-				WatchWith(At("env", "NODE_ENV=development"), "api", Block(
-					"npm run dev",
+				WatchWith(Decorator("timeout", "60s"), "build", Simple(
+					Text("npm run watch:build"),
 				)),
 			),
 		},
 		{
-			Name:  "stop with graceful shutdown",
-			Input: "stop api: @sh(curl -X POST localhost:3000/shutdown || pkill node)",
-			Expected: Program(
-				StopWith(At("sh", "curl -X POST localhost:3000/shutdown || pkill node"), "api", Block()),
-			),
-		},
-		{
-			Name:  "watch with multiple services",
+			Name:  "watch with parallel decorator",
 			Input: "watch services: @parallel { npm run api; npm run worker; npm run scheduler }",
 			Expected: Program(
-				WatchWith(At("parallel"), "services", Block(
-					"npm run api",
-					"npm run worker",
-					"npm run scheduler",
+				WatchWith(Decorator("parallel"), "services", Block(
+					Text("npm run api"),
+					Text("npm run worker"),
+					Text("npm run scheduler"),
 				)),
 			),
 		},
@@ -167,27 +160,9 @@ func TestWatchStopCommands(t *testing.T) {
 			Input: "stop services: { pkill -f node; docker stop $(docker ps -q); echo cleaned }",
 			Expected: Program(
 				Stop("services", Block(
-					"pkill -f node",
-					"docker stop $(docker ps -q)",
-					"echo cleaned",
-				)),
-			),
-		},
-		{
-			Name:  "watch with timeout",
-			Input: "watch build: @timeout(60s) { npm run watch:build }",
-			Expected: Program(
-				WatchWith(At("timeout", "60s"), "build", Block(
-					"npm run watch:build",
-				)),
-			),
-		},
-		{
-			Name:  "stop with confirmation",
-			Input: "stop production: @confirm(\"Really stop production?\") { systemctl stop myapp }",
-			Expected: Program(
-				StopWith(At("confirm", "Really stop production?"), "production", Block(
-					"systemctl stop myapp",
+					Text("pkill -f node"),
+					Text("docker stop $(docker ps -q)"),
+					Text("echo cleaned"),
 				)),
 			),
 		},
@@ -219,7 +194,7 @@ func TestBlockCommands(t *testing.T) {
 			Name:  "single statement block",
 			Input: "setup: { npm install }",
 			Expected: Program(
-				Cmd("setup", Block("npm install")),
+				Cmd("setup", Block(Text("npm install"))),
 			),
 		},
 		{
@@ -227,9 +202,9 @@ func TestBlockCommands(t *testing.T) {
 			Input: "setup: { npm install; go mod tidy; echo done }",
 			Expected: Program(
 				Cmd("setup", Block(
-					"npm install",
-					"go mod tidy",
-					"echo done",
+					Text("npm install"),
+					Text("go mod tidy"),
+					Text("echo done"),
 				)),
 			),
 		},
@@ -238,38 +213,10 @@ func TestBlockCommands(t *testing.T) {
 			Input: "build: { cd @var(SRC); make @var(TARGET) }",
 			Expected: Program(
 				Cmd("build", Block(
-					Statement(Text("cd "), At("var", "SRC")),
-					Statement(Text("make "), At("var", "TARGET")),
-				)),
-			),
-		},
-		{
-			Name:  "block with decorators",
-			Input: "services: { @parallel { server; client } }",
-			Expected: Program(
-				Cmd("services", Block(
-					At("parallel"),
-				)),
-			),
-		},
-		{
-			Name:  "nested blocks with decorators",
-			Input: "complex: { @timeout(30s) { @sh(long-running-task); echo done } }",
-			Expected: Program(
-				Cmd("complex", Block(
-					At("timeout", "30s"),
-				)),
-			),
-		},
-		{
-			Name:  "block with mixed statements and decorators",
-			Input: "deploy: { echo starting; @sh(deploy.sh); @parallel { service1; service2 }; echo finished }",
-			Expected: Program(
-				Cmd("deploy", Block(
-					"echo starting",
-					At("sh", "deploy.sh"),
-					At("parallel"),
-					"echo finished",
+					Text("cd "),
+					At("var", "SRC"),
+					Text("make "),
+					At("var", "TARGET"),
 				)),
 			),
 		},
@@ -278,9 +225,9 @@ func TestBlockCommands(t *testing.T) {
 			Input: "test: { echo start; for i in {1..3}; do echo $i; done; echo end }",
 			Expected: Program(
 				Cmd("test", Block(
-					"echo start",
-					"for i in {1..3}; do echo $i; done",
-					"echo end",
+					Text("echo start"),
+					Text("for i in {1..3}; do echo $i; done"),
+					Text("echo end"),
 				)),
 			),
 		},
@@ -289,8 +236,8 @@ func TestBlockCommands(t *testing.T) {
 			Input: "conditional: { test -f file.txt && echo exists || echo missing; echo checked }",
 			Expected: Program(
 				Cmd("conditional", Block(
-					"test -f file.txt && echo exists || echo missing",
-					"echo checked",
+					Text("test -f file.txt && echo exists || echo missing"),
+					Text("echo checked"),
 				)),
 			),
 		},
@@ -299,9 +246,171 @@ func TestBlockCommands(t *testing.T) {
 			Input: "background: { server &; client &; wait }",
 			Expected: Program(
 				Cmd("background", Block(
-					"server &",
-					"client &",
-					"wait",
+					Text("server &"),
+					Text("client &"),
+					Text("wait"),
+				)),
+			),
+		},
+		{
+			Name:  "block with mixed @var() and shell text",
+			Input: "deploy: { echo \"Deploying @var(APP_NAME) to @var(ENVIRONMENT)\"; kubectl apply -f @var(CONFIG_FILE) }",
+			Expected: Program(
+				Cmd("deploy", Block(
+					Text("echo \"Deploying "),
+					At("var", "APP_NAME"),
+					Text(" to "),
+					At("var", "ENVIRONMENT"),
+					Text("\""),
+					Text("kubectl apply -f "),
+					At("var", "CONFIG_FILE"),
+				)),
+			),
+		},
+		{
+			Name:  "block with decorator",
+			Input: "services: @parallel { server; client }",
+			Expected: Program(
+				CmdWith(Decorator("parallel"), "services", Block(
+					Text("server"),
+					Text("client"),
+				)),
+			),
+		},
+		{
+			Name:  "block with timeout decorator",
+			Input: "deploy: @timeout(5m) { npm run build; npm run deploy }",
+			Expected: Program(
+				CmdWith(Decorator("timeout", "5m"), "deploy", Block(
+					Text("npm run build"),
+					Text("npm run deploy"),
+				)),
+			),
+		},
+		{
+			Name:  "block with retry decorator",
+			Input: "flaky-task: @retry(3) { npm test }",
+			Expected: Program(
+				CmdWith(Decorator("retry", "3"), "flaky-task", Simple(
+					Text("npm test"),
+				)),
+			),
+		},
+		{
+			Name:  "block with multiple decorators",
+			Input: "complex: @timeout(30s) @retry(2) { npm run integration-tests }",
+			Expected: Program(
+				CmdWith([]ExpectedDecorator{
+					Decorator("timeout", "30s"),
+					Decorator("retry", "2"),
+				}, "complex", Simple(
+					Text("npm run integration-tests"),
+				)),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
+func TestCommandsWithVariables(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "simple variable usage",
+			Input: "build: echo @var(MESSAGE)",
+			Expected: Program(
+				Cmd("build", Simple(
+					Text("echo "),
+					At("var", "MESSAGE"),
+				)),
+			),
+		},
+		{
+			Name:  "multiple variables in command",
+			Input: "deploy: docker run --name @var(CONTAINER) -p @var(PORT):@var(PORT) @var(IMAGE)",
+			Expected: Program(
+				Cmd("deploy", Simple(
+					Text("docker run --name "),
+					At("var", "CONTAINER"),
+					Text(" -p "),
+					At("var", "PORT"),
+					Text(":"),
+					At("var", "PORT"),
+					Text(" "),
+					At("var", "IMAGE"),
+				)),
+			),
+		},
+		{
+			Name:  "variable in quoted string",
+			Input: "msg: echo \"Hello @var(NAME), welcome to @var(APP)!\"",
+			Expected: Program(
+				Cmd("msg", Simple(
+					Text("echo \"Hello "),
+					At("var", "NAME"),
+					Text(", welcome to "),
+					At("var", "APP"),
+					Text("!\""),
+				)),
+			),
+		},
+		{
+			Name:  "variable with file paths",
+			Input: "copy: cp @var(SRC)/* @var(DEST)/",
+			Expected: Program(
+				Cmd("copy", Simple(
+					Text("cp "),
+					At("var", "SRC"),
+					Text("/* "),
+					At("var", "DEST"),
+					Text("/"),
+				)),
+			),
+		},
+		{
+			Name:  "variable in complex shell command",
+			Input: "check: test -f @var(CONFIG_FILE) && echo \"Config exists\" || echo \"Missing config\"",
+			Expected: Program(
+				Cmd("check", Simple(
+					Text("test -f "),
+					At("var", "CONFIG_FILE"),
+					Text(" && echo \"Config exists\" || echo \"Missing config\""),
+				)),
+			),
+		},
+		{
+			Name:  "variable with email-like text",
+			Input: "notify: echo \"Build @var(STATUS)\" | mail admin@company.com",
+			Expected: Program(
+				Cmd("notify", Simple(
+					Text("echo \"Build "),
+					At("var", "STATUS"),
+					Text("\" | mail admin@company.com"),
+				)),
+			),
+		},
+		{
+			Name:  "variable in environment setting",
+			Input: "serve: NODE_ENV=@var(ENV) npm start",
+			Expected: Program(
+				Cmd("serve", Simple(
+					Text("NODE_ENV="),
+					At("var", "ENV"),
+					Text(" npm start"),
+				)),
+			),
+		},
+		{
+			Name:  "variable in URL",
+			Input: "api-call: curl https://api.example.com/@var(ENDPOINT)?token=@var(TOKEN)",
+			Expected: Program(
+				Cmd("api-call", Simple(
+					Text("curl https://api.example.com/"),
+					At("var", "ENDPOINT"),
+					Text("?token="),
+					At("var", "TOKEN"),
 				)),
 			),
 		},

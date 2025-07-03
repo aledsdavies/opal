@@ -10,49 +10,63 @@ func TestComplexShellCommands(t *testing.T) {
 			Name:  "simple shell command substitution",
 			Input: "test-simple: @sh(echo \"$(date)\")",
 			Expected: Program(
-				CmdWith(At("sh", "echo \"$(date)\""), "test-simple", Block()),
+				Cmd("test-simple", Simple(
+					At("sh", "echo \"$(date)\""),
+				)),
 			),
 		},
 		{
 			Name:  "shell command with test and command substitution",
 			Input: "test-condition: @sh(if [ \"$(echo test)\" = \"test\" ]; then echo ok; fi)",
 			Expected: Program(
-				CmdWith(At("sh", "if [ \"$(echo test)\" = \"test\" ]; then echo ok; fi"), "test-condition", Block()),
+				Cmd("test-condition", Simple(
+					At("sh", "if [ \"$(echo test)\" = \"test\" ]; then echo ok; fi"),
+				)),
 			),
 		},
 		{
 			Name:  "command with @var and shell substitution",
 			Input: "test-mixed: @sh(cd @var(SRC) && echo \"files: $(ls | wc -l)\")",
 			Expected: Program(
-				CmdWith(At("sh", "cd @var(SRC) && echo \"files: $(ls | wc -l)\""), "test-mixed", Block()),
+				Cmd("test-mixed", Simple(
+					At("sh", "cd @var(SRC) && echo \"files: $(ls | wc -l)\""),
+				)),
 			),
 		},
 		{
 			Name:  "simplified version of failing command",
 			Input: "test-format: @sh(if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"issues\"; fi)",
 			Expected: Program(
-				CmdWith(At("sh", "if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"issues\"; fi"), "test-format", Block()),
+				Cmd("test-format", Simple(
+					At("sh", "if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"issues\"; fi"),
+				)),
 			),
 		},
 		{
 			Name:  "even simpler - just the command substitution in quotes",
 			Input: "test-basic: @sh(\"$(gofumpt -l . | wc -l)\")",
 			Expected: Program(
-				CmdWith(At("sh", "\"$(gofumpt -l . | wc -l)\""), "test-basic", Block()),
+				Cmd("test-basic", Simple(
+					At("sh", "\"$(gofumpt -l . | wc -l)\""),
+				)),
 			),
 		},
 		{
 			Name:  "debug - minimal parentheses in quotes",
 			Input: "test-debug: @sh(\"()\")",
 			Expected: Program(
-				CmdWith(At("sh", "\"()\""), "test-debug", Block()),
+				Cmd("test-debug", Simple(
+					At("sh", "\"()\""),
+				)),
 			),
 		},
 		{
 			Name:  "debug - single command substitution",
 			Input: "test-debug2: @sh($(echo test))",
 			Expected: Program(
-				CmdWith(At("sh", "$(echo test)"), "test-debug2", Block()),
+				Cmd("test-debug2", Simple(
+					At("sh", "$(echo test)"),
+				)),
 			),
 		},
 		{
@@ -64,7 +78,7 @@ func TestComplexShellCommands(t *testing.T) {
       }`,
 			Expected: Program(
 				Cmd("backup", Block(
-					"echo \"Creating backup...\"",
+					Text("echo \"Creating backup...\""),
 					At("sh", "DATE=$(date +%Y%m%d-%H%M%S); echo \"Backup timestamp: $DATE\""),
 					At("sh", "(which kubectl && kubectl exec deployment/database -n @var(KUBE_NAMESPACE) -- pg_dump myapp > backup-$(date +%Y%m%d-%H%M%S).sql) || echo \"No database\""),
 				)),
@@ -83,13 +97,13 @@ func TestComplexShellCommands(t *testing.T) {
 }`,
 			Expected: Program(
 				Cmd("test-quick", Block(
-					"echo \"⚡ Running quick checks...\"",
-					"echo \"🔍 Checking Go formatting...\"",
+					Text("echo \"⚡ Running quick checks...\""),
+					Text("echo \"🔍 Checking Go formatting...\""),
 					At("sh", "if command -v gofumpt >/dev/null 2>&1; then if [ \"$(gofumpt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofumpt -l .; exit 1; fi; else if [ \"$(gofmt -l . | wc -l)\" -gt 0 ]; then echo \"❌ Go formatting issues:\"; gofmt -l .; exit 1; fi; fi"),
-					"echo \"🔍 Checking Nix formatting...\"",
+					Text("echo \"🔍 Checking Nix formatting...\""),
 					At("sh", "if command -v nixpkgs-fmt >/dev/null 2>&1; then nixpkgs-fmt --check . || (echo \"❌ Run 'dev format' to fix\"; exit 1); else echo \"⚠️  nixpkgs-fmt not available, skipping Nix format check\"; fi"),
-					"dev lint",
-					"echo \"✅ Quick checks passed!\"",
+					Text("dev lint"),
+					Text("echo \"✅ Quick checks passed!\""),
 				)),
 			),
 		},
@@ -97,42 +111,54 @@ func TestComplexShellCommands(t *testing.T) {
 			Name:  "shell with arithmetic expansion",
 			Input: "math: @sh(echo $((2 + 3 * 4)))",
 			Expected: Program(
-				CmdWith(At("sh", "echo $((2 + 3 * 4))"), "math", Block()),
+				Cmd("math", Simple(
+					At("sh", "echo $((2 + 3 * 4))"),
+				)),
 			),
 		},
 		{
 			Name:  "shell with process substitution",
 			Input: "diff: @sh(diff <(sort file1) <(sort file2))",
 			Expected: Program(
-				CmdWith(At("sh", "diff <(sort file1) <(sort file2)"), "diff", Block()),
+				Cmd("diff", Simple(
+					At("sh", "diff <(sort file1) <(sort file2)"),
+				)),
 			),
 		},
 		{
 			Name:  "shell with parameter expansion",
 			Input: "param: @sh(echo ${VAR:-default})",
 			Expected: Program(
-				CmdWith(At("sh", "echo ${VAR:-default}"), "param", Block()),
+				Cmd("param", Simple(
+					At("sh", "echo ${VAR:-default}"),
+				)),
 			),
 		},
 		{
 			Name:  "shell with complex conditionals",
 			Input: "conditional: @sh([[ -f file.txt && -r file.txt ]] && echo readable || echo not-readable)",
 			Expected: Program(
-				CmdWith(At("sh", "[[ -f file.txt && -r file.txt ]] && echo readable || echo not-readable"), "conditional", Block()),
+				Cmd("conditional", Simple(
+					At("sh", "[[ -f file.txt && -r file.txt ]] && echo readable || echo not-readable"),
+				)),
 			),
 		},
 		{
 			Name:  "shell with here document",
 			Input: "heredoc: @sh(cat <<EOF\nLine 1\nLine 2\nEOF)",
 			Expected: Program(
-				CmdWith(At("sh", "cat <<EOF\nLine 1\nLine 2\nEOF"), "heredoc", Block()),
+				Cmd("heredoc", Simple(
+					At("sh", "cat <<EOF\nLine 1\nLine 2\nEOF"),
+				)),
 			),
 		},
 		{
 			Name:  "shell with case statement",
 			Input: "case-test: @sh(case $1 in start) echo starting;; stop) echo stopping;; esac)",
 			Expected: Program(
-				CmdWith(At("sh", "case $1 in start) echo starting;; stop) echo stopping;; esac"), "case-test", Block()),
+				Cmd("case-test", Simple(
+					At("sh", "case $1 in start) echo starting;; stop) echo stopping;; esac"),
+				)),
 			),
 		},
 	}
@@ -148,28 +174,36 @@ func TestQuoteAndParenthesesEdgeCases(t *testing.T) {
 			Name:  "escaped quotes in shell command",
 			Input: "test-escaped: @sh(echo \"He said \\\"hello\\\" to me\")",
 			Expected: Program(
-				CmdWith(At("sh", "echo \"He said \\\"hello\\\" to me\""), "test-escaped", Block()),
+				Cmd("test-escaped", Simple(
+					At("sh", "echo \"He said \\\"hello\\\" to me\""),
+				)),
 			),
 		},
 		{
 			Name:  "mixed quotes with parentheses",
 			Input: "test-mixed-quotes: @sh(echo 'test \"$(date)\" done' && echo \"test '$(whoami)' done\")",
 			Expected: Program(
-				CmdWith(At("sh", "echo 'test \"$(date)\" done' && echo \"test '$(whoami)' done\""), "test-mixed-quotes", Block()),
+				Cmd("test-mixed-quotes", Simple(
+					At("sh", "echo 'test \"$(date)\" done' && echo \"test '$(whoami)' done\""),
+				)),
 			),
 		},
 		{
 			Name:  "backticks with parentheses",
 			Input: "test-backticks: @sh(echo `date` and $(whoami))",
 			Expected: Program(
-				CmdWith(At("sh", "echo `date` and $(whoami)"), "test-backticks", Block()),
+				Cmd("test-backticks", Simple(
+					At("sh", "echo `date` and $(whoami)"),
+				)),
 			),
 		},
 		{
 			Name:  "nested quotes with special characters",
 			Input: "special-chars: @sh(echo \"Path: '$HOME' and size: $(du -sh .)\")",
 			Expected: Program(
-				CmdWith(At("sh", "echo \"Path: '$HOME' and size: $(du -sh .)\""), "special-chars", Block()),
+				Cmd("special-chars", Simple(
+					At("sh", "echo \"Path: '$HOME' and size: $(du -sh .)\""),
+				)),
 			),
 		},
 		{
@@ -187,14 +221,18 @@ func TestQuoteAndParenthesesEdgeCases(t *testing.T) {
 			Name:  "parentheses in shell without command substitution",
 			Input: "parens: @sh((cd /tmp && ls) > /dev/null)",
 			Expected: Program(
-				CmdWith(At("sh", "(cd /tmp && ls) > /dev/null"), "parens", Block()),
+				Cmd("parens", Simple(
+					At("sh", "(cd /tmp && ls) > /dev/null"),
+				)),
 			),
 		},
 		{
 			Name:  "nested parentheses with command substitution",
 			Input: "nested: @sh(echo $(echo $(date +%Y)))",
 			Expected: Program(
-				CmdWith(At("sh", "echo $(echo $(date +%Y))"), "nested", Block()),
+				Cmd("nested", Simple(
+					At("sh", "echo $(echo $(date +%Y))"),
+				)),
 			),
 		},
 		{
@@ -231,49 +269,143 @@ func TestVarInShellCommands(t *testing.T) {
 			Name:  "simple @var in shell command",
 			Input: "test-var: @sh(cd @var(DIR))",
 			Expected: Program(
-				CmdWith(At("sh", "cd @var(DIR)"), "test-var", Block()),
+				Cmd("test-var", Simple(
+					At("sh", "cd @var(DIR)"),
+				)),
 			),
 		},
 		{
 			Name:  "@var with shell command substitution",
 			Input: "test-var-cmd: @sh(cd @var(DIR) && echo \"$(pwd)\")",
 			Expected: Program(
-				CmdWith(At("sh", "cd @var(DIR) && echo \"$(pwd)\""), "test-var-cmd", Block()),
+				Cmd("test-var-cmd", Simple(
+					At("sh", "cd @var(DIR) && echo \"$(pwd)\""),
+				)),
 			),
 		},
 		{
 			Name:  "multiple @var with complex shell",
 			Input: "test-multi-var: @sh(if [ -d @var(SRC) ] && [ \"$(ls @var(SRC) | wc -l)\" -gt 0 ]; then echo \"Source dir has files\"; fi)",
 			Expected: Program(
-				CmdWith(At("sh", "if [ -d @var(SRC) ] && [ \"$(ls @var(SRC) | wc -l)\" -gt 0 ]; then echo \"Source dir has files\"; fi"), "test-multi-var", Block()),
+				Cmd("test-multi-var", Simple(
+					At("sh", "if [ -d @var(SRC) ] && [ \"$(ls @var(SRC) | wc -l)\" -gt 0 ]; then echo \"Source dir has files\"; fi"),
+				)),
 			),
 		},
 		{
 			Name:  "@var in shell function definition",
 			Input: "func-def: @sh(deploy() { rsync -av @var(SRC)/ deploy@server.com:@var(DEST)/; }; deploy)",
 			Expected: Program(
-				CmdWith(At("sh", "deploy() { rsync -av @var(SRC)/ deploy@server.com:@var(DEST)/; }; deploy"), "func-def", Block()),
+				Cmd("func-def", Simple(
+					At("sh", "deploy() { rsync -av @var(SRC)/ deploy@server.com:@var(DEST)/; }; deploy"),
+				)),
 			),
 		},
 		{
 			Name:  "@var in shell array",
 			Input: "array-var: @sh(FILES=(@var(FILE1) @var(FILE2) @var(FILE3)); echo ${FILES[@]})",
 			Expected: Program(
-				CmdWith(At("sh", "FILES=(@var(FILE1) @var(FILE2) @var(FILE3)); echo ${FILES[@]}"), "array-var", Block()),
+				Cmd("array-var", Simple(
+					At("sh", "FILES=(@var(FILE1) @var(FILE2) @var(FILE3)); echo ${FILES[@]}"),
+				)),
 			),
 		},
 		{
 			Name:  "@var in shell case statement",
 			Input: "case-var: @sh(case @var(ENV) in prod) echo production;; dev) echo development;; esac)",
 			Expected: Program(
-				CmdWith(At("sh", "case @var(ENV) in prod) echo production;; dev) echo development;; esac"), "case-var", Block()),
+				Cmd("case-var", Simple(
+					At("sh", "case @var(ENV) in prod) echo production;; dev) echo development;; esac"),
+				)),
 			),
 		},
 		{
 			Name:  "@var in shell parameter expansion",
 			Input: "param-expansion: @sh(echo ${@var(VAR):-@var(DEFAULT)})",
 			Expected: Program(
-				CmdWith(At("sh", "echo ${@var(VAR):-@var(DEFAULT)}"), "param-expansion", Block()),
+				Cmd("param-expansion", Simple(
+					At("sh", "echo ${@var(VAR):-@var(DEFAULT)}"),
+				)),
+			),
+		},
+		{
+			Name:  "mixing @var in shell content with regular shell content",
+			Input: "mixed-content: echo start && @sh(cd @var(DIR)) && echo done",
+			Expected: Program(
+				Cmd("mixed-content", Simple(
+					Text("echo start && "),
+					At("sh", "cd @var(DIR)"),
+					Text(" && echo done"),
+				)),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
+func TestLineContinuationEdgeCases(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "continuation at end of line with no following content",
+			Input: "test: echo hello \\\n",
+			Expected: Program(
+				Cmd("test", Simple(Text("echo hello"))),
+			),
+		},
+		{
+			Name:  "continuation with only whitespace on next line",
+			Input: "test: echo hello \\\n   ",
+			Expected: Program(
+				Cmd("test", Simple(Text("echo hello"))),
+			),
+		},
+		{
+			Name:  "continuation with tab characters",
+			Input: "test: echo hello \\\n\tworld",
+			Expected: Program(
+				Cmd("test", Simple(Text("echo hello world"))),
+			),
+		},
+		{
+			Name:  "continuation in middle of quoted string",
+			Input: "test: echo \"hello \\\nworld\"",
+			Expected: Program(
+				Cmd("test", Simple(Text("echo \"hello world\""))),
+			),
+		},
+		{
+			Name:  "continuation in single quotes (should not join)",
+			Input: "test: echo 'hello \\\nworld'",
+			Expected: Program(
+				Cmd("test", Simple(Text("echo 'hello \\\nworld'"))),
+			),
+		},
+		{
+			Name:  "backslash without newline (not a continuation)",
+			Input: "test: echo hello\\world",
+			Expected: Program(
+				Cmd("test", Simple(Text("echo hello\\world"))),
+			),
+		},
+		{
+			Name:  "multiple backslashes before newline",
+			Input: "test: echo hello\\\\\\\nworld",
+			Expected: Program(
+				Cmd("test", Simple(Text("echo hello\\\\ world"))),
+			),
+		},
+		{
+			Name:  "continuation with @var across lines",
+			Input: "test: echo \\\n@var(NAME) \\\nis here",
+			Expected: Program(
+				Cmd("test", Simple(
+					Text("echo "),
+					At("var", "NAME"),
+					Text(" is here"),
+				)),
 			),
 		},
 	}
@@ -315,8 +447,8 @@ func TestContinuationLines(t *testing.T) {
 			Input: "block: { echo hello \\\nworld; echo done }",
 			Expected: Program(
 				Cmd("block", Block(
-					"echo hello world",
-					"echo done",
+					Text("echo hello world"),
+					Text("echo done"),
 				)),
 			),
 		},
@@ -324,7 +456,9 @@ func TestContinuationLines(t *testing.T) {
 			Name:  "continuation with decorators",
 			Input: "deploy: @sh(docker build \\\n-t myapp \\\n.)",
 			Expected: Program(
-				CmdWith(At("sh", "docker build -t myapp ."), "deploy", Block()),
+				Cmd("deploy", Simple(
+					At("sh", "docker build -t myapp ."),
+				)),
 			),
 		},
 		{
@@ -337,6 +471,50 @@ func TestContinuationLines(t *testing.T) {
 					Text(" --port="),
 					At("var", "PORT"),
 				)),
+			),
+		},
+		{
+			Name:  "continuation preserves spaces correctly",
+			Input: "spaced: echo hello\\\n world",
+			Expected: Program(
+				Cmd("spaced", Simple(Text("echo hello world"))),
+			),
+		},
+		{
+			Name:  "continuation with trailing spaces",
+			Input: "trailing: echo hello \\\n   world",
+			Expected: Program(
+				Cmd("trailing", Simple(Text("echo hello world"))),
+			),
+		},
+		{
+			Name:  "multiple continuations in decorator argument",
+			Input: "long-arg: @sh(very long command \\\nwith multiple \\\nlines here)",
+			Expected: Program(
+				Cmd("long-arg", Simple(
+					At("sh", "very long command with multiple lines here"),
+				)),
+			),
+		},
+		{
+			Name:  "continuation with shell operators",
+			Input: "operators: cmd1 \\\n&& cmd2 \\\n|| cmd3",
+			Expected: Program(
+				Cmd("operators", Simple(Text("cmd1 && cmd2 || cmd3"))),
+			),
+		},
+		{
+			Name:  "continuation with pipes",
+			Input: "pipes: cat file.txt \\\n| grep pattern \\\n| sort",
+			Expected: Program(
+				Cmd("pipes", Simple(Text("cat file.txt | grep pattern | sort"))),
+			),
+		},
+		{
+			Name:  "continuation breaking long docker command",
+			Input: "docker: docker run \\\n--name myapp \\\n--port 8080:8080 \\\n--env NODE_ENV=production \\\nmyimage:latest",
+			Expected: Program(
+				Cmd("docker", Simple(Text("docker run --name myapp --port 8080:8080 --env NODE_ENV=production myimage:latest"))),
 			),
 		},
 	}

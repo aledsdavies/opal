@@ -1591,6 +1591,460 @@ func TestDecoratorExamples(t *testing.T) {
 	}
 }
 
+func TestVariableValueTokenization(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []struct {
+			tokenType TokenType
+			value     string
+		}
+	}{
+		{
+			name:  "simple string variable",
+			input: "var SRC = ./src",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "SRC"},
+				{EQUALS, "="},
+				{IDENTIFIER, "./src"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "URL variable",
+			input: "var API_URL = https://api.example.com",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "API_URL"},
+				{EQUALS, "="},
+				{IDENTIFIER, "https://api.example.com"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "URL with port",
+			input: "var DATABASE_URL = postgresql://user:pass@localhost:5432/dbname",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "DATABASE_URL"},
+				{EQUALS, "="},
+				{IDENTIFIER, "postgresql://user:pass@localhost:5432/dbname"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "file path variable",
+			input: "var CONFIG_FILE = /etc/myapp/config.json",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "CONFIG_FILE"},
+				{EQUALS, "="},
+				{IDENTIFIER, "/etc/myapp/config.json"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "complex value with equals",
+			input: "var QUERY = name=value&other=data",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "QUERY"},
+				{EQUALS, "="},
+				{IDENTIFIER, "name=value&other=data"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "simple identifier variable",
+			input: "var HOST = localhost",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "HOST"},
+				{EQUALS, "="},
+				{IDENTIFIER, "localhost"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "number variable",
+			input: "var PORT = 8080",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "PORT"},
+				{EQUALS, "="},
+				{NUMBER, "8080"}, // Should be NUMBER token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "duration variable",
+			input: "var TIMEOUT = 30s",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "TIMEOUT"},
+				{EQUALS, "="},
+				{DURATION, "30s"}, // Should be DURATION token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "quoted string variable",
+			input: `var MESSAGE = "Hello, World!"`,
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "MESSAGE"},
+				{EQUALS, "="},
+				{STRING, "Hello, World!"}, // Should be STRING token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "grouped variables with complex values",
+			input: "var (\n  SRC = ./src\n  API_URL = https://api.example.com\n  PORT = 8080\n)",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{LPAREN, "("},
+				{NEWLINE, "\n"},
+				{IDENTIFIER, "SRC"},
+				{EQUALS, "="},
+				{IDENTIFIER, "./src"}, // Should be one token
+				{NEWLINE, "\n"},
+				{IDENTIFIER, "API_URL"},
+				{EQUALS, "="},
+				{IDENTIFIER, "https://api.example.com"}, // Should be one token
+				{NEWLINE, "\n"},
+				{IDENTIFIER, "PORT"},
+				{EQUALS, "="},
+				{NUMBER, "8080"}, // Should be NUMBER token
+				{NEWLINE, "\n"},
+				{RPAREN, ")"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "variable with URL containing special characters",
+			input: "var API_URL = https://api.example.com/v1?key=abc123",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "API_URL"},
+				{EQUALS, "="},
+				{IDENTIFIER, "https://api.example.com/v1?key=abc123"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "variable with environment style name",
+			input: "var NODE_ENV = production",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "NODE_ENV"},
+				{EQUALS, "="},
+				{IDENTIFIER, "production"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "variable with boolean-like value",
+			input: "var DEBUG = true",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "DEBUG"},
+				{EQUALS, "="},
+				{IDENTIFIER, "true"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "variable with hyphenated value",
+			input: "var LONG_VALUE = this-is-a-very-long-value-that-spans-multiple-words-and-contains-hyphens",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "LONG_VALUE"},
+				{EQUALS, "="},
+				{IDENTIFIER, "this-is-a-very-long-value-that-spans-multiple-words-and-contains-hyphens"}, // Should be one token
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expected) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
+
+				// Debug: show all actual tokens
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+
+				t.Logf("Expected tokens:")
+				for i, expected := range test.expected {
+					t.Logf("  %d: %s %q", i, expected.tokenType, expected.value)
+				}
+				return
+			}
+
+			for i, expected := range test.expected {
+				actual := tokens[i]
+				if actual.Type != expected.tokenType {
+					t.Errorf("Token %d: expected type %s, got %s", i, expected.tokenType, actual.Type)
+				}
+				if actual.Value != expected.value {
+					t.Errorf("Token %d: expected value %q, got %q", i, expected.value, actual.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestVariableValueContextualTokenization(t *testing.T) {
+	// Test that the lexer behaves differently in variable value context vs command context
+	tests := []struct {
+		name        string
+		input       string
+		description string
+		expected    []struct {
+			tokenType TokenType
+			value     string
+		}
+	}{
+		{
+			name:        "URL in variable vs command",
+			input:       "var URL = https://api.com\nbuild: echo https://api.com",
+			description: "URLs should be tokenized as single identifiers in variable context, but may be different in command context",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "URL"},
+				{EQUALS, "="},
+				{IDENTIFIER, "https://api.com"}, // Variable context: should be one token
+				{NEWLINE, "\n"},
+				{IDENTIFIER, "build"},
+				{COLON, ":"},
+				{IDENTIFIER, "echo https://api.com"}, // Command context: part of shell text
+				{EOF, ""},
+			},
+		},
+		{
+			name:        "colon handling in different contexts",
+			input:       "var URL = https://api.com:8080\nserver: node app.js",
+			description: "Colons in URLs should not be treated as command separators in variable context",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "URL"},
+				{EQUALS, "="},
+				{IDENTIFIER, "https://api.com:8080"}, // Variable context: colon is part of value
+				{NEWLINE, "\n"},
+				{IDENTIFIER, "server"},
+				{COLON, ":"}, // Command context: colon is separator
+				{IDENTIFIER, "node app.js"},
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expected) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
+
+				// Debug: show all actual tokens
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+
+				t.Logf("Expected tokens:")
+				for i, expected := range test.expected {
+					t.Logf("  %d: %s %q", i, expected.tokenType, expected.value)
+				}
+				return
+			}
+
+			for i, expected := range test.expected {
+				actual := tokens[i]
+				if actual.Type != expected.tokenType {
+					t.Errorf("Token %d: expected type %s, got %s (description: %s)", i, expected.tokenType, actual.Type, test.description)
+				}
+				if actual.Value != expected.value {
+					t.Errorf("Token %d: expected value %q, got %q (description: %s)", i, expected.value, actual.Value, test.description)
+				}
+			}
+		})
+	}
+}
+
+func TestCurrentBehaviorAnalysis(t *testing.T) {
+	// This test is designed to show exactly what the current lexer is doing
+	// We'll run it and see what tokens we get, then understand the problem
+
+	problemCases := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "simple URL",
+			input: "var API_URL = https://api.example.com",
+		},
+		{
+			name:  "file path",
+			input: "var SRC = ./src",
+		},
+		{
+			name:  "URL with port",
+			input: "var DB_URL = postgresql://user:pass@localhost:5432/dbname",
+		},
+		{
+			name:  "path with special chars",
+			input: "var CONFIG = /etc/myapp/config.json",
+		},
+		{
+			name:  "value with equals",
+			input: "var QUERY = name=value&other=data",
+		},
+	}
+
+	for _, test := range problemCases {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			t.Logf("Input: %s", test.input)
+			t.Logf("Tokens produced:")
+			for i, token := range tokens {
+				t.Logf("  %d: %s %q (line %d, col %d)", i, token.Type, token.Value, token.Line, token.Column)
+			}
+
+			// Count how many tokens we get after the equals sign
+			equalsIndex := -1
+			for i, token := range tokens {
+				if token.Type == EQUALS {
+					equalsIndex = i
+					break
+				}
+			}
+
+			if equalsIndex >= 0 {
+				valueTokens := []Token{}
+				for i := equalsIndex + 1; i < len(tokens) && tokens[i].Type != EOF; i++ {
+					valueTokens = append(valueTokens, tokens[i])
+				}
+				t.Logf("Value tokens (after =): %d tokens", len(valueTokens))
+				for i, token := range valueTokens {
+					t.Logf("  Value[%d]: %s %q", i, token.Type, token.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestVariableValueTermination(t *testing.T) {
+	// Test what terminates variable values in different contexts
+	tests := []struct {
+		name     string
+		input    string
+		expected []TokenType
+	}{
+		{
+			name:     "variable terminated by newline",
+			input:    "var URL = https://api.com\nbuild: echo hello",
+			expected: []TokenType{VAR, IDENTIFIER, EQUALS, IDENTIFIER, NEWLINE, IDENTIFIER, COLON, IDENTIFIER, EOF},
+		},
+		{
+			name:     "variable terminated by EOF",
+			input:    "var URL = https://api.com",
+			expected: []TokenType{VAR, IDENTIFIER, EQUALS, IDENTIFIER, EOF},
+		},
+		{
+			name:     "variable in group terminated by newline",
+			input:    "var (\n  URL = https://api.com\n  PORT = 8080\n)",
+			expected: []TokenType{VAR, LPAREN, NEWLINE, IDENTIFIER, EQUALS, IDENTIFIER, NEWLINE, IDENTIFIER, EQUALS, NUMBER, NEWLINE, RPAREN, EOF},
+		},
+		{
+			name:     "variable in group terminated by closing paren",
+			input:    "var (URL = https://api.com)",
+			expected: []TokenType{VAR, LPAREN, IDENTIFIER, EQUALS, IDENTIFIER, RPAREN, EOF},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			var tokenTypes []TokenType
+			for _, token := range tokens {
+				tokenTypes = append(tokenTypes, token.Type)
+			}
+
+			if diff := cmp.Diff(test.expected, tokenTypes); diff != "" {
+				t.Errorf("Token sequence mismatch (-expected +actual):\n%s", diff)
+
+				// Debug: show all actual tokens
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+			}
+		})
+	}
+}
+
 func TestZeroCopyBehavior(t *testing.T) {
 	input := `var test: echo hello world`
 	lexer := New(input)
