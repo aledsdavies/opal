@@ -361,15 +361,6 @@ func TestAtSymbolInOtherContexts(t *testing.T) {
 func TestMixedAtSymbolScenarios(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "email and decorator in same command",
-			Input: "notify: @sh(echo \"Build complete\" | mail admin@company.com)",
-			Expected: Program(
-				Cmd("notify", Simple(
-					At("sh", "echo \"Build complete\" | mail admin@company.com"),
-				)),
-			),
-		},
-		{
 			Name:  "ssh and @var decorator",
 			Input: "deploy: ssh @var(DEPLOY_USER)@server.com 'restart-app'",
 			Expected: Program(

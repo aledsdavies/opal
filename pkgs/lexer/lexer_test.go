@@ -121,18 +121,16 @@ func TestDecoratorSemanticTypes(t *testing.T) {
 			semanticTypes:    []SemanticTokenType{SemCommand},
 		},
 		{
-			// Fixed: This test case uses invalid syntax. The input should be a valid command.
-			// @var(PORT=8080) as a standalone decorator doesn't make sense in Devcmd.
-			// Changed to a valid command with decorator usage.
+			// FIXED: Shell text after : or { has no leading space
 			input:            "server: @timeout(30s) { echo hello }",
-			identifierValues: []string{"server", "timeout", "echo hello"},
-			semanticTypes:    []SemanticTokenType{SemCommand, SemDecorator, SemShellText}, // Fixed: shell text should be SemShellText
+			identifierValues: []string{"server", "timeout", "echo hello"}, // No leading space
+			semanticTypes:    []SemanticTokenType{SemCommand, SemDecorator, SemShellText},
 		},
 		{
-			// Added a proper test for @var usage within shell text
+			// FIXED: Internal spaces are preserved
 			input:            "server: echo port @var(PORT)",
-			identifierValues: []string{"server", "echo port", "var", "PORT"},
-			semanticTypes:    []SemanticTokenType{SemCommand, SemShellText, SemDecorator, SemParameter},
+			identifierValues: []string{"server", "echo port ", "var", "PORT"}, // Space after "port" preserved
+			semanticTypes:    []SemanticTokenType{SemCommand, SemShellText, SemVariable, SemParameter},
 		},
 	}
 
@@ -239,8 +237,8 @@ func TestDurations(t *testing.T) {
 
 func TestNumberVsDuration(t *testing.T) {
 	tests := []struct {
-		input        string
-		expectedType TokenType
+		input         string
+		expectedType  TokenType
 		expectedValue string
 	}{
 		{"123", NUMBER, "123"},
@@ -318,6 +316,7 @@ func TestCommandMode(t *testing.T) {
 		t.Errorf("Expected IDENTIFIER, got %s", shellText.Type)
 	}
 
+	// FIXED: No leading space after colon
 	if diff := cmp.Diff("echo hello world", shellText.Value); diff != "" {
 		t.Errorf("Shell text mismatch (-want +got):\n%s", diff)
 	}
@@ -344,6 +343,7 @@ func TestSemicolonInShellCommand(t *testing.T) {
 		t.Errorf("Expected IDENTIFIER, got %s", shellText.Type)
 	}
 
+	// FIXED: No leading space after colon
 	expectedShellText := "echo hello; echo world"
 	if diff := cmp.Diff(expectedShellText, shellText.Value); diff != "" {
 		t.Errorf("Shell text mismatch (-want +got):\n%s", diff)
@@ -379,19 +379,10 @@ func TestBlockWithSemicolons(t *testing.T) {
 		t.Errorf("Expected IDENTIFIER, got %s", shellCmd.Type)
 	}
 
+	// FIXED: No leading/trailing space in shell command
 	expectedCmd := "cd src; make clean; make install"
 	if diff := cmp.Diff(expectedCmd, shellCmd.Value); diff != "" {
 		t.Errorf("Shell command mismatch (-want +got):\n%s", diff)
-
-		// Debug: show all remaining tokens
-		t.Logf("Remaining tokens:")
-		for {
-			tok := lexer.NextToken()
-			t.Logf("  %s %q", tok.Type, tok.Value)
-			if tok.Type == EOF {
-				break
-			}
-		}
 	}
 
 	// }
@@ -408,27 +399,31 @@ func TestLineContinuation(t *testing.T) {
 	// Simulate being in command mode
 	lexer.setMode(CommandMode)
 
+	// Token 1: "echo hello "
 	shellText1 := lexer.NextToken()
 	if shellText1.Type != IDENTIFIER {
-		t.Errorf("Expected IDENTIFIER, got %s", shellText1.Type)
+		t.Errorf("Expected IDENTIFIER for first part, got %s", shellText1.Type)
+	}
+	if diff := cmp.Diff("echo hello ", shellText1.Value); diff != "" {
+		t.Errorf("First part mismatch (-want +got):\n%s", diff)
 	}
 
-	lineCont := lexer.NextToken()
-	if lineCont.Type != LINE_CONT {
-		t.Errorf("Expected LINE_CONT, got %s", lineCont.Type)
+	// Token 2: The space from the line continuation
+	spaceToken := lexer.NextToken()
+	if spaceToken.Type != IDENTIFIER {
+		t.Errorf("Expected IDENTIFIER for line continuation space, got %s", spaceToken.Type)
+	}
+	if diff := cmp.Diff(" ", spaceToken.Value); diff != "" {
+		t.Errorf("Line continuation space mismatch (-want +got):\n%s", diff)
 	}
 
-	if diff := cmp.Diff("\\\n", lineCont.Value); diff != "" {
-		t.Errorf("Line continuation value mismatch (-want +got):\n%s", diff)
-	}
-
+	// Token 3: "world"
 	shellText2 := lexer.NextToken()
 	if shellText2.Type != IDENTIFIER {
-		t.Errorf("Expected IDENTIFIER, got %s", shellText2.Type)
+		t.Errorf("Expected IDENTIFIER for second part, got %s", shellText2.Type)
 	}
-
 	if diff := cmp.Diff("world", shellText2.Value); diff != "" {
-		t.Errorf("Shell text value mismatch (-want +got):\n%s", diff)
+		t.Errorf("Second part mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -512,18 +507,16 @@ func TestNestedDecorators(t *testing.T) {
 	lexer := New(input)
 	tokens := lexer.TokenizeToSlice()
 
-	// The new lexer properly handles nested decorators, so we expect:
-	// @timeout(30s) { @parallel { npm run api } }
-	// AT IDENTIFIER LPAREN DURATION RPAREN LBRACE AT IDENTIFIER LBRACE IDENTIFIER RBRACE RBRACE EOF
+	// FIXED: No extra whitespace tokens
 	expected := []TokenType{
 		AT, IDENTIFIER, // @timeout
 		LPAREN, DURATION, RPAREN, // (30s)
-		LBRACE, // {
-		AT, IDENTIFIER, // @parallel - now properly tokenized as decorator
-		LBRACE, // {
-		IDENTIFIER, // npm run api - shell text as single identifier
-		RBRACE, // }
-		RBRACE, // }
+		LBRACE,         // {
+		AT, IDENTIFIER, // @parallel
+		LBRACE,     // {
+		IDENTIFIER, // npm run api
+		RBRACE,     // }
+		RBRACE,     // }
 		EOF,
 	}
 
@@ -552,7 +545,7 @@ func TestNestedDecorators(t *testing.T) {
 		}
 	}
 
-	if decoratorCount != 2 { // Now expecting both timeout and parallel
+	if decoratorCount != 2 {
 		t.Errorf("Expected 2 decorator identifiers (timeout, parallel), found %d", decoratorCount)
 	}
 }
@@ -653,8 +646,8 @@ func TestModeTransitions(t *testing.T) {
 				{RPAREN, LanguageMode},     // ) (stays in LanguageMode)
 				{LBRACE, CommandMode},      // { (switches to CommandMode)
 				{IDENTIFIER, CommandMode},  // echo hello (stays in CommandMode)
-				{RBRACE, CommandMode},     // } (switches back to CommandMode)
-				{RBRACE, LanguageMode},     // } (stays in LanguageMode)
+				{RBRACE, CommandMode},      // } (stays in CommandMode - nested brace)
+				{RBRACE, LanguageMode},     // } (switches to LanguageMode - outer brace)
 				{EOF, LanguageMode},        // EOF (stays in LanguageMode)
 			},
 		},
@@ -682,28 +675,28 @@ func TestModeTransitions(t *testing.T) {
 
 func TestSyntaxSugarDetection(t *testing.T) {
 	tests := []struct {
-		name           string
-		input          string
+		name                      string
+		input                     string
 		shouldSwitchToCommandMode bool
 	}{
 		{
-			name:           "simple command gets sugar",
-			input:          "build: echo hello",
+			name:                      "simple command gets sugar",
+			input:                     "build: echo hello",
 			shouldSwitchToCommandMode: true,
 		},
 		{
-			name:           "explicit block no sugar",
-			input:          "build: { echo hello }",
+			name:                      "explicit block no sugar",
+			input:                     "build: { echo hello }",
 			shouldSwitchToCommandMode: false,
 		},
 		{
-			name:           "decorator no sugar",
-			input:          "build: @timeout(30s) { echo hello }",
+			name:                      "decorator no sugar",
+			input:                     "build: @timeout(30s) { echo hello }",
 			shouldSwitchToCommandMode: false,
 		},
 		{
-			name:           "empty command no sugar",
-			input:          "build:",
+			name:                      "empty command no sugar",
+			input:                     "build:",
 			shouldSwitchToCommandMode: false,
 		},
 	}
@@ -720,7 +713,6 @@ func TestSyntaxSugarDetection(t *testing.T) {
 			nextToken := lexer.NextToken()
 
 			if test.shouldSwitchToCommandMode {
-				// Fixed: Shell text should have SemShellText semantic type, not SemCommand
 				if nextToken.Type != IDENTIFIER || nextToken.Semantic != SemShellText {
 					t.Errorf("Expected shell text token with SemShellText, got %s with semantic %v",
 						nextToken.Type, nextToken.Semantic)
@@ -939,13 +931,13 @@ func TestVarInMiddleOfText(t *testing.T) {
 			}{
 				{IDENTIFIER, "cmd"},
 				{COLON, ":"},
-				{IDENTIFIER, `echo "Port is`},
+				{IDENTIFIER, `echo "Port is `}, // FIXED: No leading space
 				{AT, "@"},
 				{IDENTIFIER, "var"},
 				{LPAREN, "("},
 				{IDENTIFIER, "PORT"},
 				{RPAREN, ")"},
-				{IDENTIFIER, `and host is`},
+				{IDENTIFIER, ` and host is `},
 				{AT, "@"},
 				{IDENTIFIER, "var"},
 				{LPAREN, "("},
@@ -964,7 +956,7 @@ func TestVarInMiddleOfText(t *testing.T) {
 			}{
 				{IDENTIFIER, "cmd"},
 				{COLON, ":"},
-				{IDENTIFIER, `echo "API:`},
+				{IDENTIFIER, `echo "API: `}, // FIXED: No leading space
 				{AT, "@"},
 				{IDENTIFIER, "var"},
 				{LPAREN, "("},
@@ -983,13 +975,13 @@ func TestVarInMiddleOfText(t *testing.T) {
 			}{
 				{IDENTIFIER, "cmd"},
 				{COLON, ":"},
-				{IDENTIFIER, `node app.js --port`},
+				{IDENTIFIER, `node app.js --port `}, // FIXED: No leading space
 				{AT, "@"},
 				{IDENTIFIER, "var"},
 				{LPAREN, "("},
 				{IDENTIFIER, "PORT"},
 				{RPAREN, ")"},
-				{IDENTIFIER, `--email admin@company.com`},
+				{IDENTIFIER, ` --email admin@company.com`},
 				{EOF, ""},
 			},
 		},
@@ -1042,7 +1034,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "notify"},
 				{COLON, ":"},
-				{IDENTIFIER, "echo 'Alert sent to admin@company.com'"},
+				{IDENTIFIER, "echo 'Alert sent to admin@company.com'"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},
@@ -1055,7 +1047,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "deploy"},
 				{COLON, ":"},
-				{IDENTIFIER, "docker run nginx@sha256:abc123def456"},
+				{IDENTIFIER, "docker run nginx@sha256:abc123def456"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},
@@ -1068,7 +1060,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "backup"},
 				{COLON, ":"},
-				{IDENTIFIER, "git show HEAD@{2.days.ago}"},
+				{IDENTIFIER, "git show HEAD@{2.days.ago}"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},
@@ -1081,7 +1073,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "connect"},
 				{COLON, ":"},
-				{IDENTIFIER, "ssh user@hostname.com"},
+				{IDENTIFIER, "ssh user@hostname.com"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},
@@ -1094,7 +1086,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "setup"},
 				{COLON, ":"},
-				{IDENTIFIER, "npm install react@18.2.0 typescript@^4.9.0"},
+				{IDENTIFIER, "npm install react@18.2.0 typescript@^4.9.0"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},
@@ -1107,7 +1099,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "test"},
 				{COLON, ":"},
-				{IDENTIFIER, "echo ${array[@]} and $@"},
+				{IDENTIFIER, "echo ${array[@]} and $@"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},
@@ -1126,7 +1118,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 				{DURATION, "30s"},
 				{RPAREN, ")"},
 				{LBRACE, "{"},
-				{IDENTIFIER, "echo 'Deploying to admin@prod.com'"},
+				{IDENTIFIER, "echo 'Deploying to admin@prod.com'"}, // FIXED: No leading/trailing space
 				{RBRACE, "}"},
 				{EOF, ""},
 			},
@@ -1140,13 +1132,13 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "server"},
 				{COLON, ":"},
-				{IDENTIFIER, "node app.js --port"},
+				{IDENTIFIER, "node app.js --port "}, // FIXED: No leading space
 				{AT, "@"},
 				{IDENTIFIER, "var"},
 				{LPAREN, "("},
 				{IDENTIFIER, "PORT"},
 				{RPAREN, ")"},
-				{IDENTIFIER, "--admin admin@company.com"},
+				{IDENTIFIER, " --admin admin@company.com"},
 				{EOF, ""},
 			},
 		},
@@ -1159,7 +1151,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "notify"},
 				{COLON, ":"},
-				{IDENTIFIER, "mail -s 'Alert' admin@company.com,ops@company.com < log.txt"},
+				{IDENTIFIER, "mail -s 'Alert' admin@company.com,ops@company.com < log.txt"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},
@@ -1172,7 +1164,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 			}{
 				{IDENTIFIER, "fetch"},
 				{COLON, ":"},
-				{IDENTIFIER, "curl -u user@domain:pass https://api.service.com"},
+				{IDENTIFIER, "curl -u user@domain:pass https://api.service.com"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},
@@ -1188,7 +1180,7 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 				{AT, "@"},
 				{IDENTIFIER, "parallel"},
 				{LBRACE, "{"},
-				{IDENTIFIER, "echo 'Notify admin@company.com'; kubectl apply -f k8s/"},
+				{IDENTIFIER, "echo 'Notify admin@company.com'; kubectl apply -f k8s/"}, // FIXED: No leading/trailing space
 				{RBRACE, "}"},
 				{EOF, ""},
 			},
@@ -1218,6 +1210,540 @@ func TestShellCommandsWithAtSymbols(t *testing.T) {
 				}
 				if actual.Value != expected.value {
 					t.Errorf("Token %d: expected value %q, got %q", i, expected.value, actual.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestWhitespacePreservationInShellCommands(t *testing.T) {
+	// Test cases that specifically verify whitespace preservation around @var() decorators
+	tests := []struct {
+		name     string
+		input    string
+		expected []struct {
+			tokenType TokenType
+			value     string
+		}
+	}{
+		{
+			name:  "space after command before @var()",
+			input: "build: cp -r @var(SRC)/* @var(DEST)/",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "build"},
+				{COLON, ":"},
+				{IDENTIFIER, "cp -r "}, // FIXED: No leading space after colon
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "SRC"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "/* "}, // MUST preserve trailing space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "DEST"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "/"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "space before and after @var()",
+			input: "serve: go run main.go --port= @var(PORT) --host= @var(HOST)",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "serve"},
+				{COLON, ":"},
+				{IDENTIFIER, "go run main.go --port= "}, // FIXED: No leading space after colon
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "PORT"},
+				{RPAREN, ")"},
+				{IDENTIFIER, " --host= "}, // MUST preserve leading AND trailing space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "HOST"},
+				{RPAREN, ")"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "multiple spaces around @var()",
+			input: "build: echo  @var(MESSAGE)  world",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "build"},
+				{COLON, ":"},
+				{IDENTIFIER, "echo  "}, // FIXED: No leading space, but preserve double space before @var
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "MESSAGE"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "  world"}, // MUST preserve multiple leading spaces
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "tabs and spaces around @var()",
+			input: "build: echo\t@var(VAR)\t\tworld",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "build"},
+				{COLON, ":"},
+				{IDENTIFIER, "echo\t"}, // FIXED: No leading space after colon, preserve tab
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "VAR"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "\t\tworld"}, // MUST preserve tabs
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "shell operators with @var()",
+			input: "process: cat @var(FILE) | grep pattern | sort",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "process"},
+				{COLON, ":"},
+				{IDENTIFIER, "cat "}, // FIXED: No leading space, MUST preserve space before @var()
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "FILE"},
+				{RPAREN, ")"},
+				{IDENTIFIER, " | grep pattern | sort"}, // MUST preserve leading space
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "complex shell command with multiple @var()",
+			input: "deploy: cd @var(SRC) && npm run build: @var(ENV) && cp -r dist/* @var(DEST)/",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "deploy"},
+				{COLON, ":"},
+				{IDENTIFIER, "cd "}, // FIXED: No leading space, MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "SRC"},
+				{RPAREN, ")"},
+				{IDENTIFIER, " && npm run build: "}, // MUST preserve spaces
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "ENV"},
+				{RPAREN, ")"},
+				{IDENTIFIER, " && cp -r dist/* "}, // MUST preserve spaces
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "DEST"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "/"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "quoted strings with @var()",
+			input: `greet: echo "Hello @var(NAME)!"`,
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "greet"},
+				{COLON, ":"},
+				{IDENTIFIER, `echo "Hello `}, // FIXED: No leading space, MUST preserve space inside quote
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "NAME"},
+				{RPAREN, ")"},
+				{IDENTIFIER, `!"`}, // MUST preserve quote structure
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "shell command with paths and @var()",
+			input: "backup: cp important.txt @var(HOME)/backup/",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "backup"},
+				{COLON, ":"},
+				{IDENTIFIER, "cp important.txt "}, // FIXED: No leading space, MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "HOME"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "/backup/"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "SSH command with @var()",
+			input: "connect: ssh -p @var(PORT) user@ @var(HOST)",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "connect"},
+				{COLON, ":"},
+				{IDENTIFIER, "ssh -p "}, // FIXED: No leading space, MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "PORT"},
+				{RPAREN, ")"},
+				{IDENTIFIER, " user@ "}, // MUST preserve spaces (note: user@ is not a decorator)
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "HOST"},
+				{RPAREN, ")"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "function decorator with shell command",
+			input: `build: echo "Files: ls @var(SRC) | wc -l"`,
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "build"},
+				{COLON, ":"},
+				{IDENTIFIER, `echo "Files: ls `},           // MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "SRC"},
+				{RPAREN, ")"},
+				{IDENTIFIER, ` | wc -l"`},        // MUST preserve quote
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "pkill command with @var()",
+			input: "stop: pkill -f @var(PROCESS)",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{STOP, "stop"}, // FIXED: STOP keyword, not IDENTIFIER
+				{COLON, ":"},
+				{IDENTIFIER, "pkill -f "}, // FIXED: No leading space, MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "PROCESS"},
+				{RPAREN, ")"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "nested shell content with @var()",
+			input: "test: ssh -p @var(PORT) user@ @var(HOST) 'echo hello'",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{IDENTIFIER, "ssh -p "}, // FIXED: No leading space, MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "PORT"},
+				{RPAREN, ")"},
+				{IDENTIFIER, " user@ "}, // MUST preserve spaces
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "HOST"},
+				{RPAREN, ")"},
+				{IDENTIFIER, " 'echo hello'"}, // MUST preserve leading space
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expected) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
+
+				// Debug: show all actual tokens
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+
+				t.Logf("Expected tokens:")
+				for i, expected := range test.expected {
+					t.Logf("  %d: %s %q", i, expected.tokenType, expected.value)
+				}
+				return
+			}
+
+			for i, expected := range test.expected {
+				actual := tokens[i]
+				if actual.Type != expected.tokenType {
+					t.Errorf("Token %d: expected type %s, got %s", i, expected.tokenType, actual.Type)
+				}
+				if actual.Value != expected.value {
+					t.Errorf("Token %d: expected value %q, got %q", i, expected.value, actual.Value)
+					t.Logf("  This is a critical whitespace preservation issue!")
+				}
+			}
+		})
+	}
+}
+
+func TestWhitespacePreservationInBlockCommands(t *testing.T) {
+	// Test whitespace preservation in block commands
+	tests := []struct {
+		name     string
+		input    string
+		expected []struct {
+			tokenType TokenType
+			value     string
+		}
+	}{
+		{
+			name:  "block command with @var() and spaces",
+			input: "deploy: { cd @var(SRC); make clean; make install }",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "deploy"},
+				{COLON, ":"},
+				{LBRACE, "{"},
+				{IDENTIFIER, "cd "}, // FIXED: No leading space after brace, MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "SRC"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "; make clean; make install"}, // FIXED: No trailing space, MUST preserve semicolon structure
+				{RBRACE, "}"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "block command with multiple @var() and complex spacing",
+			input: "build: { echo 'Building from @var(SRC) to @var(DEST)' && cp -r @var(SRC)/* @var(DEST)/ }",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "build"},
+				{COLON, ":"},
+				{LBRACE, "{"},
+				{IDENTIFIER, "echo 'Building from "}, // FIXED: No leading space, MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "SRC"},
+				{RPAREN, ")"},
+				{IDENTIFIER, " to "}, // MUST preserve spaces
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "DEST"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "' && cp -r "}, // MUST preserve spaces
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "SRC"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "/* "}, // MUST preserve space
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "DEST"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "/"}, // FIXED: No trailing space
+				{RBRACE, "}"},
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expected) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
+
+				// Debug: show all actual tokens
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+				return
+			}
+
+			for i, expected := range test.expected {
+				actual := tokens[i]
+				if actual.Type != expected.tokenType {
+					t.Errorf("Token %d: expected type %s, got %s", i, expected.tokenType, actual.Type)
+				}
+				if actual.Value != expected.value {
+					t.Errorf("Token %d: expected value %q, got %q", i, expected.value, actual.Value)
+					t.Logf("  This is a critical whitespace preservation issue in block commands!")
+				}
+			}
+		})
+	}
+}
+
+func TestEdgeCaseWhitespacePreservation(t *testing.T) {
+	// Test edge cases for whitespace preservation
+	tests := []struct {
+		name     string
+		input    string
+		expected []struct {
+			tokenType TokenType
+			value     string
+		}
+	}{
+		{
+			name:  "only spaces around @var()",
+			input: "test:   @var(VAR)   ",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				// FIXED: After colon, initial spaces are skipped
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "VAR"},
+				{RPAREN, ")"},
+				// Trailing spaces are preserved
+				{IDENTIFIER, "   "},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "mixed whitespace around @var()",
+			input: "test: \t @var(VAR)\t \n",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				// FIXED: After colon, initial whitespace is skipped
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "VAR"},
+				{RPAREN, ")"},
+				// Trailing whitespace before newline
+				{IDENTIFIER, "\t "},
+				{NEWLINE, "\n"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "no spaces around @var()",
+			input: "test:word@var(VAR)word",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{IDENTIFIER, "word"}, // No spaces - should be preserved as-is
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "VAR"},
+				{RPAREN, ")"},
+				{IDENTIFIER, "word"}, // No spaces - should be preserved as-is
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "empty text parts around @var()",
+			input: "test:@var(VAR1)@var(VAR2)",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "VAR1"},
+				{RPAREN, ")"},
+				{AT, "@"},
+				{IDENTIFIER, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "VAR2"},
+				{RPAREN, ")"},
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expected) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
+
+				// Debug: show all actual tokens
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q", i, token.Type, token.Value)
+				}
+				return
+			}
+
+			for i, expected := range test.expected {
+				actual := tokens[i]
+				if actual.Type != expected.tokenType {
+					t.Errorf("Token %d: expected type %s, got %s", i, expected.tokenType, actual.Type)
+				}
+				if actual.Value != expected.value {
+					t.Errorf("Token %d: expected value %q, got %q", i, expected.value, actual.Value)
+					t.Logf("  This is a critical whitespace preservation edge case!")
 				}
 			}
 		})
@@ -1885,7 +2411,7 @@ func TestVariableValueContextualTokenization(t *testing.T) {
 				{NEWLINE, "\n"},
 				{IDENTIFIER, "build"},
 				{COLON, ":"},
-				{IDENTIFIER, "echo https://api.com"}, // Command context: part of shell text
+				{IDENTIFIER, "echo https://api.com"}, // Command context: part of shell text (no leading space)
 				{EOF, ""},
 			},
 		},
@@ -1903,8 +2429,8 @@ func TestVariableValueContextualTokenization(t *testing.T) {
 				{IDENTIFIER, "https://api.com:8080"}, // Variable context: colon is part of value
 				{NEWLINE, "\n"},
 				{IDENTIFIER, "server"},
-				{COLON, ":"}, // Command context: colon is separator
-				{IDENTIFIER, "node app.js"},
+				{COLON, ":"},                // Command context: colon is separator
+				{IDENTIFIER, "node app.js"}, // FIXED: No leading space
 				{EOF, ""},
 			},
 		},

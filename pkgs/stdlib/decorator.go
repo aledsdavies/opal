@@ -71,6 +71,31 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 		},
 	})
 
+	r.register(&DecoratorSignature{
+		Name:        "sh",
+		Type:        FunctionDecorator,
+		Description: "Shell execution with return value - executes shell command and returns output",
+		Args: []ArgumentSpec{
+			{Name: "command", Type: ExpressionArg, Optional: false},
+		},
+	})
+
+	r.register(&DecoratorSignature{
+		Name:        "env",
+		Type:        FunctionDecorator,
+		Description: "Environment variable access - returns environment variable value",
+		Args: []ArgumentSpec{
+			{Name: "name", Type: IdentifierArg, Optional: false},
+		},
+	})
+
+	r.register(&DecoratorSignature{
+		Name:        "now",
+		Type:        FunctionDecorator,
+		Description: "Current timestamp - returns current date/time",
+		Args:        []ArgumentSpec{}, // No arguments
+	})
+
 	// Block Decorators - modify execution behavior and require explicit blocks
 	r.register(&DecoratorSignature{
 		Name:          "timeout",
@@ -98,6 +123,36 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 		Description:   "Executes commands in parallel",
 		RequiresBlock: true,
 		Args:          []ArgumentSpec{}, // No arguments
+	})
+
+	r.register(&DecoratorSignature{
+		Name:          "debounce",
+		Type:          BlockDecorator,
+		Description:   "Debounces command execution",
+		RequiresBlock: true,
+		Args: []ArgumentSpec{
+			{Name: "delay", Type: DurationArg, Optional: false},
+		},
+	})
+
+	r.register(&DecoratorSignature{
+		Name:          "confirm",
+		Type:          BlockDecorator,
+		Description:   "Requires user confirmation before execution",
+		RequiresBlock: true,
+		Args: []ArgumentSpec{
+			{Name: "message", Type: StringArg, Optional: true, Default: "Continue?"},
+		},
+	})
+
+	r.register(&DecoratorSignature{
+		Name:          "watch-files",
+		Type:          BlockDecorator,
+		Description:   "Watches files for changes and executes on change",
+		RequiresBlock: true,
+		Args: []ArgumentSpec{
+			{Name: "pattern", Type: StringArg, Optional: false},
+		},
 	})
 }
 
@@ -377,4 +432,3 @@ func GetDecoratorDocumentation() string {
 
 	return doc.String()
 }
-

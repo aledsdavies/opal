@@ -4,6 +4,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/aledsdavies/devcmd/pkgs/stdlib"
 )
 
 // Character classification lookup tables for 3-5x faster operations
@@ -157,7 +159,10 @@ func (l *Lexer) NextToken() Token {
 	if tok.Type == AT {
 		l.afterAt = true
 	} else if l.afterAt && tok.Type == IDENTIFIER {
-		l.afterAt = false
+		// After parsing a decorator name, reset the flag
+		if tok.Semantic == SemDecorator || tok.Semantic == SemParameter {
+			l.afterAt = false
+		}
 	}
 
 	l.lastToken = tok.Type
@@ -231,7 +236,11 @@ func (l *Lexer) updateVariableContext(tok Token) {
 
 // lexTokenFast performs fast token lexing with mode-aware logic
 func (l *Lexer) lexTokenFast() Token {
-	l.skipWhitespaceFast()
+	// Only skip whitespace in language mode and variable value mode
+	// In command mode, whitespace should be preserved as shell text tokens
+	if l.mode == LanguageMode || l.mode == VariableValueMode {
+		l.skipWhitespaceFast()
+	}
 	start := l.position
 
 	switch l.mode {
@@ -312,7 +321,7 @@ func (l *Lexer) lexComplexVariableValue(start int) Token {
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemString, // Fixed: Complex variable values should be SemString, not SemCommand
+		Semantic:  SemString, // Complex variable values should be SemString
 		Scope:     "string.unquoted.devcmd",
 	}
 }
@@ -331,6 +340,20 @@ func (l *Lexer) isVariableValueTerminator() bool {
 	default:
 		return false
 	}
+}
+
+// **FIX 1: Helper function to peek ahead without consuming input**
+// This is crucial for deciding mode transitions without eating significant whitespace.
+func (l *Lexer) peekNextNonWhitespace() byte {
+	// Save current state
+	pos, readPos, ch, col := l.position, l.readPos, l.ch, l.column
+	defer func() {
+		// Restore state
+		l.position, l.readPos, l.ch, l.column = pos, readPos, ch, col
+	}()
+
+	l.skipWhitespaceFast()
+	return l.ch
 }
 
 // lexLanguageMode handles top-level language constructs and decorator parsing
@@ -353,6 +376,8 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		l.readChar()
 		if l.shouldSwitchToCommandMode() {
 			l.mode = CommandMode
+			// CRITICAL: Skip whitespace after colon ONLY when entering command mode
+			l.skipWhitespaceFast()
 		}
 		tok.EndLine, tok.EndColumn = l.line, l.column
 		return tok
@@ -375,20 +400,29 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		tok := Token{Type: RPAREN, Value: ")", Line: l.line, Column: l.column}
 		l.readChar()
 		tok.EndLine, tok.EndColumn = l.line, l.column
-		l.skipWhitespaceFast()
-		if l.ch != '{' {
+
+		// **FIX 1 (continued): Use the peeker to fix whitespace consumption.**
+		// After a decorator's `(...)`, if it's not followed by a `{`, it was an
+		// inline decorator (like @var). We must switch back to CommandMode
+		// to continue parsing the shell text, and we must *not* consume the
+		// whitespace that follows.
+		if l.peekNextNonWhitespace() != '{' {
 			l.mode = CommandMode
 		}
+		// If a `{` *does* follow, we stay in LanguageMode to parse it correctly.
 		return tok
 	case '{':
 		tok := Token{Type: LBRACE, Value: "{", Line: l.line, Column: l.column}
 		l.mode = CommandMode
 		l.pushBraceContext(CommandMode)
 		l.readChar()
+		// CRITICAL: Skip whitespace after opening brace when entering command mode
+		l.skipWhitespaceFast()
 		tok.EndLine, tok.EndColumn = l.line, l.column
 		return tok
 	case '}':
 		tok := Token{Type: RBRACE, Value: "}", Line: l.line, Column: l.column}
+		l.mode = l.popBraceContext()
 		l.readChar()
 		tok.EndLine, tok.EndColumn = l.line, l.column
 		return tok
@@ -423,6 +457,12 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 
 // lexCommandMode handles shell text and decorators inside command bodies
 func (l *Lexer) lexCommandMode(start int) Token {
+	// If we are starting at whitespace, let lexShellTextFast handle it
+	// to correctly preserve it as part of a shell text token.
+	if isWhitespace[l.ch] {
+		return l.lexShellTextFast(start)
+	}
+
 	switch l.ch {
 	case 0:
 		l.mode = LanguageMode
@@ -441,26 +481,21 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		tok := Token{Type: LBRACE, Value: "{", Line: l.line, Column: l.column}
 		l.pushBraceContext(CommandMode)
 		l.readChar()
+		l.skipWhitespaceFast()
 		tok.EndLine, tok.EndColumn = l.line, l.column
 		return tok
 	case '}':
-		// Pop brace context and potentially switch modes
 		tok := Token{Type: RBRACE, Value: "}", Line: l.line, Column: l.column}
+		l.mode = l.popBraceContext()
 		l.readChar()
 		tok.EndLine, tok.EndColumn = l.line, l.column
-
-		// Pop the brace context and switch modes if necessary
-		if len(l.braceStack) > 0 {
-			l.mode = l.popBraceContext()
-		} else {
-			// No braces on stack, this is an unmatched brace
-			l.mode = LanguageMode
-		}
-
 		return tok
 	case '@':
-		l.mode = LanguageMode
-		return l.lexLanguageMode(start)
+		if l.isDecoratorShape() {
+			l.mode = LanguageMode
+			return l.lexLanguageMode(start)
+		}
+		return l.lexShellTextFast(start)
 	case '\\':
 		if l.peekChar() == '\n' {
 			return l.lexLineContinuationFast(start)
@@ -482,8 +517,8 @@ func (l *Lexer) shouldSwitchToCommandMode() bool {
 // lexShellTextFast lexes shell command text as a single unit.
 func (l *Lexer) lexShellTextFast(start int) Token {
 	startLine, startColumn := l.line, l.column
+
 	for l.ch != 0 {
-		// Use stack-based approach to decide if '}' or '\n' are terminators
 		if l.ch == '}' && len(l.braceStack) > 0 {
 			break
 		}
@@ -500,49 +535,124 @@ func (l *Lexer) lexShellTextFast(start int) Token {
 	}
 
 	value := string(l.input[start:l.position])
+
+	// Trim trailing whitespace if we stopped at '}' to avoid "text }" pattern.
+	// This fulfills the "don't care about postfix whitespace on the last token" requirement.
+	if l.ch == '}' && len(value) > 0 {
+		value = strings.TrimRight(value, " \t\r\f")
+	}
+
+	// **FIX 2: Prevent empty IDENTIFIER tokens.**
+	// If the value is empty after trimming (e.g., just space between a command
+	// and a `}`), don't emit a token. Instead, get the next real token.
+	if value == "" {
+		return l.lexTokenFast()
+	}
+
 	return Token{
 		Type:      IDENTIFIER,
-		Value:     strings.TrimRight(value, " \t\r\f"),
+		Value:     value, // Preserve all internal and leading whitespace
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemShellText, // Fixed: Shell text should be SemShellText, not SemCommand
+		Semantic:  SemShellText,
 		Scope:     "source.shell.embedded.devcmd",
 	}
 }
 
-// isDecoratorShape checks if '@' starts a decorator or inline variable.
-// Fixed: Handle zero-arg decorators like @now (no parentheses)
+// isDecoratorShape checks if '@' starts a valid decorator using the decorator registry.
 func (l *Lexer) isDecoratorShape() bool {
-	if l.position > 0 && isIdentPart[l.input[l.position-1]] {
-		return false
-	}
-
+	// Save current state
 	pos, readPos, ch := l.position, l.readPos, l.ch
 	defer func() { l.position, l.readPos, l.ch = pos, readPos, ch }()
 
+	if l.position > 0 {
+		prevCh := l.input[l.position-1]
+		if isIdentPart[prevCh] {
+			return l.isValidDecoratorWithParentheses()
+		}
+	}
+
 	l.readChar() // Skip '@'
+
+	// Must be followed by letter or underscore
 	if !isLetter[l.ch] && l.ch != '_' {
 		return false
 	}
 
 	// Read the identifier part
+	identStart := l.position
 	for l.ch != 0 && (isIdentPart[l.ch] || l.ch == '-') {
 		l.readChar()
 	}
 
-	l.skipWhitespaceFast()
+	identName := string(l.input[identStart:l.position])
 
-	// Fixed: Zero-arg decorators are valid - they don't need parentheses or braces
-	// A decorator can be:
-	// 1. @name( - function decorator with args
-	// 2. @name { - block decorator with braces
-	// 3. @name - zero-arg decorator (inline function)
-	// 4. @name followed by whitespace/newline/EOF - zero-arg decorator
+	if !stdlib.IsValidDecorator(identName) {
+		return false
+	}
 
-	return l.ch == '(' || l.ch == '{' || l.ch == '\n' || l.ch == 0 || isWhitespace[l.ch] ||
-		   l.ch == '}' || l.ch == ';' || l.ch == '&' || l.ch == '|'
+	for l.ch == ' ' || l.ch == '\t' || l.ch == '\r' || l.ch == '\f' {
+		l.readChar()
+	}
+
+	if stdlib.IsFunctionDecorator(identName) {
+		if l.ch == '(' {
+			return true
+		}
+		return l.isAtWordBoundary()
+	}
+
+	if stdlib.IsBlockDecorator(identName) {
+		if l.ch == '(' || l.ch == '{' {
+			return true
+		}
+		return l.isAtWordBoundary()
+	}
+
+	return false
+}
+
+func (l *Lexer) isValidDecoratorWithParentheses() bool {
+	pos, readPos, ch := l.position, l.readPos, l.ch
+	defer func() { l.position, l.readPos, l.ch = pos, readPos, ch }()
+
+	l.readChar() // Skip '@'
+
+	if !isLetter[l.ch] && l.ch != '_' {
+		return false
+	}
+
+	identStart := l.position
+	for l.ch != 0 && (isIdentPart[l.ch] || l.ch == '-') {
+		l.readChar()
+	}
+
+	identName := string(l.input[identStart:l.position])
+
+	if !stdlib.IsValidDecorator(identName) {
+		return false
+	}
+
+	for l.ch == ' ' || l.ch == '\t' || l.ch == '\r' || l.ch == '\f' {
+		l.readChar()
+	}
+
+	return l.ch == '('
+}
+
+func (l *Lexer) isAtWordBoundary() bool {
+	switch l.ch {
+	case '\n', 0, '}', ';', '&', '|', '>', '<':
+		return true
+	case ' ', '\t', '\r', '\f':
+		return true
+	case '@':
+		return true
+	default:
+		return false
+	}
 }
 
 // --- Utility and unchanged functions from here ---
@@ -701,14 +811,11 @@ func (l *Lexer) lexIdentifierOrKeywordFast(start int) Token {
 		semantic = SemParameter
 		scope = "variable.parameter.devcmd"
 	} else {
-		switch value {
-		case "var":
-			tokenType, semantic, scope = VAR, SemKeyword, "keyword.control.var.devcmd"
-		case "stop":
-			tokenType, semantic, scope = STOP, SemKeyword, "keyword.control.stop.devcmd"
-		case "watch":
-			tokenType, semantic, scope = WATCH, SemKeyword, "keyword.control.watch.devcmd"
-		default:
+		keywordType, isKeyword := keywords[value]
+		if isKeyword {
+			tokenType, semantic, scope = keywordType, SemKeyword, "keyword.control."+value+".devcmd"
+		} else {
+			// By default, an identifier at the start of a line is a command name
 			tokenType, semantic, scope = IDENTIFIER, SemCommand, "entity.name.function.devcmd"
 		}
 	}
@@ -724,11 +831,17 @@ func (l *Lexer) lexIdentifierOrKeywordFast(start int) Token {
 	}
 }
 
+var keywords = map[string]TokenType{
+	"var":   VAR,
+	"stop":  STOP,
+	"watch": WATCH,
+}
+
 func (l *Lexer) isInDecoratorParams() bool {
 	if l.lastToken != LPAREN && l.lastToken != COMMA && l.lastToken != EQUALS {
 		return false
 	}
-	pos, depth, maxLookback := l.position-1, 0, 100
+	pos, depth, maxLookback := l.position-1, 0, 200
 	for pos >= 0 && maxLookback > 0 {
 		ch := l.input[pos]
 		if ch == ')' {
@@ -736,15 +849,17 @@ func (l *Lexer) isInDecoratorParams() bool {
 		} else if ch == '(' {
 			depth--
 			if depth < 0 {
+				// We found the opening parenthesis. Now look for the '@' before it.
 				pos--
 				for pos >= 0 && (l.input[pos] == ' ' || l.input[pos] == '\t') {
 					pos--
 				}
-				identEnd := pos + 1
-				for pos >= 0 && (isLetter[l.input[pos]] || isDigit[l.input[pos]] || l.input[pos] == '-' || l.input[pos] == '_') {
+				// Go backwards over the identifier
+				for pos >= 0 && (isIdentPart[l.input[pos]] || l.input[pos] == '-') {
 					pos--
 				}
-				if pos >= 0 && l.input[pos] == '@' && pos+1 < identEnd {
+				// Check if the preceding character is '@'
+				if pos >= 0 && l.input[pos] == '@' {
 					return true
 				}
 				return false
@@ -801,19 +916,16 @@ func (l *Lexer) isDurationUnit() bool {
 	if l.ch == 0 {
 		return false
 	}
+	next := l.peekChar()
 	switch l.ch {
-	case 'n':
-		return l.peekChar() == 's'
-	case 'u':
-		return l.peekChar() == 's'
+	case 'n', 'u':
+		return next == 's'
 	case 'm':
-		next := l.peekChar()
 		return next == 's' || next == 0 || !isLetter[next]
 	case 's', 'h':
-		next := l.peekChar()
 		return next == 0 || !isLetter[next]
 	}
-	if l.ch == 0xCE && l.peekChar() == 0xBC {
+	if l.ch == 0xCE && next == 0xBC { // UTF-8 "μ"
 		return l.peekCharAt(2) == 's'
 	}
 	return false
@@ -896,17 +1008,19 @@ func (l *Lexer) lexMultilineCommentFast(start int) Token {
 
 func (l *Lexer) lexLineContinuationFast(start int) Token {
 	startLine, startColumn := l.line, l.column
-	l.readChar()
-	l.readChar()
+	l.readChar() // consume '\'
+	l.readChar() // consume '\n'
+	// Per user request, replace line continuation with a single space.
+	// This simplifies the parser, which no longer needs to handle LINE_CONT tokens.
 	return Token{
-		Type:      LINE_CONT,
-		Value:     "\\\n",
+		Type:      IDENTIFIER, // Treat it as part of shell text
+		Value:     " ",
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemOperator,
-		Scope:     "punctuation.separator.continuation.devcmd",
+		Semantic:  SemShellText,
+		Scope:     "source.shell.embedded.devcmd",
 	}
 }
 
@@ -918,12 +1032,7 @@ func (l *Lexer) readIdentifierFast() {
 
 // skipWhitespaceFast skips whitespace with optimized early return
 func (l *Lexer) skipWhitespaceFast() {
-	// Fixed: Early return optimization - avoid loop if not whitespace
-	if !isWhitespace[l.ch] || l.ch == '\n' {
-		return
-	}
-
-	for isWhitespace[l.ch] && l.ch != '\n' {
+	for isWhitespace[l.ch] {
 		l.readChar()
 	}
 }
