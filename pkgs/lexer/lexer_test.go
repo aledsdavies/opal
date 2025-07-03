@@ -644,7 +644,7 @@ func TestModeTransitions(t *testing.T) {
 				{RPAREN, LanguageMode},     // ) (stays in LanguageMode)
 				{LBRACE, CommandMode},      // { (switches to CommandMode)
 				{IDENTIFIER, CommandMode},  // echo hello (stays in CommandMode)
-				{RBRACE, LanguageMode},     // } (switches back to LanguageMode)
+				{RBRACE, CommandMode},     // } (switches back to CommandMode)
 				{RBRACE, LanguageMode},     // } (stays in LanguageMode)
 				{EOF, LanguageMode},        // EOF (stays in LanguageMode)
 			},

@@ -45,6 +45,12 @@ var workBufPool = sync.Pool{
 	},
 }
 
+// BraceContext represents a brace nesting level with its mode
+type BraceContext struct {
+	level int
+	mode  LexerMode
+}
+
 // Lexer tokenizes Devcmd source code with mode-based parsing
 type Lexer struct {
 	input      []byte
@@ -56,16 +62,17 @@ type Lexer struct {
 	afterAt    bool
 	lastToken  TokenType
 	mode       LexerMode
-	braceLevel int // **NEW**: Track block nesting level
+	braceStack []BraceContext // Stack-based bracket tracking
 }
 
 // New creates a new lexer instance with optimized initialization
 func New(input string) *Lexer {
 	l := &Lexer{
-		input:  []byte(input),
-		line:   1,
-		column: 0,
-		mode:   LanguageMode,
+		input:      []byte(input),
+		line:       1,
+		column:     0,
+		mode:       LanguageMode,
+		braceStack: make([]BraceContext, 0, 16), // Pre-allocate for common nesting
 	}
 	l.readChar()
 	return l
@@ -74,6 +81,38 @@ func New(input string) *Lexer {
 // setMode allows changing the lexer mode for testing
 func (l *Lexer) setMode(mode LexerMode) {
 	l.mode = mode
+}
+
+// getCurrentBraceLevel returns the current brace nesting level
+func (l *Lexer) getCurrentBraceLevel() int {
+	if len(l.braceStack) == 0 {
+		return 0
+	}
+	return l.braceStack[len(l.braceStack)-1].level
+}
+
+// pushBraceContext adds a new brace context to the stack
+func (l *Lexer) pushBraceContext(mode LexerMode) {
+	level := 1
+	if len(l.braceStack) > 0 {
+		level = l.braceStack[len(l.braceStack)-1].level + 1
+	}
+	l.braceStack = append(l.braceStack, BraceContext{level: level, mode: mode})
+}
+
+// popBraceContext removes the top brace context from the stack
+func (l *Lexer) popBraceContext() LexerMode {
+	if len(l.braceStack) == 0 {
+		return LanguageMode
+	}
+
+	l.braceStack = l.braceStack[:len(l.braceStack)-1]
+
+	// Return the mode we should switch to after popping
+	if len(l.braceStack) == 0 {
+		return LanguageMode
+	}
+	return l.braceStack[len(l.braceStack)-1].mode
 }
 
 // TokenizeToSlice tokenizes to pre-allocated slice for maximum performance
@@ -174,7 +213,7 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 	case '{':
 		tok := Token{Type: LBRACE, Value: "{", Line: l.line, Column: l.column}
 		l.mode = CommandMode
-		l.braceLevel++ // **MODIFIED**: Increment brace level
+		l.pushBraceContext(CommandMode)
 		l.readChar()
 		tok.EndLine, tok.EndColumn = l.line, l.column
 		return tok
@@ -219,26 +258,35 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		l.mode = LanguageMode
 		return Token{Type: EOF, Value: "", Line: l.line, Column: l.column}
 	case '\n':
-		// A newline only terminates a simple command (braceLevel == 0).
-		if l.braceLevel == 0 {
+		// A newline only terminates a simple command (no braces on stack)
+		if len(l.braceStack) == 0 {
 			l.mode = LanguageMode
 		}
 		tok := Token{Type: NEWLINE, Value: "\n", Line: l.line, Column: l.column}
 		l.readChar()
 		tok.EndLine, tok.EndColumn = l.line, l.column
 		return tok
+	case '{':
+		// Nested braces within command mode
+		tok := Token{Type: LBRACE, Value: "{", Line: l.line, Column: l.column}
+		l.pushBraceContext(CommandMode)
+		l.readChar()
+		tok.EndLine, tok.EndColumn = l.line, l.column
+		return tok
 	case '}':
-		// **MODIFIED**: Decrement brace level and only switch mode if it's the last brace.
-		l.braceLevel--
-		if l.braceLevel < 0 {
-			l.braceLevel = 0 // Should not happen in valid code
-		}
-		if l.braceLevel == 0 {
-			l.mode = LanguageMode
-		}
+		// Pop brace context and potentially switch modes
 		tok := Token{Type: RBRACE, Value: "}", Line: l.line, Column: l.column}
 		l.readChar()
 		tok.EndLine, tok.EndColumn = l.line, l.column
+
+		// Pop the brace context and switch modes if necessary
+		if len(l.braceStack) > 0 {
+			l.mode = l.popBraceContext()
+		} else {
+			// No braces on stack, this is an unmatched brace
+			l.mode = LanguageMode
+		}
+
 		return tok
 	case '@':
 		l.mode = LanguageMode
@@ -265,8 +313,11 @@ func (l *Lexer) shouldSwitchToCommandMode() bool {
 func (l *Lexer) lexShellTextFast(start int) Token {
 	startLine, startColumn := l.line, l.column
 	for l.ch != 0 {
-		// **MODIFIED**: Use braceLevel to decide if '}' or '\n' are terminators.
-		if (l.ch == '}' && l.braceLevel > 0) || (l.ch == '\n' && l.braceLevel == 0) {
+		// Use stack-based approach to decide if '}' or '\n' are terminators
+		if l.ch == '}' && len(l.braceStack) > 0 {
+			break
+		}
+		if l.ch == '\n' && len(l.braceStack) == 0 {
 			break
 		}
 		if l.ch == '@' && l.isDecoratorShape() {
@@ -771,4 +822,3 @@ func hexValueFast(ch byte) int {
 	}
 	return 0
 }
-
