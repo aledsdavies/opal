@@ -59,6 +59,7 @@ type VariableContext struct {
 	inVarGroup      bool // Are we inside var ( ... )?
 	expectingValue  bool // Are we expecting a variable value (after =)?
 	varGroupLevel   int  // Nesting level of var groups
+	valueStarted    bool // Have we started parsing a value?
 }
 
 // Lexer tokenizes Devcmd source code with mode-based parsing
@@ -169,6 +170,7 @@ func (l *Lexer) updateVariableContext(tok Token) {
 	case VAR:
 		l.varContext.inVarDecl = true
 		l.varContext.expectingValue = false
+		l.varContext.valueStarted = false
 	case LPAREN:
 		if l.varContext.inVarDecl {
 			l.varContext.inVarGroup = true
@@ -181,11 +183,13 @@ func (l *Lexer) updateVariableContext(tok Token) {
 				l.varContext.inVarGroup = false
 				l.varContext.inVarDecl = false
 				l.varContext.expectingValue = false
+				l.varContext.valueStarted = false
 			}
 		}
 	case EQUALS:
 		if l.varContext.inVarDecl {
 			l.varContext.expectingValue = true
+			l.varContext.valueStarted = false
 			l.mode = VariableValueMode
 		}
 	case NEWLINE:
@@ -193,11 +197,20 @@ func (l *Lexer) updateVariableContext(tok Token) {
 		if l.varContext.inVarDecl && !l.varContext.inVarGroup {
 			l.varContext.inVarDecl = false
 			l.varContext.expectingValue = false
+			l.varContext.valueStarted = false
 			l.mode = LanguageMode
 		}
 		// In var group, newline just ends the current variable value
 		if l.varContext.expectingValue {
 			l.varContext.expectingValue = false
+			l.varContext.valueStarted = false
+			l.mode = LanguageMode
+		}
+	case COMMA:
+		// Comma terminates variable value in var groups
+		if l.varContext.inVarGroup && l.varContext.expectingValue {
+			l.varContext.expectingValue = false
+			l.varContext.valueStarted = false
 			l.mode = LanguageMode
 		}
 	case EOF:
@@ -205,12 +218,12 @@ func (l *Lexer) updateVariableContext(tok Token) {
 		l.varContext = VariableContext{}
 		l.mode = LanguageMode
 	default:
-		// After consuming a variable value, we're no longer expecting one
+		// Mark that we've started parsing a value
 		if l.varContext.expectingValue && l.mode == VariableValueMode {
 			// Check if this token looks like a variable value
 			if tok.Type == IDENTIFIER || tok.Type == STRING || tok.Type == NUMBER || tok.Type == DURATION {
-				l.varContext.expectingValue = false
-				l.mode = LanguageMode
+				l.varContext.valueStarted = true
+				// Don't switch mode yet - let the value parsing continue until terminated
 			}
 		}
 	}
@@ -299,8 +312,8 @@ func (l *Lexer) lexComplexVariableValue(start int) Token {
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemCommand,
-		Scope:     "variable.other.devcmd",
+		Semantic:  SemString, // Fixed: Complex variable values should be SemString, not SemCommand
+		Scope:     "string.unquoted.devcmd",
 	}
 }
 
@@ -494,12 +507,13 @@ func (l *Lexer) lexShellTextFast(start int) Token {
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemCommand,
+		Semantic:  SemShellText, // Fixed: Shell text should be SemShellText, not SemCommand
 		Scope:     "source.shell.embedded.devcmd",
 	}
 }
 
 // isDecoratorShape checks if '@' starts a decorator or inline variable.
+// Fixed: Handle zero-arg decorators like @now (no parentheses)
 func (l *Lexer) isDecoratorShape() bool {
 	if l.position > 0 && isIdentPart[l.input[l.position-1]] {
 		return false
@@ -512,11 +526,23 @@ func (l *Lexer) isDecoratorShape() bool {
 	if !isLetter[l.ch] && l.ch != '_' {
 		return false
 	}
+
+	// Read the identifier part
 	for l.ch != 0 && (isIdentPart[l.ch] || l.ch == '-') {
 		l.readChar()
 	}
+
 	l.skipWhitespaceFast()
-	return l.ch == '(' || l.ch == '{'
+
+	// Fixed: Zero-arg decorators are valid - they don't need parentheses or braces
+	// A decorator can be:
+	// 1. @name( - function decorator with args
+	// 2. @name { - block decorator with braces
+	// 3. @name - zero-arg decorator (inline function)
+	// 4. @name followed by whitespace/newline/EOF - zero-arg decorator
+
+	return l.ch == '(' || l.ch == '{' || l.ch == '\n' || l.ch == 0 || isWhitespace[l.ch] ||
+		   l.ch == '}' || l.ch == ';' || l.ch == '&' || l.ch == '|'
 }
 
 // --- Utility and unchanged functions from here ---
@@ -890,7 +916,13 @@ func (l *Lexer) readIdentifierFast() {
 	}
 }
 
+// skipWhitespaceFast skips whitespace with optimized early return
 func (l *Lexer) skipWhitespaceFast() {
+	// Fixed: Early return optimization - avoid loop if not whitespace
+	if !isWhitespace[l.ch] || l.ch == '\n' {
+		return
+	}
+
 	for isWhitespace[l.ch] && l.ch != '\n' {
 		l.readChar()
 	}

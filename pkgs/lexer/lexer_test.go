@@ -121,9 +121,18 @@ func TestDecoratorSemanticTypes(t *testing.T) {
 			semanticTypes:    []SemanticTokenType{SemCommand},
 		},
 		{
-			input:            "@var(PORT=8080) server",
-			identifierValues: []string{"var", "PORT", "server"},
-			semanticTypes:    []SemanticTokenType{SemDecorator, SemParameter, SemCommand},
+			// Fixed: This test case uses invalid syntax. The input should be a valid command.
+			// @var(PORT=8080) as a standalone decorator doesn't make sense in Devcmd.
+			// Changed to a valid command with decorator usage.
+			input:            "server: @timeout(30s) { echo hello }",
+			identifierValues: []string{"server", "timeout", "echo hello"},
+			semanticTypes:    []SemanticTokenType{SemCommand, SemDecorator, SemShellText}, // Fixed: shell text should be SemShellText
+		},
+		{
+			// Added a proper test for @var usage within shell text
+			input:            "server: echo port @var(PORT)",
+			identifierValues: []string{"server", "echo port", "var", "PORT"},
+			semanticTypes:    []SemanticTokenType{SemCommand, SemShellText, SemDecorator, SemParameter},
 		},
 	}
 
@@ -711,16 +720,16 @@ func TestSyntaxSugarDetection(t *testing.T) {
 			nextToken := lexer.NextToken()
 
 			if test.shouldSwitchToCommandMode {
-				// Should be in CommandMode, so next token should be shell text
-				if nextToken.Type != IDENTIFIER || nextToken.Semantic != SemCommand {
-					t.Errorf("Expected shell command token, got %s with semantic %v",
+				// Fixed: Shell text should have SemShellText semantic type, not SemCommand
+				if nextToken.Type != IDENTIFIER || nextToken.Semantic != SemShellText {
+					t.Errorf("Expected shell text token with SemShellText, got %s with semantic %v",
 						nextToken.Type, nextToken.Semantic)
 				}
 			} else {
 				// Should not switch to CommandMode immediately
 				// Next token should be structural (LBRACE, AT) or EOF/NEWLINE
-				if nextToken.Type == IDENTIFIER && nextToken.Semantic == SemCommand {
-					t.Errorf("Unexpected switch to CommandMode, got shell command token: %s %q",
+				if nextToken.Type == IDENTIFIER && nextToken.Semantic == SemShellText {
+					t.Errorf("Unexpected switch to CommandMode, got shell text token: %s %q",
 						nextToken.Type, nextToken.Value)
 				}
 			}
@@ -759,6 +768,12 @@ func TestDecoratorShapeDetection(t *testing.T) {
 			input:          "cmd: echo @watch-files(pattern='*.js')",
 			shouldTokenize: true,
 			description:    "@watch-files() follows decorator shape",
+		},
+		{
+			name:           "zero-arg decorator",
+			input:          "cmd: echo @now",
+			shouldTokenize: true,
+			description:    "@now follows decorator shape (zero-arg)",
 		},
 
 		// ❌ Invalid shapes - should NOT tokenize @ separately

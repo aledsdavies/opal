@@ -138,11 +138,11 @@ func Text(text string) ExpectedShellPart {
 	}
 }
 
-// At creates a function decorator within shell content: @var(NAME)
+// At creates a function decorator within shell content: @var(NAME) or @sh(command)
 func At(name string, args ...interface{}) ExpectedShellPart {
 	var decoratorArgs []ExpectedExpression
 	for _, arg := range args {
-		decoratorArgs = append(decoratorArgs, toExpression(arg))
+		decoratorArgs = append(decoratorArgs, toDecoratorArgument(name, arg))
 	}
 
 	return ExpectedShellPart{
@@ -158,12 +158,34 @@ func At(name string, args ...interface{}) ExpectedShellPart {
 func Decorator(name string, args ...interface{}) ExpectedDecorator {
 	var decoratorArgs []ExpectedExpression
 	for _, arg := range args {
-		decoratorArgs = append(decoratorArgs, toExpression(arg))
+		decoratorArgs = append(decoratorArgs, toDecoratorArgument(name, arg))
 	}
 
 	return ExpectedDecorator{
 		Name: name,
 		Args: decoratorArgs,
+	}
+}
+
+// toDecoratorArgument converts arguments based on the decorator type
+func toDecoratorArgument(decoratorName string, arg interface{}) ExpectedExpression {
+	// Handle special cases for specific decorators
+	switch decoratorName {
+	case "var":
+		// @var() takes identifier arguments (variable names)
+		if str, ok := arg.(string); ok {
+			return ExpectedExpression{Type: "identifier", Value: str}
+		}
+		return toExpression(arg)
+	case "sh":
+		// @sh() takes string arguments (shell commands)
+		if str, ok := arg.(string); ok {
+			return ExpectedExpression{Type: "string", Value: str}
+		}
+		return toExpression(arg)
+	default:
+		// For other decorators, use the default conversion
+		return toExpression(arg)
 	}
 }
 
@@ -413,6 +435,21 @@ type TestCase struct {
 	Expected    ExpectedProgram
 }
 
+// flattenVariables collects all variables from individual and grouped declarations
+func flattenVariables(program *ast.Program) []ast.VariableDecl {
+	var allVariables []ast.VariableDecl
+
+	// Add individual variables
+	allVariables = append(allVariables, program.Variables...)
+
+	// Add variables from groups
+	for _, group := range program.VarGroups {
+		allVariables = append(allVariables, group.Variables...)
+	}
+
+	return allVariables
+}
+
 // Comparison helpers for the new CST structure
 func expressionToComparable(expr ast.Expression) interface{} {
 	switch e := expr.(type) {
@@ -614,12 +651,15 @@ func RunTestCase(t *testing.T, tc TestCase) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
+		// Flatten all variables (individual and grouped) for comparison
+		allVariables := flattenVariables(program)
+
 		// Verify variables
-		if len(program.Variables) != len(tc.Expected.Variables) {
-			t.Errorf("expected %d variables, got %d", len(tc.Expected.Variables), len(program.Variables))
+		if len(allVariables) != len(tc.Expected.Variables) {
+			t.Errorf("expected %d variables, got %d", len(tc.Expected.Variables), len(allVariables))
 		} else {
 			for i, expectedVar := range tc.Expected.Variables {
-				actualVar := program.Variables[i]
+				actualVar := allVariables[i]
 
 				actualComparable := map[string]interface{}{
 					"Name":  actualVar.Name,

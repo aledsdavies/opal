@@ -16,6 +16,7 @@ type Parser struct {
 	previous lexer.Token
 	tokens   []lexer.Token
 	pos      int
+	inVariableValueContext bool // Track if we're parsing a variable value
 }
 
 // Parse creates a parser and parses the input string into an AST
@@ -152,7 +153,10 @@ func (p *Parser) parseVariableDecl() (*ast.VariableDecl, error) {
 		return nil, err
 	}
 
+	// Set variable value context
+	p.inVariableValueContext = true
 	value, err := p.parseExpression()
+	p.inVariableValueContext = false
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +206,10 @@ func (p *Parser) parseVarGroup() (*ast.VarGroup, error) {
 			return nil, err
 		}
 
+		// Set variable value context
+		p.inVariableValueContext = true
 		value, err := p.parseExpression()
+		p.inVariableValueContext = false
 		if err != nil {
 			return nil, err
 		}
@@ -593,8 +600,12 @@ func (p *Parser) parseTextPart() (*ast.TextPart, error) {
 		}
 	}
 
+	text := textBuilder.String()
+	// Only trim leading whitespace, preserve trailing spaces for shell commands
+	text = strings.TrimLeft(text, " \t\r\f")
+
 	return &ast.TextPart{
-		Text: strings.TrimSpace(textBuilder.String()),
+		Text: text,
 		Pos:  ast.Position{Line: startPos.Line, Column: startPos.Column},
 	}, nil
 }
@@ -609,6 +620,10 @@ func (p *Parser) parseExpression() (ast.Expression, error) {
 	case lexer.DURATION:
 		return p.parseDurationLiteral()
 	case lexer.IDENTIFIER:
+		// In variable value context, treat identifiers as string literals
+		if p.inVariableValueContext {
+			return p.parseIdentifierAsStringLiteral()
+		}
 		return p.parseIdentifier()
 	case lexer.AT:
 		if p.isFunctionDecorator() {
@@ -620,6 +635,22 @@ func (p *Parser) parseExpression() (ast.Expression, error) {
 		return nil, fmt.Errorf("unexpected token in expression: %s at line %d, column %d",
 			p.current.Type, p.current.Line, p.current.Column)
 	}
+}
+
+// parseIdentifierAsStringLiteral parses an identifier token as a string literal
+func (p *Parser) parseIdentifierAsStringLiteral() (*ast.StringLiteral, error) {
+	startPos := p.current
+
+	token := p.current
+	value := p.current.Value
+	p.advance()
+
+	return &ast.StringLiteral{
+		Value:       value,
+		Raw:         value, // For unquoted identifiers, raw and value are the same
+		Pos:         ast.Position{Line: startPos.Line, Column: startPos.Column},
+		StringToken: token,
+	}, nil
 }
 
 // parseStringLiteral parses string literals
