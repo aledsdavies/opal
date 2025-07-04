@@ -160,7 +160,7 @@ func (l *Lexer) NextToken() Token {
 		l.afterAt = true
 	} else if l.afterAt && tok.Type == IDENTIFIER {
 		// After parsing a decorator name, reset the flag
-		if tok.Semantic == SemDecorator || tok.Semantic == SemParameter {
+		if tok.Semantic == SemDecorator || tok.Semantic == SemVariable {
 			l.afterAt = false
 		}
 	}
@@ -802,9 +802,19 @@ func (l *Lexer) lexIdentifierOrKeywordFast(start int) Token {
 	var tokenType TokenType
 	var semantic SemanticTokenType
 	var scope string
+
 	if l.afterAt {
 		tokenType = IDENTIFIER
-		semantic = SemDecorator
+		// Use stdlib registry to determine semantic type
+		stdlibSemanticType := stdlib.GetDecoratorSemanticType(value)
+		switch stdlibSemanticType {
+		case stdlib.SemVariable:
+			semantic = SemVariable
+		case stdlib.SemFunction:
+			semantic = SemVariable // Map function decorators to SemVariable for now
+		default:
+			semantic = SemDecorator
+		}
 		scope = "entity.name.function.decorator.devcmd"
 	} else if l.isInDecoratorParams() {
 		tokenType = IDENTIFIER

@@ -3,6 +3,7 @@ package stdlib
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // DecoratorType represents the type of decorator
@@ -13,6 +14,15 @@ const (
 	FunctionDecorator DecoratorType = iota
 	// BlockDecorator modifies execution behavior and requires explicit blocks
 	BlockDecorator
+)
+
+// SemanticType represents the semantic category for syntax highlighting
+type SemanticType int
+
+const (
+	SemDecorator SemanticType = iota // Generic decorator
+	SemVariable                      // Variable-related decorators (@var, @env)
+	SemFunction                      // Function-related decorators (@sh, @now)
 )
 
 // ArgumentType represents the expected type of decorator arguments
@@ -31,6 +41,7 @@ const (
 type DecoratorSignature struct {
 	Name        string
 	Type        DecoratorType
+	Semantic    SemanticType
 	Description string
 	Args        []ArgumentSpec
 	RequiresBlock bool // Only for BlockDecorator - whether it requires explicit {}
@@ -46,6 +57,7 @@ type ArgumentSpec struct {
 
 // DecoratorRegistry holds all valid decorators
 type DecoratorRegistry struct {
+	mu         sync.RWMutex
 	decorators map[string]*DecoratorSignature
 }
 
@@ -65,116 +77,57 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 	r.register(&DecoratorSignature{
 		Name:        "var",
 		Type:        FunctionDecorator,
+		Semantic:    SemVariable,
 		Description: "Variable substitution - replaces with variable value",
 		Args: []ArgumentSpec{
 			{Name: "name", Type: IdentifierArg, Optional: false},
 		},
 	})
 
-	r.register(&DecoratorSignature{
-		Name:        "sh",
-		Type:        FunctionDecorator,
-		Description: "Shell execution with return value - executes shell command and returns output",
-		Args: []ArgumentSpec{
-			{Name: "command", Type: ExpressionArg, Optional: false},
-		},
-	})
-
-	r.register(&DecoratorSignature{
-		Name:        "env",
-		Type:        FunctionDecorator,
-		Description: "Environment variable access - returns environment variable value",
-		Args: []ArgumentSpec{
-			{Name: "name", Type: IdentifierArg, Optional: false},
-		},
-	})
-
-	r.register(&DecoratorSignature{
-		Name:        "now",
-		Type:        FunctionDecorator,
-		Description: "Current timestamp - returns current date/time",
-		Args:        []ArgumentSpec{}, // No arguments
-	})
-
 	// Block Decorators - modify execution behavior and require explicit blocks
-	r.register(&DecoratorSignature{
-		Name:          "timeout",
-		Type:          BlockDecorator,
-		Description:   "Sets execution timeout",
-		RequiresBlock: true,
-		Args: []ArgumentSpec{
-			{Name: "duration", Type: DurationArg, Optional: false},
-		},
-	})
-
-	r.register(&DecoratorSignature{
-		Name:          "retry",
-		Type:          BlockDecorator,
-		Description:   "Retries command on failure",
-		RequiresBlock: true,
-		Args: []ArgumentSpec{
-			{Name: "attempts", Type: NumberArg, Optional: true, Default: "3"},
-		},
-	})
 
 	r.register(&DecoratorSignature{
 		Name:          "parallel",
 		Type:          BlockDecorator,
+		Semantic:      SemDecorator,
 		Description:   "Executes commands in parallel",
 		RequiresBlock: true,
 		Args:          []ArgumentSpec{}, // No arguments
 	})
-
-	r.register(&DecoratorSignature{
-		Name:          "debounce",
-		Type:          BlockDecorator,
-		Description:   "Debounces command execution",
-		RequiresBlock: true,
-		Args: []ArgumentSpec{
-			{Name: "delay", Type: DurationArg, Optional: false},
-		},
-	})
-
-	r.register(&DecoratorSignature{
-		Name:          "confirm",
-		Type:          BlockDecorator,
-		Description:   "Requires user confirmation before execution",
-		RequiresBlock: true,
-		Args: []ArgumentSpec{
-			{Name: "message", Type: StringArg, Optional: true, Default: "Continue?"},
-		},
-	})
-
-	r.register(&DecoratorSignature{
-		Name:          "watch-files",
-		Type:          BlockDecorator,
-		Description:   "Watches files for changes and executes on change",
-		RequiresBlock: true,
-		Args: []ArgumentSpec{
-			{Name: "pattern", Type: StringArg, Optional: false},
-		},
-	})
 }
 
-// register adds a decorator to the registry
+// Register adds a new decorator to the registry (thread-safe)
+func (r *DecoratorRegistry) Register(signature *DecoratorSignature) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.decorators[signature.Name] = signature
+}
+
+// register adds a decorator to the registry (internal, not thread-safe)
 func (r *DecoratorRegistry) register(signature *DecoratorSignature) {
 	r.decorators[signature.Name] = signature
 }
 
 // Get returns the decorator signature for a given name
 func (r *DecoratorRegistry) Get(name string) (*DecoratorSignature, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	decorator, exists := r.decorators[name]
 	return decorator, exists
 }
 
 // IsValidDecorator checks if a decorator name is valid
 func (r *DecoratorRegistry) IsValidDecorator(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	_, exists := r.decorators[name]
 	return exists
 }
 
 // IsFunctionDecorator checks if a decorator is a function decorator
 func (r *DecoratorRegistry) IsFunctionDecorator(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if decorator, exists := r.decorators[name]; exists {
 		return decorator.Type == FunctionDecorator
 	}
@@ -183,14 +136,28 @@ func (r *DecoratorRegistry) IsFunctionDecorator(name string) bool {
 
 // IsBlockDecorator checks if a decorator is a block decorator
 func (r *DecoratorRegistry) IsBlockDecorator(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if decorator, exists := r.decorators[name]; exists {
 		return decorator.Type == BlockDecorator
 	}
 	return false
 }
 
+// GetSemanticType returns the semantic type for a decorator
+func (r *DecoratorRegistry) GetSemanticType(name string) SemanticType {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if decorator, exists := r.decorators[name]; exists {
+		return decorator.Semantic
+	}
+	return SemDecorator // Default to generic decorator
+}
+
 // RequiresBlock checks if a decorator requires an explicit block
 func (r *DecoratorRegistry) RequiresBlock(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if decorator, exists := r.decorators[name]; exists {
 		return decorator.RequiresBlock
 	}
@@ -199,6 +166,9 @@ func (r *DecoratorRegistry) RequiresBlock(name string) bool {
 
 // ValidateArguments validates decorator arguments against the signature
 func (r *DecoratorRegistry) ValidateArguments(name string, args []string) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	decorator, exists := r.decorators[name]
 	if !exists {
 		return fmt.Errorf("unknown decorator: @%s", name)
@@ -226,6 +196,9 @@ func (r *DecoratorRegistry) ValidateArguments(name string, args []string) error 
 
 // GetAllDecorators returns all registered decorators
 func (r *DecoratorRegistry) GetAllDecorators() []*DecoratorSignature {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	decorators := make([]*DecoratorSignature, 0, len(r.decorators))
 	for _, decorator := range r.decorators {
 		decorators = append(decorators, decorator)
@@ -235,6 +208,9 @@ func (r *DecoratorRegistry) GetAllDecorators() []*DecoratorSignature {
 
 // GetFunctionDecorators returns all function decorators
 func (r *DecoratorRegistry) GetFunctionDecorators() []*DecoratorSignature {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	var decorators []*DecoratorSignature
 	for _, decorator := range r.decorators {
 		if decorator.Type == FunctionDecorator {
@@ -246,9 +222,26 @@ func (r *DecoratorRegistry) GetFunctionDecorators() []*DecoratorSignature {
 
 // GetBlockDecorators returns all block decorators
 func (r *DecoratorRegistry) GetBlockDecorators() []*DecoratorSignature {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	var decorators []*DecoratorSignature
 	for _, decorator := range r.decorators {
 		if decorator.Type == BlockDecorator {
+			decorators = append(decorators, decorator)
+		}
+	}
+	return decorators
+}
+
+// GetDecoratorsBySemanticType returns decorators filtered by semantic type
+func (r *DecoratorRegistry) GetDecoratorsBySemanticType(semanticType SemanticType) []*DecoratorSignature {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var decorators []*DecoratorSignature
+	for _, decorator := range r.decorators {
+		if decorator.Semantic == semanticType {
 			decorators = append(decorators, decorator)
 		}
 	}
@@ -285,6 +278,7 @@ func (s *DecoratorSignature) GetDocumentationString() string {
 
 	doc.WriteString(fmt.Sprintf("**@%s** - %s\n", s.Name, s.Description))
 	doc.WriteString(fmt.Sprintf("Type: %s\n", s.getTypeString()))
+	doc.WriteString(fmt.Sprintf("Semantic: %s\n", s.getSemanticString()))
 	doc.WriteString(fmt.Sprintf("Usage: `%s`\n", s.GetUsageString()))
 
 	if len(s.Args) > 0 {
@@ -317,6 +311,20 @@ func (s *DecoratorSignature) getTypeString() string {
 	}
 }
 
+// getSemanticString returns a human-readable semantic string
+func (s *DecoratorSignature) getSemanticString() string {
+	switch s.Semantic {
+	case SemVariable:
+		return "variable"
+	case SemFunction:
+		return "function"
+	case SemDecorator:
+		return "decorator"
+	default:
+		return "unknown"
+	}
+}
+
 // getTypeString returns a human-readable type string for arguments
 func (a *ArgumentSpec) getTypeString() string {
 	switch a.Type {
@@ -342,6 +350,11 @@ var StandardDecorators = NewDecoratorRegistry()
 
 // Public API functions
 
+// RegisterDecorator adds a new decorator to the global registry
+func RegisterDecorator(signature *DecoratorSignature) {
+	StandardDecorators.Register(signature)
+}
+
 // IsValidDecorator checks if a decorator name is valid
 func IsValidDecorator(name string) bool {
 	return StandardDecorators.IsValidDecorator(name)
@@ -355,6 +368,11 @@ func IsFunctionDecorator(name string) bool {
 // IsBlockDecorator checks if a decorator is a block decorator
 func IsBlockDecorator(name string) bool {
 	return StandardDecorators.IsBlockDecorator(name)
+}
+
+// GetDecoratorSemanticType returns the semantic type for a decorator
+func GetDecoratorSemanticType(name string) SemanticType {
+	return StandardDecorators.GetSemanticType(name)
 }
 
 // RequiresExplicitBlock checks if a decorator must have explicit braces
@@ -400,6 +418,11 @@ func GetFunctionDecorators() []*DecoratorSignature {
 // GetBlockDecorators returns all block decorators
 func GetBlockDecorators() []*DecoratorSignature {
 	return StandardDecorators.GetBlockDecorators()
+}
+
+// GetDecoratorsBySemanticType returns decorators filtered by semantic type
+func GetDecoratorsBySemanticType(semanticType SemanticType) []*DecoratorSignature {
+	return StandardDecorators.GetDecoratorsBySemanticType(semanticType)
 }
 
 // GetDecoratorDocumentation returns documentation for all decorators

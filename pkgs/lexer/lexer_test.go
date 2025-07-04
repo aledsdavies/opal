@@ -5,8 +5,56 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aledsdavies/devcmd/pkgs/stdlib"
 	"github.com/google/go-cmp/cmp"
 )
+
+func init() {
+	// Register test decorators that are referenced in tests but not in the minimal standard registry
+	testDecorators := []*stdlib.DecoratorSignature{
+		{
+			Name:          "timeout",
+			Type:          stdlib.BlockDecorator,
+			Semantic:      stdlib.SemDecorator,
+			Description:   "Sets execution timeout (test decorator)",
+			RequiresBlock: true,
+			Args: []stdlib.ArgumentSpec{
+				{Name: "duration", Type: stdlib.DurationArg, Optional: false},
+			},
+		},
+		{
+			Name:        "now",
+			Type:        stdlib.FunctionDecorator,
+			Semantic:    stdlib.SemFunction,
+			Description: "Current timestamp (test decorator)",
+			Args:        []stdlib.ArgumentSpec{}, // No arguments
+		},
+		{
+			Name:          "watch-files",
+			Type:          stdlib.BlockDecorator,
+			Semantic:      stdlib.SemDecorator,
+			Description:   "Watches files for changes (test decorator)",
+			RequiresBlock: true,
+			Args: []stdlib.ArgumentSpec{
+				{Name: "pattern", Type: stdlib.StringArg, Optional: false},
+			},
+		},
+		{
+			Name:          "retry",
+			Type:          stdlib.BlockDecorator,
+			Semantic:      stdlib.SemDecorator,
+			Description:   "Retries command on failure (test decorator)",
+			RequiresBlock: true,
+			Args: []stdlib.ArgumentSpec{
+				{Name: "attempts", Type: stdlib.NumberArg, Optional: true, Default: "3"},
+			},
+		},
+	}
+
+	for _, decorator := range testDecorators {
+		stdlib.RegisterDecorator(decorator)
+	}
+}
 
 func TestBasicTokens(t *testing.T) {
 	tests := []struct {
@@ -1434,13 +1482,13 @@ func TestWhitespacePreservationInShellCommands(t *testing.T) {
 			}{
 				{IDENTIFIER, "build"},
 				{COLON, ":"},
-				{IDENTIFIER, `echo "Files: ls `},           // MUST preserve space
+				{IDENTIFIER, `echo "Files: ls `}, // MUST preserve space
 				{AT, "@"},
 				{IDENTIFIER, "var"},
 				{LPAREN, "("},
 				{IDENTIFIER, "SRC"},
 				{RPAREN, ")"},
-				{IDENTIFIER, ` | wc -l"`},        // MUST preserve quote
+				{IDENTIFIER, ` | wc -l"`}, // MUST preserve quote
 				{EOF, ""},
 			},
 		},
