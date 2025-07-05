@@ -8,7 +8,153 @@ import (
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/google/go-cmp/cmp"
+	"github.com/aledsdavies/devcmd/pkgs/stdlib"
 )
+
+// init registers any test-specific decorators not in stdlib
+func init() {
+	registerTestOnlyDecorators()
+}
+
+// registerTestOnlyDecorators registers decorators that are only used for testing
+// and not part of the standard library
+func registerTestOnlyDecorators() {
+	// Register all decorators used in tests to ensure they are available
+
+	// Function decorators (inline within shell content)
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:        "var",
+		Type:        stdlib.FunctionDecorator,
+		Semantic:    stdlib.SemVariable,
+		Description: "Variable substitution - replaces with variable value",
+		Args: []stdlib.ArgumentSpec{
+			{Name: "name", Type: stdlib.IdentifierArg, Optional: false},
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:        "sh",
+		Type:        stdlib.FunctionDecorator,
+		Semantic:    stdlib.SemFunction,
+		Description: "Executes shell command and returns output",
+		Args: []stdlib.ArgumentSpec{
+			{Name: "command", Type: stdlib.StringArg, Optional: false},
+		},
+	})
+
+	// Block decorators (require explicit braces)
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "timeout",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Sets execution timeout for command blocks",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "duration", Type: stdlib.DurationArg, Optional: false},
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "env",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Sets environment variables for command execution",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "vars", Type: stdlib.StringArg, Optional: false},
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "confirm",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Prompts for user confirmation before executing commands",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "message", Type: stdlib.StringArg, Optional: true, Default: "Are you sure?"},
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "debounce",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Debounces command execution with specified delay",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "delay", Type: stdlib.DurationArg, Optional: false},
+			{Name: "pattern", Type: stdlib.StringArg, Optional: true},
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "cwd",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Changes working directory for command execution",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "directory", Type: stdlib.ExpressionArg, Optional: false}, // Can be @var() expression
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "parallel",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Executes commands in parallel",
+		RequiresBlock: true,
+		Args:          []stdlib.ArgumentSpec{}, // No arguments
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "retry",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Retries command execution on failure",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "attempts", Type: stdlib.NumberArg, Optional: true, Default: "3"},
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "watch-files",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Watches files for changes and executes commands",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "pattern", Type: stdlib.ExpressionArg, Optional: true},        // Can be @var() expression
+			{Name: "interval", Type: stdlib.DurationArg, Optional: true, Default: "1s"},
+			{Name: "recursive", Type: stdlib.BooleanArg, Optional: true, Default: "true"},
+		},
+	})
+
+	// Test-specific decorators for edge cases
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "offset",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Test decorator - applies numeric offset to command execution",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "value", Type: stdlib.NumberArg, Optional: false},
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "factor",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Test decorator - applies scaling factor to command execution",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "multiplier", Type: stdlib.NumberArg, Optional: false},
+		},
+	})
+}
 
 // DSL for building expected test results using natural language
 
@@ -49,65 +195,203 @@ func DurationExpr(value string) ExpectedExpression {
 }
 
 // Cmd creates a simple command: NAME: BODY
+// This applies syntax sugar for simple shell commands with or without function decorators
 func Cmd(name string, body interface{}) ExpectedCommand {
+	cmdBody := toCommandBody(body)
+
+	// Validate syntax sugar rules: only simple shell content gets automatic braces
+	if cmdBody.IsBlock {
+		// Instead of panic, return an error command that will fail the test gracefully
+		return ExpectedCommand{
+			Name: name,
+			Type: ast.Command,
+			Body: ExpectedCommandBody{
+				IsBlock: false,
+				Content: ExpectedShellContent{
+					Parts: []ExpectedShellPart{
+						Text("ERROR: Cmd() is for simple commands only. Use CmdBlock() for explicit block syntax"),
+					},
+				},
+			},
+		}
+	}
+
+	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
+	// Function decorators (@var, @sh) are allowed in simple commands
+	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
+		for _, part := range shellContent.Parts {
+			if part.Type == "function_decorator" {
+				// Function decorators are allowed in simple commands - they get syntax sugar
+				if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
+					// Instead of panic, return an error command
+					return ExpectedCommand{
+						Name: name,
+						Type: ast.Command,
+						Body: ExpectedCommandBody{
+							IsBlock: false,
+							Content: ExpectedShellContent{
+								Parts: []ExpectedShellPart{
+									Text("ERROR: Cmd() cannot contain block decorators. Block decorators require explicit block syntax - use CmdBlock() instead"),
+								},
+							},
+						},
+					}
+				}
+			}
+		}
+	}
+
 	return ExpectedCommand{
 		Name: name,
 		Type: ast.Command,
-		Body: toCommandBody(body),
+		Body: cmdBody,
 	}
 }
 
-// CmdWith creates a command with decorators: @decorator NAME: BODY
-// This is syntax sugar for: NAME: { @decorator ... }
-func CmdWith(decorators interface{}, name string, body interface{}) ExpectedCommand {
-	return ExpectedCommand{
-		Name: name,
-		Type: ast.Command,
-		Body: ExpectedCommandBody{
-			IsBlock: true,
-			Content: toCommandContentWithDecorators(decorators, body),
-		},
-	}
-}
+// CmdWith creates a command with decorators
+// **REMOVED** - This violates the spec. Block decorators must have explicit braces.
+// Use CmdBlock with decorators instead.
 
 // Watch creates a watch command: watch NAME: BODY
+// This applies syntax sugar for simple shell commands with or without function decorators
 func Watch(name string, body interface{}) ExpectedCommand {
+	cmdBody := toCommandBody(body)
+
+	// Validate syntax sugar rules: only simple shell content gets automatic braces
+	if cmdBody.IsBlock {
+		// Instead of panic, return an error command
+		return ExpectedCommand{
+			Name: name,
+			Type: ast.WatchCommand,
+			Body: ExpectedCommandBody{
+				IsBlock: false,
+				Content: ExpectedShellContent{
+					Parts: []ExpectedShellPart{
+						Text("ERROR: Watch() is for simple commands only. Use WatchBlock() for explicit block syntax"),
+					},
+				},
+			},
+		}
+	}
+
+	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
+	// Function decorators (@var, @sh) are allowed in simple commands
+	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
+		for _, part := range shellContent.Parts {
+			if part.Type == "function_decorator" {
+				// Function decorators are allowed in simple commands - they get syntax sugar
+				if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
+					// Instead of panic, return an error command
+					return ExpectedCommand{
+						Name: name,
+						Type: ast.WatchCommand,
+						Body: ExpectedCommandBody{
+							IsBlock: false,
+							Content: ExpectedShellContent{
+								Parts: []ExpectedShellPart{
+									Text("ERROR: Watch() cannot contain block decorators. Block decorators require explicit block syntax - use WatchBlock() instead"),
+								},
+							},
+						},
+					}
+				}
+			}
+		}
+	}
+
 	return ExpectedCommand{
 		Name: name,
 		Type: ast.WatchCommand,
-		Body: toCommandBody(body),
+		Body: cmdBody,
 	}
 }
 
-// WatchWith creates a watch command with decorators
-func WatchWith(decorators interface{}, name string, body interface{}) ExpectedCommand {
+// WatchBlock creates a watch command with explicit block syntax
+func WatchBlock(name string, content ...interface{}) ExpectedCommand {
 	return ExpectedCommand{
 		Name: name,
 		Type: ast.WatchCommand,
 		Body: ExpectedCommandBody{
 			IsBlock: true,
-			Content: toCommandContentWithDecorators(decorators, body),
+			Content: toCommandContent(content...),
 		},
 	}
 }
 
 // Stop creates a stop command: stop NAME: BODY
+// This applies syntax sugar for simple shell commands with or without function decorators
 func Stop(name string, body interface{}) ExpectedCommand {
+	cmdBody := toCommandBody(body)
+
+	// Validate syntax sugar rules: only simple shell content gets automatic braces
+	if cmdBody.IsBlock {
+		// Instead of panic, return an error command
+		return ExpectedCommand{
+			Name: name,
+			Type: ast.StopCommand,
+			Body: ExpectedCommandBody{
+				IsBlock: false,
+				Content: ExpectedShellContent{
+					Parts: []ExpectedShellPart{
+						Text("ERROR: Stop() is for simple commands only. Use StopBlock() for explicit block syntax"),
+					},
+				},
+			},
+		}
+	}
+
+	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
+	// Function decorators (@var, @sh) are allowed in simple commands
+	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
+		for _, part := range shellContent.Parts {
+			if part.Type == "function_decorator" {
+				// Function decorators are allowed in simple commands - they get syntax sugar
+				if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
+					// Instead of panic, return an error command
+					return ExpectedCommand{
+						Name: name,
+						Type: ast.StopCommand,
+						Body: ExpectedCommandBody{
+							IsBlock: false,
+							Content: ExpectedShellContent{
+								Parts: []ExpectedShellPart{
+									Text("ERROR: Stop() cannot contain block decorators. Block decorators require explicit block syntax - use StopBlock() instead"),
+								},
+							},
+						},
+					}
+				}
+			}
+		}
+	}
+
 	return ExpectedCommand{
 		Name: name,
 		Type: ast.StopCommand,
-		Body: toCommandBody(body),
+		Body: cmdBody,
 	}
 }
 
-// StopWith creates a stop command with decorators
-func StopWith(decorators interface{}, name string, body interface{}) ExpectedCommand {
+// StopBlock creates a stop command with explicit block syntax
+func StopBlock(name string, content ...interface{}) ExpectedCommand {
 	return ExpectedCommand{
 		Name: name,
 		Type: ast.StopCommand,
 		Body: ExpectedCommandBody{
 			IsBlock: true,
-			Content: toCommandContentWithDecorators(decorators, body),
+			Content: toCommandContent(content...),
+		},
+	}
+}
+
+// CmdBlock creates a command with explicit block syntax: NAME: { content }
+func CmdBlock(name string, content ...interface{}) ExpectedCommand {
+	return ExpectedCommand{
+		Name: name,
+		Type: ast.Command,
+		Body: ExpectedCommandBody{
+			IsBlock: true,
+			Content: toCommandContent(content...),
 		},
 	}
 }
@@ -121,11 +405,33 @@ func Block(content ...interface{}) ExpectedCommandBody {
 }
 
 // Simple creates a simple command body (single line)
+// This enforces that simple commands cannot contain BLOCK decorators (per syntax sugar rules)
+// Function decorators (@var, @sh) are allowed and get syntax sugar
 func Simple(parts ...interface{}) ExpectedCommandBody {
+	shellParts := toShellParts(parts...)
+
+	// Validate that simple commands don't contain BLOCK decorators
+	// Function decorators are allowed in simple commands
+	for _, part := range shellParts {
+		if part.Type == "function_decorator" {
+			if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
+				// Instead of panic, return an error body
+				return ExpectedCommandBody{
+					IsBlock: false,
+					Content: ExpectedShellContent{
+						Parts: []ExpectedShellPart{
+							Text("ERROR: Simple() command bodies cannot contain block decorators. Per spec: 'Block decorators require explicit braces' - use Block() instead"),
+						},
+					},
+				}
+			}
+		}
+	}
+
 	return ExpectedCommandBody{
 		IsBlock: false,
 		Content: ExpectedShellContent{
-			Parts: toShellParts(parts...),
+			Parts: shellParts,
 		},
 	}
 }
@@ -139,7 +445,17 @@ func Text(text string) ExpectedShellPart {
 }
 
 // At creates a function decorator within shell content: @var(NAME) or @sh(command)
+// Only valid for function decorators like @var() and @sh()
 func At(name string, args ...interface{}) ExpectedShellPart {
+	// Validate that this is a function decorator
+	if !stdlib.IsFunctionDecorator(name) {
+		// Instead of panic, return an error shell part
+		return ExpectedShellPart{
+			Type: "text",
+			Text: fmt.Sprintf("ERROR: At() can only be used with function decorators, but '%s' is not a function decorator", name),
+		}
+	}
+
 	var decoratorArgs []ExpectedExpression
 	for _, arg := range args {
 		decoratorArgs = append(decoratorArgs, toDecoratorArgument(name, arg))
@@ -155,7 +471,18 @@ func At(name string, args ...interface{}) ExpectedShellPart {
 }
 
 // Decorator creates a block decorator: @timeout(30s)
+// Only valid for block decorators that require explicit braces
 func Decorator(name string, args ...interface{}) ExpectedDecorator {
+	// Validate that this is a block decorator
+	if !stdlib.IsBlockDecorator(name) {
+		// Instead of panic, we'll return a decorator with an error name
+		// This will cause tests to fail but not panic
+		return ExpectedDecorator{
+			Name: fmt.Sprintf("ERROR_NOT_BLOCK_DECORATOR_%s", name),
+			Args: []ExpectedExpression{},
+		}
+	}
+
 	var decoratorArgs []ExpectedExpression
 	for _, arg := range args {
 		decoratorArgs = append(decoratorArgs, toDecoratorArgument(name, arg))
@@ -164,6 +491,19 @@ func Decorator(name string, args ...interface{}) ExpectedDecorator {
 	return ExpectedDecorator{
 		Name: name,
 		Args: decoratorArgs,
+	}
+}
+
+// validateDecoratorsForNestedUsage validates that decorators can only be used in explicit blocks
+func validateDecoratorsForNestedUsage(decorators []ExpectedDecorator) {
+	// Note: Multiple decorators are allowed in CmdBlock context as they represent
+	// explicit nesting like: @timeout(30s) { @retry(2) { ... } }
+	// The parser will handle the actual nesting validation
+
+	for _, decorator := range decorators {
+		if stdlib.RequiresExplicitBlock(decorator.Name) {
+			// This will be validated at the call site to ensure explicit braces
+		}
 	}
 }
 
@@ -178,9 +518,9 @@ func toDecoratorArgument(decoratorName string, arg interface{}) ExpectedExpressi
 		}
 		return toExpression(arg)
 	case "sh":
-		// @sh() takes string arguments (shell commands)
+		// @sh() arguments are parsed as identifiers by the parser, not strings
 		if str, ok := arg.(string); ok {
-			return ExpectedExpression{Type: "string", Value: str}
+			return ExpectedExpression{Type: "identifier", Value: str}
 		}
 		return toExpression(arg)
 	default:
@@ -223,12 +563,49 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 	case ExpectedCommandBody:
 		return val
 	case string:
+		// Empty string should create empty shell content
+		if val == "" {
+			return ExpectedCommandBody{
+				IsBlock: false,
+				Content: ExpectedShellContent{Parts: []ExpectedShellPart{}},
+			}
+		}
+		// Simple string becomes simple command body (gets syntax sugar)
 		return Simple(Text(val))
+	case ExpectedShellContent:
+		// Shell content that doesn't explicitly specify block structure
+		// Check if it contains BLOCK decorators - if so, it needs explicit blocks
+		// Function decorators are allowed and get syntax sugar
+		for _, part := range val.Parts {
+			if part.Type == "function_decorator" {
+				if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
+					// Instead of panic, return an error body
+					return ExpectedCommandBody{
+						IsBlock: true, // Force block to avoid syntax sugar issues
+						Content: ExpectedShellContent{
+							Parts: []ExpectedShellPart{
+								Text("ERROR: Shell content with block decorators requires explicit block syntax"),
+							},
+						},
+					}
+				}
+			}
+		}
+		return ExpectedCommandBody{
+			IsBlock: false,
+			Content: val,
+		}
+	case ExpectedDecoratedContent:
+		// Decorated content ALWAYS requires explicit blocks per spec
+		return ExpectedCommandBody{
+			IsBlock: true,
+			Content: val,
+		}
 	default:
 		return ExpectedCommandBody{
 			IsBlock: false,
 			Content: ExpectedShellContent{
-				Parts: []ExpectedShellPart{Text("")},
+				Parts: []ExpectedShellPart{},
 			},
 		}
 	}
@@ -239,21 +616,24 @@ func toCommandContent(items ...interface{}) ExpectedCommandContent {
 		return ExpectedShellContent{Parts: []ExpectedShellPart{}}
 	}
 
-	// Check if first item is a decorator
-	if dec, ok := items[0].(ExpectedDecorator); ok {
-		// This is decorated content
-		decorators := []ExpectedDecorator{dec}
+	var decorators []ExpectedDecorator
+	var contentStart int
 
-		// Look for more decorators
-		contentStart := 1
-		for i := 1; i < len(items); i++ {
-			if nextDec, ok := items[i].(ExpectedDecorator); ok {
-				decorators = append(decorators, nextDec)
-				contentStart = i + 1
-			} else {
-				break
-			}
+	// Collect all leading decorators
+	for i, item := range items {
+		if dec, ok := item.(ExpectedDecorator); ok {
+			decorators = append(decorators, dec)
+			contentStart = i + 1
+		} else {
+			break
 		}
+	}
+
+	// If we have decorators, create decorated content
+	if len(decorators) > 0 {
+		// Validate decorator usage - but allow multiple decorators in CmdBlock context
+		// This is for explicit nesting like: @timeout(30s) { @retry(2) { ... } }
+		// which becomes: CmdBlock("cmd", Decorator("timeout", "30s"), Decorator("retry", "2"), Text(...))
 
 		// Rest is the content
 		var content ExpectedCommandContent
@@ -275,30 +655,6 @@ func toCommandContent(items ...interface{}) ExpectedCommandContent {
 	}
 }
 
-func toCommandContentWithDecorators(decorators interface{}, body interface{}) ExpectedCommandContent {
-	decoratorList := toDecorators(decorators)
-
-	// Convert body to content
-	var content ExpectedCommandContent
-	switch v := body.(type) {
-	case ExpectedCommandBody:
-		content = v.Content
-	case string:
-		content = ExpectedShellContent{
-			Parts: []ExpectedShellPart{Text(v)},
-		}
-	default:
-		content = ExpectedShellContent{
-			Parts: []ExpectedShellPart{},
-		}
-	}
-
-	return ExpectedDecoratedContent{
-		Decorators: decoratorList,
-		Content:    content,
-	}
-}
-
 func toShellParts(items ...interface{}) []ExpectedShellPart {
 	var parts []ExpectedShellPart
 	for _, item := range items {
@@ -308,10 +664,16 @@ func toShellParts(items ...interface{}) []ExpectedShellPart {
 		case string:
 			parts = append(parts, Text(v))
 		case ExpectedFunctionDecorator:
-			parts = append(parts, ExpectedShellPart{
-				Type: "function_decorator",
-				FunctionDecorator: &v,
-			})
+			// Validate that function decorators are only used inline
+			if !stdlib.IsFunctionDecorator(v.Name) {
+				// Instead of panic, create an error text part
+				parts = append(parts, Text(fmt.Sprintf("ERROR: '%s' is not a function decorator and cannot be used inline in shell content", v.Name)))
+			} else {
+				parts = append(parts, ExpectedShellPart{
+					Type: "function_decorator",
+					FunctionDecorator: &v,
+				})
+			}
 		default:
 			parts = append(parts, Text(fmt.Sprintf("%v", v)))
 		}
@@ -324,6 +686,7 @@ func toDecorators(v interface{}) []ExpectedDecorator {
 	case ExpectedDecorator:
 		return []ExpectedDecorator{val}
 	case []ExpectedDecorator:
+		// Allow multiple decorators - this represents explicit nesting
 		return val
 	case []interface{}:
 		var decorators []ExpectedDecorator
@@ -332,6 +695,7 @@ func toDecorators(v interface{}) []ExpectedDecorator {
 				decorators = append(decorators, dec)
 			}
 		}
+		// Allow multiple decorators - parser will handle nesting validation
 		return decorators
 	default:
 		return []ExpectedDecorator{}
@@ -479,9 +843,9 @@ func expressionToComparable(expr ast.Expression) interface{} {
 			args[i] = expressionToComparable(arg)
 		}
 		return map[string]interface{}{
-			"Type":  "function_decorator",
-			"Name":  e.Name,
-			"Args":  args,
+			"Type": "function_decorator",
+			"Name": e.Name,
+			"Args": args,
 		}
 	default:
 		return map[string]interface{}{

@@ -14,6 +14,8 @@ const (
 	FunctionDecorator DecoratorType = iota
 	// BlockDecorator modifies execution behavior and requires explicit blocks
 	BlockDecorator
+	// ConditionalDecorator handles conditional execution based on environment variables
+	ConditionalDecorator
 )
 
 // SemanticType represents the semantic category for syntax highlighting
@@ -23,6 +25,7 @@ const (
 	SemDecorator SemanticType = iota // Generic decorator
 	SemVariable                      // Variable-related decorators (@var, @env)
 	SemFunction                      // Function-related decorators (@sh, @now)
+	SemConditional                   // Conditional decorators (@when)
 )
 
 // ArgumentType represents the expected type of decorator arguments
@@ -45,6 +48,7 @@ type DecoratorSignature struct {
 	Description string
 	Args        []ArgumentSpec
 	RequiresBlock bool // Only for BlockDecorator - whether it requires explicit {}
+	IsConditional bool // True for @when and similar conditional decorators
 }
 
 // ArgumentSpec defines an argument specification
@@ -85,7 +89,6 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 	})
 
 	// Block Decorators - modify execution behavior and require explicit blocks
-
 	r.register(&DecoratorSignature{
 		Name:          "parallel",
 		Type:          BlockDecorator,
@@ -93,6 +96,42 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 		Description:   "Executes commands in parallel",
 		RequiresBlock: true,
 		Args:          []ArgumentSpec{}, // No arguments
+	})
+
+	r.register(&DecoratorSignature{
+		Name:          "timeout",
+		Type:          BlockDecorator,
+		Semantic:      SemDecorator,
+		Description:   "Sets execution timeout for the command block",
+		RequiresBlock: true,
+		Args: []ArgumentSpec{
+			{Name: "duration", Type: DurationArg, Optional: false},
+		},
+	})
+
+	r.register(&DecoratorSignature{
+		Name:          "retry",
+		Type:          BlockDecorator,
+		Semantic:      SemDecorator,
+		Description:   "Retries command execution on failure",
+		RequiresBlock: true,
+		Args: []ArgumentSpec{
+			{Name: "attempts", Type: NumberArg, Optional: false},
+			{Name: "delay", Type: DurationArg, Optional: true, Default: "1s"},
+		},
+	})
+
+	// Conditional Decorators - handle conditional execution
+	r.register(&DecoratorSignature{
+		Name:          "when",
+		Type:          ConditionalDecorator,
+		Semantic:      SemConditional,
+		Description:   "Conditional execution based on environment variable value",
+		RequiresBlock: true,
+		IsConditional: true,
+		Args: []ArgumentSpec{
+			{Name: "variable", Type: IdentifierArg, Optional: false},
+		},
 	})
 }
 
@@ -140,6 +179,16 @@ func (r *DecoratorRegistry) IsBlockDecorator(name string) bool {
 	defer r.mu.RUnlock()
 	if decorator, exists := r.decorators[name]; exists {
 		return decorator.Type == BlockDecorator
+	}
+	return false
+}
+
+// IsConditionalDecorator checks if a decorator is a conditional decorator
+func (r *DecoratorRegistry) IsConditionalDecorator(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if decorator, exists := r.decorators[name]; exists {
+		return decorator.Type == ConditionalDecorator
 	}
 	return false
 }
@@ -234,6 +283,20 @@ func (r *DecoratorRegistry) GetBlockDecorators() []*DecoratorSignature {
 	return decorators
 }
 
+// GetConditionalDecorators returns all conditional decorators
+func (r *DecoratorRegistry) GetConditionalDecorators() []*DecoratorSignature {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var decorators []*DecoratorSignature
+	for _, decorator := range r.decorators {
+		if decorator.Type == ConditionalDecorator {
+			decorators = append(decorators, decorator)
+		}
+	}
+	return decorators
+}
+
 // GetDecoratorsBySemanticType returns decorators filtered by semantic type
 func (r *DecoratorRegistry) GetDecoratorsBySemanticType(semanticType SemanticType) []*DecoratorSignature {
 	r.mu.RLock()
@@ -266,7 +329,11 @@ func (s *DecoratorSignature) GetUsageString() string {
 	}
 
 	if s.RequiresBlock {
-		parts = append(parts, " { ... }")
+		if s.IsConditional {
+			parts = append(parts, " { pattern: command ... }")
+		} else {
+			parts = append(parts, " { ... }")
+		}
 	}
 
 	return strings.Join(parts, "")
@@ -280,6 +347,12 @@ func (s *DecoratorSignature) GetDocumentationString() string {
 	doc.WriteString(fmt.Sprintf("Type: %s\n", s.getTypeString()))
 	doc.WriteString(fmt.Sprintf("Semantic: %s\n", s.getSemanticString()))
 	doc.WriteString(fmt.Sprintf("Usage: `%s`\n", s.GetUsageString()))
+
+	if s.IsConditional {
+		doc.WriteString("\nConditional syntax:\n")
+		doc.WriteString("- `pattern: command` - Execute command when variable matches pattern\n")
+		doc.WriteString("- `*: command` - Default case when no other pattern matches\n")
+	}
 
 	if len(s.Args) > 0 {
 		doc.WriteString("\nArguments:\n")
@@ -306,6 +379,8 @@ func (s *DecoratorSignature) getTypeString() string {
 		return "function"
 	case BlockDecorator:
 		return "block"
+	case ConditionalDecorator:
+		return "conditional"
 	default:
 		return "unknown"
 	}
@@ -318,6 +393,8 @@ func (s *DecoratorSignature) getSemanticString() string {
 		return "variable"
 	case SemFunction:
 		return "function"
+	case SemConditional:
+		return "conditional"
 	case SemDecorator:
 		return "decorator"
 	default:
@@ -370,6 +447,11 @@ func IsBlockDecorator(name string) bool {
 	return StandardDecorators.IsBlockDecorator(name)
 }
 
+// IsConditionalDecorator checks if a decorator is a conditional decorator
+func IsConditionalDecorator(name string) bool {
+	return StandardDecorators.IsConditionalDecorator(name)
+}
+
 // GetDecoratorSemanticType returns the semantic type for a decorator
 func GetDecoratorSemanticType(name string) SemanticType {
 	return StandardDecorators.GetSemanticType(name)
@@ -420,6 +502,11 @@ func GetBlockDecorators() []*DecoratorSignature {
 	return StandardDecorators.GetBlockDecorators()
 }
 
+// GetConditionalDecorators returns all conditional decorators
+func GetConditionalDecorators() []*DecoratorSignature {
+	return StandardDecorators.GetConditionalDecorators()
+}
+
 // GetDecoratorsBySemanticType returns decorators filtered by semantic type
 func GetDecoratorsBySemanticType(semanticType SemanticType) []*DecoratorSignature {
 	return StandardDecorators.GetDecoratorsBySemanticType(semanticType)
@@ -448,6 +535,17 @@ func GetDecoratorDocumentation() string {
 		doc.WriteString("## Block Decorators\n\n")
 		doc.WriteString("Block decorators modify execution behavior and require explicit block syntax.\n\n")
 		for _, decorator := range blockDecorators {
+			doc.WriteString(decorator.GetDocumentationString())
+			doc.WriteString("\n")
+		}
+	}
+
+	// Conditional decorators
+	conditionalDecorators := GetConditionalDecorators()
+	if len(conditionalDecorators) > 0 {
+		doc.WriteString("## Conditional Decorators\n\n")
+		doc.WriteString("Conditional decorators handle conditional execution based on environment variables.\n\n")
+		for _, decorator := range conditionalDecorators {
 			doc.WriteString(decorator.GetDocumentationString())
 			doc.WriteString("\n")
 		}

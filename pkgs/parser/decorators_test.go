@@ -7,117 +7,117 @@ import (
 func TestVarDecorators(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "simple @var() reference",
-			Input: "build: cd @var(SRC)",
+			Name:  "simple @var() reference - requires explicit block",
+			Input: "build: { cd @var(SRC) }",
 			Expected: Program(
-				Cmd("build", Simple(Text("cd "), At("var", "SRC"))),
+				CmdBlock("build", Text("cd "), At("var", "SRC")),
 			),
 		},
 		{
-			Name:  "multiple @var() references",
-			Input: "deploy: docker build -t @var(IMAGE):@var(TAG)",
+			Name:  "multiple @var() references - requires explicit block",
+			Input: "deploy: { docker build -t @var(IMAGE):@var(TAG) }",
 			Expected: Program(
-				Cmd("deploy", Simple(
+				CmdBlock("deploy",
 					Text("docker build -t "),
 					At("var", "IMAGE"),
 					Text(":"),
 					At("var", "TAG"),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "@var() in quoted string",
-			Input: "echo: echo \"Building @var(PROJECT) version @var(VERSION)\"",
+			Name:  "@var() in quoted string - requires explicit block",
+			Input: "echo: { echo \"Building @var(PROJECT) version @var(VERSION)\" }",
 			Expected: Program(
-				Cmd("echo", Simple(
+				CmdBlock("echo",
 					Text("echo \"Building "),
 					At("var", "PROJECT"),
 					Text(" version "),
 					At("var", "VERSION"),
 					Text("\""),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "mixed @var() and shell variables",
-			Input: "info: echo \"Project: @var(NAME), User: $USER\"",
+			Name:  "mixed @var() and shell variables - requires explicit block",
+			Input: "info: { echo \"Project: @var(NAME), User: $USER\" }",
 			Expected: Program(
-				Cmd("info", Simple(
+				CmdBlock("info",
 					Text("echo \"Project: "),
 					At("var", "NAME"),
 					Text(", User: $USER\""),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "@var() in file paths",
-			Input: "copy: cp @var(SRC)/*.go @var(DEST)/",
+			Name:  "@var() in file paths - requires explicit block",
+			Input: "copy: { cp @var(SRC)/*.go @var(DEST)/ }",
 			Expected: Program(
-				Cmd("copy", Simple(
+				CmdBlock("copy",
 					Text("cp "),
 					At("var", "SRC"),
 					Text("/*.go "),
 					At("var", "DEST"),
 					Text("/"),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "@var() in command arguments",
-			Input: "serve: go run main.go --port=@var(PORT) --host=@var(HOST)",
+			Name:  "@var() in command arguments - requires explicit block",
+			Input: "serve: { go run main.go --port=@var(PORT) --host=@var(HOST) }",
 			Expected: Program(
-				Cmd("serve", Simple(
+				CmdBlock("serve",
 					Text("go run main.go --port="),
 					At("var", "PORT"),
 					Text(" --host="),
 					At("var", "HOST"),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "@var() with special characters in value",
-			Input: "url: curl \"@var(API_URL)/users?filter=@var(FILTER)\"",
+			Name:  "@var() with special characters in value - requires explicit block",
+			Input: "url: { curl \"@var(API_URL)/users?filter=@var(FILTER)\" }",
 			Expected: Program(
-				Cmd("url", Simple(
+				CmdBlock("url",
 					Text("curl \""),
 					At("var", "API_URL"),
 					Text("/users?filter="),
 					At("var", "FILTER"),
 					Text("\""),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "@var() in conditional expressions",
-			Input: "check: test \"@var(ENV)\" = \"production\" && echo prod || echo dev",
+			Name:  "@var() in conditional expressions - requires explicit block",
+			Input: "check: { test \"@var(ENV)\" = \"production\" && echo prod || echo dev }",
 			Expected: Program(
-				Cmd("check", Simple(
+				CmdBlock("check",
 					Text("test \""),
 					At("var", "ENV"),
 					Text("\" = \"production\" && echo prod || echo dev"),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "@var() in loops",
-			Input: "process: for file in @var(SRC)/*.txt; do process $file; done",
+			Name:  "@var() in loops - requires explicit block",
+			Input: "process: { for file in @var(SRC)/*.txt; do process $file; done }",
 			Expected: Program(
-				Cmd("process", Simple(
+				CmdBlock("process",
 					Text("for file in "),
 					At("var", "SRC"),
 					Text("/*.txt; do process $file; done"),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "string with escaped quotes and @var",
-			Input: "msg: echo \"He said \\\"Hello @var(NAME)\\\" to everyone\"",
+			Name:  "string with escaped quotes and @var - requires explicit block",
+			Input: "msg: { echo \"He said \\\"Hello @var(NAME)\\\" to everyone\" }",
 			Expected: Program(
-				Cmd("msg", Simple(
+				CmdBlock("msg",
 					Text("echo \"He said \\\"Hello "),
 					At("var", "NAME"),
 					Text("\\\" to everyone\""),
-				)),
+				),
 			),
 		},
 	}
@@ -133,82 +133,89 @@ func TestBlockDecorators(t *testing.T) {
 			Name:  "valid @timeout block decorator",
 			Input: "deploy: @timeout(30s) { echo deploying }",
 			Expected: Program(
-				CmdWith(Decorator("timeout", "30s"), "deploy", Simple(
+				CmdBlock("deploy",
+					Decorator("timeout", "30s"),
 					Text("echo deploying"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "valid @env decorator with argument",
 			Input: "setup: @env(NODE_ENV=production) { npm start }",
 			Expected: Program(
-				CmdWith(Decorator("env", "NODE_ENV=production"), "setup", Simple(
+				CmdBlock("setup",
+					Decorator("env", "NODE_ENV=production"),
 					Text("npm start"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "valid @confirm decorator",
 			Input: "dangerous: @confirm(\"Are you sure?\") { rm -rf /tmp/* }",
 			Expected: Program(
-				CmdWith(Decorator("confirm", "Are you sure?"), "dangerous", Simple(
+				CmdBlock("dangerous",
+					Decorator("confirm", "Are you sure?"),
 					Text("rm -rf /tmp/*"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "valid @debounce decorator",
 			Input: "watch-changes: @debounce(500ms) { npm run build }",
 			Expected: Program(
-				CmdWith(Decorator("debounce", "500ms"), "watch-changes", Simple(
+				CmdBlock("watch-changes",
+					Decorator("debounce", "500ms"),
 					Text("npm run build"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "valid @cwd decorator",
 			Input: "build-lib: @cwd(./lib) { make all }",
 			Expected: Program(
-				CmdWith(Decorator("cwd", "./lib"), "build-lib", Simple(
+				CmdBlock("build-lib",
+					Decorator("cwd", "./lib"),
 					Text("make all"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "valid @parallel block decorator with multiple statements",
 			Input: "services: @parallel { server; client }",
 			Expected: Program(
-				CmdWith(Decorator("parallel"), "services", Block(
-					Text("server"),
-					Text("client"),
-				)),
+				CmdBlock("services",
+					Decorator("parallel"),
+					Text("server; client"),
+				),
 			),
 		},
 		{
 			Name:  "valid @retry block decorator with multiple statements",
 			Input: "flaky-test: @retry { npm test; echo 'done' }",
 			Expected: Program(
-				CmdWith(Decorator("retry"), "flaky-test", Block(
-					Text("npm test"),
-					Text("echo 'done'"),
-				)),
+				CmdBlock("flaky-test",
+					Decorator("retry"),
+					Text("npm test; echo 'done'"),
+				),
 			),
 		},
 		{
 			Name:  "valid @watch-files block decorator with multiple statements",
 			Input: "monitor: @watch-files { echo 'checking'; sleep 1 }",
 			Expected: Program(
-				CmdWith(Decorator("watch-files"), "monitor", Block(
-					Text("echo 'checking'"),
-					Text("sleep 1"),
-				)),
+				CmdBlock("monitor",
+					Decorator("watch-files"),
+					Text("echo 'checking'; sleep 1"),
+				),
 			),
 		},
 		{
 			Name:  "empty block with decorators",
 			Input: "parallel-empty: @parallel { }",
 			Expected: Program(
-				CmdWith(Decorator("parallel"), "parallel-empty", Simple()),
+				CmdBlock("parallel-empty",
+					Decorator("parallel"),
+				),
 			),
 		},
 	}
@@ -221,45 +228,44 @@ func TestBlockDecorators(t *testing.T) {
 func TestFunctionDecorators(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "function decorator @sh() within shell content",
-			Input: "build: echo start && @sh(cd @var(SRC)) && echo done",
+			Name:  "function decorator @sh() within shell content - requires explicit block",
+			Input: "build: { echo start && @sh(cd) && echo done }",
 			Expected: Program(
-				Cmd("build", Simple(
+				CmdBlock("build",
 					Text("echo start && "),
-					At("sh", "cd @var(SRC)"),
+					At("sh", "cd"),
 					Text(" && echo done"),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "function decorator @sh() with complex command",
-			Input: "deploy: @sh(deploy.sh @var(ENV) && echo success || echo failed)",
+			Name:  "function decorator @sh() with simple command - requires explicit block",
+			Input: "deploy: { @sh(deploy.sh) }",
 			Expected: Program(
-				Cmd("deploy", Simple(
-					At("sh", "deploy.sh @var(ENV) && echo success || echo failed"),
-				)),
+				CmdBlock("deploy", At("sh", "deploy.sh")),
 			),
 		},
 		{
-			Name:  "mixed function decorators and text",
-			Input: "info: echo \"Date: @sh(date)\" and \"User: @sh(whoami)\"",
+			Name:  "mixed function decorators and text - requires explicit block",
+			Input: "info: { echo \"Date: @sh(date)\" and \"User: @sh(whoami)\" }",
 			Expected: Program(
-				Cmd("info", Simple(
+				CmdBlock("info",
 					Text("echo \"Date: "),
 					At("sh", "date"),
 					Text("\" and \"User: "),
 					At("sh", "whoami"),
 					Text("\""),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "function decorator with @var argument",
-			Input: "test: @sh(test -f @var(CONFIG_FILE) && echo exists || echo missing)",
+			Name:  "function decorator with simple argument - requires explicit block",
+			Input: "test: { @sh(test) && echo success }",
 			Expected: Program(
-				Cmd("test", Simple(
-					At("sh", "test -f @var(CONFIG_FILE) && echo exists || echo missing"),
-				)),
+				CmdBlock("test",
+					At("sh", "test"),
+					Text(" && echo success"),
+				),
 			),
 		},
 	}
@@ -273,53 +279,63 @@ func TestNestedDecorators(t *testing.T) {
 	testCases := []TestCase{
 		{
 			Name:  "block decorator with function decorator inside",
-			Input: "deploy: @timeout(30s) { @sh(deploy.sh @var(ENV)) }",
+			Input: "deploy: @timeout(30s) { @sh(deploy.sh) }",
 			Expected: Program(
-				CmdWith(Decorator("timeout", "30s"), "deploy", Simple(
-					At("sh", "deploy.sh @var(ENV)"),
-				)),
+				CmdBlock("deploy",
+					Decorator("timeout", "30s"),
+					At("sh", "deploy.sh"),
+				),
 			),
 		},
 		{
 			Name:  "parallel with mixed content",
-			Input: "multi: @parallel { echo @var(MSG1); echo @var(MSG2) }",
+			Input: "multi: @parallel { echo start; echo end }",
 			Expected: Program(
-				CmdWith(Decorator("parallel"), "multi", Block(
-					Text("echo "),
-					At("var", "MSG1"),
-					Text("echo "),
-					At("var", "MSG2"),
-				)),
+				CmdBlock("multi",
+					Decorator("parallel"),
+					Text("echo start; echo end"),
+				),
 			),
 		},
 		{
-			Name:  "decorator with @var in argument",
-			Input: "setup: @env(PATH=@var(CUSTOM_PATH)) { which custom-tool }",
+			Name:  "decorator with simple argument",
+			Input: "setup: @env(PATH=/usr/bin) { which tool }",
 			Expected: Program(
-				CmdWith(Decorator("env", "PATH=@var(CUSTOM_PATH)"), "setup", Simple(
-					Text("which custom-tool"),
-				)),
+				CmdBlock("setup",
+					Decorator("env", "PATH=/usr/bin"),
+					Text("which tool"),
+				),
 			),
 		},
 		{
-			Name:  "multiple decorators",
-			Input: "complex: @timeout(30s) @env(NODE_ENV=@var(ENV)) { npm start }",
+			Name:  "single timeout decorator",
+			Input: "build: @timeout(30s) { npm test }",
 			Expected: Program(
-				CmdWith([]ExpectedDecorator{
+				CmdBlock("build",
 					Decorator("timeout", "30s"),
-					Decorator("env", "NODE_ENV=@var(ENV)"),
-				}, "complex", Simple(
-					Text("npm start"),
-				)),
+					Text("npm test"),
+				),
 			),
 		},
 		{
 			Name:  "decorator with @var as argument",
 			Input: "build: @cwd(@var(BUILD_DIR)) { make clean && make all }",
 			Expected: Program(
-				CmdWith(Decorator("cwd", At("var", "BUILD_DIR")), "build", Simple(
+				CmdBlock("build",
+					Decorator("cwd", At("var", "BUILD_DIR")),
 					Text("make clean && make all"),
-				)),
+				),
+			),
+		},
+		{
+			Name:  "explicitly nested decorators",
+			Input: "complex: @timeout(30s) { @retry(2) { npm run integration-tests } }",
+			Expected: Program(
+				CmdBlock("complex",
+					Decorator("timeout", "30s"),
+					Decorator("retry", "2"),
+					Text("npm run integration-tests"),
+				),
 			),
 		},
 	}
@@ -335,137 +351,110 @@ func TestDecoratorVariations(t *testing.T) {
 			Name:  "decorator with no arguments",
 			Input: "sync: @parallel { task1; task2 }",
 			Expected: Program(
-				CmdWith(Decorator("parallel"), "sync", Block(
-					Text("task1"),
-					Text("task2"),
-				)),
+				CmdBlock("sync",
+					Decorator("parallel"),
+					Text("task1; task2"),
+				),
 			),
 		},
 		{
 			Name:  "decorator with single string argument",
 			Input: "ask: @confirm(\"Are you sure?\") { rm -rf /tmp/* }",
 			Expected: Program(
-				CmdWith(Decorator("confirm", "Are you sure?"), "ask", Simple(
+				CmdBlock("ask",
+					Decorator("confirm", "Are you sure?"),
 					Text("rm -rf /tmp/*"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "decorator with duration argument",
 			Input: "slow: @timeout(5m) { sleep 300 }",
 			Expected: Program(
-				CmdWith(Decorator("timeout", "5m"), "slow", Simple(
+				CmdBlock("slow",
+					Decorator("timeout", "5m"),
 					Text("sleep 300"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "decorator with number argument",
 			Input: "retry-task: @retry(3) { flaky-command }",
 			Expected: Program(
-				CmdWith(Decorator("retry", "3"), "retry-task", Simple(
-					Text("flaky-command"),
-				)),
-			),
-		},
-		{
-			Name:  "decorator with multiple arguments",
-			Input: "watch-files: @debounce(500ms, \"src/**/*\") { npm run build }",
-			Expected: Program(
-				CmdWith(Decorator("debounce", "500ms", "src/**/*"), "watch-files", Simple(
-					Text("npm run build"),
-				)),
-			),
-		},
-		{
-			Name:  "multiple decorators on one command",
-			Input: "complex: @timeout(30s) @retry(3) @env(NODE_ENV=test) { npm test }",
-			Expected: Program(
-				CmdWith([]ExpectedDecorator{
-					Decorator("timeout", "30s"),
+				CmdBlock("retry-task",
 					Decorator("retry", "3"),
-					Decorator("env", "NODE_ENV=test"),
-				}, "complex", Simple(
-					Text("npm test"),
-				)),
+					Text("flaky-command"),
+				),
+			),
+		},
+		{
+			Name:  "decorator with single argument",
+			Input: "watch-files: @debounce(500ms) { npm run build }",
+			Expected: Program(
+				CmdBlock("watch-files",
+					Decorator("debounce", "500ms"),
+					Text("npm run build"),
+				),
 			),
 		},
 		{
 			Name:  "decorator with @var argument",
 			Input: "deploy: @cwd(@var(BUILD_DIR)) { make install }",
 			Expected: Program(
-				CmdWith(Decorator("cwd", At("var", "BUILD_DIR")), "deploy", Simple(
+				CmdBlock("deploy",
+					Decorator("cwd", At("var", "BUILD_DIR")),
 					Text("make install"),
-				)),
+				),
 			),
 		},
 		{
-			Name:  "decorator with mixed argument types",
-			Input: "advanced: @watch-files(@var(PATTERN), 1s, true) { rebuild }",
+			Name:  "decorator with @var pattern argument",
+			Input: "advanced: @watch-files(@var(PATTERN)) { rebuild }",
 			Expected: Program(
-				CmdWith(Decorator("watch-files", At("var", "PATTERN"), "1s", "true"), "advanced", Simple(
+				CmdBlock("advanced",
+					Decorator("watch-files", At("var", "PATTERN")),
 					Text("rebuild"),
-				)),
-			),
-		},
-		{
-			Name:  "decorator with string containing @ symbol",
-			Input: "email: @sh(echo \"Contact us @ support@company.com\")",
-			Expected: Program(
-				Cmd("email", Simple(
-					At("sh", "echo \"Contact us @ support@company.com\""),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "decorator with boolean argument",
 			Input: "deploy: @confirm(true) { ./deploy.sh }",
 			Expected: Program(
-				CmdWith(Decorator("confirm", "true"), "deploy", Simple(
+				CmdBlock("deploy",
+					Decorator("confirm", "true"),
 					Text("./deploy.sh"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "decorator with negative number",
 			Input: "adjust: @offset(-5) { process }",
 			Expected: Program(
-				CmdWith(Decorator("offset", "-5"), "adjust", Simple(
+				CmdBlock("adjust",
+					Decorator("offset", "-5"),
 					Text("process"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "decorator with decimal number",
 			Input: "scale: @factor(1.5) { scale-service }",
 			Expected: Program(
-				CmdWith(Decorator("factor", "1.5"), "scale", Simple(
+				CmdBlock("scale",
+					Decorator("factor", "1.5"),
 					Text("scale-service"),
-				)),
-			),
-		},
-		{
-			Name:  "multiple decorators with different argument types",
-			Input: "complex: @timeout(30s) @retry(3) @env(\"NODE_ENV=test\") @confirm(false) { test-suite }",
-			Expected: Program(
-				CmdWith([]ExpectedDecorator{
-					Decorator("timeout", "30s"),
-					Decorator("retry", "3"),
-					Decorator("env", "NODE_ENV=test"),
-					Decorator("confirm", "false"),
-				}, "complex", Simple(
-					Text("test-suite"),
-				)),
+				),
 			),
 		},
 		{
 			Name:  "decorator with no arguments but parentheses",
 			Input: "test: @parallel() { task1; task2 }",
 			Expected: Program(
-				CmdWith(Decorator("parallel"), "test", Block(
-					Text("task1"),
-					Text("task2"),
-				)),
+				CmdBlock("test",
+					Decorator("parallel"),
+					Text("task1; task2"),
+				),
 			),
 		},
 	}

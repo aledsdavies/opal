@@ -14,17 +14,19 @@ const (
 	ILLEGAL
 
 	// Language structure tokens
-	VAR    // var
-	WATCH  // watch
-	STOP   // stop
-	AT     // @
-	COLON  // :
-	EQUALS // =
-	COMMA  // ,
-	LPAREN // (
-	RPAREN // )
-	LBRACE // {
-	RBRACE // }
+	VAR      // var
+	WATCH    // watch
+	STOP     // stop
+	WHEN     // when (for @when decorator)
+	AT       // @
+	COLON    // :
+	EQUALS   // =
+	COMMA    // ,
+	LPAREN   // (
+	RPAREN   // )
+	LBRACE   // {
+	RBRACE   // }
+	ASTERISK // * (wildcard in @when)
 
 	// Literals and Content
 	IDENTIFIER // command names, variable names, decorator names
@@ -33,9 +35,8 @@ const (
 	STRING     // "hello", 'world', `template`
 	DURATION   // 30s, 5m, 1h
 
-	// Continuation and structure
-	LINE_CONT // \
-	NEWLINE   // \n
+	// Structure
+	NEWLINE // \n
 
 	// Comments
 	COMMENT           // #
@@ -49,6 +50,7 @@ var tokenNames = [...]string{
 	VAR:               "VAR",
 	WATCH:             "WATCH",
 	STOP:              "STOP",
+	WHEN:              "WHEN",
 	AT:                "AT",
 	COLON:             "COLON",
 	EQUALS:            "EQUALS",
@@ -57,12 +59,12 @@ var tokenNames = [...]string{
 	RPAREN:            "RPAREN",
 	LBRACE:            "LBRACE",
 	RBRACE:            "RBRACE",
+	ASTERISK:          "ASTERISK",
 	IDENTIFIER:        "IDENTIFIER",
 	SHELL_TEXT:        "SHELL_TEXT",
 	NUMBER:            "NUMBER",
 	STRING:            "STRING",
 	DURATION:          "DURATION",
-	LINE_CONT:         "LINE_CONT",
 	NEWLINE:           "NEWLINE",
 	COMMENT:           "COMMENT",
 	MULTILINE_COMMENT: "MULTILINE_COMMENT",
@@ -88,30 +90,53 @@ const (
 type SemanticTokenType int
 
 const (
-	SemKeyword   SemanticTokenType = iota // var, watch, stop
+	SemKeyword   SemanticTokenType = iota // var, watch, stop, when
 	SemCommand                            // command names
 	SemVariable                           // variable names
-	SemDecorator                          // decorator names
 	SemString                             // string literals
 	SemNumber                             // numeric literals
 	SemComment                            // comments
-	SemOperator                           // :, =, {, }, (, ), @
-	SemParameter                          // decorator parameter names
+	SemOperator                           // :, =, {, }, (, ), @, *
 	SemShellText                          // shell text content
+	SemDecorator                          // decorators like @timeout, @retry, @when
 )
+
+// SourceSpan represents a precise location in source code
+type SourceSpan struct {
+	Start SourcePosition `json:"start"`
+	End   SourcePosition `json:"end"`
+}
+
+// SourcePosition represents a position in source code
+type SourcePosition struct {
+	Line   int `json:"line"`   // 1-based
+	Column int `json:"column"` // 1-based
+	Offset int `json:"offset"` // 0-based byte offset
+}
+
+// ShellSegment represents a portion of shell text with precise positioning
+type ShellSegment struct {
+	Text     string     `json:"text"`      // The processed text
+	Span     SourceSpan `json:"span"`      // Original source location
+	RawText  string     `json:"raw_text"`  // Original raw text (with continuations)
+	Offset   int        `json:"offset"`    // Offset within processed shell text
+}
 
 // Token represents a single token with position information
 type Token struct {
-	Type      TokenType
-	Semantic  SemanticTokenType
-	Line      int
-	Column    int
-	EndLine   int
-	EndColumn int
-	Value     string
-	Raw       string
-	Scope     string
+	Type       TokenType
+	Semantic   SemanticTokenType
+	Line       int
+	Column     int
+	EndLine    int
+	EndColumn  int
+	Value      string
+	Raw        string
 	StringType StringType
+
+	// Enhanced positioning for shell content
+	Span          SourceSpan     `json:"span"`
+	ShellSegments []ShellSegment `json:"shell_segments,omitempty"` // For SHELL_TEXT tokens
 }
 
 // Position returns a formatted position string for error reporting
@@ -120,6 +145,129 @@ func (t Token) Position() string {
 		return fmt.Sprintf("%d:%d-%d", t.Line, t.Column, t.EndColumn)
 	}
 	return fmt.Sprintf("%d:%d-%d:%d", t.Line, t.Column, t.EndLine, t.EndColumn)
+}
+
+// GetPositionAt returns the source position for a character offset within this token's value
+func (t *Token) GetPositionAt(offset int) SourcePosition {
+	if t.Type != SHELL_TEXT || len(t.ShellSegments) == 0 {
+		// For non-shell tokens, interpolate position
+		return t.interpolatePosition(offset)
+	}
+
+	// For shell tokens, find the segment containing this offset
+	for _, segment := range t.ShellSegments {
+		segmentEnd := segment.Offset + len(segment.Text)
+		if offset >= segment.Offset && offset < segmentEnd {
+			// Offset is within this segment
+			localOffset := offset - segment.Offset
+			return t.mapToSourcePosition(segment, localOffset)
+		}
+	}
+
+	// Fallback to end position
+	return t.Span.End
+}
+
+// interpolatePosition calculates position for simple tokens
+func (t *Token) interpolatePosition(offset int) SourcePosition {
+	if offset <= 0 {
+		return t.Span.Start
+	}
+	if offset >= len(t.Value) {
+		return t.Span.End
+	}
+
+	// Simple interpolation for single-line tokens
+	if t.Line == t.EndLine {
+		return SourcePosition{
+			Line:   t.Line,
+			Column: t.Column + offset,
+			Offset: t.Span.Start.Offset + offset,
+		}
+	}
+
+	// For multi-line tokens, we need to count newlines
+	lines := strings.Split(t.Value[:offset], "\n")
+	if len(lines) == 1 {
+		return SourcePosition{
+			Line:   t.Line,
+			Column: t.Column + offset,
+			Offset: t.Span.Start.Offset + offset,
+		}
+	}
+
+	return SourcePosition{
+		Line:   t.Line + len(lines) - 1,
+		Column: len(lines[len(lines)-1]) + 1,
+		Offset: t.Span.Start.Offset + offset,
+	}
+}
+
+// mapToSourcePosition maps from processed text position back to original source
+func (t *Token) mapToSourcePosition(segment ShellSegment, localOffset int) SourcePosition {
+	// Handle line continuations and other transformations
+	if segment.RawText == segment.Text {
+		// No transformations, direct mapping
+		return SourcePosition{
+			Line:   segment.Span.Start.Line,
+			Column: segment.Span.Start.Column + localOffset,
+			Offset: segment.Span.Start.Offset + localOffset,
+		}
+	}
+
+	// Complex mapping for line continuations
+	return t.mapThroughTransformations(segment, localOffset)
+}
+
+// mapThroughTransformations handles complex position mapping through text transformations
+func (t *Token) mapThroughTransformations(segment ShellSegment, localOffset int) SourcePosition {
+	// Walk through the raw text and processed text simultaneously
+	rawPos := 0
+	processedPos := 0
+	line := segment.Span.Start.Line
+	column := segment.Span.Start.Column
+
+	for rawPos < len(segment.RawText) && processedPos < localOffset {
+		if rawPos < len(segment.RawText)-1 &&
+		   segment.RawText[rawPos] == '\\' &&
+		   segment.RawText[rawPos+1] == '\n' {
+			// Line continuation: \\ + \n becomes space in processed text
+			rawPos += 2 // Skip \\ and \n
+			line++
+			column = 1
+
+			// Skip any following whitespace in raw text
+			for rawPos < len(segment.RawText) &&
+				(segment.RawText[rawPos] == ' ' || segment.RawText[rawPos] == '\t') {
+				rawPos++
+				column++
+			}
+
+			processedPos++ // Advance processed position (for the space)
+		} else {
+			// Normal character
+			if segment.RawText[rawPos] == '\n' {
+				line++
+				column = 1
+			} else {
+				column++
+			}
+			rawPos++
+			processedPos++
+		}
+	}
+
+	return SourcePosition{
+		Line:   line,
+		Column: column,
+		Offset: segment.Span.Start.Offset + rawPos,
+	}
+}
+
+// GetErrorPosition returns a formatted error message with precise position
+func (t *Token) GetErrorPosition(message string, offset int) string {
+	pos := t.GetPositionAt(offset)
+	return fmt.Sprintf("%s at %d:%d", message, pos.Line, pos.Column)
 }
 
 // ToLSPSemanticToken converts to Language Server Protocol format
@@ -138,105 +286,6 @@ type LSPSemanticToken struct {
 	Character uint32
 	Length    uint32
 	TokenType uint32
-}
-
-// DecoratorArg represents a single decorator argument
-type DecoratorArg struct {
-	Name   string
-	Value  string
-	Line   int
-	Column int
-}
-
-// ParseDecoratorArgs parses decorator arguments supporting Kotlin-like named parameters
-func ParseDecoratorArgs(args string, line, column int) ([]DecoratorArg, error) {
-	if len(strings.TrimSpace(args)) == 0 {
-		return nil, nil
-	}
-	result := make([]DecoratorArg, 0, 3)
-	parts := splitDecoratorArgsFast(args)
-	foundNamed := false
-	for i, part := range parts {
-		part = strings.TrimSpace(part)
-		if len(part) == 0 {
-			continue
-		}
-		if eqIndex := strings.IndexByte(part, '='); eqIndex > 0 {
-			foundNamed = true
-			name := strings.TrimSpace(part[:eqIndex])
-			value := strings.TrimSpace(part[eqIndex+1:])
-			if !isValidParameterName(name) {
-				return nil, fmt.Errorf("invalid parameter name '%s' at line %d, column %d", name, line, column)
-			}
-			result = append(result, DecoratorArg{Name: name, Value: unquoteIfNeeded(value), Line: line, Column: column})
-		} else {
-			if foundNamed {
-				return nil, fmt.Errorf("positional argument follows named argument at position %d, line %d, column %d", i+1, line, column)
-			}
-			result = append(result, DecoratorArg{Value: unquoteIfNeeded(part), Line: line, Column: column})
-		}
-	}
-	return result, nil
-}
-
-func isValidParameterName(name string) bool {
-	if len(name) == 0 {
-		return false
-	}
-	first := name[0]
-	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
-		return false
-	}
-	for i := 1; i < len(name); i++ {
-		ch := name[i]
-		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-') {
-			return false
-		}
-	}
-	return true
-}
-
-func splitDecoratorArgsFast(args string) []string {
-	if len(args) == 0 {
-		return nil
-	}
-	result := make([]string, 0, 4)
-	start, inQuotes := 0, false
-	var quoteChar byte
-	for i := 0; i < len(args); i++ {
-		ch := args[i]
-		switch ch {
-		case '"', '\'', '`':
-			if !inQuotes {
-				inQuotes = true
-				quoteChar = ch
-			} else if ch == quoteChar {
-				inQuotes = false
-			}
-		case ',':
-			if !inQuotes {
-				if i > start {
-					result = append(result, args[start:i])
-				}
-				start = i + 1
-			}
-		}
-	}
-	if start < len(args) {
-		result = append(result, args[start:])
-	}
-	return result
-}
-
-func unquoteIfNeeded(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 {
-		first, last := s[0], s[len(s)-1]
-		if (first == '"' && last == '"') || (first == '\'' && last == '\'') || (first == '`' && last == '`') {
-			return s[1 : len(s)-1]
-		}
-	}
-	return s
 }
 
 // GetSemanticTokens extracts all tokens with semantic information for syntax highlighting
@@ -277,18 +326,32 @@ func ToLSPSemanticTokensArray(tokens []Token) []uint32 {
 
 // GetTextMateGrammarScopes returns all unique TextMate scopes used
 func GetTextMateGrammarScopes(tokens []Token) []string {
-	if len(tokens) == 0 {
-		return nil
-	}
-	scopes := make(map[string]bool, 16)
+	scopes := make(map[string]bool)
 	for _, token := range tokens {
-		if len(token.Scope) > 0 {
-			scopes[token.Scope] = true
+		switch token.Type {
+		case VAR, WATCH, STOP, WHEN:
+			scopes["keyword.control.devcmd"] = true
+		case STRING:
+			scopes["string.quoted.devcmd"] = true
+		case NUMBER:
+			scopes["constant.numeric.devcmd"] = true
+		case DURATION:
+			scopes["constant.numeric.duration.devcmd"] = true
+		case COMMENT:
+			scopes["comment.line.hash.devcmd"] = true
+		case MULTILINE_COMMENT:
+			scopes["comment.block.devcmd"] = true
+		case SHELL_TEXT:
+			scopes["source.shell.embedded.devcmd"] = true
+		case IDENTIFIER:
+			scopes["entity.name.function.devcmd"] = true
+		case AT:
+			scopes["punctuation.definition.decorator.devcmd"] = true
+		case ASTERISK:
+			scopes["keyword.operator.wildcard.devcmd"] = true
 		}
 	}
-	if len(scopes) == 0 {
-		return nil
-	}
+
 	result := make([]string, 0, len(scopes))
 	for scope := range scopes {
 		result = append(result, scope)
@@ -296,3 +359,39 @@ func GetTextMateGrammarScopes(tokens []Token) []string {
 	return result
 }
 
+// TokenClassification provides helper methods for token analysis
+
+// IsStructuralToken checks if a token represents Devcmd structure
+func IsStructuralToken(tokenType TokenType) bool {
+	switch tokenType {
+	case VAR, WATCH, STOP, WHEN, AT, COLON, EQUALS, COMMA, LPAREN, RPAREN, LBRACE, RBRACE, ASTERISK, NEWLINE:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsLiteralToken checks if a token represents a literal value
+func IsLiteralToken(tokenType TokenType) bool {
+	switch tokenType {
+	case STRING, NUMBER, DURATION, IDENTIFIER:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsShellContent checks if a token represents shell content
+func IsShellContent(tokenType TokenType) bool {
+	return tokenType == SHELL_TEXT
+}
+
+// IsConditionalToken checks if a token is related to @when conditionals
+func IsConditionalToken(tokenType TokenType) bool {
+	switch tokenType {
+	case WHEN, ASTERISK:
+		return true
+	default:
+		return false
+	}
+}

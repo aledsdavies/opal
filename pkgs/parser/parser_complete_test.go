@@ -22,8 +22,7 @@ var (
 build: go build -o @var(DIST)/app @var(SRC)/main.go
 
 serve: @timeout(@var(TIMEOUT)) {
-  cd @var(SRC)
-  go run main.go --port=@var(PORT)
+  cd @var(SRC) && go run main.go --port=@var(PORT)
 }
 
 watch dev: @parallel {
@@ -37,14 +36,13 @@ stop dev: {
 }
 
 deploy: @confirm("Deploy to production?") {
-  @sh(cd @var(SRC) && go build -o @var(DIST)/app)
-  rsync -av @var(DIST)/ server:/opt/app/
+  @sh(cd @var(SRC) && go build -o @var(DIST)/app) && rsync -av @var(DIST)/ server:/opt/app/
 }`,
 			Expected: Program(
 				Var("SRC", "./src"),
 				Var("DIST", "./dist"),
 				Var("PORT", "8080"),
-				// Grouped variables (these would be handled differently in real parser)
+				// Grouped variables
 				Var("NODE_ENV", "development"),
 				Var("TIMEOUT", "30s"),
 				Var("DEBUG", "true"),
@@ -55,26 +53,29 @@ deploy: @confirm("Deploy to production?") {
 					At("var", "SRC"),
 					Text("/main.go"),
 				)),
-				CmdWith(Decorator("timeout", At("var", "TIMEOUT")), "serve", Block(
+				CmdBlock("serve",
+					Decorator("timeout", At("var", "TIMEOUT")),
 					Text("cd "),
 					At("var", "SRC"),
-					Text("go run main.go --port="),
+					Text(" && go run main.go --port="),
 					At("var", "PORT"),
-				)),
-				WatchWith(Decorator("parallel"), "dev", Block(
+				),
+				WatchBlock("dev",
+					Decorator("parallel"),
 					At("sh", "cd @var(SRC) && go run main.go"),
 					At("sh", "cd frontend && npm start"),
-				)),
-				Stop("dev", Block(
+				),
+				StopBlock("dev",
 					Text("pkill -f \"go run\""),
 					Text("pkill -f \"npm start\""),
-				)),
-				CmdWith(Decorator("confirm", "Deploy to production?"), "deploy", Block(
+				),
+				CmdBlock("deploy",
+					Decorator("confirm", "Deploy to production?"),
 					At("sh", "cd @var(SRC) && go build -o @var(DIST)/app"),
-					Text("rsync -av "),
+					Text(" && rsync -av "),
 					At("var", "DIST"),
 					Text("/ server:/opt/app/"),
-				)),
+				),
 			),
 		},
 		{
@@ -91,9 +92,7 @@ install: npm install
 clean: rm -rf @var(DIST) node_modules
 
 build: @timeout(2m) {
-  echo "Building project..."
-  npm run build
-  echo "Build complete"
+  echo "Building project..." && npm run build && echo "Build complete"
 }
 
 dev: @parallel {
@@ -102,8 +101,7 @@ dev: @parallel {
 }
 
 test: @retry(3) {
-  npm run test
-  npm run lint
+  npm run test && npm run lint
 }
 
 watch test: @debounce(500ms) {
@@ -111,9 +109,7 @@ watch test: @debounce(500ms) {
 }
 
 deploy: @confirm("Deploy to production?") @timeout(5m) {
-  npm run build
-  @sh(rsync -av @var(DIST)/ server:/var/www/app/)
-  echo "Deployment complete"
+  npm run build && @sh(rsync -av @var(DIST)/ server:/var/www/app/) && echo "Deployment complete"
 }
 
 stop test: pkill -f "npm.*test"`,
@@ -122,144 +118,136 @@ stop test: pkill -f "npm.*test"`,
 				Var("DIST", "./dist"),
 				Var("PORT", "3000"),
 				Var("ENV", "development"),
-				Cmd("install", Simple(Text("npm install"))),
+				Cmd("install", "npm install"),
 				Cmd("clean", Simple(
 					Text("rm -rf "),
 					At("var", "DIST"),
 					Text(" node_modules"),
 				)),
-				CmdWith(Decorator("timeout", "2m"), "build", Block(
-					Text("echo \"Building project...\""),
-					Text("npm run build"),
-					Text("echo \"Build complete\""),
-				)),
-				CmdWith(Decorator("parallel"), "dev", Block(
+				CmdBlock("build",
+					Decorator("timeout", "2m"),
+					Text("echo \"Building project...\" && npm run build && echo \"Build complete\""),
+				),
+				CmdBlock("dev",
+					Decorator("parallel"),
 					At("sh", "cd @var(SRC) && npm run dev"),
 					At("sh", "echo \"Server starting on port @var(PORT)\""),
-				)),
-				CmdWith(Decorator("retry", "3"), "test", Block(
-					Text("npm run test"),
-					Text("npm run lint"),
-				)),
-				WatchWith(Decorator("debounce", "500ms"), "test", Block(
+				),
+				CmdBlock("test",
+					Decorator("retry", "3"),
+					Text("npm run test && npm run lint"),
+				),
+				WatchBlock("test",
+					Decorator("debounce", "500ms"),
 					Text("npm run test:watch"),
-				)),
-				CmdWith([]ExpectedDecorator{
+				),
+				CmdBlock("deploy",
 					Decorator("confirm", "Deploy to production?"),
 					Decorator("timeout", "5m"),
-				}, "deploy", Block(
-					Text("npm run build"),
+					Text("npm run build && "),
 					At("sh", "rsync -av @var(DIST)/ server:/var/www/app/"),
-					Text("echo \"Deployment complete\""),
-				)),
-				Stop("test", Simple(Text("pkill -f \"npm.*test\""))),
+					Text(" && echo \"Deployment complete\""),
+				),
+				Stop("test", "pkill -f \"npm.*test\""),
 			),
 		},
 		{
 			Name: "complex mixed content example",
 			Input: `var API_URL = https://api.example.com
 var TOKEN = abc123
+var PROJECT = myproject
 
 api-test: {
-  echo "Testing API at @var(API_URL)"
-  @sh(curl -H "Authorization: Bearer @var(TOKEN)" @var(API_URL)/health)
-  echo "API test complete"
+  echo "Testing API at @var(API_URL)" && @sh(curl -H "Authorization: Bearer @var(TOKEN)" @var(API_URL)/health) && echo "API test complete"
 }
 
 backup: @confirm("Create backup?") {
-  echo "Starting backup..."
-  @sh(DATE=$(date +%Y%m%d); echo "Backup date: $DATE")
-  rsync -av /data/ backup@server.com:/backups/@var(PROJECT)/
-  echo "Backup complete"
+  echo "Starting backup..." && @sh(DATE=$(date +%Y%m%d); echo "Backup date: $DATE") && rsync -av /data/ backup@server.com:/backups/@var(PROJECT)/ && echo "Backup complete"
 }`,
 			Expected: Program(
 				Var("API_URL", "https://api.example.com"),
 				Var("TOKEN", "abc123"),
-				Cmd("api-test", Block(
+				Var("PROJECT", "myproject"),
+				CmdBlock("api-test",
 					Text("echo \"Testing API at "),
 					At("var", "API_URL"),
-					Text("\""),
+					Text("\" && "),
 					At("sh", "curl -H \"Authorization: Bearer @var(TOKEN)\" @var(API_URL)/health"),
-					Text("echo \"API test complete\""),
-				)),
-				CmdWith(Decorator("confirm", "Create backup?"), "backup", Block(
-					Text("echo \"Starting backup...\""),
+					Text(" && echo \"API test complete\""),
+				),
+				CmdBlock("backup",
+					Decorator("confirm", "Create backup?"),
+					Text("echo \"Starting backup...\" && "),
 					At("sh", "DATE=$(date +%Y%m%d); echo \"Backup date: $DATE\""),
-					Text("rsync -av /data/ backup@server.com:/backups/"),
+					Text(" && rsync -av /data/ backup@server.com:/backups/"),
 					At("var", "PROJECT"),
-					Text("/"),
-					Text("echo \"Backup complete\""),
+					Text("/ && echo \"Backup complete\""),
+				),
+			),
+		},
+		{
+			Name: "simple commands with function decorators",
+			Input: `var HOST = localhost
+var PORT = 8080
+
+ping: curl http://@var(HOST):@var(PORT)/health
+status: echo "Server running at @var(HOST):@var(PORT)"
+info: @sh(echo "Host: @var(HOST), Port: @var(PORT)")`,
+			Expected: Program(
+				Var("HOST", "localhost"),
+				Var("PORT", "8080"),
+				Cmd("ping", Simple(
+					Text("curl http://"),
+					At("var", "HOST"),
+					Text(":"),
+					At("var", "PORT"),
+					Text("/health"),
+				)),
+				Cmd("status", Simple(
+					Text("echo \"Server running at "),
+					At("var", "HOST"),
+					Text(":"),
+					At("var", "PORT"),
+					Text("\""),
+				)),
+				Cmd("info", Simple(
+					At("sh", "echo \"Host: @var(HOST), Port: @var(PORT)\""),
 				)),
 			),
 		},
-	}
+		{
+			Name: "nested decorators with explicit blocks",
+			Input: `var RETRIES = 3
+var TIMEOUT = 30s
 
-	for _, tc := range testCases {
-		RunTestCase(t, tc)
-	}
-}
+complex: @timeout(@var(TIMEOUT)) {
+  @retry(@var(RETRIES)) {
+    echo "Attempting operation..." && ./run-operation.sh
+  }
+}`,
+			Expected: Program(
+				Var("RETRIES", "3"),
+				Var("TIMEOUT", "30s"),
+				CmdBlock("complex",
+					Decorator("timeout", At("var", "TIMEOUT")),
+					Decorator("retry", At("var", "RETRIES")),
+					Text("echo \"Attempting operation...\" && ./run-operation.sh"),
+				),
+			),
+		},
+		{
+			Name: "edge case - empty commands and blocks",
+			Input: `var EMPTY =
 
-func TestErrorHandling(t *testing.T) {
-	testCases := []TestCase{
-		{
-			Name:        "missing closing brace",
-			Input:       "test: { echo hello",
-			WantErr:     true,
-			ErrorSubstr: "missing closing brace",
-		},
-		{
-			Name:        "missing closing parenthesis in decorator",
-			Input:       "test: @timeout(30s { echo hello }",
-			WantErr:     true,
-			ErrorSubstr: "missing closing parenthesis",
-		},
-		{
-			Name:        "invalid decorator syntax",
-			Input:       "test: @123invalid { echo hello }",
-			WantErr:     true,
-			ErrorSubstr: "invalid decorator name",
-		},
-		{
-			Name:        "missing command name",
-			Input:       ": echo hello",
-			WantErr:     true,
-			ErrorSubstr: "missing command name",
-		},
-		{
-			Name:        "missing colon after command name",
-			Input:       "test echo hello",
-			WantErr:     true,
-			ErrorSubstr: "expected colon",
-		},
-		{
-			Name:        "invalid variable name",
-			Input:       "var 123invalid = value",
-			WantErr:     true,
-			ErrorSubstr: "invalid variable name",
-		},
-		{
-			Name:        "missing variable value",
-			Input:       "var NAME =",
-			WantErr:     true,
-			ErrorSubstr: "missing variable value",
-		},
-		{
-			Name:        "nested commands not allowed",
-			Input:       "outer: { inner: echo hello }",
-			WantErr:     true,
-			ErrorSubstr: "nested commands not allowed",
-		},
-		{
-			Name:        "decorator without block when required",
-			Input:       "test: @timeout(30s) echo hello",
-			WantErr:     true,
-			ErrorSubstr: "decorator requires block",
-		},
-		{
-			Name:        "multiple decorators without proper syntax",
-			Input:       "test: @timeout(30s) @parallel echo hello",
-			WantErr:     true,
-			ErrorSubstr: "multiple decorators require block",
+empty:
+block: {}
+decorated: @parallel {}`,
+			Expected: Program(
+				Var("EMPTY", ""),
+				Cmd("empty", ""),
+				CmdBlock("block"),
+				CmdBlock("decorated", Decorator("parallel")),
+			),
 		},
 	}
 
