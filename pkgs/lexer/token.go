@@ -17,7 +17,8 @@ const (
 	VAR      // var
 	WATCH    // watch
 	STOP     // stop
-	WHEN     // when (for @when decorator)
+	WHEN     // when (for @when pattern decorator)
+	TRY      // try (for @try pattern decorator)
 	AT       // @
 	COLON    // :
 	EQUALS   // =
@@ -26,10 +27,10 @@ const (
 	RPAREN   // )
 	LBRACE   // {
 	RBRACE   // }
-	ASTERISK // * (wildcard in @when)
+	ASTERISK // * (wildcard in patterns)
 
 	// Literals and Content
-	IDENTIFIER // command names, variable names, decorator names
+	IDENTIFIER // command names, variable names, decorator names, patterns
 	SHELL_TEXT // shell command text
 	NUMBER     // 8080, 3.14, -100
 	STRING     // "hello", 'world', `template`
@@ -51,6 +52,7 @@ var tokenNames = [...]string{
 	WATCH:             "WATCH",
 	STOP:              "STOP",
 	WHEN:              "WHEN",
+	TRY:               "TRY",
 	AT:                "AT",
 	COLON:             "COLON",
 	EQUALS:            "EQUALS",
@@ -90,7 +92,7 @@ const (
 type SemanticTokenType int
 
 const (
-	SemKeyword   SemanticTokenType = iota // var, watch, stop, when
+	SemKeyword   SemanticTokenType = iota // var, watch, stop, when, try
 	SemCommand                            // command names
 	SemVariable                           // variable names
 	SemString                             // string literals
@@ -98,7 +100,8 @@ const (
 	SemComment                            // comments
 	SemOperator                           // :, =, {, }, (, ), @, *
 	SemShellText                          // shell text content
-	SemDecorator                          // decorators like @timeout, @retry, @when
+	SemDecorator                          // decorators like @timeout, @retry
+	SemPattern                            // pattern-matching decorators (@when, @try)
 )
 
 // SourceSpan represents a precise location in source code
@@ -122,7 +125,7 @@ type ShellSegment struct {
 	Offset   int        `json:"offset"`    // Offset within processed shell text
 }
 
-// Token represents a single token with position information
+// Token represents a single token with enhanced position information
 type Token struct {
 	Type       TokenType
 	Semantic   SemanticTokenType
@@ -329,8 +332,10 @@ func GetTextMateGrammarScopes(tokens []Token) []string {
 	scopes := make(map[string]bool)
 	for _, token := range tokens {
 		switch token.Type {
-		case VAR, WATCH, STOP, WHEN:
+		case VAR, WATCH, STOP:
 			scopes["keyword.control.devcmd"] = true
+		case WHEN, TRY:
+			scopes["keyword.control.pattern.devcmd"] = true
 		case STRING:
 			scopes["string.quoted.devcmd"] = true
 		case NUMBER:
@@ -364,7 +369,7 @@ func GetTextMateGrammarScopes(tokens []Token) []string {
 // IsStructuralToken checks if a token represents Devcmd structure
 func IsStructuralToken(tokenType TokenType) bool {
 	switch tokenType {
-	case VAR, WATCH, STOP, WHEN, AT, COLON, EQUALS, COMMA, LPAREN, RPAREN, LBRACE, RBRACE, ASTERISK, NEWLINE:
+	case VAR, WATCH, STOP, WHEN, TRY, AT, COLON, EQUALS, COMMA, LPAREN, RPAREN, LBRACE, RBRACE, ASTERISK, NEWLINE:
 		return true
 	default:
 		return false
@@ -386,12 +391,156 @@ func IsShellContent(tokenType TokenType) bool {
 	return tokenType == SHELL_TEXT
 }
 
-// IsConditionalToken checks if a token is related to @when conditionals
-func IsConditionalToken(tokenType TokenType) bool {
+// IsPatternToken checks if a token is related to pattern-matching decorators
+func IsPatternToken(tokenType TokenType) bool {
 	switch tokenType {
-	case WHEN, ASTERISK:
+	case WHEN, TRY, ASTERISK:
 		return true
 	default:
 		return false
 	}
+}
+
+// IsKeywordToken checks if a token is a language keyword
+func IsKeywordToken(tokenType TokenType) bool {
+	switch tokenType {
+	case VAR, WATCH, STOP, WHEN, TRY:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsDecoratorKeyword checks if a token is a decorator keyword
+func IsDecoratorKeyword(tokenType TokenType) bool {
+	switch tokenType {
+	case WHEN, TRY:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsPatternIdentifier checks if an identifier token could be a pattern
+func IsPatternIdentifier(token Token) bool {
+	if token.Type != IDENTIFIER {
+		return false
+	}
+
+	// Common pattern identifiers
+	commonPatterns := map[string]bool{
+		"main":        true,
+		"error":       true,
+		"finally":     true,
+		"production":  true,
+		"development": true,
+		"staging":     true,
+		"test":        true,
+		"prod":        true,
+		"dev":         true,
+	}
+
+	return commonPatterns[token.Value]
+}
+
+// GetPatternType returns the type of pattern for a token
+func GetPatternType(token Token) PatternType {
+	if token.Type == ASTERISK {
+		return WildcardPattern
+	}
+
+	if token.Type == IDENTIFIER {
+		switch token.Value {
+		case "main", "error", "finally":
+			return TryPattern
+		case "production", "development", "staging", "test", "prod", "dev":
+			return WhenPattern
+		default:
+			return CustomPattern
+		}
+	}
+
+	return UnknownPattern
+}
+
+// PatternType represents different types of patterns
+type PatternType int
+
+const (
+	UnknownPattern PatternType = iota
+	WildcardPattern  // *
+	WhenPattern      // production, development, test, etc.
+	TryPattern       // main, error, finally
+	CustomPattern    // user-defined patterns
+)
+
+func (pt PatternType) String() string {
+	switch pt {
+	case WildcardPattern:
+		return "wildcard"
+	case WhenPattern:
+		return "when"
+	case TryPattern:
+		return "try"
+	case CustomPattern:
+		return "custom"
+	default:
+		return "unknown"
+	}
+}
+
+// ValidatePatternSequence validates a sequence of pattern tokens
+func ValidatePatternSequence(tokens []Token, decoratorType string) []PatternError {
+	var errors []PatternError
+
+	patterns := make(map[string]Token)
+	hasWildcard := false
+
+	for _, token := range tokens {
+		if token.Type == ASTERISK {
+			if hasWildcard {
+				errors = append(errors, PatternError{
+					Message: "multiple wildcard patterns not allowed",
+					Token:   token,
+					Code:    "duplicate-wildcard",
+				})
+			}
+			hasWildcard = true
+		} else if token.Type == IDENTIFIER {
+			if existing, exists := patterns[token.Value]; exists {
+				errors = append(errors, PatternError{
+					Message: fmt.Sprintf("duplicate pattern '%s'", token.Value),
+					Token:   token,
+					Code:    "duplicate-pattern",
+					Related: &existing,
+				})
+			}
+			patterns[token.Value] = token
+		}
+	}
+
+	// Decorator-specific validation
+	switch decoratorType {
+	case "try":
+		if _, hasMain := patterns["main"]; !hasMain {
+			errors = append(errors, PatternError{
+				Message: "@try decorator requires 'main' pattern",
+				Code:    "missing-main-pattern",
+			})
+		}
+	}
+
+	return errors
+}
+
+// PatternError represents a pattern validation error
+type PatternError struct {
+	Message string  `json:"message"`
+	Token   Token   `json:"token"`
+	Code    string  `json:"code"`
+	Related *Token  `json:"related,omitempty"`
+}
+
+func (pe PatternError) Error() string {
+	return fmt.Sprintf("%s at %s", pe.Message, pe.Token.Position())
 }

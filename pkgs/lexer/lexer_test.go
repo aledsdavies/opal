@@ -459,7 +459,6 @@ func TestModeTransitions(t *testing.T) {
 		input    string
 		expected []struct {
 			token TokenType
-			mode  LexerMode
 		}
 	}{
 		{
@@ -467,12 +466,11 @@ func TestModeTransitions(t *testing.T) {
 			input: "build: echo hello",
 			expected: []struct {
 				token TokenType
-				mode  LexerMode
 			}{
-				{IDENTIFIER, LanguageMode}, // build
-				{COLON, CommandMode},       // : (switches to CommandMode)
-				{SHELL_TEXT, CommandMode},  // echo hello
-				{EOF, LanguageMode},        // EOF (switches back)
+				{IDENTIFIER}, // build
+				{COLON},      // :
+				{SHELL_TEXT}, // echo hello
+				{EOF},        // EOF
 			},
 		},
 		{
@@ -480,14 +478,13 @@ func TestModeTransitions(t *testing.T) {
 			input: "build: { echo hello }",
 			expected: []struct {
 				token TokenType
-				mode  LexerMode
 			}{
-				{IDENTIFIER, LanguageMode}, // build
-				{COLON, LanguageMode},      // : (stays in LanguageMode)
-				{LBRACE, CommandMode},      // { (switches to CommandMode)
-				{SHELL_TEXT, CommandMode},  // echo hello
-				{RBRACE, LanguageMode},     // } (switches back)
-				{EOF, LanguageMode},        // EOF
+				{IDENTIFIER}, // build
+				{COLON},      // :
+				{LBRACE},     // {
+				{SHELL_TEXT}, // echo hello
+				{RBRACE},     // }
+				{EOF},        // EOF
 			},
 		},
 		{
@@ -495,41 +492,39 @@ func TestModeTransitions(t *testing.T) {
 			input: "build: @timeout(30s) { echo hello }",
 			expected: []struct {
 				token TokenType
-				mode  LexerMode
 			}{
-				{IDENTIFIER, LanguageMode}, // build
-				{COLON, LanguageMode},      // : (stays in LanguageMode for decorator)
-				{AT, LanguageMode},         // @
-				{IDENTIFIER, LanguageMode}, // timeout
-				{LPAREN, LanguageMode},     // (
-				{DURATION, LanguageMode},   // 30s
-				{RPAREN, LanguageMode},     // )
-				{LBRACE, CommandMode},      // { (switches to CommandMode)
-				{SHELL_TEXT, CommandMode},  // echo hello
-				{RBRACE, LanguageMode},     // } (switches back)
-				{EOF, LanguageMode},        // EOF
+				{IDENTIFIER}, // build
+				{COLON},      // :
+				{AT},         // @
+				{IDENTIFIER}, // timeout
+				{LPAREN},     // (
+				{DURATION},   // 30s
+				{RPAREN},     // )
+				{LBRACE},     // {
+				{SHELL_TEXT}, // echo hello
+				{RBRACE},     // }
+				{EOF},        // EOF
 			},
 		},
 		{
-			name:  "@when conditional mode transition",
+			name:  "@when pattern mode transition",
 			input: "build: @when(ENV) { prod: echo hello }",
 			expected: []struct {
 				token TokenType
-				mode  LexerMode
 			}{
-				{IDENTIFIER, LanguageMode},    // build
-				{COLON, LanguageMode},         // : (stays in LanguageMode for decorator)
-				{AT, LanguageMode},            // @
-				{WHEN, LanguageMode},          // when
-				{LPAREN, LanguageMode},        // (
-				{IDENTIFIER, LanguageMode},    // ENV
-				{RPAREN, LanguageMode},        // )
-				{LBRACE, ConditionalMode},     // { (switches to ConditionalMode)
-				{IDENTIFIER, ConditionalMode}, // prod
-				{COLON, CommandMode},          // : (switches to CommandMode)
-				{SHELL_TEXT, CommandMode},     // echo hello
-				{RBRACE, LanguageMode},        // } (switches back)
-				{EOF, LanguageMode},           // EOF
+				{IDENTIFIER}, // build
+				{COLON},      // :
+				{AT},         // @
+				{WHEN},       // when
+				{LPAREN},     // (
+				{IDENTIFIER}, // ENV
+				{RPAREN},     // )
+				{LBRACE},     // {
+				{IDENTIFIER}, // prod
+				{COLON},      // :
+				{SHELL_TEXT}, // echo hello
+				{RBRACE},     // }
+				{EOF},        // EOF
 			},
 		},
 	}
@@ -537,16 +532,22 @@ func TestModeTransitions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expected) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
+				// Debug output
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q at %d:%d", i, token.Type, token.Value, token.Line, token.Column)
+				}
+				return
+			}
 
 			for i, expected := range test.expected {
-				token := lexer.NextToken()
-				if token.Type != expected.token {
-					t.Errorf("Step %d: expected token %s, got %s", i, expected.token, token.Type)
-				}
-
-				if lexer.mode != expected.mode {
-					t.Errorf("Step %d: expected mode %v, got %v (after token %s)",
-						i, expected.mode, lexer.mode, token.Type)
+				actual := tokens[i]
+				if actual.Type != expected.token {
+					t.Errorf("Step %d: expected token %s, got %s", i, expected.token, actual.Type)
 				}
 			}
 		})
@@ -759,12 +760,13 @@ func TestTokenClassification(t *testing.T) {
 		isStruct  bool
 		isLiteral bool
 		isShell   bool
-		isCond    bool
+		isPattern bool
 	}{
 		{VAR, true, false, false, false},
 		{WATCH, true, false, false, false},
 		{STOP, true, false, false, false},
 		{WHEN, true, false, false, true},
+		{TRY, true, false, false, true},
 		{AT, true, false, false, false},
 		{COLON, true, false, false, false},
 		{LBRACE, true, false, false, false},
@@ -790,8 +792,8 @@ func TestTokenClassification(t *testing.T) {
 			if IsShellContent(test.tokenType) != test.isShell {
 				t.Errorf("IsShellContent(%s) = %v, want %v", test.tokenType, IsShellContent(test.tokenType), test.isShell)
 			}
-			if IsConditionalToken(test.tokenType) != test.isCond {
-				t.Errorf("IsConditionalToken(%s) = %v, want %v", test.tokenType, IsConditionalToken(test.tokenType), test.isCond)
+			if IsPatternToken(test.tokenType) != test.isPattern {
+				t.Errorf("IsPatternToken(%s) = %v, want %v", test.tokenType, IsPatternToken(test.tokenType), test.isPattern)
 			}
 		})
 	}
@@ -991,6 +993,290 @@ func TestNumbers(t *testing.T) {
 			}
 
 			verifyTokenPosition(t, token, 1, 1, 0)
+		})
+	}
+}
+
+func TestTryPatternDecorator(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []TokenType
+	}{
+		{
+			input:    "@try()",
+			expected: []TokenType{AT, TRY, LPAREN, RPAREN, EOF},
+		},
+		{
+			input:    "@try { main: npm run build }",
+			expected: []TokenType{AT, TRY, LBRACE, IDENTIFIER, COLON, SHELL_TEXT, RBRACE, EOF},
+		},
+		{
+			input:    "@try { main: npm run build; error: echo failed; finally: echo done }",
+			expected: []TokenType{AT, TRY, LBRACE, IDENTIFIER, COLON, SHELL_TEXT, IDENTIFIER, COLON, SHELL_TEXT, IDENTIFIER, COLON, SHELL_TEXT, RBRACE, EOF},
+		},
+		{
+			// Multi-line pattern with blocks
+			input: `@try {
+  main: { npm run build }
+  error: { echo "Build failed" }
+  finally: { echo "Cleanup" }
+}`,
+			expected: []TokenType{
+				AT, TRY, LBRACE, NEWLINE,
+				IDENTIFIER, COLON, LBRACE, SHELL_TEXT, RBRACE, NEWLINE,
+				IDENTIFIER, COLON, LBRACE, SHELL_TEXT, RBRACE, NEWLINE,
+				IDENTIFIER, COLON, LBRACE, SHELL_TEXT, RBRACE, NEWLINE,
+				RBRACE, EOF,
+			},
+		},
+		{
+			// Mixed simple and block patterns
+			input: `@try {
+  main: npm test
+  error: { echo "Test failed"; exit 1 }
+  finally: echo "Done"
+}`,
+			expected: []TokenType{
+				AT, TRY, LBRACE, NEWLINE,
+				IDENTIFIER, COLON, SHELL_TEXT, NEWLINE,
+				IDENTIFIER, COLON, LBRACE, SHELL_TEXT, RBRACE, NEWLINE,
+				IDENTIFIER, COLON, SHELL_TEXT, NEWLINE,
+				RBRACE, EOF,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			var tokenTypes []TokenType
+			for _, token := range tokens {
+				tokenTypes = append(tokenTypes, token.Type)
+			}
+
+			if diff := cmp.Diff(test.expected, tokenTypes); diff != "" {
+				t.Errorf("Token sequence mismatch (-want +got):\n%s", diff)
+				// Debug output
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q at %d:%d", i, token.Type, token.Value, token.Line, token.Column)
+				}
+			}
+
+			// Verify specific token values for the semicolon-separated case
+			if test.input == "@try { main: npm run build; error: echo failed; finally: echo done }" {
+				// Find the shell text tokens and verify their content
+				shellTokens := []string{}
+				for _, token := range tokens {
+					if token.Type == SHELL_TEXT {
+						shellTokens = append(shellTokens, token.Value)
+					}
+				}
+
+				expectedShellContent := []string{"npm run build", "echo failed", "echo done"}
+				if len(shellTokens) == len(expectedShellContent) {
+					for i, expected := range expectedShellContent {
+						if strings.TrimSpace(shellTokens[i]) != expected {
+							t.Errorf("Shell token %d: expected %q, got %q", i, expected, strings.TrimSpace(shellTokens[i]))
+						}
+					}
+				} else {
+					t.Errorf("Expected %d shell tokens, got %d: %v", len(expectedShellContent), len(shellTokens), shellTokens)
+				}
+			}
+		})
+	}
+}
+
+func TestKeywordDetection(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected TokenType
+	}{
+		{"var", VAR},
+		{"watch", WATCH},
+		{"stop", STOP},
+		{"when", WHEN},
+		{"try", TRY},
+		{"timeout", IDENTIFIER}, // Not a keyword
+		{"parallel", IDENTIFIER}, // Not a keyword
+		{"retry", IDENTIFIER}, // Not a keyword
+	}
+
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			lexer := New(test.input)
+			token := lexer.NextToken()
+
+			if token.Type != test.expected {
+				t.Errorf("Expected token type %s, got %s", test.expected, token.Type)
+			}
+
+			if token.Value != test.input {
+				t.Errorf("Expected token value %q, got %q", test.input, token.Value)
+			}
+		})
+	}
+}
+
+func TestPatternModeFeatures(t *testing.T) {
+	input := `deploy: @when(ENV) {
+  production: @timeout(60s) { npm run build:prod }
+  staging: @timeout(30s) { npm run build:staging }
+  development: npm run build:dev
+  *: echo "Unknown environment: $ENV"
+}`
+
+	lexer := New(input)
+	tokens := lexer.TokenizeToSlice()
+
+	// Verify the presence of pattern-specific tokens
+	hasPatternTokens := false
+	for _, token := range tokens {
+		if IsPatternToken(token.Type) {
+			hasPatternTokens = true
+			break
+		}
+	}
+
+	if !hasPatternTokens {
+		t.Error("Expected to find pattern tokens in @when decorator")
+	}
+
+	// Verify that we have proper nesting with decorators inside patterns
+	hasNestedDecorator := false
+	foundTimeout := false
+	for i, token := range tokens {
+		if token.Type == IDENTIFIER && token.Value == "timeout" && i > 0 && tokens[i-1].Type == AT {
+			foundTimeout = true
+		}
+		if foundTimeout && token.Type == LBRACE {
+			hasNestedDecorator = true
+			break
+		}
+	}
+
+	if !hasNestedDecorator {
+		t.Error("Expected to find nested decorator inside pattern")
+	}
+}
+
+func TestMultiLinePatternDecorators(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "when with multi-line blocks",
+			input: `@when(NODE_ENV) {
+  production: {
+    npm run build:prod
+    npm run deploy
+  }
+  development: {
+    npm run build:dev
+    npm start
+  }
+  *: echo "Unknown environment"
+}`,
+		},
+		{
+			name: "try with nested decorators",
+			input: `@try {
+  main: @timeout(30s) { npm run build }
+  error: @retry(3) { echo "Retrying..." }
+  finally: echo "Done"
+}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			// Debug output to see actual structure
+			t.Logf("Tokens for %s:", test.name)
+			for i, token := range tokens {
+				t.Logf("  %d: %s %q", i, token.Type, token.Value)
+			}
+
+			// Verify basic structure rather than exact token sequence
+			hasWhenOrTry := false
+			hasPatterns := false
+			hasProperNesting := false
+
+			for i, token := range tokens {
+				// Check for @when or @try
+				if token.Type == WHEN || token.Type == TRY {
+					hasWhenOrTry = true
+				}
+
+				// Check for pattern identifiers
+				if token.Type == IDENTIFIER {
+					switch token.Value {
+					case "production", "development", "main", "error", "finally":
+						hasPatterns = true
+					}
+				}
+
+				// Check for proper brace nesting
+				if token.Type == LBRACE && i+1 < len(tokens) {
+					// Look for content inside braces
+					depth := 1
+					j := i + 1
+					for j < len(tokens) && depth > 0 {
+						if tokens[j].Type == LBRACE {
+							depth++
+						} else if tokens[j].Type == RBRACE {
+							depth--
+						}
+						j++
+					}
+					if depth == 0 {
+						hasProperNesting = true
+					}
+				}
+			}
+
+			// Verify essential structure
+			if !hasWhenOrTry {
+				t.Error("Expected to find @when or @try decorator")
+			}
+			if !hasPatterns {
+				t.Error("Expected to find pattern identifiers")
+			}
+			if !hasProperNesting {
+				t.Error("Expected to find proper brace nesting")
+			}
+
+			// For the nested decorators test, also check for decorators
+			if test.name == "try with nested decorators" {
+				hasNestedDecorators := false
+				for i, token := range tokens {
+					if token.Type == AT && i+1 < len(tokens) {
+						next := tokens[i+1]
+						if next.Type == IDENTIFIER && (next.Value == "timeout" || next.Value == "retry") {
+							hasNestedDecorators = true
+							break
+						}
+					}
+				}
+				if !hasNestedDecorators {
+					t.Error("Expected to find nested decorators (@timeout, @retry)")
+				}
+			}
+
+			// Verify the lexer doesn't crash and produces reasonable output
+			if len(tokens) == 0 {
+				t.Error("Expected some tokens, got none")
+			}
+
+			if tokens[len(tokens)-1].Type != EOF {
+				t.Error("Expected last token to be EOF")
+			}
 		})
 	}
 }

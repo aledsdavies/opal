@@ -14,8 +14,8 @@ const (
 	FunctionDecorator DecoratorType = iota
 	// BlockDecorator modifies execution behavior and requires explicit blocks
 	BlockDecorator
-	// ConditionalDecorator handles conditional execution based on environment variables
-	ConditionalDecorator
+	// PatternDecorator handles pattern matching with specific syntax
+	PatternDecorator
 )
 
 // SemanticType represents the semantic category for syntax highlighting
@@ -25,7 +25,7 @@ const (
 	SemDecorator SemanticType = iota // Generic decorator
 	SemVariable                      // Variable-related decorators (@var, @env)
 	SemFunction                      // Function-related decorators (@sh, @now)
-	SemConditional                   // Conditional decorators (@when)
+	SemPattern                       // Pattern-matching decorators (@when, @try)
 )
 
 // ArgumentType represents the expected type of decorator arguments
@@ -40,6 +40,13 @@ const (
 	ExpressionArg // Can be any expression including @var() references
 )
 
+// PatternSpec defines valid patterns for pattern-matching decorators
+type PatternSpec struct {
+	AllowedPatterns []string // Specific allowed patterns (nil means any identifier)
+	AllowWildcard   bool     // Whether * wildcard is allowed
+	RequiredPatterns []string // Patterns that must be present
+}
+
 // DecoratorSignature defines the expected signature for a decorator
 type DecoratorSignature struct {
 	Name        string
@@ -48,7 +55,7 @@ type DecoratorSignature struct {
 	Description string
 	Args        []ArgumentSpec
 	RequiresBlock bool // Only for BlockDecorator - whether it requires explicit {}
-	IsConditional bool // True for @when and similar conditional decorators
+	PatternSpec *PatternSpec // Only for PatternDecorator - defines valid patterns
 }
 
 // ArgumentSpec defines an argument specification
@@ -102,7 +109,7 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 		Name:          "timeout",
 		Type:          BlockDecorator,
 		Semantic:      SemDecorator,
-		Description:   "Sets execution timeout for the command block",
+		Description:   "Sets execution timeout for command block",
 		RequiresBlock: true,
 		Args: []ArgumentSpec{
 			{Name: "duration", Type: DurationArg, Optional: false},
@@ -113,24 +120,41 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 		Name:          "retry",
 		Type:          BlockDecorator,
 		Semantic:      SemDecorator,
-		Description:   "Retries command execution on failure",
+		Description:   "Retries command block on failure",
 		RequiresBlock: true,
 		Args: []ArgumentSpec{
 			{Name: "attempts", Type: NumberArg, Optional: false},
-			{Name: "delay", Type: DurationArg, Optional: true, Default: "1s"},
 		},
 	})
 
-	// Conditional Decorators - handle conditional execution
+	// Pattern Decorators - handle pattern matching with specific syntax
 	r.register(&DecoratorSignature{
 		Name:          "when",
-		Type:          ConditionalDecorator,
-		Semantic:      SemConditional,
-		Description:   "Conditional execution based on environment variable value",
+		Type:          PatternDecorator,
+		Semantic:      SemPattern,
+		Description:   "Pattern matching based on variable value - supports any identifier patterns",
 		RequiresBlock: true,
-		IsConditional: true,
 		Args: []ArgumentSpec{
 			{Name: "variable", Type: IdentifierArg, Optional: false},
+		},
+		PatternSpec: &PatternSpec{
+			AllowedPatterns:  nil,  // nil means any identifier is allowed
+			AllowWildcard:    true, // * wildcard is allowed
+			RequiredPatterns: nil,  // No required patterns
+		},
+	})
+
+	r.register(&DecoratorSignature{
+		Name:          "try",
+		Type:          PatternDecorator,
+		Semantic:      SemPattern,
+		Description:   "Exception handling with main, error, and finally blocks",
+		RequiresBlock: true,
+		Args:          []ArgumentSpec{}, // No arguments
+		PatternSpec: &PatternSpec{
+			AllowedPatterns:  []string{"main", "error", "finally"}, // Only these patterns allowed
+			AllowWildcard:    false,                                 // No wildcard
+			RequiredPatterns: []string{"main"},                     // main is required
 		},
 	})
 }
@@ -183,12 +207,12 @@ func (r *DecoratorRegistry) IsBlockDecorator(name string) bool {
 	return false
 }
 
-// IsConditionalDecorator checks if a decorator is a conditional decorator
-func (r *DecoratorRegistry) IsConditionalDecorator(name string) bool {
+// IsPatternDecorator checks if a decorator is a pattern-matching decorator
+func (r *DecoratorRegistry) IsPatternDecorator(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if decorator, exists := r.decorators[name]; exists {
-		return decorator.Type == ConditionalDecorator
+		return decorator.Type == PatternDecorator
 	}
 	return false
 }
@@ -211,6 +235,80 @@ func (r *DecoratorRegistry) RequiresBlock(name string) bool {
 		return decorator.RequiresBlock
 	}
 	return false
+}
+
+// GetPatternSpec returns the pattern specification for a pattern decorator
+func (r *DecoratorRegistry) GetPatternSpec(name string) *PatternSpec {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if decorator, exists := r.decorators[name]; exists && decorator.PatternSpec != nil {
+		return decorator.PatternSpec
+	}
+	return nil
+}
+
+// ValidatePattern validates a pattern against the decorator's pattern specification
+func (r *DecoratorRegistry) ValidatePattern(decoratorName string, pattern string) error {
+	spec := r.GetPatternSpec(decoratorName)
+	if spec == nil {
+		return fmt.Errorf("@%s is not a pattern decorator", decoratorName)
+	}
+
+	// Check wildcard
+	if pattern == "*" {
+		if !spec.AllowWildcard {
+			return fmt.Errorf("@%s does not allow wildcard patterns", decoratorName)
+		}
+		return nil
+	}
+
+	// Check allowed patterns
+	if spec.AllowedPatterns != nil {
+		allowed := false
+		for _, allowedPattern := range spec.AllowedPatterns {
+			if pattern == allowedPattern {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("@%s does not allow pattern '%s', allowed patterns: %s",
+				decoratorName, pattern, strings.Join(spec.AllowedPatterns, ", "))
+		}
+	}
+
+	return nil
+}
+
+// ValidatePatterns validates all patterns in a pattern block
+func (r *DecoratorRegistry) ValidatePatterns(decoratorName string, patterns []string) error {
+	spec := r.GetPatternSpec(decoratorName)
+	if spec == nil {
+		return fmt.Errorf("@%s is not a pattern decorator", decoratorName)
+	}
+
+	// Validate each pattern
+	for _, pattern := range patterns {
+		if err := r.ValidatePattern(decoratorName, pattern); err != nil {
+			return err
+		}
+	}
+
+	// Check required patterns
+	if spec.RequiredPatterns != nil {
+		patternSet := make(map[string]bool)
+		for _, pattern := range patterns {
+			patternSet[pattern] = true
+		}
+
+		for _, required := range spec.RequiredPatterns {
+			if !patternSet[required] {
+				return fmt.Errorf("@%s requires pattern '%s' to be present", decoratorName, required)
+			}
+		}
+	}
+
+	return nil
 }
 
 // ValidateArguments validates decorator arguments against the signature
@@ -283,14 +381,14 @@ func (r *DecoratorRegistry) GetBlockDecorators() []*DecoratorSignature {
 	return decorators
 }
 
-// GetConditionalDecorators returns all conditional decorators
-func (r *DecoratorRegistry) GetConditionalDecorators() []*DecoratorSignature {
+// GetPatternDecorators returns all pattern-matching decorators
+func (r *DecoratorRegistry) GetPatternDecorators() []*DecoratorSignature {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var decorators []*DecoratorSignature
 	for _, decorator := range r.decorators {
-		if decorator.Type == ConditionalDecorator {
+		if decorator.Type == PatternDecorator {
 			decorators = append(decorators, decorator)
 		}
 	}
@@ -329,8 +427,8 @@ func (s *DecoratorSignature) GetUsageString() string {
 	}
 
 	if s.RequiresBlock {
-		if s.IsConditional {
-			parts = append(parts, " { pattern: command ... }")
+		if s.Type == PatternDecorator {
+			parts = append(parts, " { pattern: command }")
 		} else {
 			parts = append(parts, " { ... }")
 		}
@@ -348,12 +446,6 @@ func (s *DecoratorSignature) GetDocumentationString() string {
 	doc.WriteString(fmt.Sprintf("Semantic: %s\n", s.getSemanticString()))
 	doc.WriteString(fmt.Sprintf("Usage: `%s`\n", s.GetUsageString()))
 
-	if s.IsConditional {
-		doc.WriteString("\nConditional syntax:\n")
-		doc.WriteString("- `pattern: command` - Execute command when variable matches pattern\n")
-		doc.WriteString("- `*: command` - Default case when no other pattern matches\n")
-	}
-
 	if len(s.Args) > 0 {
 		doc.WriteString("\nArguments:\n")
 		for _, arg := range s.Args {
@@ -369,6 +461,23 @@ func (s *DecoratorSignature) GetDocumentationString() string {
 		}
 	}
 
+	if s.PatternSpec != nil {
+		doc.WriteString("\nPattern Specification:\n")
+		if s.PatternSpec.AllowedPatterns != nil {
+			doc.WriteString(fmt.Sprintf("- Allowed patterns: %s\n", strings.Join(s.PatternSpec.AllowedPatterns, ", ")))
+		} else {
+			doc.WriteString("- Allowed patterns: any identifier\n")
+		}
+		if s.PatternSpec.AllowWildcard {
+			doc.WriteString("- Wildcard (*) allowed: yes\n")
+		} else {
+			doc.WriteString("- Wildcard (*) allowed: no\n")
+		}
+		if s.PatternSpec.RequiredPatterns != nil {
+			doc.WriteString(fmt.Sprintf("- Required patterns: %s\n", strings.Join(s.PatternSpec.RequiredPatterns, ", ")))
+		}
+	}
+
 	return doc.String()
 }
 
@@ -379,8 +488,8 @@ func (s *DecoratorSignature) getTypeString() string {
 		return "function"
 	case BlockDecorator:
 		return "block"
-	case ConditionalDecorator:
-		return "conditional"
+	case PatternDecorator:
+		return "pattern"
 	default:
 		return "unknown"
 	}
@@ -393,10 +502,10 @@ func (s *DecoratorSignature) getSemanticString() string {
 		return "variable"
 	case SemFunction:
 		return "function"
-	case SemConditional:
-		return "conditional"
 	case SemDecorator:
 		return "decorator"
+	case SemPattern:
+		return "pattern"
 	default:
 		return "unknown"
 	}
@@ -447,9 +556,9 @@ func IsBlockDecorator(name string) bool {
 	return StandardDecorators.IsBlockDecorator(name)
 }
 
-// IsConditionalDecorator checks if a decorator is a conditional decorator
-func IsConditionalDecorator(name string) bool {
-	return StandardDecorators.IsConditionalDecorator(name)
+// IsPatternDecorator checks if a decorator is a pattern-matching decorator
+func IsPatternDecorator(name string) bool {
+	return StandardDecorators.IsPatternDecorator(name)
 }
 
 // GetDecoratorSemanticType returns the semantic type for a decorator
@@ -465,6 +574,21 @@ func RequiresExplicitBlock(name string) bool {
 // GetDecorator returns the decorator signature for a given name
 func GetDecorator(name string) (*DecoratorSignature, bool) {
 	return StandardDecorators.Get(name)
+}
+
+// GetPatternSpec returns the pattern specification for a pattern decorator
+func GetPatternSpec(name string) *PatternSpec {
+	return StandardDecorators.GetPatternSpec(name)
+}
+
+// ValidatePattern validates a pattern against the decorator's pattern specification
+func ValidatePattern(decoratorName string, pattern string) error {
+	return StandardDecorators.ValidatePattern(decoratorName, pattern)
+}
+
+// ValidatePatterns validates all patterns in a pattern block
+func ValidatePatterns(decoratorName string, patterns []string) error {
+	return StandardDecorators.ValidatePatterns(decoratorName, patterns)
 }
 
 // ValidateDecorator validates that a decorator is used correctly
@@ -502,9 +626,9 @@ func GetBlockDecorators() []*DecoratorSignature {
 	return StandardDecorators.GetBlockDecorators()
 }
 
-// GetConditionalDecorators returns all conditional decorators
-func GetConditionalDecorators() []*DecoratorSignature {
-	return StandardDecorators.GetConditionalDecorators()
+// GetPatternDecorators returns all pattern-matching decorators
+func GetPatternDecorators() []*DecoratorSignature {
+	return StandardDecorators.GetPatternDecorators()
 }
 
 // GetDecoratorsBySemanticType returns decorators filtered by semantic type
@@ -540,12 +664,12 @@ func GetDecoratorDocumentation() string {
 		}
 	}
 
-	// Conditional decorators
-	conditionalDecorators := GetConditionalDecorators()
-	if len(conditionalDecorators) > 0 {
-		doc.WriteString("## Conditional Decorators\n\n")
-		doc.WriteString("Conditional decorators handle conditional execution based on environment variables.\n\n")
-		for _, decorator := range conditionalDecorators {
+	// Pattern decorators
+	patternDecorators := GetPatternDecorators()
+	if len(patternDecorators) > 0 {
+		doc.WriteString("## Pattern Decorators\n\n")
+		doc.WriteString("Pattern decorators handle pattern matching with specific syntax requirements.\n\n")
+		for _, decorator := range patternDecorators {
 			doc.WriteString(decorator.GetDocumentationString())
 			doc.WriteString("\n")
 		}

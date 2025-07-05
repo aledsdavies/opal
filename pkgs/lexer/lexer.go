@@ -35,32 +35,32 @@ const (
 	LanguageMode LexerMode = iota
 	// CommandMode: Shell content capture
 	CommandMode
-	// ConditionalMode: Inside @when conditional blocks
-	ConditionalMode
+	// PatternMode: Inside pattern-matching blocks (@when, @try, etc.)
+	PatternMode
 )
 
 // Lexer tokenizes Devcmd source code with mode-based parsing
 type Lexer struct {
-	input      string // Changed from []byte to string for efficiency
-	position   int
-	readPos    int
-	ch         byte
-	line       int
-	column     int
-	mode       LexerMode
-	braceLevel int // Track brace nesting for command mode
-	whenLevel  int // Track @when conditional nesting
+	input        string // Changed from []byte to string for efficiency
+	position     int
+	readPos      int
+	ch           byte
+	line         int
+	column       int
+	mode         LexerMode
+	braceLevel   int // Track brace nesting for command mode
+	patternLevel int // Track pattern-matching decorator nesting
 }
 
 // New creates a new lexer instance
 func New(input string) *Lexer {
 	l := &Lexer{
-		input:      input,
-		line:       1,
-		column:     0, // Start at column 0, will be incremented to 1 on first readChar
-		mode:       LanguageMode,
-		braceLevel: 0,
-		whenLevel:  0,
+		input:        input,
+		line:         1,
+		column:       0, // Start at column 0, will be incremented to 1 on first readChar
+		mode:         LanguageMode,
+		braceLevel:   0,
+		patternLevel: 0,
 	}
 	l.readChar()
 	return l
@@ -97,8 +97,8 @@ func (l *Lexer) NextToken() Token {
 
 // lexToken performs token lexing with mode-aware logic
 func (l *Lexer) lexToken() Token {
-	// Skip whitespace in LanguageMode and ConditionalMode
-	if l.mode == LanguageMode || l.mode == ConditionalMode {
+	// Skip whitespace in LanguageMode and PatternMode
+	if l.mode == LanguageMode || l.mode == PatternMode {
 		l.skipWhitespace()
 	}
 
@@ -109,8 +109,8 @@ func (l *Lexer) lexToken() Token {
 		return l.lexLanguageMode(start)
 	case CommandMode:
 		return l.lexCommandMode(start)
-	case ConditionalMode:
-		return l.lexConditionalMode(start)
+	case PatternMode:
+		return l.lexPatternMode(start)
 	default:
 		return l.lexLanguageMode(start)
 	}
@@ -136,9 +136,9 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 	case ':':
 		tok := l.createSimpleToken(COLON, ":", start, startLine, startColumn)
 		l.readChar()
-		// Check if we're in a @when conditional context
-		if l.whenLevel > 0 {
-			// In @when mode, ':' doesn't switch to command mode
+		// Check if we're in a pattern-matching context
+		if l.patternLevel > 0 {
+			// In pattern mode, ':' doesn't switch to command mode
 			l.updateTokenEnd(&tok)
 			return tok
 		}
@@ -171,9 +171,9 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		return tok
 	case '{':
 		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
-		if l.whenLevel > 0 {
-			// Inside @when conditional
-			l.mode = ConditionalMode
+		if l.patternLevel > 0 {
+			// Inside pattern-matching decorator
+			l.mode = PatternMode
 		} else {
 			// Regular command block
 			l.mode = CommandMode
@@ -190,8 +190,8 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		}
 		if l.braceLevel == 0 {
 			l.mode = LanguageMode
-			if l.whenLevel > 0 {
-				l.whenLevel--
+			if l.patternLevel > 0 {
+				l.patternLevel--
 			}
 		}
 		l.readChar()
@@ -233,8 +233,8 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 	}
 }
 
-// lexConditionalMode handles @when conditional blocks
-func (l *Lexer) lexConditionalMode(start int) Token {
+// lexPatternMode handles pattern-matching decorator blocks (@when, @try, etc.)
+func (l *Lexer) lexPatternMode(start int) Token {
 	startLine, startColumn := l.line, l.column
 
 	switch l.ch {
@@ -249,10 +249,13 @@ func (l *Lexer) lexConditionalMode(start int) Token {
 	case ':':
 		tok := l.createSimpleToken(COLON, ":", start, startLine, startColumn)
 		l.readChar()
-		// After ':' in conditional mode, we expect command content
-		if l.shouldEnterCommandMode() {
+		// After ':' in pattern mode, check if we should enter command mode
+		// Look ahead to see if we have a block '{' or direct shell content
+		l.skipWhitespace()
+		if l.ch == '{' {
+			// Stay in PatternMode, the '{' will switch to CommandMode
+		} else if l.shouldEnterCommandMode() {
 			l.mode = CommandMode
-			l.skipWhitespace()
 		}
 		l.updateTokenEnd(&tok)
 		return tok
@@ -263,8 +266,8 @@ func (l *Lexer) lexConditionalMode(start int) Token {
 		}
 		if l.braceLevel == 0 {
 			l.mode = LanguageMode
-			if l.whenLevel > 0 {
-				l.whenLevel--
+			if l.patternLevel > 0 {
+				l.patternLevel--
 			}
 		}
 		l.readChar()
@@ -319,9 +322,9 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		if l.braceLevel == 0 {
 			// Outside braces: newline terminates command
 			l.mode = LanguageMode
-		} else if l.whenLevel > 0 {
-			// Inside @when conditional: newline goes back to conditional mode
-			l.mode = ConditionalMode
+		} else if l.patternLevel > 0 {
+			// Inside pattern-matching decorator: newline goes back to pattern mode
+			l.mode = PatternMode
 		}
 		// Inside braces: emit newline but stay in command mode for next shell line
 		tok := l.createSimpleToken(NEWLINE, "\n", start, startLine, startColumn)
@@ -335,11 +338,11 @@ func (l *Lexer) lexCommandMode(start int) Token {
 			l.braceLevel--
 			if l.braceLevel == 0 {
 				l.mode = LanguageMode
-				if l.whenLevel > 0 {
-					l.whenLevel--
+				if l.patternLevel > 0 {
+					l.patternLevel--
 				}
-			} else if l.whenLevel > 0 {
-				l.mode = ConditionalMode
+			} else if l.patternLevel > 0 {
+				l.mode = PatternMode
 			}
 			l.readChar()
 			l.updateTokenEnd(&tok)
@@ -400,6 +403,38 @@ func (l *Lexer) lexShellText(start int) Token {
 			hasLineContinuation = true
 			break
 		}
+
+		// Special handling for pattern-matching contexts
+		if l.patternLevel > 0 && ch == ';' {
+			// In pattern mode, semicolon might separate patterns
+			// Look ahead to see if we have a pattern after whitespace
+			lookaheadPos := endPos + 1
+
+			// Skip whitespace
+			for lookaheadPos < inputLen && (input[lookaheadPos] == ' ' || input[lookaheadPos] == '\t') {
+				lookaheadPos++
+			}
+
+			// Check if we have an identifier followed by ':'
+			if lookaheadPos < inputLen && isLetter[input[lookaheadPos]] {
+				// Scan identifier
+				for lookaheadPos < inputLen && isIdentPart[input[lookaheadPos]] {
+					lookaheadPos++
+				}
+
+				// Skip whitespace after identifier
+				for lookaheadPos < inputLen && (input[lookaheadPos] == ' ' || input[lookaheadPos] == '\t') {
+					lookaheadPos++
+				}
+
+				// If we find ':', this is likely a new pattern
+				if lookaheadPos < inputLen && input[lookaheadPos] == ':' {
+					endPos++ // Include the semicolon in current shell text
+					break
+				}
+			}
+		}
+
 		endPos++
 	}
 
@@ -416,6 +451,12 @@ func (l *Lexer) lexShellText(start int) Token {
 		// Trim trailing whitespace if we stopped at '}'
 		if endPos < inputLen && input[endPos] == '}' && l.braceLevel > 0 {
 			finalText = strings.TrimRight(finalText, " \t\r\f")
+		}
+
+		// Trim trailing semicolon if we're in pattern mode and found a pattern break
+		if l.patternLevel > 0 && endPos < inputLen && strings.HasSuffix(finalText, ";") {
+			finalText = strings.TrimSuffix(finalText, ";")
+			l.mode = PatternMode // Switch back to pattern mode for next token
 		}
 
 		// Don't emit empty tokens
@@ -439,7 +480,7 @@ func (l *Lexer) lexShellText(start int) Token {
 		}
 	}
 
-	// Slow path for shell text with line continuations
+	// Slow path for shell text with line continuations and pattern breaks
 	var segments []ShellSegment
 	var processedBuilder strings.Builder
 	processedOffset := 0
@@ -457,6 +498,18 @@ func (l *Lexer) lexShellText(start int) Token {
 		if l.ch == '\n' {
 			// In command mode, newlines break shell text into separate tokens
 			break
+		}
+
+		// Check for pattern breaks in pattern-matching mode
+		if l.patternLevel > 0 && l.ch == ';' {
+			// Look ahead for potential pattern
+			if l.isPatternBreak() {
+				// Include the semicolon in current segment
+				segmentRaw.WriteByte(l.ch)
+				segmentProcessed.WriteByte(l.ch)
+				l.readChar()
+				break
+			}
 		}
 
 		if l.ch == '\\' && l.peekChar() == '\n' {
@@ -530,6 +583,12 @@ func (l *Lexer) lexShellText(start int) Token {
 		finalText = strings.TrimRight(finalText, " \t\r\f")
 	}
 
+	// Handle pattern breaks
+	if l.patternLevel > 0 && strings.HasSuffix(finalText, ";") {
+		finalText = strings.TrimSuffix(finalText, ";")
+		l.mode = PatternMode // Switch back to pattern mode for next token
+	}
+
 	// Don't emit empty tokens
 	if strings.TrimSpace(finalText) == "" {
 		return l.lexToken()
@@ -590,10 +649,10 @@ func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
 	if keywordType, isKeyword := keywords[value]; isKeyword {
 		tokenType = keywordType
 		semantic = SemKeyword
-		// Special handling for @when decorator
-		if value == "when" {
-			// Track that we're entering a @when conditional
-			l.whenLevel++
+		// Special handling for pattern-matching decorators
+		if value == "when" || value == "try" {
+			// Track that we're entering a pattern-matching decorator
+			l.patternLevel++
 		}
 	} else {
 		tokenType = IDENTIFIER
@@ -615,12 +674,13 @@ func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
 	}
 }
 
-// Keywords map - removed shell control structures, added 'when'
+// Keywords map - includes pattern-matching decorator keywords
 var keywords = map[string]TokenType{
 	"var":   VAR,
 	"stop":  STOP,
 	"watch": WATCH,
 	"when":  WHEN,
+	"try":   TRY,
 }
 
 // lexNumberOrDuration lexes numbers and durations with optimized lookahead
@@ -893,6 +953,56 @@ func (l *Lexer) lexSingleChar(start int) Token {
 		},
 	}
 	return token
+}
+
+// isPatternBreak checks if we're at a pattern boundary (pattern identifier followed by ':')
+func (l *Lexer) isPatternBreak() bool {
+	// Save current state
+	pos, readPos, ch := l.position, l.readPos, l.ch
+	defer func() { l.position, l.readPos, l.ch = pos, readPos, ch }()
+
+	// Skip the semicolon
+	l.readChar()
+
+	// Skip whitespace
+	for l.ch == ' ' || l.ch == '\t' {
+		l.readChar()
+	}
+
+	// Check if we have an identifier
+	if !isLetter[l.ch] {
+		return false
+	}
+
+	// Scan identifier
+	identifierStart := l.position
+	for l.ch != 0 && isIdentPart[l.ch] {
+		l.readChar()
+	}
+
+	// Skip whitespace after identifier
+	for l.ch == ' ' || l.ch == '\t' {
+		l.readChar()
+	}
+
+	// Check if followed by ':'
+	if l.ch != ':' {
+		return false
+	}
+
+	// Check if it's a valid pattern identifier for try decorator
+	// Common patterns: main, error, finally, etc.
+	identifier := l.input[identifierStart:l.position-1] // -1 to exclude the current char ':'
+	validPatterns := map[string]bool{
+		"main":    true,
+		"error":   true,
+		"finally": true,
+		// Add other common patterns as needed
+	}
+
+	// For @try, we're more strict about pattern names
+	// For @when, any identifier could be a pattern
+	return validPatterns[identifier] || true // Allow any identifier for now
 }
 
 // Helper methods for creating tokens with proper position tracking
