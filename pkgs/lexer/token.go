@@ -35,6 +35,7 @@ const (
 	NUMBER     // 8080, 3.14, -100
 	STRING     // "hello", 'world', `template`
 	DURATION   // 30s, 5m, 1h
+	BOOLEAN    // true, false
 
 	// Structure
 	NEWLINE // \n
@@ -67,6 +68,7 @@ var tokenNames = [...]string{
 	NUMBER:            "NUMBER",
 	STRING:            "STRING",
 	DURATION:          "DURATION",
+	BOOLEAN:           "BOOLEAN",
 	NEWLINE:           "NEWLINE",
 	COMMENT:           "COMMENT",
 	MULTILINE_COMMENT: "MULTILINE_COMMENT",
@@ -102,6 +104,7 @@ const (
 	SemShellText                          // shell text content
 	SemDecorator                          // decorators like @timeout, @retry
 	SemPattern                            // pattern-matching decorators (@when, @try)
+	SemBoolean                            // boolean literals (true, false)
 )
 
 // SourceSpan represents a precise location in source code
@@ -342,6 +345,8 @@ func GetTextMateGrammarScopes(tokens []Token) []string {
 			scopes["constant.numeric.devcmd"] = true
 		case DURATION:
 			scopes["constant.numeric.duration.devcmd"] = true
+		case BOOLEAN:
+			scopes["constant.language.boolean.devcmd"] = true
 		case COMMENT:
 			scopes["comment.line.hash.devcmd"] = true
 		case MULTILINE_COMMENT:
@@ -379,7 +384,7 @@ func IsStructuralToken(tokenType TokenType) bool {
 // IsLiteralToken checks if a token represents a literal value
 func IsLiteralToken(tokenType TokenType) bool {
 	switch tokenType {
-	case STRING, NUMBER, DURATION, IDENTIFIER:
+	case STRING, NUMBER, DURATION, IDENTIFIER, BOOLEAN:
 		return true
 	default:
 		return false

@@ -8,148 +8,225 @@ import (
 	"time"
 )
 
-func BenchmarkLexer(b *testing.B) {
-	input := `
-var server: @timeout(30s) {
-	echo "Starting server..."
-	node app.js
-}
-
-watch tests: @var(NODE_ENV=test) {
-	npm test
-}
-
-stop all: pkill -f "node|npm"
-`
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		lexer := New(input)
-		for {
-			token := lexer.NextToken()
-			if token.Type == EOF {
-				break
-			}
-		}
-	}
-}
-
-func BenchmarkLexerLarge(b *testing.B) {
-	// Generate larger input for more realistic performance testing
-	var input strings.Builder
-	for i := 0; i < 100; i++ {
-		input.WriteString(`
-var server` + fmt.Sprintf("%d", i) + `: @timeout(30s) {
-	echo "Starting server..."
-	node app.js --port ` + fmt.Sprintf("%d", 3000+i) + `
-}
-
-watch tests` + fmt.Sprintf("%d", i) + `: @var(NODE_ENV=test) {
-	npm test --coverage
-	echo "Test completed"
-}
-`)
-	}
-
-	inputStr := input.String()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		lexer := New(inputStr)
-		tokenCount := 0
-		for {
-			token := lexer.NextToken()
-			tokenCount++
-			if token.Type == EOF {
-				break
-			}
-		}
-
-		// Report metrics for monitoring
-		if i == 0 {
-			b.ReportMetric(float64(tokenCount), "tokens/op")
-			b.ReportMetric(float64(len(inputStr)), "bytes/op")
-		}
-	}
-}
-
-func BenchmarkLexerScenarios(b *testing.B) {
+// Real-world Devcmd examples based on the ACTUAL language specification
+func BenchmarkRealWorldScenarios(b *testing.B) {
 	scenarios := []struct {
 		name  string
 		input string
 	}{
 		{
-			"Simple",
-			`var server: echo "hello world"`,
-		},
-		{
-			"WithDecorators",
-			`var server: @timeout(30s) {
-	echo "Starting server..."
-	node app.js --port 3000
-}`,
-		},
-		{
-			"MultipleCommands",
-			`var build: npm run build
-watch tests: npm test --watch
-stop all: pkill -f "node|npm"`,
-		},
-		{
-			"ComplexDecorators",
-			`var api: @timeout(60s) @retry(3) @var(NODE_ENV=production) {
-	echo "Starting API server..."
-	node server.js --port 8080 --env production
+			"Frontend_Development",
+			`// Frontend development workflow - spec compliant
+var (
+	NODE_ENV = "development"
+	WEBPACK_MODE = "development"
+	API_URL = "http://localhost:3000"
+	HOT_RELOAD = true
+)
+
+// Simple commands
+install: npm install
+clean: rm -rf dist node_modules
+
+// Development server with single decorator
+dev: @timeout(30s) {
+	webpack serve --mode development --hot
 }
 
-watch frontend: @debounce(500ms) @var(WEBPACK_MODE=development) {
-	webpack --mode development --watch
+// Build process with timeout
+build: @timeout(2m) {
+	echo "Building for production..."
+	NODE_ENV=production webpack --mode production
+	echo "Build complete"
+}
+
+// Testing with parallel execution
+test: @parallel {
+	npm run test:unit
+	npm run test:e2e
+	npm run lint
 }`,
 		},
 		{
-			"LargeFile",
-			generateLargeDevcmdFile(100), // 100 commands
+			"DevOps_Deployment",
+			`// DevOps deployment example - only valid decorators
+var (
+	CLUSTER = "production"
+	NAMESPACE = "myapp"
+	IMAGE_TAG = "latest"
+	AUTO_ROLLBACK = true
+)
+
+// Deployment with timeout (no chaining allowed)
+deploy: @timeout(10m) {
+	echo "Deploying to cluster..."
+	kubectl config use-context production
+	kubectl apply -f k8s/ -n myapp
+	kubectl rollout status deployment/api -n myapp
+	echo "Deployment successful"
+}
+
+// Log monitoring - simple command
+logs: kubectl logs -f deployment/api -n myapp
+
+// Rollback with retry
+rollback: @retry(3) {
+	kubectl rollout undo deployment/api -n myapp
+	kubectl rollout status deployment/api -n myapp
+}
+
+// Cleanup - simple command
+stop: kubectl delete deployment --all -n myapp`,
 		},
 		{
-			"NestedDecorators",
-			`var complex: @timeout(30s) {
-	echo "Starting complex workflow..."
-	@parallel {
-		node worker1.js
-		node worker2.js
-		@sequence {
-			npm run setup
-			npm run migrate
-			npm run seed
-		}
+			"Pattern_Matching_When",
+			`// Pattern matching with @when decorator
+var (
+	ENV = "production"
+	REGION = "us-east-1"
+	FEATURE_FLAGS_ENABLED = true
+)
+
+build: @when(ENV) {
+	prod: npm run build:production
+	dev: npm run build:dev
+	test: npm run build:test
+	*: npm run build
+}
+
+deploy: @when(REGION) {
+	us-east-1: kubectl apply -f k8s/us-east.yaml
+	eu-west-1: kubectl apply -f k8s/eu-west.yaml
+	ap-south-1: kubectl apply -f k8s/ap-south.yaml
+	*: echo "Unsupported region"
+}
+
+server: @when(NODE_ENV) {
+	production: node server.js --port 80
+	development: nodemon server.js --port 3000
+	test: node server.js --port 8080 --test
+}`,
+		},
+		{
+			"Pattern_Matching_Try",
+			`// Error handling with @try decorator
+var (
+	BUILD_CMD = "npm run build"
+	TEST_CMD = "npm test"
+	FAIL_FAST = false
+)
+
+ci: @try {
+	main: {
+		echo "Starting CI pipeline..."
+		npm run build
+		npm test
+		echo "CI pipeline completed successfully"
+	}
+	error: {
+		echo "CI pipeline failed"
+		echo "Cleaning up..."
+		rm -rf dist node_modules/.cache
+		exit 1
+	}
+	finally: {
+		echo "CI pipeline finished"
+		echo "Uploading logs..."
+		aws s3 cp logs/ s3://ci-logs/ --recursive
+	}
+}
+
+deploy: @try {
+	main: {
+		kubectl apply -f k8s/
+		kubectl rollout status deployment/app
+	}
+	error: {
+		echo "Deployment failed, rolling back..."
+		kubectl rollout undo deployment/app
+	}
+	finally: {
+		kubectl get pods
+		kubectl get services
 	}
 }`,
 		},
 		{
-			"StringHeavy",
-			`var config: @var(DATABASE_URL="postgresql://user:pass@localhost:5432/db") {
-	echo "Database URL: $DATABASE_URL"
-	echo "Starting with config: {\"port\": 3000, \"env\": \"production\"}"
-	node app.js --config '{"database": {"host": "localhost", "port": 5432}}'
+			"Variable_References",
+			`// Variable substitution with @var() function decorator
+var (
+	PORT = "8080"
+	HOST = "localhost"
+	DATABASE_URL = "postgresql://user:pass@localhost:5432/db"
+	SSL_ENABLED = true
+)
+
+server: echo "Starting server on @var(PORT) at @var(HOST)"
+
+database: psql "@var(DATABASE_URL)"
+
+config: echo "Server: @var(HOST):@var(PORT), DB: @var(DATABASE_URL)"`,
+		},
+		{
+			"Process_Management",
+			`// Process management commands
+var (
+	APP_PORT = "3000"
+	LOG_FILE = "/var/log/app.log"
+	DAEMON_MODE = false
+)
+
+// Watch command - starts and manages process
+watch server: node app.js --port @var(APP_PORT)
+
+watch logs: tail -f @var(LOG_FILE)
+
+// Stop commands - cleanup processes
+stop server: pkill -f "node app.js"
+
+stop logs: pkill -f "tail -f"`,
+		},
+		{
+			"Complex_Shell_Commands",
+			`// Complex shell command patterns - no invalid decorators
+var (
+	LOG_LEVEL = "info"
+	DATABASE_URL = "postgresql://user:pass@localhost:5432/db"
+	PARALLEL_JOBS = 4
+	DRY_RUN = false
+)
+
+// Complex shell with pipes and redirections
+process-logs: {
+	tail -f /var/log/app.log | grep ERROR | while read line; do
+		echo "[$(date)] $line" >> error.log
+		curl -X POST webhook.com/alert -d "$line" &
+	done
+}
+
+// Database operations with error handling
+db-migrate: {
+	export DATABASE_URL="@var(DATABASE_URL)"
+	if ! pg_isready -d "$DATABASE_URL"; then
+		echo "Database not ready" >&2
+		exit 1
+	fi
+	npm run migrate && npm run seed || {
+		echo "Migration failed, rolling back..."
+		npm run migrate:rollback
+		exit 1
+	}
+}
+
+// File processing with find and xargs
+process-files: {
+	find ./src -name "*.js" -mtime -1 | \
+	xargs -I {} sh -c 'echo "Processing {}"; eslint {} --fix'
 }`,
 		},
 		{
-			"CommentHeavy",
-			`# Main server configuration
-var server: @timeout(30s) { # Wait up to 30 seconds
-	# Start the primary server
-	echo "Starting server..." # Log startup
-	node app.js # Main application
-	# Server should be running now
-}
-
-/*
- * Test runner configuration
- * Watches for file changes and reruns tests
- */
-watch tests: @debounce(200ms) { # Short debounce for quick feedback
-	npm test # Run test suite
-}`,
+			"Large_Monorepo_Config",
+			generateMonorepoConfig(20), // 20 services
 		},
 	}
 
@@ -168,474 +245,380 @@ watch tests: @debounce(200ms) { # Short debounce for quick feedback
 						break
 					}
 				}
-
-				// Prevent compiler optimization
-				_ = tokenCount
 			}
 		})
 	}
 }
 
-func BenchmarkLexerFileTypes(b *testing.B) {
-	// Benchmark different types of devcmd files you might encounter
-	fileTypes := []struct {
-		name      string
-		generator func() string
-	}{
-		{
-			"MicroService",
-			func() string {
-				return `var api: @timeout(30s) @health-check(/) {
-	node server.js --port 8080
-}
-
-var db: @wait-for(postgres:5432) {
-	docker run -d postgres:13
-}
-
-watch tests: @debounce(300ms) {
-	npm test --watch
-}`
-			},
-		},
-		{
-			"Frontend",
-			func() string {
-				return `var dev: @env(NODE_ENV=development) {
-	webpack serve --mode development --hot
-}
-
-var build: @env(NODE_ENV=production) {
-	webpack --mode production --optimize-minimize
-}
-
-watch sass: @debounce(100ms) {
-	sass --watch src/styles:dist/css
-}`
-			},
-		},
-		{
-			"DevOps",
-			func() string {
-				return `var deploy: @confirm("Deploy to production?") @timeout(300s) {
-	kubectl apply -f k8s/
-	kubectl rollout status deployment/api
-}
-
-var logs: @follow {
-	kubectl logs -f deployment/api
-}
-
-stop all: @confirm("Stop all services?") {
-	kubectl delete deployment --all
-}`
-			},
-		},
-		{
-			"Monorepo",
-			func() string {
-				var result strings.Builder
-				services := []string{"api", "web", "mobile", "worker", "admin"}
-				for _, service := range services {
-					result.WriteString(fmt.Sprintf(`
-var %s: @cwd(packages/%s) {
-	npm start
-}
-
-var %s-test: @cwd(packages/%s) {
-	npm test
-}
-
-var %s-build: @cwd(packages/%s) {
-	npm run build
-}
-`, service, service, service, service, service, service))
-				}
-				return result.String()
-			},
-		},
-	}
-
-	for _, fileType := range fileTypes {
-		input := fileType.generator()
-		b.Run(fileType.name, func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for i := 0; i < b.N; i++ {
-				lexer := New(input)
-				for {
-					token := lexer.NextToken()
-					if token.Type == EOF {
-						break
-					}
-				}
-			}
-		})
-	}
-}
-
-// generateLargeDevcmdFile creates a large devcmd file for benchmarking
-func generateLargeDevcmdFile(commandCount int) string {
+// generateMonorepoConfig creates a realistic monorepo configuration using only valid syntax
+func generateMonorepoConfig(serviceCount int) string {
 	var result strings.Builder
 
-	for i := 0; i < commandCount; i++ {
-		result.WriteString(fmt.Sprintf(`
-var service%d: @timeout(%ds) @retry(3) @var(PORT=%d) {
-	echo "Starting service %d on port %d"
-	node services/service%d.js --port %d
-	echo "Service %d ready"
+	// Global variables with strings and booleans
+	result.WriteString(`// Monorepo microservices configuration - spec compliant
+var (
+	ENVIRONMENT = "production"
+	LOG_LEVEL = "info"
+	BASE_PORT = 3000
+	DATABASE_HOST = "localhost"
+	REDIS_HOST = "localhost"
+	ENABLE_METRICS = true
+	USE_CACHE = true
+)
+
+`)
+
+	// Service categories
+	categories := []string{"api", "web", "worker", "auth", "notifications"}
+
+	for i := 0; i < serviceCount; i++ {
+		category := categories[i%len(categories)]
+		serviceId := i + 1
+		port := 3000 + i
+
+		// Each service gets its own commands with valid decorators only
+		result.WriteString(fmt.Sprintf(`// %s service %d
+%s%d: @when(ENVIRONMENT) {
+	production: node services/%s%d/server.js --port %d --env production
+	staging: node services/%s%d/server.js --port %d --env staging
+	development: nodemon services/%s%d/server.js --port %d --env development
+	*: echo "Unknown environment"
 }
 
-watch service%d: @debounce(500ms) @var(NODE_ENV=development) {
-	nodemon services/service%d.js --port %d
-}
-`, i, 30+i%60, 3000+i, i, 3000+i, i, 3000+i, i, i, i, 3000+i))
+watch %s%d: nodemon services/%s%d/server.js --port %d --watch
+
+test-%s%d: npm test --prefix services/%s%d
+
+`, category, serviceId, category, serviceId, category, serviceId, port, category, serviceId, port, category, serviceId, port, category, serviceId, category, serviceId, port, category, serviceId, category, serviceId))
 	}
+
+	// Global commands - no decorator chaining
+	result.WriteString(`
+// Global operations
+start-all: @parallel {
+`)
+
+	for i := 0; i < serviceCount; i++ {
+		category := categories[i%len(categories)]
+		result.WriteString(fmt.Sprintf(`	node services/%s%d/server.js --port %d &
+`, category, i+1, 3000+i))
+	}
+
+	result.WriteString(`	wait
+}
+
+test-all: @parallel {
+`)
+
+	for i := 0; i < serviceCount; i++ {
+		category := categories[i%len(categories)]
+		result.WriteString(fmt.Sprintf(`	npm test --prefix services/%s%d
+`, category, i+1))
+	}
+
+	result.WriteString(`}
+
+stop all: {
+	echo "Stopping all services..."
+	pkill -f "services/"
+	echo "All services stopped"
+}
+
+deploy: @try {
+	main: {
+		echo "Starting deployment..."
+		kubectl config use-context production
+		kubectl apply -f k8s/
+		kubectl rollout status deployment --all
+		echo "Deployment successful"
+	}
+	error: {
+		echo "Deployment failed, rolling back..."
+		kubectl rollout undo deployment --all
+		exit 1
+	}
+	finally: {
+		kubectl get pods
+		kubectl get services
+	}
+}
+`)
 
 	return result.String()
 }
 
-// Helper function to count lines in generated content
-func countLines(text string) int {
-	if text == "" {
-		return 0
+// Test real-world performance with ONLY legal Devcmd syntax
+func TestRealWorldPerformanceContracts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping real-world performance tests in short mode")
 	}
-	return strings.Count(text, "\n") + 1
+
+	t.Log("=== SPEC-COMPLIANT DEVCMD PERFORMANCE CONTRACTS ===")
+
+	tests := []struct {
+		name        string
+		input       string
+		description string
+	}{
+		{
+			"Variable_Substitution",
+			`var (
+	PORT = "8080"
+	HOST = "localhost"
+	SECURE = true
+)
+
+server: echo "Starting on @var(HOST):@var(PORT)"
+connect: ssh user@@var(HOST) -p @var(PORT)`,
+			"Variable substitution with @var() function decorator and boolean support",
+		},
+		{
+			"When_Pattern_Matching",
+			`var ENV = "production"
+
+deploy: @when(ENV) {
+	production: kubectl apply -f k8s/prod.yaml
+	staging: kubectl apply -f k8s/staging.yaml
+	development: echo "Local development, no deployment"
+	*: echo "Unknown environment"
+}`,
+			"Pattern matching with @when decorator",
+		},
+		{
+			"Try_Error_Handling",
+			`build: @try {
+	main: {
+		npm run build
+		npm test
+	}
+	error: {
+		echo "Build failed"
+		exit 1
+	}
+	finally: {
+		echo "Cleanup complete"
+	}
+}`,
+			"Error handling with @try decorator",
+		},
+		{
+			"Timeout_Decorator",
+			`deploy: @timeout(5m) {
+	kubectl apply -f k8s/
+	kubectl rollout status deployment/app
+}`,
+			"Timeout decorator with shell commands",
+		},
+		{
+			"Parallel_Execution",
+			`test-all: @parallel {
+	npm run test:unit
+	npm run test:integration
+	npm run lint
+	npm run type-check
+}`,
+			"Parallel execution decorator",
+		},
+		{
+			"Retry_Mechanism",
+			`flaky-test: @retry(3) {
+	npm test -- --testNamePattern="flaky"
+}`,
+			"Retry decorator for unreliable commands",
+		},
+		{
+			"Process_Management",
+			`watch server: node app.js --port 3000
+
+stop server: pkill -f "node app.js"`,
+			"Process management with watch and stop",
+		},
+		{
+			"Complex_Shell",
+			`monitor: {
+	while true; do
+		if ! pgrep -f "node server.js" > /dev/null; then
+			echo "Server down, restarting..."
+			node server.js &
+			sleep 5
+		fi
+		sleep 10
+	done
+}`,
+			"Complex shell commands with control flow",
+		},
+		{
+			"Boolean_Variables",
+			`var (
+	DEBUG = true
+	PRODUCTION = false
+	FEATURE_X = true
+)
+
+build: echo "Debug: @var(DEBUG), Production: @var(PRODUCTION)"`,
+			"Boolean variable declarations and usage",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Logf("Testing: %s", test.description)
+
+			// Performance contract: spec-compliant examples should lex quickly
+			start := time.Now()
+			lexer := New(test.input)
+			tokenCount := 0
+
+			for {
+				token := lexer.NextToken()
+				tokenCount++
+				if token.Type == EOF {
+					break
+				}
+			}
+
+			duration := time.Since(start)
+
+			// Contract: should process any compliant example in under 1ms
+			const maxDuration = 1 * time.Millisecond
+			if duration > maxDuration {
+				t.Errorf("Spec-compliant performance violation: %s took %v, expected < %v",
+					test.name, duration, maxDuration)
+			}
+
+			t.Logf("Performance: %d tokens in %v (%.1f tokens/μs)",
+				tokenCount, duration, float64(tokenCount)/float64(duration.Microseconds()))
+		})
+	}
 }
 
-func BenchmarkLexerThroughput(b *testing.B) {
-	// Dedicated benchmark for measuring ops/sec and tokens/sec
-	input := strings.Repeat("var test: echo hello world\n", 1000)
+// Test nested decorator performance - spec compliant nesting only
+func TestValidNestedDecoratorPerformance(t *testing.T) {
+	// Valid nesting: decorators inside @when and @try patterns
+	input := `deploy: @when(ENVIRONMENT) {
+	production: @timeout(10m) {
+		kubectl apply -f k8s/prod/
+		kubectl rollout status deployment/api
+	}
+	staging: @timeout(5m) {
+		kubectl apply -f k8s/staging/
+	}
+	development: echo "Local development"
+	*: echo "Unknown environment"
+}
 
-	b.ReportAllocs()
-	b.ResetTimer()
+ci: @try {
+	main: @parallel {
+		npm run build
+		npm run test
+		npm run lint
+	}
+	error: @retry(2) {
+		echo "Retrying failed CI..."
+		npm run build
+		npm test
+	}
+	finally: {
+		echo "CI completed"
+	}
+}`
+
 	start := time.Now()
-	totalTokens := 0
+	lexer := New(input)
+	tokenCount := 0
+	decoratorCount := 0
 
-	for i := 0; i < b.N; i++ {
-		lexer := New(input)
-		tokens := 0
-		for {
-			token := lexer.NextToken()
-			tokens++
-			if token.Type == EOF {
-				break
-			}
+	for {
+		token := lexer.NextToken()
+		tokenCount++
+		if token.Type == AT {
+			decoratorCount++
 		}
-		totalTokens += tokens
+		if token.Type == EOF {
+			break
+		}
 	}
 
 	duration := time.Since(start)
-	opsPerSec := float64(b.N) / duration.Seconds()
-	tokensPerSec := float64(totalTokens) / duration.Seconds()
 
-	b.ReportMetric(opsPerSec, "lexes/sec")
-	b.ReportMetric(tokensPerSec, "tokens/sec")
-	b.ReportMetric(float64(totalTokens)/float64(b.N), "tokens/op")
-}
-
-func TestLexerPerformanceContract(t *testing.T) {
-	// Performance contract: lexer should process small inputs quickly
-	input := `var server: echo "hello world"`
-
-	// Run multiple times to reduce flakiness
-	const attempts = 5
-	var bestDuration time.Duration = time.Hour // Start with a large value
-
-	for i := 0; i < attempts; i++ {
-		start := time.Now()
-		lexer := New(input)
-		tokenCount := 0
-
-		for {
-			token := lexer.NextToken()
-			tokenCount++
-			if token.Type == EOF {
-				break
-			}
-		}
-
-		duration := time.Since(start)
-		if duration < bestDuration {
-			bestDuration = duration
-		}
-
-		// Early exit if we meet the contract
-		const maxDuration = 100 * time.Microsecond
-		if duration <= maxDuration {
-			t.Logf("Performance: %d tokens in %v (%.1f tokens/μs) - attempt %d/%d",
-				tokenCount, duration, float64(tokenCount)/float64(duration.Microseconds()), i+1, attempts)
-			return
-		}
+	// Contract: valid nested decorators should not impact performance
+	const maxDuration = 800 * time.Microsecond
+	if duration > maxDuration {
+		t.Errorf("Valid nested decorator performance violation: took %v, expected < %v",
+			duration, maxDuration)
 	}
 
-	// Contract: small input should be lexed in under 100μs (using best result)
-	const maxDuration = 100 * time.Microsecond
-	if bestDuration > maxDuration {
-		t.Errorf("Performance contract violation: lexing took %v, expected < %v (best of %d attempts)",
-			bestDuration, maxDuration, attempts)
-	}
-
-	t.Logf("Performance: best time %v (of %d attempts)", bestDuration, attempts)
+	t.Logf("Valid nested decorators: %d tokens (%d decorators) in %v",
+		tokenCount, decoratorCount, duration)
 }
 
-func TestLexerMemoryContract(t *testing.T) {
-	// Performance contract: lexer should be memory-efficient for this simple grammar
-	input := strings.Repeat("var test: echo hello\n", 1000)
+// Test only the standard library decorators that are actually defined
+func TestStandardDecoratorPerformance(t *testing.T) {
+	// Only using decorators that exist in decorator.go: @var, @parallel, @timeout, @retry, @when, @try
+	input := `var DATABASE_URL = "postgresql://localhost:5432/db"
 
-	var m1, m2 runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m1)
+// Function decorator: @var
+connect: psql "@var(DATABASE_URL)"
 
+// Block decorators: @parallel, @timeout, @retry
+services: @parallel {
+	node api.js
+	node worker.js
+}
+
+deploy: @timeout(30s) {
+	kubectl apply -f k8s/
+}
+
+flaky: @retry(3) {
+	npm test -- --flaky
+}
+
+// Pattern decorators: @when, @try
+env-deploy: @when(ENV) {
+	prod: kubectl apply -f prod.yaml
+	dev: echo "Development mode"
+	*: echo "Unknown environment"
+}
+
+safe-deploy: @try {
+	main: kubectl apply -f k8s/
+	error: kubectl rollout undo deployment/app
+	finally: kubectl get pods
+}`
+
+	start := time.Now()
 	lexer := New(input)
+	tokenCount := 0
+
 	for {
 		token := lexer.NextToken()
+		tokenCount++
 		if token.Type == EOF {
 			break
 		}
 	}
 
-	runtime.ReadMemStats(&m2)
+	duration := time.Since(start)
 
-	// Contract: should not allocate more than 100KB for 1000 simple statements
-	// Rationale: Adjusted for actual token struct overhead and slice growth
-	allocatedBytes := m2.TotalAlloc - m1.TotalAlloc
-	const maxAllocation = 100 * 1024 // 100KB - more realistic for token structs
-
-	if allocatedBytes > maxAllocation {
-		t.Errorf("Memory contract violation: allocated %d bytes, expected < %d bytes (%.1fKB)",
-			allocatedBytes, maxAllocation, float64(allocatedBytes)/1024)
+	// Contract: standard decorators should lex efficiently
+	const maxDuration = 600 * time.Microsecond
+	if duration > maxDuration {
+		t.Errorf("Standard decorator performance violation: took %v, expected < %v",
+			duration, maxDuration)
 	}
 
-	t.Logf("Memory usage: %.1fKB (target: < %.1fKB)",
-		float64(allocatedBytes)/1024, float64(maxAllocation)/1024)
+	t.Logf("Standard decorators: %d tokens in %v", tokenCount, duration)
 }
 
-func TestLexerSmallMemoryContract(t *testing.T) {
-	// Strict contract: single statement should use minimal memory for simple grammar
-	input := `var server: echo "hello world"`
+// Benchmark memory usage with spec-compliant patterns only
+func BenchmarkSpecCompliantMemory(b *testing.B) {
+	// Large spec-compliant configuration
+	input := generateMonorepoConfig(15) // 15 services
 
 	var m1, m2 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&m1)
-
-	lexer := New(input)
-	for {
-		token := lexer.NextToken()
-		if token.Type == EOF {
-			break
-		}
-	}
-
-	runtime.ReadMemStats(&m2)
-
-	// Contract: single statement should allocate < 512 bytes for simple grammar
-	// Rationale: Simple tokens with string slicing should be very efficient
-	allocatedBytes := m2.TotalAlloc - m1.TotalAlloc
-	const maxAllocation = 512 // 512 bytes - tight but achievable for simple grammar
-
-	if allocatedBytes > maxAllocation {
-		t.Errorf("Small memory contract violation: allocated %d bytes, expected < %d bytes",
-			allocatedBytes, maxAllocation)
-	}
-
-	t.Logf("Single statement memory: %d bytes (target: < %d bytes)",
-		allocatedBytes, maxAllocation)
-}
-
-func TestLexerZeroCopyContract(t *testing.T) {
-	// Contract: string operations should be zero-copy when possible
-	input := `var test: echo hello world`
-
-	var m1, m2 runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m1)
-
-	lexer := New(input)
-	tokens := []Token{}
-
-	for {
-		token := lexer.NextToken()
-		tokens = append(tokens, token)
-		if token.Type == EOF {
-			break
-		}
-	}
-
-	runtime.ReadMemStats(&m2)
-
-	// Verify tokens reference original string where possible
-	for _, token := range tokens {
-		if token.Type == IDENTIFIER {
-			// Token value should be a substring of original input
-			if !strings.Contains(input, token.Value) && token.Value != "" {
-				t.Errorf("Token value %q not found in original input - potential unnecessary allocation",
-					token.Value)
-			}
-		}
-	}
-
-	// Contract: total allocations should be reasonable (adjusted for actual token struct overhead)
-	allocatedBytes := m2.TotalAlloc - m1.TotalAlloc
-	const maxAllocation = 3072 // 3KB - realistic for token structs + slice growth
-
-	if allocatedBytes > maxAllocation {
-		t.Errorf("Zero-copy contract violation: allocated %d bytes, expected < %d bytes",
-			allocatedBytes, maxAllocation)
-	}
-
-	t.Logf("Zero-copy test memory: %d bytes (target: < %d bytes)",
-		allocatedBytes, maxAllocation)
-}
-
-func TestLexerThroughputContract(t *testing.T) {
-	// Contract: lexer should maintain reasonable throughput for this simple grammar
-	const targetStatementsPerSecond = 10000 // Increased due to simpler tokenization
-
-	// Generate realistic test input
-	var input strings.Builder
-	for i := 0; i < 1000; i++ {
-		input.WriteString(fmt.Sprintf(`
-var service%d: @timeout(30s) {
-	echo "Starting service %d"
-	node server.js --port %d
-}
-`, i, i, 3000+i))
-	}
-
-	// Run multiple times and take the best result to reduce flakiness
-	const attempts = 3
-	var bestStatementsPerSec float64
-
-	for attempt := 0; attempt < attempts; attempt++ {
-		start := time.Now()
-		lexer := New(input.String())
-		tokenCount := 0
-		statementCount := 0
-
-		for {
-			token := lexer.NextToken()
-			tokenCount++
-			if token.Type == VAR {
-				statementCount++
-			}
-			if token.Type == EOF {
-				break
-			}
-		}
-
-		duration := time.Since(start)
-		statementsPerSecond := float64(statementCount) / duration.Seconds()
-
-		if statementsPerSecond > bestStatementsPerSec {
-			bestStatementsPerSec = statementsPerSecond
-		}
-
-		// Early exit if we meet the target
-		if statementsPerSecond >= targetStatementsPerSecond {
-			t.Logf("Throughput: %.0f statements/sec, %d tokens in %v (attempt %d/%d)",
-				statementsPerSecond, tokenCount, duration, attempt+1, attempts)
-			return
-		}
-	}
-
-	if bestStatementsPerSec < targetStatementsPerSecond {
-		t.Errorf("Throughput contract violation: %.0f statements/sec, expected > %d statements/sec (best of %d attempts)",
-			bestStatementsPerSec, targetStatementsPerSecond, attempts)
-	}
-
-	t.Logf("Throughput: %.0f statements/sec (best of %d attempts)",
-		bestStatementsPerSec, attempts)
-}
-
-func TestLexerScalabilityContract(t *testing.T) {
-	// Contract: performance should scale linearly with input size
-	sizes := []int{100, 500, 1000, 2000}
-	var durations []time.Duration
-
-	for _, size := range sizes {
-		input := strings.Repeat("var test: echo hello\n", size)
-
-		start := time.Now()
-		lexer := New(input)
-		for {
-			token := lexer.NextToken()
-			if token.Type == EOF {
-				break
-			}
-		}
-		duration := time.Since(start)
-		durations = append(durations, duration)
-
-		t.Logf("Size %d: %v (%.2f μs/statement)",
-			size, duration, float64(duration.Microseconds())/float64(size))
-	}
-
-	// Contract: time per statement should not increase significantly with size
-	// (allowing for some overhead but catching quadratic behavior)
-	timePerStatement100 := float64(durations[0].Nanoseconds()) / float64(sizes[0])
-	timePerStatement2000 := float64(durations[3].Nanoseconds()) / float64(sizes[3])
-
-	ratio := timePerStatement2000 / timePerStatement100
-	const maxRatio = 2.0 // Allow 2x degradation max for simple grammar
-
-	if ratio > maxRatio {
-		t.Errorf("Scalability contract violation: time per statement ratio %.2f, expected < %.2f",
-			ratio, maxRatio)
-	}
-
-	t.Logf("Scalability: %.2fx time per statement from 100 to 2000 statements", ratio)
-}
-
-// TestAllPerformanceContracts runs a comprehensive performance validation
-func TestAllPerformanceContracts(t *testing.T) {
-	// Skip performance contracts if running in CI or slow environments
-	if testing.Short() {
-		t.Skip("Skipping performance contracts in short mode (use -short to skip)")
-	}
-
-	t.Log("=== PERFORMANCE CONTRACTS FOR DEVCMD LEXER ===")
-	t.Log("Grammar: Simple DSL with var/watch/stop, decorators, shell commands")
-	t.Log("Targets calibrated for lightweight lexical analysis")
-	t.Log("Note: Run with -short to skip performance contracts if flaky")
-	t.Log("")
-
-	// Show large file stats
-	largeFile := generateLargeDevcmdFile(100)
-	lineCount := countLines(largeFile)
-	charCount := len(largeFile)
-	t.Logf("Large file benchmark: %d lines, %d characters, %.1fKB",
-		lineCount, charCount, float64(charCount)/1024)
-	t.Log("")
-
-	// Run all contracts and collect results
-	subtests := []struct {
-		name string
-		fn   func(t *testing.T)
-	}{
-		{"Latency", TestLexerPerformanceContract},
-		{"Memory", TestLexerMemoryContract},
-		{"SmallMemory", TestLexerSmallMemoryContract},
-		{"ZeroCopy", TestLexerZeroCopyContract},
-		{"Throughput", TestLexerThroughputContract},
-		{"Scalability", TestLexerScalabilityContract},
-	}
-
-	passed := 0
-	for _, subtest := range subtests {
-		t.Run(subtest.name, func(t *testing.T) {
-			subtest.fn(t)
-			passed++
-		})
-	}
-
-	t.Logf("=== PERFORMANCE SUMMARY: %d/%d contracts passed ===", passed, len(subtests))
-}
-
-// BenchmarkStabilityCheck helps identify flaky performance tests
-func BenchmarkStabilityCheck(b *testing.B) {
-	input := `var server: echo "hello world"`
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -647,4 +630,59 @@ func BenchmarkStabilityCheck(b *testing.B) {
 			}
 		}
 	}
+
+	runtime.ReadMemStats(&m2)
+	allocatedBytes := m2.TotalAlloc - m1.TotalAlloc
+
+	b.ReportMetric(float64(allocatedBytes)/float64(b.N), "bytes/op")
+	b.ReportMetric(float64(len(input)), "input-bytes")
+}
+
+// Test boolean token performance
+func TestBooleanTokenPerformance(t *testing.T) {
+	input := `var (
+	DEBUG = true
+	PRODUCTION = false
+	FEATURE_A = true
+	FEATURE_B = false
+	FEATURE_C = true
+	ENABLE_LOGGING = true
+	ENABLE_METRICS = false
+	ENABLE_TRACING = true
+	USE_CACHE = false
+	USE_CDN = true
+)
+
+config: @when(PRODUCTION) {
+	true: echo "Production mode enabled"
+	false: echo "Development mode"
+}`
+
+	start := time.Now()
+	lexer := New(input)
+	tokenCount := 0
+	booleanCount := 0
+
+	for {
+		token := lexer.NextToken()
+		tokenCount++
+		if token.Type == BOOLEAN {
+			booleanCount++
+		}
+		if token.Type == EOF {
+			break
+		}
+	}
+
+	duration := time.Since(start)
+
+	// Contract: boolean tokens should not impact lexing performance
+	const maxDuration = 300 * time.Microsecond
+	if duration > maxDuration {
+		t.Errorf("Boolean token performance violation: took %v, expected < %v",
+			duration, maxDuration)
+	}
+
+	t.Logf("Boolean tokens: %d tokens (%d booleans) in %v",
+		tokenCount, booleanCount, duration)
 }

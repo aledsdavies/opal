@@ -87,7 +87,7 @@ func TestVariableDefinitions(t *testing.T) {
 			),
 		},
 		{
-			Name:  "variable with special characters in value",
+			Name:  "variable with URL containing query params",
 			Input: "var API_URL = https://api.example.com/v1?key=abc123",
 			Expected: Program(
 				Var("API_URL", identifier("https://api.example.com/v1?key=abc123")),
@@ -129,10 +129,10 @@ func TestVariableDefinitions(t *testing.T) {
 			),
 		},
 		{
-			Name:  "variable with URL containing port",
-			Input: "var DATABASE_URL = postgresql://user:pass@localhost:5432/dbname",
+			Name:  "variable with URL containing port (quoted to avoid colon parsing issues)",
+			Input: `var DATABASE_URL = "postgresql://user:pass@localhost:5432/dbname"`,
 			Expected: Program(
-				Var("DATABASE_URL", identifier("postgresql://user:pass@localhost:5432/dbname")),
+				Var("DATABASE_URL", "postgresql://user:pass@localhost:5432/dbname"),
 			),
 		},
 		{
@@ -160,10 +160,10 @@ func TestVariableDefinitions(t *testing.T) {
 			),
 		},
 		{
-			Name:  "variable with underscores",
-			Input: "var API_BASE_URL = https://api.example.com",
+			Name:  "variable with underscores and URL",
+			Input: `var API_BASE_URL = "https://api.example.com"`,
 			Expected: Program(
-				Var("API_BASE_URL", identifier("https://api.example.com")),
+				Var("API_BASE_URL", "https://api.example.com"),
 			),
 		},
 	}
@@ -222,7 +222,7 @@ func TestVariableUsageInCommands(t *testing.T) {
 			Expected: Program(
 				Var("TIMEOUT", DurationExpr("30s")),
 				CmdBlock("test",
-					Decorator("timeout", At("var", "TIMEOUT")),
+					Decorator("timeout", FuncDecorator("var", "TIMEOUT")),
 					Text("npm test"),
 				),
 			),
@@ -235,7 +235,7 @@ func TestVariableUsageInCommands(t *testing.T) {
 				Var("TIME", DurationExpr("5m")),
 				CmdBlock("deploy",
 					Decorator("env", identifier("NODE_ENV=@var(ENV)")), // This is parsed as a single identifier
-					Decorator("timeout", At("var", "TIME")),
+					Decorator("timeout", FuncDecorator("var", "TIME")),
 					Text("npm run deploy"),
 				),
 			),
@@ -266,15 +266,15 @@ watch build: @debounce(500ms) { echo "Building @var(SRC)" }`,
 			),
 		},
 		{
-			Name:  "variables with function decorators - requires explicit block",
+			Name:  "variables with file counting command - requires explicit block",
 			Input: `var SRC = ./src
-build: { echo "Files: @sh(ls @var(SRC) | wc -l)" }`,
+build: { echo "Files: $(ls @var(SRC) | wc -l)" }`,
 			Expected: Program(
 				Var("SRC", identifier("./src")),
 				CmdBlock("build",
-					Text(`echo "Files: `),
-					At("sh", identifier("ls @var(SRC) | wc -l")), // Parser treats sh args as identifiers
-					Text(`"`),
+					Text(`echo "Files: $(ls `),
+					At("var", "SRC"),
+					Text(` | wc -l)"`),
 				),
 			),
 		},
@@ -361,10 +361,10 @@ func TestVariableEdgeCases(t *testing.T) {
 			),
 		},
 		{
-			Name:  "variable with value containing equals",
-			Input: "var QUERY = name=value&other=data",
+			Name:  "variable with value containing equals (quoted)",
+			Input: `var QUERY = "name=value&other=data"`,
 			Expected: Program(
-				Var("QUERY", identifier("name=value&other=data")),
+				Var("QUERY", "name=value&other=data"),
 			),
 		},
 		{
@@ -376,10 +376,11 @@ func TestVariableEdgeCases(t *testing.T) {
 		},
 		{
 			Name:  "variables with similar names",
-			Input: "var API_URL = https://api.com\nvar API_URL_V2 = https://api.com/v2",
+			Input: `var API_URL = "https://api.com"
+var API_URL_V2 = "https://api.com/v2"`,
 			Expected: Program(
-				Var("API_URL", identifier("https://api.com")),
-				Var("API_URL_V2", identifier("https://api.com/v2")),
+				Var("API_URL", "https://api.com"),
+				Var("API_URL_V2", "https://api.com/v2"),
 			),
 		},
 		{

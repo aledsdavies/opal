@@ -155,7 +155,6 @@ type Expression interface {
 	Node
 	IsExpression() bool
 	GetType() ExpressionType
-	toTreeSitter() map[string]interface{}
 }
 
 type ExpressionType int
@@ -200,22 +199,6 @@ func (s *StringLiteral) GetType() ExpressionType {
 	return StringType
 }
 
-func (s *StringLiteral) toTreeSitter() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "string_literal",
-		"value": s.Value,
-		"raw": s.Raw,
-		"start_position": map[string]int{
-			"row":    s.Pos.Line - 1,
-			"column": s.Pos.Column - 1,
-		},
-		"end_position": map[string]int{
-			"row":    s.Tokens.End.Line - 1,
-			"column": s.Tokens.End.Column - 1,
-		},
-	}
-}
-
 // NumberLiteral represents numeric values
 type NumberLiteral struct {
 	Value  string
@@ -246,21 +229,6 @@ func (n *NumberLiteral) IsExpression() bool {
 
 func (n *NumberLiteral) GetType() ExpressionType {
 	return NumberType
-}
-
-func (n *NumberLiteral) toTreeSitter() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "number_literal",
-		"value": n.Value,
-		"start_position": map[string]int{
-			"row":    n.Pos.Line - 1,
-			"column": n.Pos.Column - 1,
-		},
-		"end_position": map[string]int{
-			"row":    n.Tokens.End.Line - 1,
-			"column": n.Tokens.End.Column - 1,
-		},
-	}
 }
 
 // DurationLiteral represents duration values like 30s, 5m
@@ -295,21 +263,6 @@ func (d *DurationLiteral) GetType() ExpressionType {
 	return DurationType
 }
 
-func (d *DurationLiteral) toTreeSitter() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "duration_literal",
-		"value": d.Value,
-		"start_position": map[string]int{
-			"row":    d.Pos.Line - 1,
-			"column": d.Pos.Column - 1,
-		},
-		"end_position": map[string]int{
-			"row":    d.Tokens.End.Line - 1,
-			"column": d.Tokens.End.Column - 1,
-		},
-	}
-}
-
 // Identifier represents identifiers
 type Identifier struct {
 	Name   string
@@ -340,21 +293,6 @@ func (i *Identifier) IsExpression() bool {
 
 func (i *Identifier) GetType() ExpressionType {
 	return IdentifierType
-}
-
-func (i *Identifier) toTreeSitter() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "identifier",
-		"name": i.Name,
-		"start_position": map[string]int{
-			"row":    i.Pos.Line - 1,
-			"column": i.Pos.Column - 1,
-		},
-		"end_position": map[string]int{
-			"row":    i.Tokens.End.Line - 1,
-			"column": i.Tokens.End.Column - 1,
-		},
-	}
 }
 
 // CommandDecl represents command definitions with concrete syntax preservation
@@ -608,6 +546,200 @@ func (d *DecoratedContent) IsCommandContent() bool {
 	return true
 }
 
+// PatternContent represents pattern-matching decorator content like @when or @try
+// This handles syntax like: @when(MODE) { production: deploy.sh; staging: deploy-staging.sh }
+type PatternContent struct {
+	Decorator Decorator         // The pattern decorator (@when, @try, etc.)
+	Patterns  []PatternBranch   // Pattern branches with labels and commands
+	Pos       Position
+	Tokens    TokenRange
+
+	// Concrete syntax tokens for precise formatting
+	OpenBrace  lexer.Token  // The "{" token
+	CloseBrace lexer.Token  // The "}" token
+}
+
+func (p *PatternContent) String() string {
+	var parts []string
+
+	parts = append(parts, p.Decorator.String())
+	parts = append(parts, "{")
+
+	for i, pattern := range p.Patterns {
+		if i > 0 {
+			parts = append(parts, "; ")
+		}
+		parts = append(parts, pattern.String())
+	}
+
+	parts = append(parts, "}")
+
+	return strings.Join(parts, " ")
+}
+
+func (p *PatternContent) Position() Position {
+	return p.Pos
+}
+
+func (p *PatternContent) TokenRange() TokenRange {
+	return p.Tokens
+}
+
+func (p *PatternContent) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+
+	tokens = append(tokens, p.Decorator.SemanticTokens()...)
+
+	openBrace := p.OpenBrace
+	openBrace.Semantic = lexer.SemOperator
+	tokens = append(tokens, openBrace)
+
+	for _, pattern := range p.Patterns {
+		tokens = append(tokens, pattern.SemanticTokens()...)
+	}
+
+	closeBrace := p.CloseBrace
+	closeBrace.Semantic = lexer.SemOperator
+	tokens = append(tokens, closeBrace)
+
+	return tokens
+}
+
+func (p *PatternContent) IsCommandContent() bool {
+	return true
+}
+
+// PatternBranch represents a single pattern branch in pattern-matching decorators
+// Examples: "production: deploy.sh", "main: npm start", "*: default.sh"
+type PatternBranch struct {
+	Pattern Pattern        // The pattern identifier or wildcard
+	Command CommandContent // The command to execute for this pattern
+	Pos     Position
+	Tokens  TokenRange
+
+	// Concrete syntax tokens for precise formatting and LSP
+	ColonToken lexer.Token  // The ":" token separating pattern from command
+}
+
+func (b *PatternBranch) String() string {
+	return fmt.Sprintf("%s: %s", b.Pattern.String(), b.Command.String())
+}
+
+func (b *PatternBranch) Position() Position {
+	return b.Pos
+}
+
+func (b *PatternBranch) TokenRange() TokenRange {
+	return b.Tokens
+}
+
+func (b *PatternBranch) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+
+	tokens = append(tokens, b.Pattern.SemanticTokens()...)
+
+	colonToken := b.ColonToken
+	colonToken.Semantic = lexer.SemOperator
+	tokens = append(tokens, colonToken)
+
+	tokens = append(tokens, b.Command.SemanticTokens()...)
+
+	return tokens
+}
+
+// Pattern represents a pattern in pattern-matching decorators
+type Pattern interface {
+	Node
+	IsPattern() bool
+	GetPatternType() PatternType
+}
+
+// PatternType represents the type of pattern
+type PatternType int
+
+const (
+	IdentifierPatternType PatternType = iota // Named patterns like "production", "main"
+	WildcardPatternType                      // Wildcard pattern "*"
+)
+
+func (pt PatternType) String() string {
+	switch pt {
+	case IdentifierPatternType:
+		return "identifier"
+	case WildcardPatternType:
+		return "wildcard"
+	default:
+		return "unknown"
+	}
+}
+
+// IdentifierPattern represents named patterns like "production", "main", "error"
+type IdentifierPattern struct {
+	Name   string
+	Pos    Position
+	Tokens TokenRange
+	Token  lexer.Token
+}
+
+func (i *IdentifierPattern) String() string {
+	return i.Name
+}
+
+func (i *IdentifierPattern) Position() Position {
+	return i.Pos
+}
+
+func (i *IdentifierPattern) TokenRange() TokenRange {
+	return i.Tokens
+}
+
+func (i *IdentifierPattern) SemanticTokens() []lexer.Token {
+	token := i.Token
+	token.Semantic = lexer.SemPattern
+	return []lexer.Token{token}
+}
+
+func (i *IdentifierPattern) IsPattern() bool {
+	return true
+}
+
+func (i *IdentifierPattern) GetPatternType() PatternType {
+	return IdentifierPatternType
+}
+
+// WildcardPattern represents the wildcard pattern "*"
+type WildcardPattern struct {
+	Pos    Position
+	Tokens TokenRange
+	Token  lexer.Token
+}
+
+func (w *WildcardPattern) String() string {
+	return "*"
+}
+
+func (w *WildcardPattern) Position() Position {
+	return w.Pos
+}
+
+func (w *WildcardPattern) TokenRange() TokenRange {
+	return w.Tokens
+}
+
+func (w *WildcardPattern) SemanticTokens() []lexer.Token {
+	token := w.Token
+	token.Semantic = lexer.SemPattern
+	return []lexer.Token{token}
+}
+
+func (w *WildcardPattern) IsPattern() bool {
+	return true
+}
+
+func (w *WildcardPattern) GetPatternType() PatternType {
+	return WildcardPatternType
+}
+
 // Decorator represents decorators
 type Decorator struct {
 	Name  string
@@ -652,6 +784,8 @@ func (d *Decorator) SemanticTokens() []lexer.Token {
 	nameToken := d.NameToken
 	if d.Name == "var" || d.Name == "env" {
 		nameToken.Semantic = lexer.SemVariable
+	} else if d.Name == "when" || d.Name == "try" {
+		nameToken.Semantic = lexer.SemPattern
 	} else {
 		nameToken.Semantic = lexer.SemDecorator
 	}
@@ -662,31 +796,6 @@ func (d *Decorator) SemanticTokens() []lexer.Token {
 	}
 
 	return tokens
-}
-
-func (d *Decorator) toTreeSitter() map[string]interface{} {
-	node := map[string]interface{}{
-		"type": "decorator",
-		"name": d.Name,
-		"start_position": map[string]int{
-			"row":    d.Pos.Line - 1,
-			"column": d.Pos.Column - 1,
-		},
-		"end_position": map[string]int{
-			"row":    d.Tokens.End.Line - 1,
-			"column": d.Tokens.End.Column - 1,
-		},
-	}
-
-	if len(d.Args) > 0 {
-		args := make([]interface{}, len(d.Args))
-		for i, arg := range d.Args {
-			args[i] = arg.toTreeSitter()
-		}
-		node["args"] = args
-	}
-
-	return node
 }
 
 // FunctionDecorator represents inline decorators like @var(NAME) or @sh(command)
@@ -776,31 +885,6 @@ func (f *FunctionDecorator) IsShellPart() bool {
 	return true
 }
 
-func (f *FunctionDecorator) toTreeSitter() map[string]interface{} {
-	node := map[string]interface{}{
-		"type": "function_decorator",
-		"name": f.Name,
-		"start_position": map[string]int{
-			"row":    f.Pos.Line - 1,
-			"column": f.Pos.Column - 1,
-		},
-		"end_position": map[string]int{
-			"row":    f.Tokens.End.Line - 1,
-			"column": f.Tokens.End.Column - 1,
-		},
-	}
-
-	if len(f.Args) > 0 {
-		args := make([]interface{}, len(f.Args))
-		for i, arg := range f.Args {
-			args[i] = arg.toTreeSitter()
-		}
-		node["args"] = args
-	}
-
-	return node
-}
-
 // Utility functions for AST traversal and analysis
 
 // Walk traverses the CST and calls fn for each node
@@ -839,6 +923,18 @@ func Walk(node Node, fn func(Node) bool) {
 			Walk(&d, fn)
 		}
 		Walk(n.Content, fn)
+	case *PatternContent:
+		Walk(&n.Decorator, fn)
+		for _, pattern := range n.Patterns {
+			Walk(&pattern, fn)
+		}
+	case *PatternBranch:
+		Walk(n.Pattern, fn)
+		Walk(n.Command, fn)
+	case *IdentifierPattern:
+		// Leaf node - pattern identifier
+	case *WildcardPattern:
+		// Leaf node - wildcard pattern
 	case *Decorator:
 		for _, arg := range n.Args {
 			Walk(arg, fn)
@@ -887,6 +983,75 @@ func (b *CommandBody) GetInlineDecorators() []*FunctionDecorator {
 	}
 
 	return decorators
+}
+
+// GetPatternDecorators returns all pattern decorators in the AST
+func GetPatternDecorators(node Node) []*PatternContent {
+	var patterns []*PatternContent
+
+	Walk(node, func(n Node) bool {
+		if pattern, ok := n.(*PatternContent); ok {
+			patterns = append(patterns, pattern)
+		}
+		return true
+	})
+
+	return patterns
+}
+
+// FindPatternBranches finds all pattern branches for a specific decorator
+func FindPatternBranches(node Node, decoratorName string) []*PatternBranch {
+	var branches []*PatternBranch
+
+	Walk(node, func(n Node) bool {
+		if pattern, ok := n.(*PatternContent); ok && pattern.Decorator.Name == decoratorName {
+			for _, branch := range pattern.Patterns {
+				branches = append(branches, &branch)
+			}
+		}
+		return true
+	})
+
+	return branches
+}
+
+// ValidatePatternContent validates pattern-matching decorator content
+func ValidatePatternContent(pattern *PatternContent) []error {
+	var errors []error
+
+	// Check for duplicate patterns
+	seenPatterns := make(map[string]*PatternBranch)
+	hasWildcard := false
+
+	for _, branch := range pattern.Patterns {
+		patternStr := branch.Pattern.String()
+
+		if patternStr == "*" {
+			if hasWildcard {
+				errors = append(errors, fmt.Errorf("multiple wildcard patterns not allowed in @%s at line %d", pattern.Decorator.Name, branch.Pos.Line))
+			}
+			hasWildcard = true
+		} else {
+			if existing, exists := seenPatterns[patternStr]; exists {
+				errors = append(errors, fmt.Errorf("duplicate pattern '%s' in @%s at line %d (first occurrence at line %d)", patternStr, pattern.Decorator.Name, branch.Pos.Line, existing.Pos.Line))
+			}
+			seenPatterns[patternStr] = &branch
+		}
+	}
+
+	// Decorator-specific validation
+	switch pattern.Decorator.Name {
+	case "try":
+		if _, hasMain := seenPatterns["main"]; !hasMain {
+			errors = append(errors, fmt.Errorf("@try decorator requires 'main' pattern at line %d", pattern.Pos.Line))
+		}
+	case "when":
+		if len(pattern.Patterns) == 0 {
+			errors = append(errors, fmt.Errorf("@when decorator requires at least one pattern at line %d", pattern.Pos.Line))
+		}
+	}
+
+	return errors
 }
 
 // FindVariableReferences finds all @var() decorator references in the AST
@@ -963,6 +1128,19 @@ func ValidateVariableReferences(program *Program) []error {
 	return errors
 }
 
+// ValidatePatternDecorators validates all pattern decorators in the program
+func ValidatePatternDecorators(program *Program) []error {
+	var errors []error
+
+	patterns := GetPatternDecorators(program)
+	for _, pattern := range patterns {
+		patternErrors := ValidatePatternContent(pattern)
+		errors = append(errors, patternErrors...)
+	}
+
+	return errors
+}
+
 // GetDefinitionForVariable finds the variable declaration for a given reference
 func GetDefinitionForVariable(program *Program, varName string) *VariableDecl {
 	// Search individual variables
@@ -998,4 +1176,97 @@ func GetReferencesForVariable(program *Program, varName string) []*Decorator {
 	}
 
 	return references
+}
+
+// GetPatternBranchForPattern finds a specific pattern branch within pattern content
+func GetPatternBranchForPattern(patternContent *PatternContent, patternName string) *PatternBranch {
+	for _, branch := range patternContent.Patterns {
+		if branch.Pattern.String() == patternName {
+			return &branch
+		}
+	}
+	return nil
+}
+
+// IsPatternDecorator checks if a decorator is a pattern-matching decorator
+func IsPatternDecorator(decoratorName string) bool {
+	return decoratorName == "when" || decoratorName == "try"
+}
+
+// GetPatternContentByDecorator finds pattern content for a specific decorator type
+func GetPatternContentByDecorator(node Node, decoratorName string) []*PatternContent {
+	var patterns []*PatternContent
+
+	Walk(node, func(n Node) bool {
+		if pattern, ok := n.(*PatternContent); ok && pattern.Decorator.Name == decoratorName {
+			patterns = append(patterns, pattern)
+		}
+		return true
+	})
+
+	return patterns
+}
+
+// GetPatternType returns the type of pattern for a specific lexer token
+func GetPatternType(token lexer.Token) lexer.PatternType {
+	if token.Type == lexer.ASTERISK {
+		return lexer.WildcardPattern
+	}
+
+	if token.Type == lexer.IDENTIFIER {
+		switch token.Value {
+		case "main", "error", "finally":
+			return lexer.TryPattern
+		case "production", "development", "staging", "test", "prod", "dev":
+			return lexer.WhenPattern
+		default:
+			return lexer.CustomPattern
+		}
+	}
+
+	return lexer.UnknownPattern
+}
+
+// ValidatePatternSequence validates a sequence of pattern tokens
+func ValidatePatternSequence(tokens []lexer.Token, decoratorType string) []lexer.PatternError {
+	var errors []lexer.PatternError
+
+	patterns := make(map[string]lexer.Token)
+	hasWildcard := false
+
+	for _, token := range tokens {
+		if token.Type == lexer.ASTERISK {
+			if hasWildcard {
+				errors = append(errors, lexer.PatternError{
+					Message: "multiple wildcard patterns not allowed",
+					Token:   token,
+					Code:    "duplicate-wildcard",
+				})
+			}
+			hasWildcard = true
+		} else if token.Type == lexer.IDENTIFIER {
+			if existing, exists := patterns[token.Value]; exists {
+				errors = append(errors, lexer.PatternError{
+					Message: fmt.Sprintf("duplicate pattern '%s'", token.Value),
+					Token:   token,
+					Code:    "duplicate-pattern",
+					Related: &existing,
+				})
+			}
+			patterns[token.Value] = token
+		}
+	}
+
+	// Decorator-specific validation
+	switch decoratorType {
+	case "try":
+		if _, hasMain := patterns["main"]; !hasMain {
+			errors = append(errors, lexer.PatternError{
+				Message: "@try decorator requires 'main' pattern",
+				Code:    "missing-main-pattern",
+			})
+		}
+	}
+
+	return errors
 }

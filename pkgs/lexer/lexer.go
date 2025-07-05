@@ -21,7 +21,7 @@ func init() {
 		isWhitespace[i] = ch == ' ' || ch == '\t' || ch == '\r' || ch == '\f'
 		isLetter[i] = ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_' || ch >= 0x80
 		isDigit[i] = '0' <= ch && ch <= '9'
-		isIdentStart[i] = isLetter[i] || ch == '_' || ch >= 0x80
+		isIdentStart[i] = isLetter[i]
 		isIdentPart[i] = isIdentStart[i] || isDigit[i] || ch == '-'
 		isHexDigit[i] = isDigit[i] || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
 	}
@@ -223,9 +223,11 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		}
 		fallthrough
 	default:
-		if isLetter[l.ch] {
+		if l.ch < 128 && isIdentStart[l.ch] {
 			return l.lexIdentifierOrKeyword(start)
-		} else if isDigit[l.ch] || l.ch == '-' {
+		} else if l.ch >= 128 && isLetter[l.ch] {
+			return l.lexIdentifierOrKeyword(start)
+		} else if isDigit[l.ch] || (l.ch == '-' && l.peekChar() != 0 && isDigit[l.peekChar()]) {
 			return l.lexNumberOrDuration(start)
 		} else {
 			return l.lexSingleChar(start)
@@ -299,9 +301,11 @@ func (l *Lexer) lexPatternMode(start int) Token {
 	case '`':
 		return l.lexString('`', Backtick, start)
 	default:
-		if isLetter[l.ch] {
+		if l.ch < 128 && isIdentStart[l.ch] {
 			return l.lexIdentifierOrKeyword(start)
-		} else if isDigit[l.ch] || l.ch == '-' {
+		} else if l.ch >= 128 && isLetter[l.ch] {
+			return l.lexIdentifierOrKeyword(start)
+		} else if isDigit[l.ch] || (l.ch == '-' && l.peekChar() != 0 && isDigit[l.peekChar()]) {
 			return l.lexNumberOrDuration(start)
 		} else {
 			return l.lexSingleChar(start)
@@ -615,29 +619,8 @@ func (l *Lexer) lexShellText(start int) Token {
 func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
 	startLine, startColumn := l.line, l.column
 
-	// Fast path: use lookahead to scan identifier in one pass
-	pos := l.position
-	input := l.input
-	inputLen := len(input)
-
-	// Scan identifier characters using lookahead
-	for pos < inputLen {
-		ch := input[pos]
-		if ch < 128 && !isIdentPart[ch] {
-			break
-		}
-		if ch >= 128 {
-			// Handle UTF-8 - fallback to slower path
-			l.readIdentifier()
-			break
-		}
-		pos++
-	}
-
-	// Update lexer position efficiently
-	for l.position < pos {
-		l.readChar()
-	}
+	// Use readIdentifier to handle the full identifier
+	l.readIdentifier()
 
 	// Get value as byte slice first, then convert only once
 	valueBytes := l.input[start:l.position]
@@ -646,6 +629,24 @@ func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
 	var tokenType TokenType
 	var semantic SemanticTokenType
 
+	// Check for boolean literals first
+	if value == "true" || value == "false" {
+		return Token{
+			Type:      BOOLEAN,
+			Value:     value,
+			Line:      startLine,
+			Column:    startColumn,
+			EndLine:   l.line,
+			EndColumn: l.column,
+			Semantic:  SemBoolean,
+			Span: SourceSpan{
+				Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+				End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+			},
+		}
+	}
+
+	// Check for keywords
 	if keywordType, isKeyword := keywords[value]; isKeyword {
 		tokenType = keywordType
 		semantic = SemKeyword
@@ -1050,7 +1051,7 @@ func (l *Lexer) updateTokenEnd(token *Token) {
 // Helper methods
 
 func (l *Lexer) readIdentifier() {
-	for l.ch != 0 && (isIdentPart[l.ch] || l.ch == '-') {
+	for l.ch != 0 && l.ch < 128 && isIdentPart[l.ch] {
 		l.readChar()
 	}
 }

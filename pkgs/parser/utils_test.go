@@ -33,27 +33,16 @@ func registerTestOnlyDecorators() {
 	})
 
 	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:        "sh",
+		Name:        "env",
 		Type:        stdlib.FunctionDecorator,
 		Semantic:    stdlib.SemFunction,
-		Description: "Executes shell command and returns output",
+		Description: "Environment variable substitution",
 		Args: []stdlib.ArgumentSpec{
-			{Name: "command", Type: stdlib.StringArg, Optional: false},
+			{Name: "name", Type: stdlib.IdentifierArg, Optional: false},
 		},
 	})
 
 	// Block decorators (require explicit braces)
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:          "timeout",
-		Type:          stdlib.BlockDecorator,
-		Semantic:      stdlib.SemDecorator,
-		Description:   "Sets execution timeout for command blocks",
-		RequiresBlock: true,
-		Args: []stdlib.ArgumentSpec{
-			{Name: "duration", Type: stdlib.DurationArg, Optional: false},
-		},
-	})
-
 	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
 		Name:          "env",
 		Type:          stdlib.BlockDecorator,
@@ -62,6 +51,17 @@ func registerTestOnlyDecorators() {
 		RequiresBlock: true,
 		Args: []stdlib.ArgumentSpec{
 			{Name: "vars", Type: stdlib.StringArg, Optional: false},
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "timeout",
+		Type:          stdlib.BlockDecorator,
+		Semantic:      stdlib.SemDecorator,
+		Description:   "Sets execution timeout for command blocks",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "duration", Type: stdlib.DurationArg, Optional: false},
 		},
 	})
 
@@ -129,6 +129,37 @@ func registerTestOnlyDecorators() {
 			{Name: "pattern", Type: stdlib.ExpressionArg, Optional: true},        // Can be @var() expression
 			{Name: "interval", Type: stdlib.DurationArg, Optional: true, Default: "1s"},
 			{Name: "recursive", Type: stdlib.BooleanArg, Optional: true, Default: "true"},
+		},
+	})
+
+	// Pattern decorators (handle pattern matching with specific syntax)
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "when",
+		Type:          stdlib.PatternDecorator,
+		Semantic:      stdlib.SemPattern,
+		Description:   "Pattern matching based on variable value - supports any identifier patterns",
+		RequiresBlock: true,
+		Args: []stdlib.ArgumentSpec{
+			{Name: "variable", Type: stdlib.IdentifierArg, Optional: false},
+		},
+		PatternSpec: &stdlib.PatternSpec{
+			AllowedPatterns:  nil,  // nil means any identifier is allowed
+			AllowWildcard:    true, // * wildcard is allowed
+			RequiredPatterns: nil,  // No required patterns
+		},
+	})
+
+	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
+		Name:          "try",
+		Type:          stdlib.PatternDecorator,
+		Semantic:      stdlib.SemPattern,
+		Description:   "Exception handling with main, error, and finally blocks",
+		RequiresBlock: true,
+		Args:          []stdlib.ArgumentSpec{}, // No arguments
+		PatternSpec: &stdlib.PatternSpec{
+			AllowedPatterns:  []string{"main", "error", "finally"}, // Only these patterns allowed
+			AllowWildcard:    false,                                 // No wildcard
+			RequiredPatterns: []string{"main"},                     // main is required
 		},
 	})
 
@@ -217,7 +248,7 @@ func Cmd(name string, body interface{}) ExpectedCommand {
 	}
 
 	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
-	// Function decorators (@var, @sh) are allowed in simple commands
+	// Function decorators (@var) are allowed in simple commands
 	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
 		for _, part := range shellContent.Parts {
 			if part.Type == "function_decorator" {
@@ -248,10 +279,6 @@ func Cmd(name string, body interface{}) ExpectedCommand {
 	}
 }
 
-// CmdWith creates a command with decorators
-// **REMOVED** - This violates the spec. Block decorators must have explicit braces.
-// Use CmdBlock with decorators instead.
-
 // Watch creates a watch command: watch NAME: BODY
 // This applies syntax sugar for simple shell commands with or without function decorators
 func Watch(name string, body interface{}) ExpectedCommand {
@@ -275,7 +302,7 @@ func Watch(name string, body interface{}) ExpectedCommand {
 	}
 
 	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
-	// Function decorators (@var, @sh) are allowed in simple commands
+	// Function decorators (@var) are allowed in simple commands
 	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
 		for _, part := range shellContent.Parts {
 			if part.Type == "function_decorator" {
@@ -341,7 +368,7 @@ func Stop(name string, body interface{}) ExpectedCommand {
 	}
 
 	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
-	// Function decorators (@var, @sh) are allowed in simple commands
+	// Function decorators (@var) are allowed in simple commands
 	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
 		for _, part := range shellContent.Parts {
 			if part.Type == "function_decorator" {
@@ -406,7 +433,7 @@ func Block(content ...interface{}) ExpectedCommandBody {
 
 // Simple creates a simple command body (single line)
 // This enforces that simple commands cannot contain BLOCK decorators (per syntax sugar rules)
-// Function decorators (@var, @sh) are allowed and get syntax sugar
+// Function decorators (@var) are allowed and get syntax sugar
 func Simple(parts ...interface{}) ExpectedCommandBody {
 	shellParts := toShellParts(parts...)
 
@@ -444,8 +471,8 @@ func Text(text string) ExpectedShellPart {
 	}
 }
 
-// At creates a function decorator within shell content: @var(NAME) or @sh(command)
-// Only valid for function decorators like @var() and @sh()
+// At creates a function decorator within shell content: @var(NAME)
+// Only valid for function decorators like @var()
 func At(name string, args ...interface{}) ExpectedShellPart {
 	// Validate that this is a function decorator
 	if !stdlib.IsFunctionDecorator(name) {
@@ -467,6 +494,29 @@ func At(name string, args ...interface{}) ExpectedShellPart {
 			Name: name,
 			Args: decoratorArgs,
 		},
+	}
+}
+
+// FuncDecorator creates a function decorator expression for use in decorator arguments
+// This is different from At() which creates shell parts
+func FuncDecorator(name string, args ...interface{}) ExpectedExpression {
+	// Validate that this is a function decorator
+	if !stdlib.IsFunctionDecorator(name) {
+		return ExpectedExpression{
+			Type:  "identifier",
+			Value: fmt.Sprintf("ERROR: FuncDecorator() can only be used with function decorators, but '%s' is not a function decorator", name),
+		}
+	}
+
+	var decoratorArgs []ExpectedExpression
+	for _, arg := range args {
+		decoratorArgs = append(decoratorArgs, toDecoratorArgument(name, arg))
+	}
+
+	return ExpectedExpression{
+		Type: "function_decorator",
+		Name: name,
+		Args: decoratorArgs,
 	}
 }
 
@@ -494,6 +544,70 @@ func Decorator(name string, args ...interface{}) ExpectedDecorator {
 	}
 }
 
+// PatternDecorator creates a pattern decorator: @when(VAR) or @try
+// Only valid for pattern decorators that handle pattern matching
+func PatternDecorator(name string, args ...interface{}) ExpectedDecorator {
+	// Validate that this is a pattern decorator
+	if !stdlib.IsPatternDecorator(name) {
+		// Instead of panic, we'll return a decorator with an error name
+		return ExpectedDecorator{
+			Name: fmt.Sprintf("ERROR_NOT_PATTERN_DECORATOR_%s", name),
+			Args: []ExpectedExpression{},
+		}
+	}
+
+	var decoratorArgs []ExpectedExpression
+	for _, arg := range args {
+		decoratorArgs = append(decoratorArgs, toDecoratorArgument(name, arg))
+	}
+
+	return ExpectedDecorator{
+		Name: name,
+		Args: decoratorArgs,
+	}
+}
+
+// Pattern creates a pattern content with branches: @when(VAR) { pattern: command }
+func Pattern(decorator ExpectedDecorator, branches ...ExpectedPatternBranch) ExpectedPatternContent {
+	return ExpectedPatternContent{
+		Decorator: decorator,
+		Branches:  branches,
+	}
+}
+
+// Branch creates a pattern branch: pattern: command
+func Branch(pattern interface{}, command interface{}) ExpectedPatternBranch {
+	var patternObj ExpectedPattern
+
+	switch p := pattern.(type) {
+	case string:
+		if p == "*" {
+			patternObj = ExpectedWildcardPattern{}
+		} else {
+			patternObj = ExpectedIdentifierPattern{Name: p}
+		}
+	case ExpectedPattern:
+		patternObj = p
+	default:
+		patternObj = ExpectedIdentifierPattern{Name: fmt.Sprintf("%v", p)}
+	}
+
+	return ExpectedPatternBranch{
+		Pattern: patternObj,
+		Command: toCommandContent(command),
+	}
+}
+
+// Wildcard creates a wildcard pattern: *
+func Wildcard() ExpectedPattern {
+	return ExpectedWildcardPattern{}
+}
+
+// PatternId creates an identifier pattern: production, main, etc.
+func PatternId(name string) ExpectedPattern {
+	return ExpectedIdentifierPattern{Name: name}
+}
+
 // validateDecoratorsForNestedUsage validates that decorators can only be used in explicit blocks
 func validateDecoratorsForNestedUsage(decorators []ExpectedDecorator) {
 	// Note: Multiple decorators are allowed in CmdBlock context as they represent
@@ -517,8 +631,8 @@ func toDecoratorArgument(decoratorName string, arg interface{}) ExpectedExpressi
 			return ExpectedExpression{Type: "identifier", Value: str}
 		}
 		return toExpression(arg)
-	case "sh":
-		// @sh() arguments are parsed as identifiers by the parser, not strings
+	case "when":
+		// @when() takes identifier arguments (variable names)
 		if str, ok := arg.(string); ok {
 			return ExpectedExpression{Type: "identifier", Value: str}
 		}
@@ -550,7 +664,11 @@ func toExpression(v interface{}) ExpectedExpression {
 	case ExpectedExpression:
 		return val
 	case ExpectedFunctionDecorator:
-		return ExpectedExpression{Type: "function_decorator", Value: "@" + val.Name}
+		return ExpectedExpression{
+			Type: "function_decorator",
+			Name: val.Name,
+			Args: val.Args,
+		}
 	default:
 		// Try to convert to string and handle as identifier
 		str := fmt.Sprintf("%v", val)
@@ -601,6 +719,12 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 			IsBlock: true,
 			Content: val,
 		}
+	case ExpectedPatternContent:
+		// Pattern content ALWAYS requires explicit blocks per spec
+		return ExpectedCommandBody{
+			IsBlock: true,
+			Content: val,
+		}
 	default:
 		return ExpectedCommandBody{
 			IsBlock: false,
@@ -618,6 +742,13 @@ func toCommandContent(items ...interface{}) ExpectedCommandContent {
 
 	var decorators []ExpectedDecorator
 	var contentStart int
+
+	// Check if the first item is a pattern decorator
+	if len(items) > 0 {
+		if patternContent, ok := items[0].(ExpectedPatternContent); ok {
+			return patternContent
+		}
+	}
 
 	// Collect all leading decorators
 	for i, item := range items {
@@ -769,6 +900,32 @@ type ExpectedDecoratedContent struct {
 
 func (d ExpectedDecoratedContent) IsExpectedCommandContent() bool { return true }
 
+type ExpectedPatternContent struct {
+	Decorator ExpectedDecorator
+	Branches  []ExpectedPatternBranch
+}
+
+func (p ExpectedPatternContent) IsExpectedCommandContent() bool { return true }
+
+type ExpectedPatternBranch struct {
+	Pattern ExpectedPattern
+	Command ExpectedCommandContent
+}
+
+type ExpectedPattern interface {
+	IsExpectedPattern() bool
+}
+
+type ExpectedIdentifierPattern struct {
+	Name string
+}
+
+func (i ExpectedIdentifierPattern) IsExpectedPattern() bool { return true }
+
+type ExpectedWildcardPattern struct{}
+
+func (w ExpectedWildcardPattern) IsExpectedPattern() bool { return true }
+
 type ExpectedShellPart struct {
 	Type              string
 	Text              string
@@ -788,6 +945,9 @@ type ExpectedFunctionDecorator struct {
 type ExpectedExpression struct {
 	Type  string
 	Value string
+	// For function decorators
+	Name string                `json:"name,omitempty"`
+	Args []ExpectedExpression `json:"args,omitempty"`
 }
 
 // Test case structure
@@ -856,6 +1016,17 @@ func expressionToComparable(expr ast.Expression) interface{} {
 }
 
 func expectedExpressionToComparable(expr ExpectedExpression) interface{} {
+	if expr.Type == "function_decorator" {
+		args := make([]interface{}, len(expr.Args))
+		for i, arg := range expr.Args {
+			args[i] = expectedExpressionToComparable(arg)
+		}
+		return map[string]interface{}{
+			"Type": "function_decorator",
+			"Name": expr.Name,
+			"Args": args,
+		}
+	}
 	return map[string]interface{}{
 		"Type":  expr.Type,
 		"Value": expr.Value,
@@ -913,6 +1084,42 @@ func expectedShellPartToComparable(part ExpectedShellPart) interface{} {
 	return result
 }
 
+func patternToComparable(pattern ast.Pattern) interface{} {
+	switch p := pattern.(type) {
+	case *ast.IdentifierPattern:
+		return map[string]interface{}{
+			"Type": "identifier",
+			"Name": p.Name,
+		}
+	case *ast.WildcardPattern:
+		return map[string]interface{}{
+			"Type": "wildcard",
+		}
+	default:
+		return map[string]interface{}{
+			"Type": "unknown",
+		}
+	}
+}
+
+func expectedPatternToComparable(pattern ExpectedPattern) interface{} {
+	switch p := pattern.(type) {
+	case ExpectedIdentifierPattern:
+		return map[string]interface{}{
+			"Type": "identifier",
+			"Name": p.Name,
+		}
+	case ExpectedWildcardPattern:
+		return map[string]interface{}{
+			"Type": "wildcard",
+		}
+	default:
+		return map[string]interface{}{
+			"Type": "unknown",
+		}
+	}
+}
+
 func commandContentToComparable(content ast.CommandContent) interface{} {
 	switch c := content.(type) {
 	case *ast.ShellContent:
@@ -940,6 +1147,28 @@ func commandContentToComparable(content ast.CommandContent) interface{} {
 			"Type":       "decorated",
 			"Decorators": decorators,
 			"Content":    commandContentToComparable(c.Content),
+		}
+	case *ast.PatternContent:
+		decorator := map[string]interface{}{
+			"Name": c.Decorator.Name,
+			"Args": make([]interface{}, len(c.Decorator.Args)),
+		}
+		for i, arg := range c.Decorator.Args {
+			decorator["Args"].([]interface{})[i] = expressionToComparable(arg)
+		}
+
+		branches := make([]interface{}, len(c.Patterns))
+		for i, branch := range c.Patterns {
+			branches[i] = map[string]interface{}{
+				"Pattern": patternToComparable(branch.Pattern),
+				"Command": commandContentToComparable(branch.Command),
+			}
+		}
+
+		return map[string]interface{}{
+			"Type":      "pattern",
+			"Decorator": decorator,
+			"Branches":  branches,
 		}
 	default:
 		return map[string]interface{}{
@@ -975,6 +1204,28 @@ func expectedCommandContentToComparable(content ExpectedCommandContent) interfac
 			"Type":       "decorated",
 			"Decorators": decorators,
 			"Content":    expectedCommandContentToComparable(c.Content),
+		}
+	case ExpectedPatternContent:
+		decorator := map[string]interface{}{
+			"Name": c.Decorator.Name,
+			"Args": make([]interface{}, len(c.Decorator.Args)),
+		}
+		for i, arg := range c.Decorator.Args {
+			decorator["Args"].([]interface{})[i] = expectedExpressionToComparable(arg)
+		}
+
+		branches := make([]interface{}, len(c.Branches))
+		for i, branch := range c.Branches {
+			branches[i] = map[string]interface{}{
+				"Pattern": expectedPatternToComparable(branch.Pattern),
+				"Command": expectedCommandContentToComparable(branch.Command),
+			}
+		}
+
+		return map[string]interface{}{
+			"Type":      "pattern",
+			"Decorator": decorator,
+			"Branches":  branches,
 		}
 	default:
 		return map[string]interface{}{

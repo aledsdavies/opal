@@ -87,6 +87,67 @@ func TestBasicTokens(t *testing.T) {
 	}
 }
 
+func TestBooleanTokens(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []TokenType
+		values   []string
+	}{
+		{
+			input:    "var enabled = true",
+			expected: []TokenType{VAR, IDENTIFIER, EQUALS, BOOLEAN, EOF},
+			values:   []string{"var", "enabled", "=", "true", ""},
+		},
+		{
+			input:    "var disabled = false",
+			expected: []TokenType{VAR, IDENTIFIER, EQUALS, BOOLEAN, EOF},
+			values:   []string{"var", "disabled", "=", "false", ""},
+		},
+		{
+			input:    "var (debug = true, production = false)",
+			expected: []TokenType{VAR, LPAREN, IDENTIFIER, EQUALS, BOOLEAN, COMMA, IDENTIFIER, EQUALS, BOOLEAN, RPAREN, EOF},
+			values:   []string{"var", "(", "debug", "=", "true", ",", "production", "=", "false", ")", ""},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			var tokenTypes []TokenType
+			for _, token := range tokens {
+				tokenTypes = append(tokenTypes, token.Type)
+			}
+
+			if diff := cmp.Diff(test.expected, tokenTypes); diff != "" {
+				t.Errorf("Token sequence mismatch (-want +got):\n%s", diff)
+				// Debug output
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q at %d:%d", i, token.Type, token.Value, token.Line, token.Column)
+				}
+			}
+
+			// Verify token values
+			for i, expected := range test.values {
+				if i < len(tokens) && tokens[i].Value != expected {
+					t.Errorf("Token %d: expected value %q, got %q", i, expected, tokens[i].Value)
+				}
+			}
+
+			// Verify boolean tokens have correct semantic type
+			for _, token := range tokens {
+				if token.Type == BOOLEAN {
+					if token.Semantic != SemBoolean {
+						t.Errorf("Boolean token %q has wrong semantic type: %v", token.Value, token.Semantic)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestWhenConditionalTokens(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -253,8 +314,8 @@ func TestStructuralTokens(t *testing.T) {
 			expected: []TokenType{AT, IDENTIFIER, LPAREN, IDENTIFIER, EQUALS, NUMBER, COMMA, IDENTIFIER, EQUALS, DURATION, RPAREN, EOF},
 		},
 		{
-			input:    "var (PORT = 8080, HOST = localhost)",
-			expected: []TokenType{VAR, LPAREN, IDENTIFIER, EQUALS, NUMBER, COMMA, IDENTIFIER, EQUALS, IDENTIFIER, RPAREN, EOF},
+			input:    "var (PORT = \"8080\", HOST = \"localhost\")",
+			expected: []TokenType{VAR, LPAREN, IDENTIFIER, EQUALS, STRING, COMMA, IDENTIFIER, EQUALS, STRING, RPAREN, EOF},
 		},
 	}
 
@@ -274,6 +335,97 @@ func TestStructuralTokens(t *testing.T) {
 				t.Logf("Actual tokens:")
 				for i, token := range tokens {
 					t.Logf("  %d: %s %q at %d:%d", i, token.Type, token.Value, token.Line, token.Column)
+				}
+			}
+		})
+	}
+}
+
+func TestBooleanContext(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []struct {
+			tokenType TokenType
+			value     string
+		}
+	}{
+		{
+			name:  "boolean in variable declaration",
+			input: "var IS_PRODUCTION = true",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "IS_PRODUCTION"},
+				{EQUALS, "="},
+				{BOOLEAN, "true"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "boolean vs identifier",
+			input: "var truename = \"value\"",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "truename"},
+				{EQUALS, "="},
+				{STRING, "value"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "mixed boolean and string vars",
+			input: "var (ENABLED = true, NAME = \"app\", DEBUG = false)",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{LPAREN, "("},
+				{IDENTIFIER, "ENABLED"},
+				{EQUALS, "="},
+				{BOOLEAN, "true"},
+				{COMMA, ","},
+				{IDENTIFIER, "NAME"},
+				{EQUALS, "="},
+				{STRING, "app"},
+				{COMMA, ","},
+				{IDENTIFIER, "DEBUG"},
+				{EQUALS, "="},
+				{BOOLEAN, "false"},
+				{RPAREN, ")"},
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := New(test.input)
+			tokens := lexer.TokenizeToSlice()
+
+			if len(tokens) != len(test.expected) {
+				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
+				// Debug output
+				t.Logf("Actual tokens:")
+				for i, token := range tokens {
+					t.Logf("  %d: %s %q at %d:%d", i, token.Type, token.Value, token.Line, token.Column)
+				}
+				return
+			}
+
+			for i, expected := range test.expected {
+				actual := tokens[i]
+				if actual.Type != expected.tokenType {
+					t.Errorf("Token %d: expected type %s, got %s", i, expected.tokenType, actual.Type)
+				}
+				if actual.Value != expected.value {
+					t.Errorf("Token %d: expected value %q, got %q", i, expected.value, actual.Value)
 				}
 			}
 		})
@@ -565,7 +717,7 @@ func TestVariableDeclarations(t *testing.T) {
 	}{
 		{
 			name:  "simple variable",
-			input: "var PORT = 8080",
+			input: "var PORT = \"8080\"",
 			expected: []struct {
 				tokenType TokenType
 				value     string
@@ -573,7 +725,7 @@ func TestVariableDeclarations(t *testing.T) {
 				{VAR, "var"},
 				{IDENTIFIER, "PORT"},
 				{EQUALS, "="},
-				{NUMBER, "8080"},
+				{STRING, "8080"},
 				{EOF, ""},
 			},
 		},
@@ -592,22 +744,22 @@ func TestVariableDeclarations(t *testing.T) {
 			},
 		},
 		{
-			name:  "unquoted variable",
-			input: "var ENV = production",
+			name:  "boolean variable",
+			input: "var DEBUG = true",
 			expected: []struct {
 				tokenType TokenType
 				value     string
 			}{
 				{VAR, "var"},
-				{IDENTIFIER, "ENV"},
+				{IDENTIFIER, "DEBUG"},
 				{EQUALS, "="},
-				{IDENTIFIER, "production"},
+				{BOOLEAN, "true"},
 				{EOF, ""},
 			},
 		},
 		{
-			name:  "grouped variables",
-			input: "var (\n  PORT = 8080\n  HOST = localhost\n)",
+			name:  "grouped variables with mixed types",
+			input: "var (\n  PORT = \"8080\"\n  HOST = \"localhost\"\n  DEBUG = false\n)",
 			expected: []struct {
 				tokenType TokenType
 				value     string
@@ -617,11 +769,15 @@ func TestVariableDeclarations(t *testing.T) {
 				{NEWLINE, "\n"},
 				{IDENTIFIER, "PORT"},
 				{EQUALS, "="},
-				{NUMBER, "8080"},
+				{STRING, "8080"},
 				{NEWLINE, "\n"},
 				{IDENTIFIER, "HOST"},
 				{EQUALS, "="},
-				{IDENTIFIER, "localhost"},
+				{STRING, "localhost"},
+				{NEWLINE, "\n"},
+				{IDENTIFIER, "DEBUG"},
+				{EQUALS, "="},
+				{BOOLEAN, "false"},
 				{NEWLINE, "\n"},
 				{RPAREN, ")"},
 				{EOF, ""},
@@ -638,6 +794,20 @@ func TestVariableDeclarations(t *testing.T) {
 				{IDENTIFIER, "TIMEOUT"},
 				{EQUALS, "="},
 				{DURATION, "30s"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "number variable",
+			input: "var MAX_RETRIES = 5",
+			expected: []struct {
+				tokenType TokenType
+				value     string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "MAX_RETRIES"},
+				{EQUALS, "="},
+				{NUMBER, "5"},
 				{EOF, ""},
 			},
 		},
@@ -776,6 +946,7 @@ func TestTokenClassification(t *testing.T) {
 		{NUMBER, false, true, false, false},
 		{DURATION, false, true, false, false},
 		{IDENTIFIER, false, true, false, false},
+		{BOOLEAN, false, true, false, false},
 		{SHELL_TEXT, false, false, true, false},
 		{COMMENT, false, false, false, false},
 		{EOF, false, false, false, false},
@@ -839,6 +1010,11 @@ func TestEdgeCases(t *testing.T) {
 			name:     "only newlines",
 			input:    "\n\n\n",
 			expected: []TokenType{NEWLINE, NEWLINE, NEWLINE, EOF},
+		},
+		{
+			name:     "boolean edge cases",
+			input:    "var t = true, f = false",
+			expected: []TokenType{VAR, IDENTIFIER, EQUALS, BOOLEAN, COMMA, IDENTIFIER, EQUALS, BOOLEAN, EOF},
 		},
 	}
 
@@ -1100,9 +1276,13 @@ func TestKeywordDetection(t *testing.T) {
 		{"stop", STOP},
 		{"when", WHEN},
 		{"try", TRY},
+		{"true", BOOLEAN},
+		{"false", BOOLEAN},
 		{"timeout", IDENTIFIER}, // Not a keyword
 		{"parallel", IDENTIFIER}, // Not a keyword
 		{"retry", IDENTIFIER}, // Not a keyword
+		{"trueish", IDENTIFIER}, // Not boolean, just starts with "true"
+		{"falsey", IDENTIFIER}, // Not boolean, just starts with "false"
 	}
 
 	for _, test := range tests {
@@ -1116,6 +1296,11 @@ func TestKeywordDetection(t *testing.T) {
 
 			if token.Value != test.input {
 				t.Errorf("Expected token value %q, got %q", test.input, token.Value)
+			}
+
+			// Verify semantic type for booleans
+			if token.Type == BOOLEAN && token.Semantic != SemBoolean {
+				t.Errorf("Boolean token %q has wrong semantic type: %v", token.Value, token.Semantic)
 			}
 		})
 	}
