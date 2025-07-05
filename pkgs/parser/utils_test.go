@@ -19,19 +19,9 @@ func init() {
 // registerTestOnlyDecorators registers decorators that are only used for testing
 // and not part of the standard library
 func registerTestOnlyDecorators() {
-	// Register all decorators used in tests to ensure they are available
+	// Only register decorators that don't exist in stdlib and are needed for tests
 
-	// Function decorators (inline within shell content)
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:        "var",
-		Type:        stdlib.FunctionDecorator,
-		Semantic:    stdlib.SemVariable,
-		Description: "Variable substitution - replaces with variable value",
-		Args: []stdlib.ArgumentSpec{
-			{Name: "name", Type: stdlib.IdentifierArg, Optional: false},
-		},
-	})
-
+	// Additional function decorators needed for tests
 	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
 		Name:        "env",
 		Type:        stdlib.FunctionDecorator,
@@ -42,7 +32,7 @@ func registerTestOnlyDecorators() {
 		},
 	})
 
-	// Block decorators (require explicit braces)
+	// Additional block decorators needed for tests (not in stdlib)
 	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
 		Name:          "env",
 		Type:          stdlib.BlockDecorator,
@@ -51,17 +41,6 @@ func registerTestOnlyDecorators() {
 		RequiresBlock: true,
 		Args: []stdlib.ArgumentSpec{
 			{Name: "vars", Type: stdlib.StringArg, Optional: false},
-		},
-	})
-
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:          "timeout",
-		Type:          stdlib.BlockDecorator,
-		Semantic:      stdlib.SemDecorator,
-		Description:   "Sets execution timeout for command blocks",
-		RequiresBlock: true,
-		Args: []stdlib.ArgumentSpec{
-			{Name: "duration", Type: stdlib.DurationArg, Optional: false},
 		},
 	})
 
@@ -100,26 +79,6 @@ func registerTestOnlyDecorators() {
 	})
 
 	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:          "parallel",
-		Type:          stdlib.BlockDecorator,
-		Semantic:      stdlib.SemDecorator,
-		Description:   "Executes commands in parallel",
-		RequiresBlock: true,
-		Args:          []stdlib.ArgumentSpec{}, // No arguments
-	})
-
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:          "retry",
-		Type:          stdlib.BlockDecorator,
-		Semantic:      stdlib.SemDecorator,
-		Description:   "Retries command execution on failure",
-		RequiresBlock: true,
-		Args: []stdlib.ArgumentSpec{
-			{Name: "attempts", Type: stdlib.NumberArg, Optional: true, Default: "3"},
-		},
-	})
-
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
 		Name:          "watch-files",
 		Type:          stdlib.BlockDecorator,
 		Semantic:      stdlib.SemDecorator,
@@ -132,38 +91,7 @@ func registerTestOnlyDecorators() {
 		},
 	})
 
-	// Pattern decorators (handle pattern matching with specific syntax)
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:          "when",
-		Type:          stdlib.PatternDecorator,
-		Semantic:      stdlib.SemPattern,
-		Description:   "Pattern matching based on variable value - supports any identifier patterns",
-		RequiresBlock: true,
-		Args: []stdlib.ArgumentSpec{
-			{Name: "variable", Type: stdlib.IdentifierArg, Optional: false},
-		},
-		PatternSpec: &stdlib.PatternSpec{
-			AllowedPatterns:  nil,  // nil means any identifier is allowed
-			AllowWildcard:    true, // * wildcard is allowed
-			RequiredPatterns: nil,  // No required patterns
-		},
-	})
-
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:          "try",
-		Type:          stdlib.PatternDecorator,
-		Semantic:      stdlib.SemPattern,
-		Description:   "Exception handling with main, error, and finally blocks",
-		RequiresBlock: true,
-		Args:          []stdlib.ArgumentSpec{}, // No arguments
-		PatternSpec: &stdlib.PatternSpec{
-			AllowedPatterns:  []string{"main", "error", "finally"}, // Only these patterns allowed
-			AllowWildcard:    false,                                 // No wildcard
-			RequiredPatterns: []string{"main"},                     // main is required
-		},
-	})
-
-	// Test-specific decorators for edge cases
+	// Test-specific decorators for edge cases (these are truly test-only)
 	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
 		Name:          "offset",
 		Type:          stdlib.BlockDecorator,
@@ -217,20 +145,78 @@ func Var(name string, value interface{}) ExpectedVariable {
 	}
 }
 
-// DurationExpr creates a duration expression for test expectations
-func DurationExpr(value string) ExpectedExpression {
+// Explicit type constructors for test expressions
+
+// Str creates a string literal expression
+func Str(value string) ExpectedExpression {
+	return ExpectedExpression{
+		Type:  "string",
+		Value: value,
+	}
+}
+
+// Id creates an identifier expression
+func Id(name string) ExpectedExpression {
+	return ExpectedExpression{
+		Type:  "identifier",
+		Value: name,
+	}
+}
+
+// Num creates a number expression
+func Num(value interface{}) ExpectedExpression {
+	switch v := value.(type) {
+	case int:
+		return ExpectedExpression{
+			Type:  "number",
+			Value: strconv.Itoa(v),
+		}
+	case int64:
+		return ExpectedExpression{
+			Type:  "number",
+			Value: strconv.FormatInt(v, 10),
+		}
+	case float64:
+		return ExpectedExpression{
+			Type:  "number",
+			Value: strconv.FormatFloat(v, 'g', -1, 64),
+		}
+	case float32:
+		return ExpectedExpression{
+			Type:  "number",
+			Value: strconv.FormatFloat(float64(v), 'g', -1, 32),
+		}
+	default:
+		return ExpectedExpression{
+			Type:  "number",
+			Value: fmt.Sprintf("%v", v),
+		}
+	}
+}
+
+// Bool creates a boolean expression
+func Bool(value bool) ExpectedExpression {
+	return ExpectedExpression{
+		Type:  "boolean",
+		Value: strconv.FormatBool(value),
+	}
+}
+
+// Dur creates a duration expression
+func Dur(value string) ExpectedExpression {
 	return ExpectedExpression{
 		Type:  "duration",
 		Value: value,
 	}
 }
 
-// BooleanExpr creates a boolean expression for test expectations
+// Legacy aliases for backwards compatibility
+func DurationExpr(value string) ExpectedExpression {
+	return Dur(value)
+}
+
 func BooleanExpr(value bool) ExpectedExpression {
-	return ExpectedExpression{
-		Type:  "boolean",
-		Value: strconv.FormatBool(value),
-	}
+	return Bool(value)
 }
 
 // Cmd creates a simple command: NAME: BODY
@@ -505,26 +491,13 @@ func At(name string, args ...interface{}) ExpectedShellPart {
 	}
 }
 
-// FuncDecorator creates a function decorator expression for use in decorator arguments
-// This is different from At() which creates shell parts
+// FuncDecorator is no longer valid - function decorators are not allowed as decorator arguments
+// Use direct variable names instead: @timeout(DURATION) not @timeout(@var(DURATION))
+// This function is kept for backwards compatibility but will return an error
 func FuncDecorator(name string, args ...interface{}) ExpectedExpression {
-	// Validate that this is a function decorator
-	if !stdlib.IsFunctionDecorator(name) {
-		return ExpectedExpression{
-			Type:  "identifier",
-			Value: fmt.Sprintf("ERROR: FuncDecorator() can only be used with function decorators, but '%s' is not a function decorator", name),
-		}
-	}
-
-	var decoratorArgs []ExpectedExpression
-	for _, arg := range args {
-		decoratorArgs = append(decoratorArgs, toDecoratorArgument(name, arg))
-	}
-
 	return ExpectedExpression{
-		Type: "function_decorator",
-		Name: name,
-		Args: decoratorArgs,
+		Type:  "identifier",
+		Value: fmt.Sprintf("ERROR: FuncDecorator() is no longer valid. Use direct variable names in decorator arguments instead of @%s(...)", name),
 	}
 }
 
@@ -629,50 +602,35 @@ func validateDecoratorsForNestedUsage(decorators []ExpectedDecorator) {
 	}
 }
 
-// toDecoratorArgument converts arguments based on the decorator type
+// toDecoratorArgument converts arguments for decorator parameters
+// Since function decorators are no longer allowed in decorator arguments,
+// this simply converts to the appropriate expression type
 func toDecoratorArgument(decoratorName string, arg interface{}) ExpectedExpression {
-	// Handle special cases for specific decorators
-	switch decoratorName {
-	case "var":
-		// @var() takes identifier arguments (variable names)
-		if str, ok := arg.(string); ok {
-			return ExpectedExpression{Type: "identifier", Value: str}
-		}
-		return toExpression(arg)
-	case "when":
-		// @when() takes identifier arguments (variable names)
-		if str, ok := arg.(string); ok {
-			return ExpectedExpression{Type: "identifier", Value: str}
-		}
-		return toExpression(arg)
-	default:
-		// For other decorators, use the default conversion
-		return toExpression(arg)
-	}
+	// For all decorators, use the default conversion
+	// Variable references should be direct identifiers now
+	return toExpression(arg)
 }
 
 // Helper conversion functions
 func toExpression(v interface{}) ExpectedExpression {
 	switch val := v.(type) {
-	case string:
-		if strings.HasPrefix(val, "@") {
-			return ExpectedExpression{Type: "decorator", Value: val}
-		}
-		// Check if it's a duration pattern and return as duration
-		if isDurationString(val) {
-			return ExpectedExpression{Type: "duration", Value: val}
-		}
-		// Check if it's a numeric string
-		if isNumericString(val) {
-			return ExpectedExpression{Type: "number", Value: val}
-		}
-		return ExpectedExpression{Type: "string", Value: val}
-	case int:
-		return ExpectedExpression{Type: "number", Value: strconv.Itoa(val)}
-	case bool:
-		return ExpectedExpression{Type: "boolean", Value: strconv.FormatBool(val)}
 	case ExpectedExpression:
+		// Already an explicit expression, return as-is
 		return val
+	case string:
+		// For backwards compatibility, treat plain strings as string literals
+		// Users should use Id() for identifiers and Str() for string literals
+		return Str(val)
+	case int:
+		return Num(val)
+	case int64:
+		return Num(val)
+	case float64:
+		return Num(val)
+	case float32:
+		return Num(val)
+	case bool:
+		return Bool(val)
 	case ExpectedFunctionDecorator:
 		return ExpectedExpression{
 			Type: "function_decorator",
@@ -680,9 +638,9 @@ func toExpression(v interface{}) ExpectedExpression {
 			Args: val.Args,
 		}
 	default:
-		// Try to convert to string and handle as identifier
+		// Try to convert to string and handle as string literal
 		str := fmt.Sprintf("%v", val)
-		return ExpectedExpression{Type: "identifier", Value: strings.Trim(str, "\"")}
+		return Str(str)
 	}
 }
 
@@ -841,34 +799,6 @@ func toDecorators(v interface{}) []ExpectedDecorator {
 	default:
 		return []ExpectedDecorator{}
 	}
-}
-
-// Helper functions for string validation
-func isDurationString(s string) bool {
-	if len(s) < 2 {
-		return false
-	}
-
-	suffixes := []string{"ns", "us", "μs", "ms", "s", "m", "h"}
-	for _, suffix := range suffixes {
-		if strings.HasSuffix(s, suffix) {
-			prefix := s[:len(s)-len(suffix)]
-			if _, err := strconv.ParseFloat(prefix, 64); err == nil {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func isNumericString(s string) bool {
-	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return true
-	}
-	if _, err := strconv.ParseFloat(s, 64); err == nil {
-		return true
-	}
-	return false
 }
 
 // Test helper types for the new CST structure

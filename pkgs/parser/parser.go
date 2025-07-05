@@ -582,12 +582,10 @@ func (p *Parser) parseExpression() (ast.Expression, error) {
 		// This function consumes tokens until a separator is found.
 		return p.parseDecoratorArgument()
 	case lexer.AT:
-		// Function decorators can appear as expressions in decorator arguments
-		if p.isFunctionDecorator() {
-			return p.parseFunctionDecorator()
-		}
+		// REJECT function decorators in decorator arguments - this makes the language confusing
+		return nil, fmt.Errorf("function decorators (@var, @env, etc.) are not allowed as decorator arguments. Use direct variable names instead (e.g., @timeout(DURATION) not @timeout(@var(DURATION)))")
 	}
-	return nil, fmt.Errorf("unexpected token %s, expected an expression (literal, identifier, or @var)", p.current().Type)
+	return nil, fmt.Errorf("unexpected token %s, expected an expression (literal or identifier)", p.current().Type)
 }
 
 // parseDecoratorArgument handles complex decorator arguments.
