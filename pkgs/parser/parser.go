@@ -573,6 +573,10 @@ func (p *Parser) parseExpression() (ast.Expression, error) {
 		tok := p.current()
 		p.advance()
 		return &ast.DurationLiteral{Value: tok.Value, Token: tok}, nil
+	case lexer.BOOLEAN:
+		tok := p.current()
+		p.advance()
+		return &ast.BooleanLiteral{Value: tok.Value == "true", Token: tok}, nil
 	case lexer.IDENTIFIER:
 		// For decorator arguments, an "identifier" can be a complex value.
 		// This function consumes tokens until a separator is found.
@@ -638,7 +642,7 @@ func (p *Parser) parseDecoratorArgument() (ast.Expression, error) {
 // --- Variable Parsing ---
 
 // parseVariableDecl parses a variable declaration.
-// **FIXED**: Now properly handles complex multi-token values
+// **UPDATED**: Now enforces that values must be string, number, duration, or boolean literals
 func (p *Parser) parseVariableDecl() (*ast.VariableDecl, error) {
 	startPos := p.current()
 	_, err := p.consume(lexer.VAR, "expected 'var'")
@@ -655,7 +659,7 @@ func (p *Parser) parseVariableDecl() (*ast.VariableDecl, error) {
 		return nil, err
 	}
 
-	// Parse variable value - can be complex multi-token values
+	// Parse variable value - must be a literal (string, number, duration, or boolean)
 	value, err := p.parseVariableValue()
 	if err != nil {
 		return nil, err
@@ -669,11 +673,11 @@ func (p *Parser) parseVariableDecl() (*ast.VariableDecl, error) {
 	}, nil
 }
 
-// parseVariableValue parses variable values, correctly handling complex unquoted strings.
+// parseVariableValue parses variable values, now restricted to literals only.
 func (p *Parser) parseVariableValue() (ast.Expression, error) {
 	startToken := p.current()
 
-	// Handle standard literals first.
+	// Handle standard literals only - no unquoted strings allowed
 	switch startToken.Type {
 	case lexer.STRING:
 		p.advance()
@@ -684,46 +688,14 @@ func (p *Parser) parseVariableValue() (ast.Expression, error) {
 	case lexer.DURATION:
 		p.advance()
 		return &ast.DurationLiteral{Value: startToken.Value, Token: startToken}, nil
-	case lexer.AT:
-		if p.isFunctionDecorator() {
-			return p.parseFunctionDecorator()
-		}
-	}
-
-	// For everything else (unquoted strings like paths, URLs, commands),
-	// consume tokens until a terminator and slice the raw input.
-	valueStartOffset := startToken.Span.Start.Offset
-	var valueEndOffset int
-
-	// Advance until we find a terminator.
-	for !p.isAtEnd() && !p.isVariableValueTerminator() {
+	case lexer.BOOLEAN:
 		p.advance()
+		return &ast.BooleanLiteral{Value: startToken.Value == "true", Token: startToken}, nil
+	default:
+		// No longer allow arbitrary unquoted strings
+		return nil, fmt.Errorf("variable value must be a quoted string, number, duration, or boolean literal at line %d, col %d (got %s)",
+			startToken.Line, startToken.Column, startToken.Type)
 	}
-
-	// The value ends at the start of the current token (the terminator)
-	// or the end of the input if we ran out of tokens.
-	if p.isAtEnd() {
-		valueEndOffset = len(p.input)
-	} else {
-		valueEndOffset = p.current().Span.Start.Offset
-	}
-
-	// Backtrack to remove trailing whitespace from the raw slice.
-	for valueEndOffset > valueStartOffset && strings.ContainsRune(" \t\r\n", rune(p.input[valueEndOffset-1])) {
-		valueEndOffset--
-	}
-
-	value := p.input[valueStartOffset:valueEndOffset]
-
-	// If value is empty, it's an error unless we are at the end.
-	if value == "" && !p.isAtEnd() {
-		return nil, fmt.Errorf("missing variable value at line %d, col %d", startToken.Line, startToken.Column)
-	}
-
-	return &ast.Identifier{
-		Name:  value,
-		Token: lexer.Token{Value: value, Line: startToken.Line, Column: startToken.Column},
-	}, nil
 }
 
 // isVariableValueTerminator checks if the current token marks the end of a variable's value.
@@ -805,7 +777,7 @@ func (p *Parser) parseGroupedVariableDecl() (*ast.VariableDecl, error) {
 		return nil, err
 	}
 
-	// Use the same robust value parsing logic.
+	// Use the same restricted value parsing logic.
 	value, err := p.parseVariableValue()
 	if err != nil {
 		return nil, err

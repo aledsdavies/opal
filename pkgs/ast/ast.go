@@ -164,6 +164,7 @@ const (
 	NumberType
 	DurationType
 	IdentifierType
+	BooleanType
 )
 
 // StringLiteral represents string values
@@ -261,6 +262,41 @@ func (d *DurationLiteral) IsExpression() bool {
 
 func (d *DurationLiteral) GetType() ExpressionType {
 	return DurationType
+}
+
+// BooleanLiteral represents boolean values (true/false)
+type BooleanLiteral struct {
+	Value  bool   // The boolean value
+	Raw    string // The raw string ("true" or "false")
+	Pos    Position
+	Tokens TokenRange
+	Token  lexer.Token
+}
+
+func (b *BooleanLiteral) String() string {
+	return b.Raw
+}
+
+func (b *BooleanLiteral) Position() Position {
+	return b.Pos
+}
+
+func (b *BooleanLiteral) TokenRange() TokenRange {
+	return b.Tokens
+}
+
+func (b *BooleanLiteral) SemanticTokens() []lexer.Token {
+	token := b.Token
+	token.Semantic = lexer.SemBoolean
+	return []lexer.Token{token}
+}
+
+func (b *BooleanLiteral) IsExpression() bool {
+	return true
+}
+
+func (b *BooleanLiteral) GetType() ExpressionType {
+	return BooleanType
 }
 
 // Identifier represents identifiers

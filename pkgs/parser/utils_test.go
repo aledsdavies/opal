@@ -225,6 +225,14 @@ func DurationExpr(value string) ExpectedExpression {
 	}
 }
 
+// BooleanExpr creates a boolean expression for test expectations
+func BooleanExpr(value bool) ExpectedExpression {
+	return ExpectedExpression{
+		Type:  "boolean",
+		Value: strconv.FormatBool(value),
+	}
+}
+
 // Cmd creates a simple command: NAME: BODY
 // This applies syntax sugar for simple shell commands with or without function decorators
 func Cmd(name string, body interface{}) ExpectedCommand {
@@ -661,6 +669,8 @@ func toExpression(v interface{}) ExpectedExpression {
 		return ExpectedExpression{Type: "string", Value: val}
 	case int:
 		return ExpectedExpression{Type: "number", Value: strconv.Itoa(val)}
+	case bool:
+		return ExpectedExpression{Type: "boolean", Value: strconv.FormatBool(val)}
 	case ExpectedExpression:
 		return val
 	case ExpectedFunctionDecorator:
@@ -991,6 +1001,11 @@ func expressionToComparable(expr ast.Expression) interface{} {
 		return map[string]interface{}{
 			"Type":  "duration",
 			"Value": e.Value,
+		}
+	case *ast.BooleanLiteral:
+		return map[string]interface{}{
+			"Type":  "boolean",
+			"Value": strconv.FormatBool(e.Value),
 		}
 	case *ast.Identifier:
 		return map[string]interface{}{
