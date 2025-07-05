@@ -9,25 +9,25 @@ func TestCompleteParserIntegration(t *testing.T) {
 		{
 			Name: "complete devcmd file",
 			Input: `# Complete devcmd example
-var SRC = ./src
-var DIST = ./dist
+var SRC = "./src"
+var DIST = "./dist"
 var PORT = 8080
 
 var (
-  NODE_ENV = development
+  NODE_ENV = "development"
   TIMEOUT = 30s
   DEBUG = true
 )
 
 build: go build -o @var(DIST)/app @var(SRC)/main.go
 
-serve: @timeout(@var(TIMEOUT)) {
+serve: @timeout(TIMEOUT) {
   cd @var(SRC) && go run main.go --port=@var(PORT)
 }
 
 watch dev: @parallel {
-  @sh(cd @var(SRC) && go run main.go)
-  @sh(cd frontend && npm start)
+  @env("NODE_ENV") && cd @var(SRC) && go run main.go
+  cd frontend && npm start
 }
 
 stop dev: {
@@ -36,44 +36,50 @@ stop dev: {
 }
 
 deploy: @confirm("Deploy to production?") {
-  @sh(cd @var(SRC) && go build -o @var(DIST)/app) && rsync -av @var(DIST)/ server:/opt/app/
+  cd @var(SRC) && go build -o @var(DIST)/app && rsync -av @var(DIST)/ server:/opt/app/
 }`,
 			Expected: Program(
-				Var("SRC", "./src"),
-				Var("DIST", "./dist"),
-				Var("PORT", "8080"),
+				Var("SRC", Str("./src")),
+				Var("DIST", Str("./dist")),
+				Var("PORT", Num(8080)),
 				// Grouped variables
-				Var("NODE_ENV", "development"),
-				Var("TIMEOUT", "30s"),
-				Var("DEBUG", "true"),
+				Var("NODE_ENV", Str("development")),
+				Var("TIMEOUT", Dur("30s")),
+				Var("DEBUG", Bool(true)),
 				Cmd("build", Simple(
 					Text("go build -o "),
-					At("var", "DIST"),
+					At("var", Id("DIST")),
 					Text("/app "),
-					At("var", "SRC"),
+					At("var", Id("SRC")),
 					Text("/main.go"),
 				)),
 				CmdBlock("serve",
-					Decorator("timeout", At("var", "TIMEOUT")),
+					Decorator("timeout", Id("TIMEOUT")),
 					Text("cd "),
-					At("var", "SRC"),
+					At("var", Id("SRC")),
 					Text(" && go run main.go --port="),
-					At("var", "PORT"),
+					At("var", Id("PORT")),
 				),
 				WatchBlock("dev",
 					Decorator("parallel"),
-					At("sh", "cd @var(SRC) && go run main.go"),
-					At("sh", "cd frontend && npm start"),
+					At("env", Str("NODE_ENV")),
+					Text(" && cd "),
+					At("var", Id("SRC")),
+					Text(" && go run main.go"),
+					Text("cd frontend && npm start"),
 				),
 				StopBlock("dev",
 					Text("pkill -f \"go run\""),
 					Text("pkill -f \"npm start\""),
 				),
 				CmdBlock("deploy",
-					Decorator("confirm", "Deploy to production?"),
-					At("sh", "cd @var(SRC) && go build -o @var(DIST)/app"),
-					Text(" && rsync -av "),
-					At("var", "DIST"),
+					Decorator("confirm", Str("Deploy to production?")),
+					Text("cd "),
+					At("var", Id("SRC")),
+					Text(" && go build -o "),
+					At("var", Id("DIST")),
+					Text("/app && rsync -av "),
+					At("var", Id("DIST")),
 					Text("/ server:/opt/app/"),
 				),
 			),
@@ -81,10 +87,10 @@ deploy: @confirm("Deploy to production?") {
 		{
 			Name: "realistic development workflow",
 			Input: `var (
-  SRC = ./src
-  DIST = ./dist
+  SRC = "./src"
+  DIST = "./dist"
   PORT = 3000
-  ENV = development
+  ENV = "development"
 )
 
 install: npm install
@@ -96,8 +102,8 @@ build: @timeout(2m) {
 }
 
 dev: @parallel {
-  @sh(cd @var(SRC) && npm run dev)
-  @sh(echo "Server starting on port @var(PORT)")
+  cd @var(SRC) && npm run dev
+  echo "Server starting on port @var(PORT)"
 }
 
 test: @retry(3) {
@@ -109,109 +115,117 @@ watch test: @debounce(500ms) {
 }
 
 deploy: @confirm("Deploy to production?") @timeout(5m) {
-  npm run build && @sh(rsync -av @var(DIST)/ server:/var/www/app/) && echo "Deployment complete"
+  npm run build && rsync -av @var(DIST)/ server:/var/www/app/ && echo "Deployment complete"
 }
 
 stop test: pkill -f "npm.*test"`,
 			Expected: Program(
-				Var("SRC", "./src"),
-				Var("DIST", "./dist"),
-				Var("PORT", "3000"),
-				Var("ENV", "development"),
+				Var("SRC", Str("./src")),
+				Var("DIST", Str("./dist")),
+				Var("PORT", Num(3000)),
+				Var("ENV", Str("development")),
 				Cmd("install", "npm install"),
 				Cmd("clean", Simple(
 					Text("rm -rf "),
-					At("var", "DIST"),
+					At("var", Id("DIST")),
 					Text(" node_modules"),
 				)),
 				CmdBlock("build",
-					Decorator("timeout", "2m"),
+					Decorator("timeout", Dur("2m")),
 					Text("echo \"Building project...\" && npm run build && echo \"Build complete\""),
 				),
 				CmdBlock("dev",
 					Decorator("parallel"),
-					At("sh", "cd @var(SRC) && npm run dev"),
-					At("sh", "echo \"Server starting on port @var(PORT)\""),
+					Text("cd "),
+					At("var", Id("SRC")),
+					Text(" && npm run dev"),
+					Text("echo \"Server starting on port "),
+					At("var", Id("PORT")),
+					Text("\""),
 				),
 				CmdBlock("test",
-					Decorator("retry", "3"),
+					Decorator("retry", Num(3)),
 					Text("npm run test && npm run lint"),
 				),
 				WatchBlock("test",
-					Decorator("debounce", "500ms"),
+					Decorator("debounce", Dur("500ms")),
 					Text("npm run test:watch"),
 				),
 				CmdBlock("deploy",
-					Decorator("confirm", "Deploy to production?"),
-					Decorator("timeout", "5m"),
-					Text("npm run build && "),
-					At("sh", "rsync -av @var(DIST)/ server:/var/www/app/"),
-					Text(" && echo \"Deployment complete\""),
+					Decorator("confirm", Str("Deploy to production?")),
+					Decorator("timeout", Dur("5m")),
+					Text("npm run build && rsync -av "),
+					At("var", Id("DIST")),
+					Text("/ server:/var/www/app/ && echo \"Deployment complete\""),
 				),
 				Stop("test", "pkill -f \"npm.*test\""),
 			),
 		},
 		{
 			Name: "complex mixed content example",
-			Input: `var API_URL = https://api.example.com
-var TOKEN = abc123
-var PROJECT = myproject
+			Input: `var API_URL = "https://api.example.com"
+var TOKEN = "abc123"
+var PROJECT = "myproject"
 
 api-test: {
-  echo "Testing API at @var(API_URL)" && @sh(curl -H "Authorization: Bearer @var(TOKEN)" @var(API_URL)/health) && echo "API test complete"
+  echo "Testing API at @var(API_URL)" && curl -H "Authorization: Bearer @var(TOKEN)" @var(API_URL)/health && echo "API test complete"
 }
 
 backup: @confirm("Create backup?") {
-  echo "Starting backup..." && @sh(DATE=$(date +%Y%m%d); echo "Backup date: $DATE") && rsync -av /data/ backup@server.com:/backups/@var(PROJECT)/ && echo "Backup complete"
+  echo "Starting backup..." && DATE=$(date +%Y%m%d); echo "Backup date: $DATE" && rsync -av /data/ backup@server.com:/backups/@var(PROJECT)/ && echo "Backup complete"
 }`,
 			Expected: Program(
-				Var("API_URL", "https://api.example.com"),
-				Var("TOKEN", "abc123"),
-				Var("PROJECT", "myproject"),
+				Var("API_URL", Str("https://api.example.com")),
+				Var("TOKEN", Str("abc123")),
+				Var("PROJECT", Str("myproject")),
 				CmdBlock("api-test",
 					Text("echo \"Testing API at "),
-					At("var", "API_URL"),
-					Text("\" && "),
-					At("sh", "curl -H \"Authorization: Bearer @var(TOKEN)\" @var(API_URL)/health"),
-					Text(" && echo \"API test complete\""),
+					At("var", Id("API_URL")),
+					Text("\" && curl -H \"Authorization: Bearer "),
+					At("var", Id("TOKEN")),
+					Text("\" "),
+					At("var", Id("API_URL")),
+					Text("/health && echo \"API test complete\""),
 				),
 				CmdBlock("backup",
-					Decorator("confirm", "Create backup?"),
-					Text("echo \"Starting backup...\" && "),
-					At("sh", "DATE=$(date +%Y%m%d); echo \"Backup date: $DATE\""),
-					Text(" && rsync -av /data/ backup@server.com:/backups/"),
-					At("var", "PROJECT"),
+					Decorator("confirm", Str("Create backup?")),
+					Text("echo \"Starting backup...\" && DATE=$(date +%Y%m%d); echo \"Backup date: $DATE\" && rsync -av /data/ backup@server.com:/backups/"),
+					At("var", Id("PROJECT")),
 					Text("/ && echo \"Backup complete\""),
 				),
 			),
 		},
 		{
 			Name: "simple commands with function decorators",
-			Input: `var HOST = localhost
+			Input: `var HOST = "localhost"
 var PORT = 8080
 
 ping: curl http://@var(HOST):@var(PORT)/health
 status: echo "Server running at @var(HOST):@var(PORT)"
-info: @sh(echo "Host: @var(HOST), Port: @var(PORT)")`,
+info: echo "Host: @var(HOST), Port: @var(PORT)"`,
 			Expected: Program(
-				Var("HOST", "localhost"),
-				Var("PORT", "8080"),
+				Var("HOST", Str("localhost")),
+				Var("PORT", Num(8080)),
 				Cmd("ping", Simple(
 					Text("curl http://"),
-					At("var", "HOST"),
+					At("var", Id("HOST")),
 					Text(":"),
-					At("var", "PORT"),
+					At("var", Id("PORT")),
 					Text("/health"),
 				)),
 				Cmd("status", Simple(
 					Text("echo \"Server running at "),
-					At("var", "HOST"),
+					At("var", Id("HOST")),
 					Text(":"),
-					At("var", "PORT"),
+					At("var", Id("PORT")),
 					Text("\""),
 				)),
 				Cmd("info", Simple(
-					At("sh", "echo \"Host: @var(HOST), Port: @var(PORT)\""),
+					Text("echo \"Host: "),
+					At("var", Id("HOST")),
+					Text(", Port: "),
+					At("var", Id("PORT")),
+					Text("\""),
 				)),
 			),
 		},
@@ -220,33 +234,101 @@ info: @sh(echo "Host: @var(HOST), Port: @var(PORT)")`,
 			Input: `var RETRIES = 3
 var TIMEOUT = 30s
 
-complex: @timeout(@var(TIMEOUT)) {
-  @retry(@var(RETRIES)) {
+complex: @timeout(TIMEOUT) {
+  @retry(RETRIES) {
     echo "Attempting operation..." && ./run-operation.sh
   }
 }`,
 			Expected: Program(
-				Var("RETRIES", "3"),
-				Var("TIMEOUT", "30s"),
+				Var("RETRIES", Num(3)),
+				Var("TIMEOUT", Dur("30s")),
 				CmdBlock("complex",
-					Decorator("timeout", At("var", "TIMEOUT")),
-					Decorator("retry", At("var", "RETRIES")),
+					Decorator("timeout", Id("TIMEOUT")),
+					Decorator("retry", Id("RETRIES")),
 					Text("echo \"Attempting operation...\" && ./run-operation.sh"),
 				),
 			),
 		},
 		{
 			Name: "edge case - empty commands and blocks",
-			Input: `var EMPTY =
+			Input: `var EMPTY = ""
 
 empty:
 block: {}
 decorated: @parallel {}`,
 			Expected: Program(
-				Var("EMPTY", ""),
+				Var("EMPTY", Str("")),
 				Cmd("empty", ""),
 				CmdBlock("block"),
 				CmdBlock("decorated", Decorator("parallel")),
+			),
+		},
+		{
+			Name: "environment variables with function decorators",
+			Input: `var KUBE_CONTEXT = "production"
+
+deploy: kubectl config use-context @env("KUBE_CONTEXT") && kubectl apply -f k8s/
+status: echo "Current context: @env("KUBE_CONTEXT"), Project: @var(KUBE_CONTEXT)"`,
+			Expected: Program(
+				Var("KUBE_CONTEXT", Str("production")),
+				Cmd("deploy", Simple(
+					Text("kubectl config use-context "),
+					At("env", Str("KUBE_CONTEXT")),
+					Text(" && kubectl apply -f k8s/"),
+				)),
+				Cmd("status", Simple(
+					Text("echo \"Current context: "),
+					At("env", Str("KUBE_CONTEXT")),
+					Text(", Project: "),
+					At("var", Id("KUBE_CONTEXT")),
+					Text("\""),
+				)),
+			),
+		},
+		{
+			Name: "mixed variable types",
+			Input: `var (
+  HOST = "localhost"
+  PORT = 8080
+  TIMEOUT = 30s
+  DEBUG = true
+  RETRIES = 3
+)
+
+serve: @timeout(TIMEOUT) {
+  echo "Starting server on @var(HOST):@var(PORT) with debug=@var(DEBUG)"
+  go run main.go --host=@var(HOST) --port=@var(PORT) --debug=@var(DEBUG)
+}
+
+test: @retry(RETRIES) {
+  npm test
+}`,
+			Expected: Program(
+				Var("HOST", Str("localhost")),
+				Var("PORT", Num(8080)),
+				Var("TIMEOUT", Dur("30s")),
+				Var("DEBUG", Bool(true)),
+				Var("RETRIES", Num(3)),
+				CmdBlock("serve",
+					Decorator("timeout", Id("TIMEOUT")),
+					Text("echo \"Starting server on "),
+					At("var", Id("HOST")),
+					Text(":"),
+					At("var", Id("PORT")),
+					Text(" with debug="),
+					At("var", Id("DEBUG")),
+					Text("\""),
+					Text("go run main.go --host="),
+					At("var", Id("HOST")),
+					Text(" --port="),
+					At("var", Id("PORT")),
+					Text(" --debug="),
+					At("var", Id("DEBUG")),
+				),
+				CmdBlock("test",
+					Decorator("retry", Id("RETRIES")),
+					Text("npm test"),
+				),
 			),
 		},
 	}

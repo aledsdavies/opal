@@ -381,7 +381,7 @@ func (l *Lexer) shouldEnterCommandMode() bool {
 	}
 }
 
-// lexShellText with optimized lookahead and minimal allocations
+// lexShellText with optimized lookahead and FIXED line continuation handling
 func (l *Lexer) lexShellText(start int) Token {
 	startLine, startColumn := l.line, l.column
 	startOffset := start
@@ -517,10 +517,23 @@ func (l *Lexer) lexShellText(start int) Token {
 		}
 
 		if l.ch == '\\' && l.peekChar() == '\n' {
-			// Line continuation - handle more efficiently
+			// FIXED: Line continuation handling
+			// The key insight is that \\\n should replace trailing whitespace + \\\n with a single space
+
+			// First, trim any trailing whitespace from the current segment
+			processedStr := segmentProcessed.String()
+			trimmedProcessed := strings.TrimRight(processedStr, " \t\r\f")
+
+			// Reset the segment and write back the trimmed content
+			segmentProcessed.Reset()
+			segmentProcessed.WriteString(trimmedProcessed)
+
+			// Add the raw continuation characters
 			segmentRaw.WriteByte('\\')
 			segmentRaw.WriteByte('\n')
-			segmentProcessed.WriteByte(' ') // Single space replacement
+
+			// Add a single space to replace the continuation
+			segmentProcessed.WriteByte(' ')
 
 			// Consume the continuation
 			l.readChar() // consume '\\'
@@ -529,7 +542,7 @@ func (l *Lexer) lexShellText(start int) Token {
 			// Record current segment end position
 			segmentEndLine, segmentEndColumn := l.line, l.column
 
-			// Skip any following whitespace and record it in raw
+			// Skip any following whitespace and record it in raw but don't add to processed
 			for l.ch == ' ' || l.ch == '\t' || l.ch == '\r' || l.ch == '\f' {
 				segmentRaw.WriteByte(l.ch)
 				l.readChar()

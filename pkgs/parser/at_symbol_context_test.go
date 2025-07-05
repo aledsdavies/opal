@@ -11,70 +11,70 @@ func TestAtSymbolInEmailAddresses(t *testing.T) {
 			Name:  "email in echo command",
 			Input: "notify: echo 'Build failed' | mail admin@company.com",
 			Expected: Program(
-				Cmd("notify", Simple(Text("echo 'Build failed' | mail admin@company.com"))),
+				Cmd("notify", "echo 'Build failed' | mail admin@company.com"),
 			),
 		},
 		{
 			Name:  "email in git command",
 			Input: "commit: git log --author=john@company.com",
 			Expected: Program(
-				Cmd("commit", Simple(Text("git log --author=john@company.com"))),
+				Cmd("commit", "git log --author=john@company.com"),
 			),
 		},
 		{
 			Name:  "multiple emails in command",
 			Input: "notify-all: mail admin@company.com,dev@company.com < report.txt",
 			Expected: Program(
-				Cmd("notify-all", Simple(Text("mail admin@company.com,dev@company.com < report.txt"))),
+				Cmd("notify-all", "mail admin@company.com,dev@company.com < report.txt"),
 			),
 		},
 		{
 			Name:  "email with special characters",
 			Input: "send: sendmail test+user@example.org",
 			Expected: Program(
-				Cmd("send", Simple(Text("sendmail test+user@example.org"))),
+				Cmd("send", "sendmail test+user@example.org"),
 			),
 		},
 		{
 			Name:  "email with subdomain",
 			Input: "alert: echo 'Error' | mail ops@api.company.com",
 			Expected: Program(
-				Cmd("alert", Simple(Text("echo 'Error' | mail ops@api.company.com"))),
+				Cmd("alert", "echo 'Error' | mail ops@api.company.com"),
 			),
 		},
 		{
 			Name:  "email with numbers",
 			Input: "notify: echo 'Build' | mail admin123@company123.com",
 			Expected: Program(
-				Cmd("notify", Simple(Text("echo 'Build' | mail admin123@company123.com"))),
+				Cmd("notify", "echo 'Build' | mail admin123@company123.com"),
 			),
 		},
 		{
 			Name:  "email with underscores and hyphens",
 			Input: "send: mail test_user@company-name.org",
 			Expected: Program(
-				Cmd("send", Simple(Text("mail test_user@company-name.org"))),
+				Cmd("send", "mail test_user@company-name.org"),
 			),
 		},
 		{
 			Name:  "email in quoted string",
 			Input: "notify: echo \"Send to admin@company.com for help\"",
 			Expected: Program(
-				Cmd("notify", Simple(Text("echo \"Send to admin@company.com for help\""))),
+				Cmd("notify", "echo \"Send to admin@company.com for help\""),
 			),
 		},
 		{
 			Name:  "email in single quoted string",
 			Input: "notify: echo 'Contact admin@company.com'",
 			Expected: Program(
-				Cmd("notify", Simple(Text("echo 'Contact admin@company.com'"))),
+				Cmd("notify", "echo 'Contact admin@company.com'"),
 			),
 		},
 		{
 			Name:  "multiple emails in one command",
 			Input: "notify: echo 'Send to admin@company.com and dev@company.com'",
 			Expected: Program(
-				Cmd("notify", Simple(Text("echo 'Send to admin@company.com and dev@company.com'"))),
+				Cmd("notify", "echo 'Send to admin@company.com and dev@company.com'"),
 			),
 		},
 	}
@@ -91,70 +91,70 @@ func TestAtSymbolInSSHCommands(t *testing.T) {
 			Name:  "ssh user@host",
 			Input: "deploy: ssh deploy@server.com 'systemctl restart api'",
 			Expected: Program(
-				Cmd("deploy", Simple(Text("ssh deploy@server.com 'systemctl restart api'"))),
+				Cmd("deploy", "ssh deploy@server.com 'systemctl restart api'"),
 			),
 		},
 		{
 			Name:  "scp with user@host",
 			Input: "upload: scp ./app user@remote.com:/opt/app/",
 			Expected: Program(
-				Cmd("upload", Simple(Text("scp ./app user@remote.com:/opt/app/"))),
+				Cmd("upload", "scp ./app user@remote.com:/opt/app/"),
 			),
 		},
 		{
 			Name:  "rsync with user@host",
 			Input: "sync: rsync -av ./ backup@storage.com:/backups/",
 			Expected: Program(
-				Cmd("sync", Simple(Text("rsync -av ./ backup@storage.com:/backups/"))),
+				Cmd("sync", "rsync -av ./ backup@storage.com:/backups/"),
 			),
 		},
 		{
 			Name:  "ssh with port specification",
 			Input: "connect: ssh -p 2222 user@remote.example.com",
 			Expected: Program(
-				Cmd("connect", Simple(Text("ssh -p 2222 user@remote.example.com"))),
+				Cmd("connect", "ssh -p 2222 user@remote.example.com"),
 			),
 		},
 		{
 			Name:  "scp with specific port",
 			Input: "secure-copy: scp -P 2222 file.txt user@server.com:/path/",
 			Expected: Program(
-				Cmd("secure-copy", Simple(Text("scp -P 2222 file.txt user@server.com:/path/"))),
+				Cmd("secure-copy", "scp -P 2222 file.txt user@server.com:/path/"),
 			),
 		},
 		{
 			Name:  "ssh with complex command",
 			Input: "remote-build: ssh build@ci.company.com 'cd /builds && make clean && make all'",
 			Expected: Program(
-				Cmd("remote-build", Simple(Text("ssh build@ci.company.com 'cd /builds && make clean && make all'"))),
+				Cmd("remote-build", "ssh build@ci.company.com 'cd /builds && make clean && make all'"),
 			),
 		},
 		{
 			Name:  "ssh tunnel",
 			Input: "tunnel: ssh -L 8080:localhost:8080 user@gateway.com",
 			Expected: Program(
-				Cmd("tunnel", Simple(Text("ssh -L 8080:localhost:8080 user@gateway.com"))),
+				Cmd("tunnel", "ssh -L 8080:localhost:8080 user@gateway.com"),
 			),
 		},
 		{
 			Name:  "ssh with key file",
 			Input: "secure-connect: ssh -i ~/.ssh/key user@secure.server.com",
 			Expected: Program(
-				Cmd("secure-connect", Simple(Text("ssh -i ~/.ssh/key user@secure.server.com"))),
+				Cmd("secure-connect", "ssh -i ~/.ssh/key user@secure.server.com"),
 			),
 		},
 		{
 			Name:  "rsync with ssh options",
 			Input: "backup: rsync -av -e 'ssh -p 2222' ./ user@backup.com:/data/",
 			Expected: Program(
-				Cmd("backup", Simple(Text("rsync -av -e 'ssh -p 2222' ./ user@backup.com:/data/"))),
+				Cmd("backup", "rsync -av -e 'ssh -p 2222' ./ user@backup.com:/data/"),
 			),
 		},
 		{
 			Name:  "multiple ssh commands",
 			Input: "multi-deploy: ssh app@server1.com 'restart-app' && ssh app@server2.com 'restart-app'",
 			Expected: Program(
-				Cmd("multi-deploy", Simple(Text("ssh app@server1.com 'restart-app' && ssh app@server2.com 'restart-app'"))),
+				Cmd("multi-deploy", "ssh app@server1.com 'restart-app' && ssh app@server2.com 'restart-app'"),
 			),
 		},
 	}
@@ -171,56 +171,56 @@ func TestAtSymbolInShellSubstitution(t *testing.T) {
 			Name:  "shell command substitution with @",
 			Input: "permissions: docker run --user @(id -u):@(id -g) ubuntu",
 			Expected: Program(
-				Cmd("permissions", Simple(Text("docker run --user @(id -u):@(id -g) ubuntu"))),
+				Cmd("permissions", "docker run --user @(id -u):@(id -g) ubuntu"),
 			),
 		},
 		{
 			Name:  "shell parameter expansion with @",
 			Input: "array: echo @{array[@]}",
 			Expected: Program(
-				Cmd("array", Simple(Text("echo @{array[@]}"))),
+				Cmd("array", "echo @{array[@]}"),
 			),
 		},
 		{
 			Name:  "bash array substitution",
 			Input: "process-all: for item in @{items[@]}; do process $item; done",
 			Expected: Program(
-				Cmd("process-all", Simple(Text("for item in @{items[@]}; do process $item; done"))),
+				Cmd("process-all", "for item in @{items[@]}; do process $item; done"),
 			),
 		},
 		{
 			Name:  "complex shell substitution",
 			Input: "check: test @(echo $USER) = @{EXPECTED_USER:-admin}",
 			Expected: Program(
-				Cmd("check", Simple(Text("test @(echo $USER) = @{EXPECTED_USER:-admin}"))),
+				Cmd("check", "test @(echo $USER) = @{EXPECTED_USER:-admin}"),
 			),
 		},
 		{
 			Name:  "nested shell substitution",
 			Input: "complex: echo @(echo @(date +%Y) is current year)",
 			Expected: Program(
-				Cmd("complex", Simple(Text("echo @(echo @(date +%Y) is current year)"))),
+				Cmd("complex", "echo @(echo @(date +%Y) is current year)"),
 			),
 		},
 		{
 			Name:  "arithmetic expansion with @",
 			Input: "math: echo Result is @((2 + 3 * 4))",
 			Expected: Program(
-				Cmd("math", Simple(Text("echo Result is @((2 + 3 * 4))"))),
+				Cmd("math", "echo Result is @((2 + 3 * 4))"),
 			),
 		},
 		{
 			Name:  "process substitution with @",
 			Input: "diff-dirs: diff @(ls dir1) @(ls dir2)",
 			Expected: Program(
-				Cmd("diff-dirs", Simple(Text("diff @(ls dir1) @(ls dir2)"))),
+				Cmd("diff-dirs", "diff @(ls dir1) @(ls dir2)"),
 			),
 		},
 		{
 			Name:  "command substitution in string",
 			Input: "info: echo \"Current time is @(date) and user is @(whoami)\"",
 			Expected: Program(
-				Cmd("info", Simple(Text("echo \"Current time is @(date) and user is @(whoami)\""))),
+				Cmd("info", "echo \"Current time is @(date) and user is @(whoami)\""),
 			),
 		},
 	}
@@ -237,21 +237,21 @@ func TestAtSymbolInOtherContexts(t *testing.T) {
 			Name:  "at symbol in URL",
 			Input: "download: curl https://api@service.com/data",
 			Expected: Program(
-				Cmd("download", Simple(Text("curl https://api@service.com/data"))),
+				Cmd("download", "curl https://api@service.com/data"),
 			),
 		},
 		{
 			Name:  "at symbol in timestamp or ID",
 			Input: "tag: git tag v1.0@$(date +%s)",
 			Expected: Program(
-				Cmd("tag", Simple(Text("git tag v1.0@$(date +%s)"))),
+				Cmd("tag", "git tag v1.0@$(date +%s)"),
 			),
 		},
 		{
 			Name:  "at symbol in file path or reference",
 			Input: "checkout: git show HEAD@{2}",
 			Expected: Program(
-				Cmd("checkout", Simple(Text("git show HEAD@{2}"))),
+				Cmd("checkout", "git show HEAD@{2}"),
 			),
 		},
 		{
@@ -260,7 +260,7 @@ func TestAtSymbolInOtherContexts(t *testing.T) {
 			Expected: Program(
 				Cmd("test", Simple(
 					Text("echo 'Contact "),
-					At("var", "SUPPORT_USER"),
+					At("var", Id("SUPPORT_USER")),
 					Text(" @ support@company.com'"),
 				)),
 			),
@@ -269,7 +269,7 @@ func TestAtSymbolInOtherContexts(t *testing.T) {
 			Name:  "at symbol without parentheses or braces",
 			Input: "script: ./run.sh @ production",
 			Expected: Program(
-				Cmd("script", Simple(Text("./run.sh @ production"))),
+				Cmd("script", "./run.sh @ production"),
 			),
 		},
 		{
@@ -278,7 +278,7 @@ func TestAtSymbolInOtherContexts(t *testing.T) {
 			Expected: Program(
 				Cmd("mixed", Simple(
 					Text("echo \"User: $USER, Project: "),
-					At("var", "PROJECT"),
+					At("var", Id("PROJECT")),
 					Text(", Home: $HOME\""),
 				)),
 			),
@@ -289,7 +289,7 @@ func TestAtSymbolInOtherContexts(t *testing.T) {
 			Expected: Program(
 				Cmd("commands", Simple(
 					Text("echo \"Time: $(date), Path: "),
-					At("var", "SRC"),
+					At("var", Id("SRC")),
 					Text(", Files: $(ls | wc -l)\""),
 				)),
 			),
@@ -298,56 +298,56 @@ func TestAtSymbolInOtherContexts(t *testing.T) {
 			Name:  "at symbol in git references",
 			Input: "revert: git reset --hard HEAD@{1}",
 			Expected: Program(
-				Cmd("revert", Simple(Text("git reset --hard HEAD@{1}"))),
+				Cmd("revert", "git reset --hard HEAD@{1}"),
 			),
 		},
 		{
 			Name:  "at symbol in URLs with auth",
 			Input: "api-call: curl https://user:pass@api.service.com/endpoint",
 			Expected: Program(
-				Cmd("api-call", Simple(Text("curl https://user:pass@api.service.com/endpoint"))),
+				Cmd("api-call", "curl https://user:pass@api.service.com/endpoint"),
 			),
 		},
 		{
 			Name:  "at symbol in database connection strings",
 			Input: "connect: psql postgresql://user:pass@localhost:5432/dbname",
 			Expected: Program(
-				Cmd("connect", Simple(Text("psql postgresql://user:pass@localhost:5432/dbname"))),
+				Cmd("connect", "psql postgresql://user:pass@localhost:5432/dbname"),
 			),
 		},
 		{
 			Name:  "at symbol in docker registry URLs",
 			Input: "pull: docker pull registry@sha256:abc123def456",
 			Expected: Program(
-				Cmd("pull", Simple(Text("docker pull registry@sha256:abc123def456"))),
+				Cmd("pull", "docker pull registry@sha256:abc123def456"),
 			),
 		},
 		{
 			Name:  "at symbol in time specifications",
 			Input: "schedule: at 15:30@monday echo 'Weekly reminder'",
 			Expected: Program(
-				Cmd("schedule", Simple(Text("at 15:30@monday echo 'Weekly reminder'"))),
+				Cmd("schedule", "at 15:30@monday echo 'Weekly reminder'"),
 			),
 		},
 		{
 			Name:  "at symbol in network addresses",
 			Input: "ping: ping host@192.168.1.100",
 			Expected: Program(
-				Cmd("ping", Simple(Text("ping host@192.168.1.100"))),
+				Cmd("ping", "ping host@192.168.1.100"),
 			),
 		},
 		{
 			Name:  "at symbol in version tags",
 			Input: "release: git tag release@v1.2.3",
 			Expected: Program(
-				Cmd("release", Simple(Text("git tag release@v1.2.3"))),
+				Cmd("release", "git tag release@v1.2.3"),
 			),
 		},
 		{
 			Name:  "at symbol in file names",
 			Input: "backup: cp important.txt important@$(date +%Y%m%d).txt",
 			Expected: Program(
-				Cmd("backup", Simple(Text("cp important.txt important@$(date +%Y%m%d).txt"))),
+				Cmd("backup", "cp important.txt important@$(date +%Y%m%d).txt"),
 			),
 		},
 	}
@@ -366,7 +366,7 @@ func TestMixedAtSymbolScenarios(t *testing.T) {
 			Expected: Program(
 				Cmd("deploy", Simple(
 					Text("ssh "),
-					At("var", "DEPLOY_USER"),
+					At("var", Id("DEPLOY_USER")),
 					Text("@server.com 'restart-app'"),
 				)),
 			),
@@ -377,11 +377,11 @@ func TestMixedAtSymbolScenarios(t *testing.T) {
 			Expected: Program(
 				Cmd("connect", Simple(
 					Text("psql postgresql://"),
-					At("var", "DB_USER"),
+					At("var", Id("DB_USER")),
 					Text(":"),
-					At("var", "DB_PASS"),
+					At("var", Id("DB_PASS")),
 					Text("@localhost/"),
-					At("var", "DB_NAME"),
+					At("var", Id("DB_NAME")),
 				)),
 			),
 		},
@@ -391,9 +391,9 @@ func TestMixedAtSymbolScenarios(t *testing.T) {
 			Expected: Program(
 				Cmd("commit", Simple(
 					Text("git commit --author=\""),
-					At("var", "AUTHOR_NAME"),
+					At("var", Id("AUTHOR_NAME")),
 					Text(" <author@company.com>\" -m \""),
-					At("var", "COMMIT_MSG"),
+					At("var", Id("COMMIT_MSG")),
 					Text("\""),
 				)),
 			),
@@ -404,7 +404,7 @@ func TestMixedAtSymbolScenarios(t *testing.T) {
 			Expected: Program(
 				Cmd("run-container", Simple(
 					Text("docker run --user "),
-					At("var", "USER_ID"),
+					At("var", Id("USER_ID")),
 					Text(" myapp && echo 'Started' | mail admin@company.com"),
 				)),
 			),
@@ -415,9 +415,9 @@ func TestMixedAtSymbolScenarios(t *testing.T) {
 			Expected: Program(
 				Cmd("secure-tunnel", Simple(
 					Text("ssh -L "),
-					At("var", "LOCAL_PORT"),
+					At("var", Id("LOCAL_PORT")),
 					Text(":localhost:"),
-					At("var", "REMOTE_PORT"),
+					At("var", Id("REMOTE_PORT")),
 					Text(" user@gateway.com || echo 'Tunnel failed' | mail ops@company.com"),
 				)),
 			),
@@ -428,7 +428,7 @@ func TestMixedAtSymbolScenarios(t *testing.T) {
 			Expected: Program(
 				Cmd("api-test", Simple(
 					Text("curl -H \"Authorization: Bearer "),
-					At("var", "API_TOKEN"),
+					At("var", Id("API_TOKEN")),
 					Text("\" https://user:pass@api.service.com/test"),
 				)),
 			),
@@ -447,49 +447,49 @@ func TestAtSymbolEdgeCases(t *testing.T) {
 			Name:  "multiple consecutive @ symbols",
 			Input: "weird: echo '@@@@'",
 			Expected: Program(
-				Cmd("weird", Simple(Text("echo '@@@@'"))),
+				Cmd("weird", "echo '@@@@'"),
 			),
 		},
 		{
 			Name:  "at symbol at end of line",
 			Input: "suffix: echo hello@",
 			Expected: Program(
-				Cmd("suffix", Simple(Text("echo hello@"))),
+				Cmd("suffix", "echo hello@"),
 			),
 		},
 		{
 			Name:  "at symbol with invalid decorator syntax - starts with number",
 			Input: "invalid: echo @123invalid",
 			Expected: Program(
-				Cmd("invalid", Simple(Text("echo @123invalid"))),
+				Cmd("invalid", "echo @123invalid"),
 			),
 		},
 		{
 			Name:  "at symbol followed by special characters",
 			Input: "special: echo @$#%!",
 			Expected: Program(
-				Cmd("special", Simple(Text("echo @$#%!"))),
+				Cmd("special", "echo @$#%!"),
 			),
 		},
 		{
 			Name:  "at symbol with incomplete decorator syntax - missing closing paren",
 			Input: "incomplete: echo @partial(unclosed",
 			Expected: Program(
-				Cmd("incomplete", Simple(Text("echo @partial(unclosed"))),
+				Cmd("incomplete", "echo @partial(unclosed"),
 			),
 		},
 		{
 			Name:  "at symbol with space after @",
 			Input: "spaced: echo @ variable",
 			Expected: Program(
-				Cmd("spaced", Simple(Text("echo @ variable"))),
+				Cmd("spaced", "echo @ variable"),
 			),
 		},
 		{
 			Name:  "at symbol followed by invalid characters for decorator name",
 			Input: "invalid-chars: echo @-invalid @.invalid @/invalid",
 			Expected: Program(
-				Cmd("invalid-chars", Simple(Text("echo @-invalid @.invalid @/invalid"))),
+				Cmd("invalid-chars", "echo @-invalid @.invalid @/invalid"),
 			),
 		},
 		{
@@ -498,9 +498,9 @@ func TestAtSymbolEdgeCases(t *testing.T) {
 			Expected: Program(
 				Cmd("quoted", Simple(
 					Text("echo 'Building "),
-					At("var", "PROJECT"),
+					At("var", Id("PROJECT")),
 					Text(" version "),
-					At("var", "VERSION"),
+					At("var", Id("VERSION")),
 					Text("'"),
 				)),
 			),
@@ -509,49 +509,49 @@ func TestAtSymbolEdgeCases(t *testing.T) {
 			Name:  "at symbol that looks like block decorator but missing opening brace",
 			Input: "no-brace: @parallel server",
 			Expected: Program(
-				Cmd("no-brace", Simple(Text("@parallel server"))),
+				Cmd("no-brace", "@parallel server"),
 			),
 		},
 		{
 			Name:  "at symbol with mismatched braces",
 			Input: "mismatched: echo @{unclosed",
 			Expected: Program(
-				Cmd("mismatched", Simple(Text("echo @{unclosed"))),
+				Cmd("mismatched", "echo @{unclosed"),
 			),
 		},
 		{
 			Name:  "at symbol with empty parentheses",
 			Input: "empty-parens: echo @()",
 			Expected: Program(
-				Cmd("empty-parens", Simple(Text("echo @()"))),
+				Cmd("empty-parens", "echo @()"),
 			),
 		},
 		{
 			Name:  "at symbol with nested parentheses but invalid decorator",
 			Input: "nested-invalid: echo @(echo @(date))",
 			Expected: Program(
-				Cmd("nested-invalid", Simple(Text("echo @(echo @(date))"))),
+				Cmd("nested-invalid", "echo @(echo @(date))"),
 			),
 		},
 		{
 			Name:  "at symbol in complex shell expression",
 			Input: "complex-shell: for f in *.@{ext}; do echo $f@$(date); done",
 			Expected: Program(
-				Cmd("complex-shell", Simple(Text("for f in *.@{ext}; do echo $f@$(date); done"))),
+				Cmd("complex-shell", "for f in *.@{ext}; do echo $f@$(date); done"),
 			),
 		},
 		{
 			Name:  "at symbol with unicode characters",
 			Input: "unicode: echo 用户@domain.中国",
 			Expected: Program(
-				Cmd("unicode", Simple(Text("echo 用户@domain.中国"))),
+				Cmd("unicode", "echo 用户@domain.中国"),
 			),
 		},
 		{
 			Name:  "at symbol in regex patterns",
 			Input: "regex: grep '@[a-zA-Z]+@[a-zA-Z.]+' emails.txt",
 			Expected: Program(
-				Cmd("regex", Simple(Text("grep '@[a-zA-Z]+@[a-zA-Z.]+' emails.txt"))),
+				Cmd("regex", "grep '@[a-zA-Z]+@[a-zA-Z.]+' emails.txt"),
 			),
 		},
 	}

@@ -25,12 +25,14 @@ func TestComplexShellCommands(t *testing.T) {
 			),
 		},
 		{
-			Name:  "command with @var and shell substitution",
-			Input: `test-mixed: cd @var(SRC) && echo "files: $(ls | wc -l)"`,
+			Name: "command with @var and shell substitution",
+			Input: `var SRC = "./src"
+test-mixed: cd @var(SRC) && echo "files: $(ls | wc -l)"`,
 			Expected: Program(
+				Var("SRC", Str("./src")),
 				Cmd("test-mixed", Simple(
 					Text("cd "),
-					At("var", "SRC"),
+					At("var", Id("SRC")),
 					Text(` && echo "files: $(ls | wc -l)"`),
 				)),
 			),
@@ -46,18 +48,20 @@ func TestComplexShellCommands(t *testing.T) {
 		},
 		{
 			Name: "backup command with shell substitution and @var",
-			Input: `backup: {
+			Input: `var KUBE_NAMESPACE = "default"
+backup: {
         echo "Creating backup..."
         DATE=$(date +%Y%m%d-%H%M%S); echo "Backup timestamp: $DATE"
         (which kubectl && kubectl exec deployment/database -n @var(KUBE_NAMESPACE) -- pg_dump myapp > backup-$(date +%Y%m%d-%H%M%S).sql) || echo "No database"
       }`,
 			Expected: Program(
+				Var("KUBE_NAMESPACE", Str("default")),
 				CmdBlock("backup",
 					// Lexer preserves the entire content as a single text block with embedded decorators
 					Text(`echo "Creating backup..."
         DATE=$(date +%Y%m%d-%H%M%S); echo "Backup timestamp: $DATE"
         (which kubectl && kubectl exec deployment/database -n `),
-					At("var", "KUBE_NAMESPACE"),
+					At("var", Id("KUBE_NAMESPACE")),
 					Text(` -- pg_dump myapp > backup-$(date +%Y%m%d-%H%M%S).sql) || echo "No database"`),
 				),
 			),
@@ -105,74 +109,96 @@ func TestComplexShellCommands(t *testing.T) {
 func TestVarInShellCommands(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "simple @var in shell command",
-			Input: "test-var: cd @var(DIR)",
+			Name: "simple @var in shell command",
+			Input: `var DIR = "/home/user"
+test-var: cd @var(DIR)`,
 			Expected: Program(
+				Var("DIR", Str("/home/user")),
 				Cmd("test-var", Simple(
 					Text("cd "),
-					At("var", "DIR"),
+					At("var", Id("DIR")),
 				)),
 			),
 		},
 		{
-			Name:  "@var with shell command substitution",
-			Input: `test-var-cmd: cd @var(DIR) && echo "$(pwd)"`,
+			Name: "@var with shell command substitution",
+			Input: `var DIR = "/project"
+test-var-cmd: cd @var(DIR) && echo "$(pwd)"`,
 			Expected: Program(
+				Var("DIR", Str("/project")),
 				Cmd("test-var-cmd", Simple(
 					Text("cd "),
-					At("var", "DIR"),
+					At("var", Id("DIR")),
 					Text(` && echo "$(pwd)"`),
 				)),
 			),
 		},
 		{
-			Name:  "multiple @var with complex shell",
-			Input: `test-multi-var: if [ -d @var(SRC) ] && [ "$(ls @var(SRC) | wc -l)" -gt 0 ]; then echo "Source dir has files"; fi`,
+			Name: "multiple @var with complex shell",
+			Input: `var SRC = "./src"
+test-multi-var: if [ -d @var(SRC) ] && [ "$(ls @var(SRC) | wc -l)" -gt 0 ]; then echo "Source dir has files"; fi`,
 			Expected: Program(
+				Var("SRC", Str("./src")),
 				Cmd("test-multi-var", Simple(
 					Text("if [ -d "),
-					At("var", "SRC"),
+					At("var", Id("SRC")),
 					Text(` ] && [ "$(ls `),
-					At("var", "SRC"),
+					At("var", Id("SRC")),
 					Text(` | wc -l)" -gt 0 ]; then echo "Source dir has files"; fi`),
 				)),
 			),
 		},
 		{
-			Name:  "@var in shell array",
-			Input: "array-var: FILES=(@var(FILE1) @var(FILE2) @var(FILE3)); echo ${FILES[@]}",
+			Name: "@var in shell array",
+			Input: `var (
+    FILE1 = "file1.txt"
+    FILE2 = "file2.txt"
+    FILE3 = "file3.txt"
+)
+array-var: FILES=(@var(FILE1) @var(FILE2) @var(FILE3)); echo ${FILES[@]}`,
 			Expected: Program(
+				Var("FILE1", Str("file1.txt")),
+				Var("FILE2", Str("file2.txt")),
+				Var("FILE3", Str("file3.txt")),
 				Cmd("array-var", Simple(
 					Text("FILES=("),
-					At("var", "FILE1"),
+					At("var", Id("FILE1")),
 					Text(" "),
-					At("var", "FILE2"),
+					At("var", Id("FILE2")),
 					Text(" "),
-					At("var", "FILE3"),
+					At("var", Id("FILE3")),
 					Text("); echo ${FILES[@]}"),
 				)),
 			),
 		},
 		{
-			Name:  "@var in shell case statement",
-			Input: "case-var: case @var(ENV) in prod) echo production;; dev) echo development;; esac",
+			Name: "@var in shell case statement",
+			Input: `var ENV = "production"
+case-var: case @var(ENV) in prod) echo production;; dev) echo development;; esac`,
 			Expected: Program(
+				Var("ENV", Str("production")),
 				Cmd("case-var", Simple(
 					Text("case "),
-					At("var", "ENV"),
+					At("var", Id("ENV")),
 					Text(" in prod) echo production;; dev) echo development;; esac"),
 				)),
 			),
 		},
 		{
-			Name:  "@var in shell parameter expansion",
-			Input: "param-expansion: echo ${@var(VAR):-@var(DEFAULT)}",
+			Name: "@var in shell parameter expansion",
+			Input: `var (
+    VAR = "myvalue"
+    DEFAULT = "fallback"
+)
+param-expansion: echo ${@var(VAR):-@var(DEFAULT)}`,
 			Expected: Program(
+				Var("VAR", Str("myvalue")),
+				Var("DEFAULT", Str("fallback")),
 				Cmd("param-expansion", Simple(
 					Text("echo ${"),
-					At("var", "VAR"),
+					At("var", Id("VAR")),
 					Text(":-"),
-					At("var", "DEFAULT"),
+					At("var", Id("DEFAULT")),
 					Text("}"),
 				)),
 			),
@@ -222,12 +248,16 @@ func TestLineContinuationEdgeCases(t *testing.T) {
 			),
 		},
 		{
-			Name:  "continuation with @var across lines",
-			Input: "test: echo \\\n@var(NAME) \\\nis here",
+			Name: "continuation with @var across lines",
+			Input: `var NAME = "testuser"
+test: echo \
+@var(NAME) \
+is here`,
 			Expected: Program(
+				Var("NAME", Str("testuser")),
 				Cmd("test", Simple(
 					Text("echo "),
-					At("var", "NAME"),
+					At("var", Id("NAME")),
 					Text(" is here"),
 				)),
 			),
@@ -249,12 +279,15 @@ func TestContinuationLines(t *testing.T) {
 			),
 		},
 		{
-			Name:  "continuation with @var()",
-			Input: "build: cd @var(DIR) \\\n&& make",
+			Name: "continuation with @var()",
+			Input: `var DIR = "/project"
+build: cd @var(DIR) \
+&& make`,
 			Expected: Program(
+				Var("DIR", Str("/project")),
 				Cmd("build", Simple(
 					Text("cd "),
-					At("var", "DIR"),
+					At("var", Id("DIR")),
 					Text(" && make"),
 				)),
 			),
@@ -276,14 +309,22 @@ func TestContinuationLines(t *testing.T) {
 			),
 		},
 		{
-			Name:  "continuation with mixed content",
-			Input: "mixed: docker run \\\n@var(IMAGE) \\\n--port=@var(PORT)",
+			Name: "continuation with mixed content",
+			Input: `var (
+    IMAGE = "myapp:latest"
+    PORT = 8080
+)
+mixed: docker run \
+@var(IMAGE) \
+--port=@var(PORT)`,
 			Expected: Program(
+				Var("IMAGE", Str("myapp:latest")),
+				Var("PORT", Num(8080)),
 				Cmd("mixed", Simple(
 					Text("docker run "),
-					At("var", "IMAGE"),
+					At("var", Id("IMAGE")),
 					Text(" --port="),
-					At("var", "PORT"),
+					At("var", Id("PORT")),
 				)),
 			),
 		},

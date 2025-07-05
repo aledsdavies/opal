@@ -47,7 +47,7 @@ func (p *Parser) parseProgram() *ast.Program {
 	program := &ast.Program{}
 
 	for !p.isAtEnd() {
-		p.skipNewlines()
+		p.skipWhitespaceAndComments()
 		if p.isAtEnd() {
 			break
 		}
@@ -71,7 +71,7 @@ func (p *Parser) parseProgram() *ast.Program {
 					program.Variables = append(program.Variables, *varDecl)
 				}
 			}
-		case lexer.IDENTIFIER, lexer.WATCH, lexer.STOP, lexer.AT:
+		case lexer.IDENTIFIER, lexer.WATCH, lexer.STOP:
 			// A command can start with a name (IDENTIFIER), a keyword (WATCH/STOP),
 			// or a decorator (@).
 			cmd, err := p.parseCommandDecl()
@@ -95,10 +95,7 @@ func (p *Parser) parseProgram() *ast.Program {
 func (p *Parser) parseCommandDecl() (*ast.CommandDecl, error) {
 	startPos := p.current()
 
-	// 1. Parse optional decorators at command level (before command name)
-	decorators := p.parseDecorators()
-
-	// 2. Parse command type (watch, stop, or regular)
+	// 1. Parse command type (watch, stop, or regular)
 	var cmdType ast.CommandType = ast.Command
 	var typeToken *lexer.Token
 	if p.match(lexer.WATCH) {
@@ -113,32 +110,23 @@ func (p *Parser) parseCommandDecl() (*ast.CommandDecl, error) {
 		p.advance()
 	}
 
-	// 3. Parse command name
+	// 2. Parse command name
 	nameToken, err := p.consume(lexer.IDENTIFIER, "expected command name")
 	if err != nil {
 		return nil, err
 	}
 	name := nameToken.Value
 
-	// 4. Parse colon
+	// 3. Parse colon
 	colonToken, err := p.consume(lexer.COLON, "expected ':' after command name")
 	if err != nil {
 		return nil, err
 	}
 
-	// 5. Parse command body (this will handle post-colon decorators and syntax sugar)
+	// 4. Parse command body (this will handle post-colon decorators and syntax sugar)
 	body, err := p.parseCommandBody()
 	if err != nil {
 		return nil, err
-	}
-
-	// If we have command-level decorators, we need to wrap the body content.
-	if len(decorators) > 0 {
-		body.Content = &ast.DecoratedContent{
-			Decorators: decorators,
-			Content:    body.Content,
-			Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
-		}
 	}
 
 	return &ast.CommandDecl{
@@ -309,7 +297,7 @@ func (p *Parser) parsePatternContent() (*ast.PatternContent, error) {
 	// Parse pattern branches
 	var patterns []ast.PatternBranch
 	for !p.match(lexer.RBRACE) && !p.isAtEnd() {
-		p.skipNewlines()
+		p.skipWhitespaceAndComments()
 		if p.match(lexer.RBRACE) {
 			break
 		}
@@ -319,7 +307,7 @@ func (p *Parser) parsePatternContent() (*ast.PatternContent, error) {
 			return nil, err
 		}
 		patterns = append(patterns, *branch)
-		p.skipNewlines()
+		p.skipWhitespaceAndComments()
 	}
 
 	// Expect closing brace
@@ -383,14 +371,15 @@ func (p *Parser) parsePatternBranch() (*ast.PatternBranch, error) {
 }
 
 // parseShellContent parses shell content, extracting inline function decorators
-// **UPDATED**: Now processes full SHELL_TEXT tokens and extracts inline decorators
+// **FIXED**: Now properly handles SHELL_TEXT tokens and preserves multi-line content
 func (p *Parser) parseShellContent(inBlock bool) (*ast.ShellContent, error) {
 	startPos := p.current()
 	var parts []ast.ShellPart
 
+	// First, collect all the shell content until we hit a terminator
 	for !p.isCommandTerminator(inBlock) {
 		if p.match(lexer.SHELL_TEXT) {
-			// Extract inline function decorators from shell text
+			// Process this shell text token and extract inline decorators
 			shellToken := p.current()
 			p.advance()
 
@@ -399,21 +388,17 @@ func (p *Parser) parseShellContent(inBlock bool) (*ast.ShellContent, error) {
 				return nil, err
 			}
 			parts = append(parts, extractedParts...)
-		} else {
-			// This case handles inline function decorators that might be separate tokens
-			if p.match(lexer.AT) && p.isFunctionDecorator() {
-				decorator, err := p.parseFunctionDecorator()
-				if err != nil {
-					return nil, err
-				}
-				parts = append(parts, decorator)
-			} else {
-				// Fallback for any other unexpected tokens; treat them as text.
-				// This makes parsing more resilient.
-				tok := p.current()
-				parts = append(parts, &ast.TextPart{Text: tok.Value})
-				p.advance()
+		} else if p.match(lexer.NEWLINE) {
+			// In blocks, preserve newlines as text parts
+			if inBlock {
+				parts = append(parts, &ast.TextPart{Text: "\n"})
 			}
+			p.advance()
+		} else {
+			// Unexpected token - treat as text to be more resilient
+			tok := p.current()
+			parts = append(parts, &ast.TextPart{Text: tok.Value})
+			p.advance()
 		}
 	}
 
@@ -424,59 +409,50 @@ func (p *Parser) parseShellContent(inBlock bool) (*ast.ShellContent, error) {
 }
 
 // extractInlineDecorators extracts function decorators from shell text
-// This handles cases like: "echo Building on port @var(PORT)"
+// **FIXED**: Now handles both @var() and @env() decorators correctly
 func (p *Parser) extractInlineDecorators(shellText string) ([]ast.ShellPart, error) {
 	var parts []ast.ShellPart
 	var currentText strings.Builder
 
 	i := 0
 	for i < len(shellText) {
-		// Look for @var( pattern
-		if i+5 < len(shellText) && shellText[i] == '@' && shellText[i+1:i+5] == "var(" {
-			// Flush any pending text
-			if currentText.Len() > 0 {
-				parts = append(parts, &ast.TextPart{Text: currentText.String()})
-				currentText.Reset()
-			}
-
-			// Find the closing parenthesis
-			start := i
-			i += 5 // Skip "@var("
-			parenCount := 1
-			argStart := i
-
-			for i < len(shellText) && parenCount > 0 {
-				if shellText[i] == '(' {
-					parenCount++
-				} else if shellText[i] == ')' {
-					parenCount--
+		// Look for @var( or @env( patterns
+		if i < len(shellText) && shellText[i] == '@' {
+			// Check for @var( pattern
+			if i+5 < len(shellText) && shellText[i+1:i+5] == "var(" {
+				// Flush any pending text
+				if currentText.Len() > 0 {
+					parts = append(parts, &ast.TextPart{Text: currentText.String()})
+					currentText.Reset()
 				}
-				i++
-			}
 
-			if parenCount == 0 {
-				// We found a complete @var(...) expression
-				argEnd := i - 1 // Position of closing ')'
-				argText := shellText[argStart:argEnd]
+				// Extract @var(...) decorator
+				decorator, newPos := p.extractDecorator(shellText, i, "var")
+				if decorator != nil {
+					parts = append(parts, decorator)
+					i = newPos
+					continue
+				}
+			} else if i+5 < len(shellText) && shellText[i+1:i+5] == "env(" {
+				// Flush any pending text
+				if currentText.Len() > 0 {
+					parts = append(parts, &ast.TextPart{Text: currentText.String()})
+					currentText.Reset()
+				}
 
-				// Create the function decorator
-				parts = append(parts, &ast.FunctionDecorator{
-					Name: "var",
-					Args: []ast.Expression{
-						&ast.Identifier{
-							Name: strings.TrimSpace(argText),
-						},
-					},
-				})
-			} else {
-				// Unclosed parenthesis - treat as text
-				currentText.WriteString(shellText[start:i])
+				// Extract @env(...) decorator
+				decorator, newPos := p.extractDecorator(shellText, i, "env")
+				if decorator != nil {
+					parts = append(parts, decorator)
+					i = newPos
+					continue
+				}
 			}
-		} else {
-			// Regular character
-			currentText.WriteByte(shellText[i])
-			i++
 		}
+
+		// Regular character
+		currentText.WriteByte(shellText[i])
+		i++
 	}
 
 	// Flush any remaining text
@@ -487,72 +463,50 @@ func (p *Parser) extractInlineDecorators(shellText string) ([]ast.ShellPart, err
 	return parts, nil
 }
 
-// A helper for the above function
-func (p *Parser) isFunctionDecoratorFromToken(tokens []lexer.Token) bool {
-	if len(tokens) < 2 {
-		return false
-	}
-	if tokens[0].Type != lexer.AT {
-		return false
-	}
-	name := tokens[1].Value
-	return stdlib.IsFunctionDecorator(name)
-}
+// extractDecorator extracts a decorator starting at position i in the shell text
+func (p *Parser) extractDecorator(shellText string, i int, decoratorName string) (*ast.FunctionDecorator, int) {
+	start := i
+	i += len("@" + decoratorName + "(") // Skip "@decorator("
+	parenCount := 1
+	argStart := i
 
-
-// parseInlineDecoratorArgs parses arguments from inline decorator text
-func (p *Parser) parseInlineDecoratorArgs(argsText string) ([]ast.Expression, error) {
-	var args []ast.Expression
-
-	// Split by comma, but be careful about nested parentheses
-	argParts := p.splitDecoratorArgs(argsText)
-
-	for _, argPart := range argParts {
-		argPart = strings.TrimSpace(argPart)
-		if argPart == "" {
-			continue
+	for i < len(shellText) && parenCount > 0 {
+		if shellText[i] == '(' {
+			parenCount++
+		} else if shellText[i] == ')' {
+			parenCount--
 		}
-
-		// Create an identifier expression for the argument
-		args = append(args, &ast.Identifier{
-			Name: argPart,
-		})
+		i++
 	}
 
-	return args, nil
-}
+	if parenCount == 0 {
+		// We found a complete @decorator(...) expression
+		argEnd := i - 1 // Position of closing ')'
+		argText := shellText[argStart:argEnd]
 
-// splitDecoratorArgs splits decorator arguments by comma, respecting nested parentheses
-func (p *Parser) splitDecoratorArgs(argsText string) []string {
-	var parts []string
-	var current strings.Builder
-	parenDepth := 0
-
-	for _, char := range argsText {
-		switch char {
-		case '(':
-			parenDepth++
-			current.WriteRune(char)
-		case ')':
-			parenDepth--
-			current.WriteRune(char)
-		case ',':
-			if parenDepth == 0 {
-				parts = append(parts, current.String())
-				current.Reset()
+		// Parse the argument
+		var args []ast.Expression
+		if argText != "" {
+			// For now, treat the argument as a single identifier or string
+			trimmed := strings.TrimSpace(argText)
+			if strings.HasPrefix(trimmed, `"`) && strings.HasSuffix(trimmed, `"`) {
+				// String literal
+				unquoted := trimmed[1 : len(trimmed)-1]
+				args = append(args, &ast.StringLiteral{Value: unquoted})
 			} else {
-				current.WriteRune(char)
+				// Identifier
+				args = append(args, &ast.Identifier{Name: trimmed})
 			}
-		default:
-			current.WriteRune(char)
 		}
+
+		return &ast.FunctionDecorator{
+			Name: decoratorName,
+			Args: args,
+		}, i
 	}
 
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
-	}
-
-	return parts
+	// Unclosed parenthesis - return nil to treat as text
+	return nil, start + 1
 }
 
 // --- Expression and Literal Parsing ---
@@ -636,7 +590,6 @@ func (p *Parser) parseDecoratorArgument() (ast.Expression, error) {
     }, nil
 }
 
-
 // --- Variable Parsing ---
 
 // parseVariableDecl parses a variable declaration.
@@ -696,30 +649,6 @@ func (p *Parser) parseVariableValue() (ast.Expression, error) {
 	}
 }
 
-// isVariableValueTerminator checks if the current token marks the end of a variable's value.
-func (p *Parser) isVariableValueTerminator() bool {
-	if p.isAtEnd() {
-		return true
-	}
-
-	// Newlines or comments always terminate a value.
-	switch p.current().Type {
-	case lexer.NEWLINE, lexer.EOF, lexer.COMMENT, lexer.MULTILINE_COMMENT:
-		return true
-	// A new top-level declaration also terminates.
-	case lexer.VAR, lexer.WATCH, lexer.STOP:
-		return true
-	// A new command declaration (e.g., `build:`) terminates the variable value.
-	case lexer.IDENTIFIER:
-		return p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.COLON
-	case lexer.AT:
-		// A decorator starting a new command terminates the value.
-		return p.pos+2 < len(p.tokens) && p.tokens[p.pos+2].Type == lexer.COLON
-	default:
-		return false
-	}
-}
-
 func (p *Parser) parseVarGroup() (*ast.VarGroup, error) {
 	startPos := p.current()
 	_, err := p.consume(lexer.VAR, "expected 'var'")
@@ -733,7 +662,7 @@ func (p *Parser) parseVarGroup() (*ast.VarGroup, error) {
 
 	var variables []ast.VariableDecl
 	for !p.match(lexer.RPAREN) && !p.isAtEnd() {
-		p.skipNewlines()
+		p.skipWhitespaceAndComments()
 		if p.match(lexer.RPAREN) {
 			break
 		}
@@ -748,7 +677,7 @@ func (p *Parser) parseVarGroup() (*ast.VarGroup, error) {
 			return nil, err // Be strict inside var groups
 		}
 		variables = append(variables, *varDecl)
-		p.skipNewlines()
+		p.skipWhitespaceAndComments()
 	}
 
 	closeParen, err := p.consume(lexer.RPAREN, "expected ')' to close var group")
@@ -1042,8 +971,8 @@ func (p *Parser) consume(t lexer.TokenType, message string) (lexer.Token, error)
 	return lexer.Token{}, fmt.Errorf("%s (at line %d, col %d, got %s)", message, p.current().Line, p.current().Column, p.current().Type)
 }
 
-func (p *Parser) skipNewlines() {
-	for p.match(lexer.NEWLINE) {
+func (p *Parser) skipWhitespaceAndComments() {
+	for p.match(lexer.NEWLINE, lexer.COMMENT, lexer.MULTILINE_COMMENT) {
 		p.advance()
 	}
 }

@@ -119,9 +119,9 @@ func TestWatchStopCommands(t *testing.T) {
 			Expected: Program(
 				Watch("server", Simple(
 					Text("go run "),
-					At("var", "MAIN_FILE"),
+					At("var", Id("MAIN_FILE")),
 					Text(" --port="),
-					At("var", "PORT"),
+					At("var", Id("PORT")),
 				)),
 			),
 		},
@@ -137,7 +137,7 @@ func TestWatchStopCommands(t *testing.T) {
 			Input: "watch build: @timeout(60s) { npm run watch:build }",
 			Expected: Program(
 				WatchBlock("build",
-					Decorator("timeout", "60s"),
+					Decorator("timeout", Dur("60s")),
 					Text("npm run watch:build"),
 				),
 			),
@@ -203,9 +203,9 @@ func TestBlockCommands(t *testing.T) {
 			Expected: Program(
 				CmdBlock("build",
 					Text("cd "),
-					At("var", "SRC"),
+					At("var", Id("SRC")),
 					Text("; make "),
-					At("var", "TARGET"),
+					At("var", Id("TARGET")),
 				),
 			),
 		},
@@ -236,11 +236,11 @@ func TestBlockCommands(t *testing.T) {
 			Expected: Program(
 				CmdBlock("deploy",
 					Text("echo \"Deploying "),
-					At("var", "APP_NAME"),
+					At("var", Id("APP_NAME")),
 					Text(" to "),
-					At("var", "ENVIRONMENT"),
+					At("var", Id("ENVIRONMENT")),
 					Text("\"; kubectl apply -f "),
-					At("var", "CONFIG_FILE"),
+					At("var", Id("CONFIG_FILE")),
 				),
 			),
 		},
@@ -259,7 +259,7 @@ func TestBlockCommands(t *testing.T) {
 			Input: "deploy: @timeout(5m) { npm run build; npm run deploy }",
 			Expected: Program(
 				CmdBlock("deploy",
-					Decorator("timeout", "5m"),
+					Decorator("timeout", Dur("5m")),
 					Text("npm run build; npm run deploy"),
 				),
 			),
@@ -269,7 +269,7 @@ func TestBlockCommands(t *testing.T) {
 			Input: "flaky-task: @retry(3) { npm test }",
 			Expected: Program(
 				CmdBlock("flaky-task",
-					Decorator("retry", "3"),
+					Decorator("retry", Num(3)),
 					Text("npm test"),
 				),
 			),
@@ -279,8 +279,8 @@ func TestBlockCommands(t *testing.T) {
 			Input: "complex: @timeout(30s) { @retry(2) { npm run integration-tests } }",
 			Expected: Program(
 				CmdBlock("complex",
-					Decorator("timeout", "30s"),
-					Decorator("retry", "2"),
+					Decorator("timeout", Dur("30s")),
+					Decorator("retry", Num(2)),
 					Text("npm run integration-tests"),
 				),
 			),
@@ -300,7 +300,7 @@ func TestCommandsWithVariables(t *testing.T) {
 			Expected: Program(
 				Cmd("build", Simple(
 					Text("echo "),
-					At("var", "MESSAGE"),
+					At("var", Id("MESSAGE")),
 				)),
 			),
 		},
@@ -310,13 +310,13 @@ func TestCommandsWithVariables(t *testing.T) {
 			Expected: Program(
 				Cmd("deploy", Simple(
 					Text("docker run --name "),
-					At("var", "CONTAINER"),
+					At("var", Id("CONTAINER")),
 					Text(" -p "),
-					At("var", "PORT"),
+					At("var", Id("PORT")),
 					Text(":"),
-					At("var", "PORT"),
+					At("var", Id("PORT")),
 					Text(" "),
-					At("var", "IMAGE"),
+					At("var", Id("IMAGE")),
 				)),
 			),
 		},
@@ -326,9 +326,9 @@ func TestCommandsWithVariables(t *testing.T) {
 			Expected: Program(
 				Cmd("msg", Simple(
 					Text("echo \"Hello "),
-					At("var", "NAME"),
+					At("var", Id("NAME")),
 					Text(", welcome to "),
-					At("var", "APP"),
+					At("var", Id("APP")),
 					Text("!\""),
 				)),
 			),
@@ -339,9 +339,9 @@ func TestCommandsWithVariables(t *testing.T) {
 			Expected: Program(
 				Cmd("copy", Simple(
 					Text("cp "),
-					At("var", "SRC"),
+					At("var", Id("SRC")),
 					Text("/* "),
-					At("var", "DEST"),
+					At("var", Id("DEST")),
 					Text("/"),
 				)),
 			),
@@ -352,7 +352,7 @@ func TestCommandsWithVariables(t *testing.T) {
 			Expected: Program(
 				Cmd("check", Simple(
 					Text("test -f "),
-					At("var", "CONFIG_FILE"),
+					At("var", Id("CONFIG_FILE")),
 					Text(" && echo \"Config exists\" || echo \"Missing config\""),
 				)),
 			),
@@ -363,7 +363,7 @@ func TestCommandsWithVariables(t *testing.T) {
 			Expected: Program(
 				Cmd("notify", Simple(
 					Text("echo \"Build "),
-					At("var", "STATUS"),
+					At("var", Id("STATUS")),
 					Text("\" | mail admin@company.com"),
 				)),
 			),
@@ -374,7 +374,7 @@ func TestCommandsWithVariables(t *testing.T) {
 			Expected: Program(
 				Cmd("serve", Simple(
 					Text("NODE_ENV="),
-					At("var", "ENV"),
+					At("var", Id("ENV")),
 					Text(" npm start"),
 				)),
 			),
@@ -385,9 +385,9 @@ func TestCommandsWithVariables(t *testing.T) {
 			Expected: Program(
 				Cmd("api-call", Simple(
 					Text("curl https://api.example.com/"),
-					At("var", "ENDPOINT"),
+					At("var", Id("ENDPOINT")),
 					Text("?token="),
-					At("var", "TOKEN"),
+					At("var", Id("TOKEN")),
 				)),
 			),
 		},
