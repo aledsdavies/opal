@@ -661,13 +661,22 @@ func (l *Lexer) lexNumberOrDuration(start int) Token {
 	if l.position < inputLen {
 		ch := l.input[l.position]
 		switch ch {
-		case 'n', 'u':
+		case 'n':
+			// nanoseconds: ns
+			if l.position+1 < inputLen && l.input[l.position+1] == 's' {
+				isDuration = true
+				l.readChar()
+				l.readChar()
+			}
+		case 'u':
+			// microseconds: us (instead of μs)
 			if l.position+1 < inputLen && l.input[l.position+1] == 's' {
 				isDuration = true
 				l.readChar()
 				l.readChar()
 			}
 		case 'm':
+			// milliseconds: ms OR minutes: m
 			if l.position+1 < inputLen && l.input[l.position+1] == 's' {
 				isDuration = true
 				l.readChar()
@@ -676,7 +685,14 @@ func (l *Lexer) lexNumberOrDuration(start int) Token {
 				isDuration = true
 				l.readChar()
 			}
-		case 's', 'h':
+		case 's':
+			// seconds: s
+			if l.position+1 >= inputLen || !isLetter[l.input[l.position+1]] {
+				isDuration = true
+				l.readChar()
+			}
+		case 'h':
+			// hours: h
 			if l.position+1 >= inputLen || !isLetter[l.input[l.position+1]] {
 				isDuration = true
 				l.readChar()
@@ -990,9 +1006,6 @@ func (l *Lexer) isDurationUnit() bool {
 	case 's', 'h':
 		return next == 0 || !isLetter[next]
 	}
-	if l.ch == 0xCE && next == 0xBC { // UTF-8 "μ"
-		return l.peekCharAt(2) == 's'
-	}
 	return false
 }
 
@@ -1010,12 +1023,6 @@ func (l *Lexer) readDurationUnit() {
 		}
 	case 's', 'h':
 		l.readChar()
-	case 0xCE:
-		if l.peekChar() == 0xBC && l.peekCharAt(2) == 's' {
-			l.readChar()
-			l.readChar()
-			l.readChar()
-		}
 	}
 }
 
