@@ -50,6 +50,7 @@ type Lexer struct {
 	mode         LexerMode
 	braceLevel   int // Track brace nesting for command mode
 	patternLevel int // Track pattern-matching decorator nesting
+	modeStack    []LexerMode // Stack to track mode transitions
 }
 
 // New creates a new lexer instance
@@ -61,9 +62,24 @@ func New(input string) *Lexer {
 		mode:         LanguageMode,
 		braceLevel:   0,
 		patternLevel: 0,
+		modeStack:    []LexerMode{},
 	}
 	l.readChar()
 	return l
+}
+
+// pushMode saves current mode and switches to new mode
+func (l *Lexer) pushMode(newMode LexerMode) {
+	l.modeStack = append(l.modeStack, l.mode)
+	l.mode = newMode
+}
+
+// popMode restores previous mode from stack
+func (l *Lexer) popMode() {
+	if len(l.modeStack) > 0 {
+		l.mode = l.modeStack[len(l.modeStack)-1]
+		l.modeStack = l.modeStack[:len(l.modeStack)-1]
+	}
 }
 
 // TokenizeToSlice tokenizes to pre-allocated slice with memory optimization
@@ -193,6 +209,9 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 			if l.patternLevel > 0 {
 				l.patternLevel--
 			}
+		} else {
+			// Pop mode from stack if we have one
+			l.popMode()
 		}
 		l.readChar()
 		l.updateTokenEnd(&tok)
@@ -257,6 +276,10 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		l.skipWhitespace()
 		if l.ch == '{' {
 			// Stay in PatternMode, the '{' will switch to CommandMode
+		} else if l.ch == '@' {
+			// Decorator after pattern - push current mode and switch to LanguageMode
+			l.pushMode(PatternMode)
+			l.mode = LanguageMode
 		} else if l.shouldEnterCommandMode() {
 			l.mode = CommandMode
 		}
@@ -272,6 +295,9 @@ func (l *Lexer) lexPatternMode(start int) Token {
 			if l.patternLevel > 0 {
 				l.patternLevel--
 			}
+		} else {
+			// Pop mode from stack
+			l.popMode()
 		}
 		l.readChar()
 		l.updateTokenEnd(&tok)
@@ -363,7 +389,8 @@ func (l *Lexer) lexCommandMode(start int) Token {
 					l.patternLevel--
 				}
 			} else if l.patternLevel > 0 {
-				l.mode = PatternMode
+				// Pop mode from stack to return to pattern mode
+				l.popMode()
 			}
 			l.readChar()
 			l.updateTokenEnd(&tok)
@@ -891,14 +918,27 @@ func (l *Lexer) lexString(quote byte, stringType StringType, start int) Token {
 		if l.ch == quote {
 			l.readChar() // consume closing quote
 		}
+	} else if stringType == SingleQuoted {
+		// For single-quoted strings, no escape processing at all
+		valueStart := l.position
+
+		// Just consume characters until closing quote
+		for l.ch != quote && l.ch != 0 {
+			l.readChar()
+		}
+
+		value = l.input[valueStart:l.position]
+
+		if l.ch == quote {
+			l.readChar() // consume closing quote
+		}
 	} else {
-		// Slow path: string with escapes or complex cases
+		// Slow path: string with escapes or complex cases (not single-quoted)
 		var escaped strings.Builder
 		valueStart := l.position
 
 		for l.ch != quote && l.ch != 0 {
-			// In single-quoted strings, backslash is a literal character and does not start an escape sequence.
-			if stringType != SingleQuoted && l.ch == '\\' {
+			if l.ch == '\\' {
 				if !hasEscapes {
 					hasEscapes = true
 					escaped.WriteString(l.input[valueStart:l.position])
