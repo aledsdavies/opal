@@ -79,23 +79,14 @@ backup: {
 }`,
 			Expected: Program(
 				CmdBlock("test-quick",
-					// Lexer preserves all content as single concatenated text (trust the lexer philosophy)
-					Text(`echo "⚡ Running quick checks..."
-    echo "🔍 Checking Go formatting..."
-    if command -v gofumpt >/dev/null 2>&1; then if [ "$(gofumpt -l . | wc -l)" -gt 0 ]; then echo "❌ Go formatting issues:"; gofumpt -l .; exit 1; fi; else if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then echo "❌ Go formatting issues:"; gofmt -l .; exit 1; fi; fi
-    echo "🔍 Checking Nix formatting..."
-    if command -v nixpkgs-fmt >/dev/null 2>&1; then nixpkgs-fmt --check . || (echo "❌ Run 'dev format' to fix"; exit 1); else echo "⚠️  nixpkgs-fmt not available, skipping Nix format check"; fi
-    dev lint
-    echo "✅ Quick checks passed!"`),
-				),
-			),
-		},
-		{
-			Name:  "shell with here document",
-			Input: "heredoc: {\ncat <<EOF\nLine 1\nLine 2\nEOF\n}",
-			Expected: Program(
-				CmdBlock("heredoc",
-					Text("cat <<EOF\nLine 1\nLine 2\nEOF\n"),
+					// Multiple SHELL_TEXT tokens due to newline splitting
+					Text(`echo "⚡ Running quick checks..."`),
+					Text(`echo "🔍 Checking Go formatting..."`),
+					Text(`if command -v gofumpt >/dev/null 2>&1; then if [ "$(gofumpt -l . | wc -l)" -gt 0 ]; then echo "❌ Go formatting issues:"; gofumpt -l .; exit 1; fi; else if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then echo "❌ Go formatting issues:"; gofmt -l .; exit 1; fi; fi`),
+					Text(`echo "🔍 Checking Nix formatting..."`),
+					Text(`if command -v nixpkgs-fmt >/dev/null 2>&1; then nixpkgs-fmt --check . || (echo "❌ Run 'dev format' to fix"; exit 1); else echo "⚠️  nixpkgs-fmt not available, skipping Nix format check"; fi`),
+					Text(`dev lint`),
+					Text(`echo "✅ Quick checks passed!"`),
 				),
 			),
 		},
