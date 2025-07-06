@@ -351,6 +351,7 @@ func (l *Lexer) lexPatternMode(start int) Token {
 }
 
 // lexCommandMode handles shell content capture with proper newline handling
+// lexCommandMode handles shell content capture with proper newline handling
 func (l *Lexer) lexCommandMode(start int) Token {
 	startLine, startColumn := l.line, l.column
 
@@ -361,10 +362,8 @@ func (l *Lexer) lexCommandMode(start int) Token {
 	case '\n':
 		if l.braceLevel > 0 {
 			// Inside a command block `{}`, newlines separate commands but are NOT emitted as tokens
-			// This applies to both regular command blocks and pattern blocks
-			if l.patternLevel > 0 {
-				// If we're in a pattern block (like @when), the newline switches us
-				// back to PatternMode to parse the next case.
+			// Only jump back to pattern mode at the top brace of a pattern branch
+			if l.patternLevel > 0 && l.braceLevel == 1 {
 				l.mode = PatternMode
 			}
 			l.readChar()       // Consume '\n'
@@ -383,13 +382,14 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		if l.braceLevel > 0 {
 			tok := l.createSimpleToken(RBRACE, "}", start, startLine, startColumn)
 			l.braceLevel--
+			// Only decrement patternLevel when we close the outermost brace that opened the @when/@try block
 			if l.braceLevel == 0 {
 				l.mode = LanguageMode
 				if l.patternLevel > 0 {
 					l.patternLevel--
 				}
 			} else if l.patternLevel > 0 {
-				// Pop mode from stack to return to pattern mode
+				// Pop mode from stack to return to pattern mode for nested braces
 				l.popMode()
 			}
 			l.readChar()
@@ -432,269 +432,244 @@ func (l *Lexer) shouldEnterCommandMode() bool {
 	}
 }
 
-// lexShellText with optimized lookahead and proper line continuation handling
+// lexShellText captures shell content as a single token
+// It handles POSIX quoting rules and line continuations structurally
 func (l *Lexer) lexShellText(start int) Token {
 	startLine, startColumn := l.line, l.column
 	startOffset := start
 
-	// Build the processed text by handling line continuations properly
-	var processedBuilder strings.Builder
-	var segments []ShellSegment
+	var inSingleQuotes, inDoubleQuotes, inBackticks bool
+	var prevWasBackslash bool
 
-	// Fast path check for simple shell text (no line continuations)
-	pos := l.position
-	input := l.input
-	inputLen := len(input)
-	hasLineContinuation := false
+	for {
+		switch l.ch {
+		case 0:
+			// EOF - return what we have
+			return l.makeShellToken(start, startOffset, startLine, startColumn)
 
-	// Quick scan to see if we have line continuations
-	endPos := pos
-	inSingleQuotes := false
-	for endPos < inputLen {
-		ch := input[endPos]
-
-		// Track single quote state
-		if ch == '\'' {
-			inSingleQuotes = !inSingleQuotes
-		}
-
-		if ch == '}' && l.braceLevel > 0 {
-			break
-		}
-		if ch == '\n' {
-			break
-		}
-		if ch == '@' {
-			// Stop at decorator start
-			break
-		}
-
-		// Only process line continuations outside of single quotes
-		if !inSingleQuotes && ch == '\\' && endPos+1 < inputLen && input[endPos+1] == '\n' {
-			hasLineContinuation = true
-			break
-		}
-
-		// Special handling for pattern-matching contexts
-		if l.patternLevel > 0 && ch == ';' {
-			// In pattern mode, semicolon separates patterns
-			// Look ahead to see if we have a pattern (identifier or *) after whitespace
-			lookaheadPos := endPos + 1
-
-			// Skip whitespace
-			for lookaheadPos < inputLen && (input[lookaheadPos] == ' ' || input[lookaheadPos] == '\t') {
-				lookaheadPos++
+		case '\n':
+			// Handle line continuation outside quotes
+			if !inSingleQuotes && !inDoubleQuotes && !inBackticks && prevWasBackslash {
+				prevWasBackslash = false
+				l.readChar()
+				// Skip following whitespace per GNU make behavior
+				for l.ch == ' ' || l.ch == '\t' {
+					l.readChar()
+				}
+				continue
 			}
 
-			// Check if we have an identifier or wildcard followed by ':'
-			if lookaheadPos < inputLen {
-				if input[lookaheadPos] == '*' {
-					// Wildcard pattern
-					lookaheadPos++
-				} else if isLetter[input[lookaheadPos]] {
-					// Scan identifier - any identifier is valid for patterns
-					for lookaheadPos < inputLen && isIdentPart[input[lookaheadPos]] {
-						lookaheadPos++
-					}
-				} else {
-					// Not a pattern, continue normal shell parsing
-					endPos++
-					continue
-				}
+			// Newlines inside quotes are part of shell text
+			if inSingleQuotes || inDoubleQuotes || inBackticks {
+				prevWasBackslash = false
+				l.readChar()
+				continue
+			}
 
-				// Skip whitespace after identifier/wildcard
-				for lookaheadPos < inputLen && (input[lookaheadPos] == ' ' || input[lookaheadPos] == '\t') {
-					lookaheadPos++
-				}
+			// Otherwise, newline ends shell text
+			prevWasBackslash = false
+			return l.makeShellToken(start, startOffset, startLine, startColumn)
 
-				// If we find ':', this is a new pattern
-				if lookaheadPos < inputLen && input[lookaheadPos] == ':' {
-					endPos++ // Include the semicolon in current shell text
-					break
+		case '\'':
+			if !inDoubleQuotes && !inBackticks {
+				inSingleQuotes = !inSingleQuotes
+			}
+			prevWasBackslash = false
+			l.readChar()
+
+		case '"':
+			if !inSingleQuotes && !inBackticks {
+				inDoubleQuotes = !inDoubleQuotes
+			}
+			prevWasBackslash = false
+			l.readChar()
+
+		case '`':
+			if !inSingleQuotes && !inDoubleQuotes {
+				inBackticks = !inBackticks
+			}
+			prevWasBackslash = false
+			l.readChar()
+
+		case '\\':
+			if inSingleQuotes {
+				// In single quotes, backslash is literal
+				prevWasBackslash = false
+				l.readChar()
+			} else {
+				// Mark potential line continuation
+				prevWasBackslash = true
+				l.readChar()
+				// In double quotes or backticks, consume escaped character
+				if (inDoubleQuotes || inBackticks) && l.ch != 0 {
+					prevWasBackslash = false // Not a line continuation
+					l.readChar()
 				}
 			}
-		}
 
-		endPos++
-	}
+		case '}':
+			// Structural boundary only if not in quotes and we're in a block
+			if !inSingleQuotes && !inDoubleQuotes && !inBackticks && l.braceLevel > 0 {
+				prevWasBackslash = false
+				return l.makeShellToken(start, startOffset, startLine, startColumn)
+			}
+			prevWasBackslash = false
+			l.readChar()
 
-	// Fast path for simple shell text without line continuations
-	if !hasLineContinuation && endPos > pos {
-		// Update lexer position efficiently
-		for l.position < endPos {
+		case '@':
+			// Decorator boundary only if not in quotes
+			if !inSingleQuotes && !inDoubleQuotes && !inBackticks {
+				prevWasBackslash = false
+				return l.makeShellToken(start, startOffset, startLine, startColumn)
+			}
+			prevWasBackslash = false
+			l.readChar()
+
+		case ';':
+			// Pattern boundary check only if not in quotes
+			if !inSingleQuotes && !inDoubleQuotes && !inBackticks &&
+			   l.patternLevel > 0 && l.isPatternBreak() {
+				prevWasBackslash = false
+				l.readChar() // include semicolon
+				return l.makeShellTokenForPattern(start, startOffset, startLine, startColumn)
+			}
+			prevWasBackslash = false
+			l.readChar()
+
+		default:
+			// Any other character resets line continuation
+			if l.ch != ' ' && l.ch != '\t' {
+				prevWasBackslash = false
+			}
 			l.readChar()
 		}
-
-		// Single allocation for the token value
-		finalText := string(input[start:endPos])
-
-		// Trim trailing whitespace if we stopped at '}'
-		if endPos < inputLen && input[endPos] == '}' && l.braceLevel > 0 {
-			finalText = strings.TrimRight(finalText, " \t\r\f")
-		}
-
-		// Trim trailing semicolon if we're in pattern mode and found a pattern break
-		if l.patternLevel > 0 && endPos < inputLen && strings.HasSuffix(finalText, ";") {
-			finalText = strings.TrimSuffix(finalText, ";")
-			finalText = strings.TrimSpace(finalText) // Also trim whitespace
-			l.mode = PatternMode // Switch back to pattern mode for next token
-		}
-
-		// Don't emit empty tokens
-		if strings.TrimSpace(finalText) == "" {
-			return l.lexToken()
-		}
-
-		return Token{
-			Type:      SHELL_TEXT,
-			Value:     finalText,
-			Line:      startLine,
-			Column:    startColumn,
-			EndLine:   l.line,
-			EndColumn: l.column,
-			Raw:       string(input[startOffset:l.position]),
-			Semantic:  SemShellText,
-			Span: SourceSpan{
-				Start: SourcePosition{Line: startLine, Column: startColumn, Offset: startOffset},
-				End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
-			},
-		}
 	}
+}
 
-	// Slow path for shell text with line continuations
-	processedOffset := 0
-	segmentStart := l.position
-	segmentStartLine, segmentStartColumn := l.line, l.column
-	var segmentRaw strings.Builder
-	var segmentProcessed strings.Builder
-	inSingleQuotes = false
+// makeShellToken creates a shell text token from the captured range
+func (l *Lexer) makeShellToken(start, startOffset, startLine, startColumn int) Token {
+	// Get the raw text
+	rawText := l.input[start:l.position]
 
-	for l.ch != 0 {
-		// Stop at structural boundaries
-		if l.ch == '}' && l.braceLevel > 0 {
-			break
-		}
-		if l.ch == '\n' {
-			// In command mode, newlines break shell text into separate tokens
-			break
-		}
-		if l.ch == '@' {
-			// Stop at decorator start
-			break
-		}
+	// Process line continuations
+	processedText := l.processLineContinuations(rawText)
 
-		// Track single quote state
-		if l.ch == '\'' {
-			inSingleQuotes = !inSingleQuotes
-		}
-
-		// Check for pattern breaks in pattern-matching mode
-		if l.patternLevel > 0 && l.ch == ';' {
-			// Look ahead for potential pattern
-			if l.isPatternBreak() {
-				// Include the semicolon in current segment but don't add to processed text
-				// The semicolon acts as a separator, not content
-				segmentRaw.WriteByte(l.ch)
-				l.readChar()
-				break
-			}
-		}
-
-		// Only process line continuations outside of single quotes
-		if !inSingleQuotes && l.ch == '\\' && l.peekChar() == '\n' {
-			// Line continuation: handle properly per the spec - remove \\\n and following whitespace
-			// Add the raw continuation characters for source tracking
-			segmentRaw.WriteByte('\\')
-			l.readChar() // consume '\'
-			segmentRaw.WriteByte('\n')
-			l.readChar() // consume '\n'
-
-			// Skip any following whitespace and record it in raw but don't add to processed
-			for l.ch == ' ' || l.ch == '\t' || l.ch == '\r' || l.ch == '\f' {
-				segmentRaw.WriteByte(l.ch)
-				l.readChar()
-			}
-
-			// Finish current segment if it has content
-			if segmentProcessed.Len() > 0 {
-				segments = append(segments, ShellSegment{
-					Text:    segmentProcessed.String(),
-					RawText: segmentRaw.String(),
-					Span: SourceSpan{
-						Start: SourcePosition{Line: segmentStartLine, Column: segmentStartColumn, Offset: segmentStart},
-						End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
-					},
-					Offset: processedOffset,
-				})
-
-				processedBuilder.WriteString(segmentProcessed.String())
-				processedOffset += segmentProcessed.Len()
-			}
-
-			// Line continuation doesn't add space - it just joins lines
-			// Reset for next segment
-			segmentRaw.Reset()
-			segmentProcessed.Reset()
-			segmentStart = l.position
-			segmentStartLine, segmentStartColumn = l.line, l.column
-			continue
-		}
-
-		// Normal character
-		segmentRaw.WriteByte(l.ch)
-		segmentProcessed.WriteByte(l.ch)
-		l.readChar()
-	}
-
-	// Finish final segment
-	if segmentProcessed.Len() > 0 {
-		segments = append(segments, ShellSegment{
-			Text:    segmentProcessed.String(),
-			RawText: segmentRaw.String(),
-			Span: SourceSpan{
-				Start: SourcePosition{Line: segmentStartLine, Column: segmentStartColumn, Offset: segmentStart},
-				End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
-			},
-			Offset: processedOffset,
-		})
-
-		processedBuilder.WriteString(segmentProcessed.String())
-	}
-
-	finalText := processedBuilder.String()
-
-	// Trim trailing whitespace if we stopped at '}'
-	if l.ch == '}' && l.braceLevel > 0 {
-		finalText = strings.TrimRight(finalText, " \t\r\f")
-	}
-
-	// Handle pattern breaks
-	if l.patternLevel > 0 && strings.HasSuffix(finalText, ";") {
-		finalText = strings.TrimSuffix(finalText, ";")
-		finalText = strings.TrimSpace(finalText) // Also trim whitespace
-		l.mode = PatternMode // Switch back to pattern mode for next token
-	}
+	// Trim whitespace
+	processedText = strings.TrimSpace(processedText)
 
 	// Don't emit empty tokens
-	if strings.TrimSpace(finalText) == "" {
+	if processedText == "" {
 		return l.lexToken()
 	}
 
 	return Token{
 		Type:      SHELL_TEXT,
-		Value:     finalText,
+		Value:     processedText,
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Raw:       l.input[startOffset:l.position], // Use string slicing
+		Raw:       rawText,      // Keep original for formatting tools
 		Semantic:  SemShellText,
 		Span: SourceSpan{
 			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: startOffset},
 			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
-		ShellSegments: segments,
 	}
+}
+
+// processLineContinuations handles backslash-newline sequences in shell text
+func (l *Lexer) processLineContinuations(text string) string {
+	// Fast path: no backslashes means no continuations
+	if !strings.Contains(text, "\\") {
+		return text
+	}
+
+	var result strings.Builder
+	result.Grow(len(text))
+
+	i := 0
+	inSingleQuotes := false
+
+	for i < len(text) {
+		ch := text[i]
+
+		// Track single quote state
+		if ch == '\'' {
+			inSingleQuotes = !inSingleQuotes
+			result.WriteByte(ch)
+			i++
+			continue
+		}
+
+		// In single quotes, everything is literal
+		if inSingleQuotes {
+			result.WriteByte(ch)
+			i++
+			continue
+		}
+
+		// Check for line continuation outside single quotes
+		if ch == '\\' && i+1 < len(text) && text[i+1] == '\n' {
+			// Skip the backslash and newline
+			i += 2
+
+			// Skip following whitespace
+			for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+				i++
+			}
+
+			// Add a space to join the lines
+			if result.Len() > 0 && i < len(text) {
+				lastCh := result.String()[result.Len()-1]
+				if lastCh != ' ' && lastCh != '\t' {
+					result.WriteByte(' ')
+				}
+			}
+		} else {
+			result.WriteByte(ch)
+			i++
+		}
+	}
+
+	return result.String()
+}
+
+// makeShellTokenForPattern creates a shell token for pattern mode
+func (l *Lexer) makeShellTokenForPattern(start, startOffset, startLine, startColumn int) Token {
+	// Adjust position to exclude the semicolon we just consumed
+	endPos := l.position - 1
+	rawText := l.input[start:endPos]
+
+	// Trim trailing whitespace
+	rawText = strings.TrimSpace(rawText)
+
+	// Don't emit empty tokens
+	if rawText == "" {
+		// Switch back to pattern mode for next token
+		l.mode = PatternMode
+		return l.lexToken()
+	}
+
+	tok := Token{
+		Type:      SHELL_TEXT,
+		Value:     rawText,
+		Line:      startLine,
+		Column:    startColumn,
+		EndLine:   l.line,
+		EndColumn: l.column - 1, // Adjust for semicolon
+		Raw:       rawText,
+		Semantic:  SemShellText,
+		Span: SourceSpan{
+			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: startOffset},
+			End:   SourcePosition{Line: l.line, Column: l.column - 1, Offset: endPos},
+		},
+	}
+
+	// Switch back to pattern mode
+	l.mode = PatternMode
+
+	return tok
 }
 
 // lexIdentifierOrKeyword lexes identifiers and keywords with optimized lookahead

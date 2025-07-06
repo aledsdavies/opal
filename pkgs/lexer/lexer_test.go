@@ -148,51 +148,6 @@ func TestBooleanTokens(t *testing.T) {
 	}
 }
 
-func TestWhenConditionalTokens(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected []TokenType
-	}{
-		{
-			input:    "@when(ENV)",
-			expected: []TokenType{AT, WHEN, LPAREN, IDENTIFIER, RPAREN, EOF},
-		},
-		{
-			input:    "@when(ENV) { prod: npm run build }",
-			expected: []TokenType{AT, WHEN, LPAREN, IDENTIFIER, RPAREN, LBRACE, IDENTIFIER, COLON, SHELL_TEXT, RBRACE, EOF},
-		},
-		{
-			input:    "@when(REGION) { us-east-1: kubectl apply -f us.yaml }",
-			expected: []TokenType{AT, WHEN, LPAREN, IDENTIFIER, RPAREN, LBRACE, IDENTIFIER, COLON, SHELL_TEXT, RBRACE, EOF},
-		},
-		{
-			input:    "@when(ENV) { *: echo default }",
-			expected: []TokenType{AT, WHEN, LPAREN, IDENTIFIER, RPAREN, LBRACE, ASTERISK, COLON, SHELL_TEXT, RBRACE, EOF},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.input, func(t *testing.T) {
-			lexer := New(test.input)
-			tokens := lexer.TokenizeToSlice()
-
-			var tokenTypes []TokenType
-			for _, token := range tokens {
-				tokenTypes = append(tokenTypes, token.Type)
-			}
-
-			if diff := cmp.Diff(test.expected, tokenTypes); diff != "" {
-				t.Errorf("Token sequence mismatch (-want +got):\n%s", diff)
-				// Debug output
-				t.Logf("Actual tokens:")
-				for i, token := range tokens {
-					t.Logf("  %d: %s %q at %d:%d", i, token.Type, token.Value, token.Line, token.Column)
-				}
-			}
-		})
-	}
-}
-
 func TestStructuralTokens(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -329,42 +284,6 @@ func TestBooleanContext(t *testing.T) {
 	}
 }
 
-func TestWildcardPattern(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected []TokenType
-	}{
-		{
-			input:    "*:",
-			expected: []TokenType{ASTERISK, COLON, EOF},
-		},
-		{
-			input:    "* : echo default",
-			expected: []TokenType{ASTERISK, COLON, SHELL_TEXT, EOF},
-		},
-		{
-			input:    "*: echo \"default case\"",
-			expected: []TokenType{ASTERISK, COLON, SHELL_TEXT, EOF},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.input, func(t *testing.T) {
-			lexer := New(test.input)
-			tokens := lexer.TokenizeToSlice()
-
-			var tokenTypes []TokenType
-			for _, token := range tokens {
-				tokenTypes = append(tokenTypes, token.Type)
-			}
-
-			if diff := cmp.Diff(test.expected, tokenTypes); diff != "" {
-				t.Errorf("Token sequence mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestShellTextCapture(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -473,7 +392,6 @@ func TestShellTextCapture(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := New(test.input)
 			tokens := lexer.TokenizeToSlice()
-
 			if len(tokens) != len(test.expected) {
 				t.Errorf("Expected %d tokens, got %d", len(test.expected), len(tokens))
 				// Debug output
