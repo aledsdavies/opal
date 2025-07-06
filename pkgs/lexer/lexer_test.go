@@ -474,7 +474,7 @@ func TestLineContinuation(t *testing.T) {
 	}{
 		{
 			name:  "line continuation in shell text with ''",
-			input: `build: echo 'hello \\\nworld'`,
+			input: "build: echo 'hello \\\nworld'",
 			expected: []struct {
 				tokenType TokenType
 				value     string

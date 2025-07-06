@@ -547,6 +547,7 @@ func (l *Lexer) lexShellText(start int) Token {
 }
 
 // makeShellToken creates a shell text token from the captured range
+// makeShellToken creates a shell text token from the captured range
 func (l *Lexer) makeShellToken(start, startOffset, startLine, startColumn int) Token {
 	// Get the raw text
 	rawText := l.input[start:l.position]
@@ -557,8 +558,13 @@ func (l *Lexer) makeShellToken(start, startOffset, startLine, startColumn int) T
 	// Trim whitespace
 	processedText = strings.TrimSpace(processedText)
 
-	// Don't emit empty tokens
+	// Don't emit empty tokens - but ensure we've actually consumed something
 	if processedText == "" {
+		// If we haven't moved forward, we need to consume at least one character
+		// to avoid infinite loops
+		if l.position == start && l.ch != 0 {
+			l.readChar()
+		}
 		return l.lexToken()
 	}
 
