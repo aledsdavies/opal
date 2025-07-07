@@ -990,6 +990,202 @@ build: echo hello`
 	}
 }
 
+func TestVarInShellText(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []tokenExpectation
+	}{
+		{
+			name:  "simple @var in shell text",
+			input: `test: cd @var(DIR)`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "cd @var(DIR)"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var with surrounding spaces",
+			input: `test: cd @var(DIR) && pwd`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "cd @var(DIR) && pwd"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "multiple @var in single command",
+			input: `test: echo @var(FIRST) @var(SECOND)`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "echo @var(FIRST) @var(SECOND)"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var in quoted string",
+			input: `test: echo "Hello @var(NAME)"`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, `echo "Hello @var(NAME)"`},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var with shell operators",
+			input: `test: cat @var(FILE) | grep pattern`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "cat @var(FILE) | grep pattern"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var in block command",
+			input: `test: { cd @var(DIR); make }`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{LBRACE, "{"},
+				{SHELL_TEXT, "cd @var(DIR); make"},
+				{RBRACE, "}"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var with line continuation",
+			input: `test: cd @var(DIR) \
+&& make`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "cd @var(DIR) && make"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@env in shell text",
+			input: `test: echo @env("NODE_ENV")`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, `echo @env("NODE_ENV")`},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "mixed @var and @env",
+			input: `test: @var(CMD) --env=@env("ENV_VAR")`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, `@var(CMD) --env=@env("ENV_VAR")`},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var in shell parameter expansion",
+			input: `test: echo ${@var(VAR):-default}`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "echo ${@var(VAR):-default}"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var in command substitution",
+			input: `test: echo $(ls @var(DIR) | wc -l)`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "echo $(ls @var(DIR) | wc -l)"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var at start of shell text",
+			input: `test: @var(CMD) arg1 arg2`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "@var(CMD) arg1 arg2"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var at end of shell text",
+			input: `test: cd /path/to/@var(DIR)`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "cd /path/to/@var(DIR)"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@ not followed by var should be literal",
+			input: `test: echo user@host.com`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "echo user@host.com"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var without parentheses is literal",
+			input: `test: echo @var is not a decorator`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{SHELL_TEXT, "echo @var is not a decorator"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "complex shell with multiple @var",
+			input: `deploy: cd @var(SRC) && npm run build:@var(ENV) && cp -r dist/* @var(DEST)/`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "deploy"},
+				{COLON, ":"},
+				{SHELL_TEXT, "cd @var(SRC) && npm run build:@var(ENV) && cp -r dist/* @var(DEST)/"},
+				{EOF, ""},
+			},
+		},
+		{
+			name: "multi-line block with @var",
+			input: `test: {
+    echo "Building @var(APP)"
+    cd @var(DIR)
+    make @var(TARGET)
+}`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "test"},
+				{COLON, ":"},
+				{LBRACE, "{"},
+				{SHELL_TEXT, `echo "Building @var(APP)"`},
+				{SHELL_TEXT, "cd @var(DIR)"},
+				{SHELL_TEXT, "make @var(TARGET)"},
+				{RBRACE, "}"},
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.name, tt.input, tt.expected)
+		})
+	}
+}
+
 // Benchmark for performance validation
 func BenchmarkLexer(b *testing.B) {
 	input := generateLargeInput(100)

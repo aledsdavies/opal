@@ -409,104 +409,134 @@ func (p *Parser) parseShellContent(inBlock bool) (*ast.ShellContent, error) {
 }
 
 // extractInlineDecorators extracts function decorators from shell text
-// **FIXED**: Now handles both @var() and @env() decorators correctly
+// **FIXED**: Now handles both @var() and @env() decorators correctly and preserves whitespace
 func (p *Parser) extractInlineDecorators(shellText string) ([]ast.ShellPart, error) {
 	var parts []ast.ShellPart
-	var currentText strings.Builder
-
 	i := 0
+
 	for i < len(shellText) {
-		// Look for @var( or @env( patterns
-		if i < len(shellText) && shellText[i] == '@' {
-			// Check for @var( pattern
-			if i+5 < len(shellText) && shellText[i+1:i+5] == "var(" {
-				// Flush any pending text
-				if currentText.Len() > 0 {
-					parts = append(parts, &ast.TextPart{Text: currentText.String()})
-					currentText.Reset()
-				}
-
-				// Extract @var(...) decorator
-				decorator, newPos := p.extractDecorator(shellText, i, "var")
-				if decorator != nil {
-					parts = append(parts, decorator)
-					i = newPos
-					continue
-				}
-			} else if i+5 < len(shellText) && shellText[i+1:i+5] == "env(" {
-				// Flush any pending text
-				if currentText.Len() > 0 {
-					parts = append(parts, &ast.TextPart{Text: currentText.String()})
-					currentText.Reset()
-				}
-
-				// Extract @env(...) decorator
-				decorator, newPos := p.extractDecorator(shellText, i, "env")
-				if decorator != nil {
-					parts = append(parts, decorator)
-					i = newPos
-					continue
-				}
+		// Look for @ symbol
+		atPos := strings.IndexByte(shellText[i:], '@')
+		if atPos == -1 {
+			// No more decorators, add remaining text
+			if i < len(shellText) {
+				parts = append(parts, &ast.TextPart{Text: shellText[i:]})
 			}
+			break
 		}
 
-		// Regular character
-		currentText.WriteByte(shellText[i])
-		i++
-	}
+		// Add text before the @
+		if atPos > 0 {
+			parts = append(parts, &ast.TextPart{Text: shellText[i : i+atPos]})
+		}
 
-	// Flush any remaining text
-	if currentText.Len() > 0 {
-		parts = append(parts, &ast.TextPart{Text: currentText.String()})
+		// Try to extract decorator starting at @
+		decorator, newPos, found := p.extractFunctionDecorator(shellText, i+atPos)
+		if found {
+			parts = append(parts, decorator)
+			i = newPos
+		} else {
+			// Not a valid decorator, treat @ as regular text
+			parts = append(parts, &ast.TextPart{Text: "@"})
+			i = i + atPos + 1
+		}
 	}
 
 	return parts, nil
 }
 
-// extractDecorator extracts a decorator starting at position i in the shell text
-func (p *Parser) extractDecorator(shellText string, i int, decoratorName string) (*ast.FunctionDecorator, int) {
-	start := i
-	i += len("@" + decoratorName + "(") // Skip "@decorator("
-	parenCount := 1
-	argStart := i
+// extractFunctionDecorator extracts a function decorator starting at position i
+// Returns the decorator, new position, and whether a decorator was found
+func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.FunctionDecorator, int, bool) {
+	if i >= len(shellText) || shellText[i] != '@' {
+		return nil, i, false
+	}
 
-	for i < len(shellText) && parenCount > 0 {
-		if shellText[i] == '(' {
+	// Look for decorator name after @
+	start := i + 1 // Skip @
+	nameStart := start
+
+	// First character must be a letter
+	if start >= len(shellText) || !isLetter(rune(shellText[start])) {
+		return nil, i, false
+	}
+	start++
+
+	// Rest can be letters, digits, underscore, or hyphen
+	for start < len(shellText) && (isLetter(rune(shellText[start])) || isDigit(rune(shellText[start])) || shellText[start] == '_' || shellText[start] == '-') {
+		start++
+	}
+
+	decoratorName := shellText[nameStart:start]
+
+	// Check if this is a valid function decorator
+	if !stdlib.IsFunctionDecorator(decoratorName) {
+		return nil, i, false
+	}
+
+	// Look for opening parenthesis
+	if start >= len(shellText) || shellText[start] != '(' {
+		// Function decorators require parentheses
+		return nil, i, false
+	}
+
+	// Find matching closing parenthesis
+	start++ // Skip opening (
+	parenCount := 1
+	argStart := start
+
+	for start < len(shellText) && parenCount > 0 {
+		if shellText[start] == '(' {
 			parenCount++
-		} else if shellText[i] == ')' {
+		} else if shellText[start] == ')' {
 			parenCount--
 		}
-		i++
+		start++
 	}
 
-	if parenCount == 0 {
-		// We found a complete @decorator(...) expression
-		argEnd := i - 1 // Position of closing ')'
-		argText := shellText[argStart:argEnd]
+	if parenCount != 0 {
+		// Unmatched parentheses
+		return nil, i, false
+	}
 
-		// Parse the argument
-		var args []ast.Expression
-		if argText != "" {
-			// For now, treat the argument as a single identifier or string
-			trimmed := strings.TrimSpace(argText)
-			if strings.HasPrefix(trimmed, `"`) && strings.HasSuffix(trimmed, `"`) {
-				// String literal
-				unquoted := trimmed[1 : len(trimmed)-1]
-				args = append(args, &ast.StringLiteral{Value: unquoted})
-			} else {
-				// Identifier
-				args = append(args, &ast.Identifier{Name: trimmed})
-			}
+	// Extract argument text (between parentheses)
+	argEnd := start - 1 // Position of closing ')'
+	argText := shellText[argStart:argEnd]
+
+	// Parse the argument
+	var args []ast.Expression
+	if strings.TrimSpace(argText) != "" {
+		trimmed := strings.TrimSpace(argText)
+
+		// Handle quoted strings
+		if (strings.HasPrefix(trimmed, `"`) && strings.HasSuffix(trimmed, `"`)) ||
+		   (strings.HasPrefix(trimmed, `'`) && strings.HasSuffix(trimmed, `'`)) ||
+		   (strings.HasPrefix(trimmed, "`") && strings.HasSuffix(trimmed, "`")) {
+			// String literal - remove quotes
+			unquoted := trimmed[1 : len(trimmed)-1]
+			args = append(args, &ast.StringLiteral{Value: unquoted})
+		} else {
+			// Identifier
+			args = append(args, &ast.Identifier{Name: trimmed})
 		}
-
-		return &ast.FunctionDecorator{
-			Name: decoratorName,
-			Args: args,
-		}, i
 	}
 
-	// Unclosed parenthesis - return nil to treat as text
-	return nil, start + 1
+	decorator := &ast.FunctionDecorator{
+		Name: decoratorName,
+		Args: args,
+		Pos:  ast.Position{Line: 1, Column: i + 1}, // Approximate position
+	}
+
+	return decorator, start, true
+}
+
+// Helper functions for character classification
+func isLetter(ch rune) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+}
+
+func isDigit(ch rune) bool {
+	return ch >= '0' && ch <= '9'
 }
 
 // --- Expression and Literal Parsing ---
