@@ -451,31 +451,6 @@ func TestPatternDecorators(t *testing.T) {
 			},
 		},
 		{
-			name: "when pattern with semicolon separators",
-			input: `deploy: @when(REGION) { us-east: kubectl apply -f us.yaml; eu-west: kubectl apply -f eu.yaml; *: echo "default" }`,
-			expected: []tokenExpectation{
-				{IDENTIFIER, "deploy"},
-				{COLON, ":"},
-				{AT, "@"},
-				{WHEN, "when"},
-				{LPAREN, "("},
-				{IDENTIFIER, "REGION"},
-				{RPAREN, ")"},
-				{LBRACE, "{"},
-				{IDENTIFIER, "us-east"},
-				{COLON, ":"},
-				{SHELL_TEXT, "kubectl apply -f us.yaml"},
-				{IDENTIFIER, "eu-west"},
-				{COLON, ":"},
-				{SHELL_TEXT, "kubectl apply -f eu.yaml"},
-				{ASTERISK, "*"},
-				{COLON, ":"},
-				{SHELL_TEXT, "echo \"default\""},
-				{RBRACE, "}"},
-				{EOF, ""},
-			},
-		},
-		{
 			name: "when pattern with explicit blocks",
 			input: `deploy: @when(ENV) {
   prod: { npm run build && npm run deploy }

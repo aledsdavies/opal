@@ -294,11 +294,6 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		l.skipWhitespace()
 		l.updateStateMachine(NEWLINE, "\n")
 		return l.lexToken() // Get the next meaningful token
-	case ';':
-		// Semicolon separates patterns - consume it but don't emit token
-		l.readChar()
-		l.skipWhitespace()
-		return l.lexToken() // Get the next meaningful token
 	case ':':
 		tok := l.createSimpleToken(COLON, ":", start, startLine, startColumn)
 		l.readChar()
@@ -563,21 +558,9 @@ func (l *Lexer) lexShellText(start int) Token {
 			prevWasBackslash = false
 			l.readChar()
 
-		case ';':
-			// Pattern boundary check only if not in quotes and in pattern context
-			if !inSingleQuotes && !inDoubleQuotes && !inBackticks &&
-			   l.stateMachine.IsInPatternContext() && l.isPatternBreak() {
-				prevWasBackslash = false
-				// Don't consume the semicolon - let pattern mode handle it
-				tok := l.makeShellToken(start, startOffset, startLine, startColumn)
-				l.updateStateMachine(SHELL_TEXT, tok.Value)
-				return tok
-			}
-			prevWasBackslash = false
-			l.readChar()
-
 		default:
-			// Any other character resets line continuation
+			// Any other character resets line continuation and continues as shell content
+			// This includes semicolons - they are always part of shell content now
 			if l.ch != ' ' && l.ch != '\t' {
 				prevWasBackslash = false
 			}
@@ -678,38 +661,6 @@ func (l *Lexer) processLineContinuations(text string) string {
 	}
 
 	return result.String()
-}
-
-// makeShellTokenForPattern creates a shell token for pattern mode
-func (l *Lexer) makeShellTokenForPattern(start, startOffset, startLine, startColumn int) Token {
-	// Adjust position to exclude the semicolon we just consumed
-	endPos := l.position - 1
-	rawText := l.input[start:endPos]
-
-	// Trim trailing whitespace
-	rawText = strings.TrimSpace(rawText)
-
-	// Don't emit empty tokens
-	if rawText == "" {
-		return l.lexToken()
-	}
-
-	tok := Token{
-		Type:      SHELL_TEXT,
-		Value:     rawText,
-		Line:      startLine,
-		Column:    startColumn,
-		EndLine:   l.line,
-		EndColumn: l.column - 1, // Adjust for semicolon
-		Raw:       rawText,
-		Semantic:  SemShellText,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: startOffset},
-			End:   SourcePosition{Line: l.line, Column: l.column - 1, Offset: endPos},
-		},
-	}
-
-	return tok
 }
 
 // lexIdentifierOrKeyword lexes identifiers and keywords with optimized lookahead
@@ -1089,44 +1040,6 @@ func (l *Lexer) lexSingleChar(start int) Token {
 	}
 	l.updateStateMachine(IDENTIFIER, token.Value)
 	return token
-}
-
-// isPatternBreak checks if we're at a pattern boundary (pattern identifier followed by ':')
-func (l *Lexer) isPatternBreak() bool {
-	// Save current state
-	pos, readPos, ch := l.position, l.readPos, l.ch
-	defer func() { l.position, l.readPos, l.ch = pos, readPos, ch }()
-
-	// Skip the semicolon
-	l.readChar()
-
-	// Skip whitespace
-	for l.ch == ' ' || l.ch == '\t' {
-		l.readChar()
-	}
-
-	// Check if we have an identifier or wildcard (*)
-	if !isLetter[l.ch] && l.ch != '*' {
-		return false
-	}
-
-	if l.ch == '*' {
-		// Wildcard pattern
-		l.readChar()
-	} else {
-		// Scan identifier - any identifier is valid for patterns
-		for l.ch != 0 && isIdentPart[l.ch] {
-			l.readChar()
-		}
-	}
-
-	// Skip whitespace after identifier/wildcard
-	for l.ch == ' ' || l.ch == '\t' {
-		l.readChar()
-	}
-
-	// Check if followed by ':'
-	return l.ch == ':'
 }
 
 // Helper methods for creating tokens with proper position tracking
