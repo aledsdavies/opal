@@ -971,8 +971,8 @@ build: echo hello`
 		{NEWLINE, 2, 1, "\n"},         // Newline should be at line 2, column 1 (or 0)
 		{IDENTIFIER, 2, 1, "build"},   // 'build' starts at line 2, column 1
 		{COLON, 2, 6, ":"},           // ':' at column 6
-		{SHELL_TEXT, 2, 9, "echo hello"}, // Shell text starts at column 9
-		{EOF, 2, 19, ""},              // EOF position
+		{SHELL_TEXT, 2, 8, "echo hello"}, // Shell text starts at column 8
+		{EOF, 2, 18, ""},              // EOF position (CORRECTED from 19)
 	}
 
 	// Convert to comparable format

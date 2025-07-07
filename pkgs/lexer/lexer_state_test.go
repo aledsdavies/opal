@@ -468,41 +468,71 @@ func TestDebugMode(t *testing.T) {
 }
 
 func TestEmptyPatternBranch(t *testing.T) {
-	// Test: prod: dev: echo dev
+	// Test: command: @when(ENV) { prod: dev: echo dev }
+	// This tests an empty pattern branch followed by a non-empty one
 	sm := NewStateMachine()
 
 	tokens := []struct {
 		typ   TokenType
 		value string
 	}{
-		{AT, "@"},
+		{IDENTIFIER, "deploy"},   // Missing command declaration
+		{COLON, ":"},            // Command colon
+		{AT, "@"},               // Now @ is valid (StateAfterColon)
 		{IDENTIFIER, "when"},
 		{LPAREN, "("},
 		{IDENTIFIER, "ENV"},
 		{RPAREN, ")"},
-		{LBRACE, "{"},
+		{LBRACE, "{"},           // Enter pattern block
 		{IDENTIFIER, "prod"},
-		{COLON, ":"},  // Empty branch
+		{COLON, ":"},            // Empty branch
 		{IDENTIFIER, "dev"},
 		{COLON, ":"},
 		{SHELL_TEXT, "echo dev"},
 		{RBRACE, "}"},
 	}
 
+	expectedStates := []LexerState{
+		StateTopLevel,          // deploy
+		StateAfterColon,        // :
+		StateDecorator,         // @
+		StateDecorator,         // when
+		StateDecoratorArgs,     // (
+		StateDecoratorArgs,     // ENV
+		StateAfterDecorator,    // )
+		StatePatternBlock,      // { (pattern block because when is pattern decorator)
+		StatePatternBlock,      // prod
+		StateAfterPatternColon, // : (in pattern context)
+		StatePatternBlock,      // dev (back to pattern after empty branch)
+		StateAfterPatternColon, // :
+		StateCommandContent,    // echo dev (shell content in pattern branch)
+		StateTopLevel,          // } (exit pattern)
+	}
+
 	for i, tok := range tokens {
 		state, err := sm.HandleToken(tok.typ, tok.value)
 		if err != nil {
-			t.Errorf("Token %d: unexpected error: %v", i, err)
+			t.Errorf("Token %d (%s=%s): unexpected error: %v", i, tok.typ, tok.value, err)
 		}
 
-		// After "prod:", we should be in AfterPatternColon
-		if i == 7 && state != StateAfterPatternColon {
-			t.Errorf("After prod:, expected StateAfterPatternColon, got %s", state)
+		if i < len(expectedStates) {
+			if state != expectedStates[i] {
+				t.Errorf("Token %d (%s=%s): expected state %s, got %s",
+					i, tok.typ, tok.value, expectedStates[i], state)
+			}
 		}
 
-		// "dev" should bring us back to PatternBlock
-		if i == 8 && state != StatePatternBlock {
-			t.Errorf("At dev identifier, expected StatePatternBlock, got %s", state)
+		// Specific checks for pattern transitions
+		if tok.typ == COLON && tok.value == ":" && i == 9 { // After "prod:"
+			if state != StateAfterPatternColon {
+				t.Errorf("After prod:, expected StateAfterPatternColon, got %s", state)
+			}
+		}
+
+		if tok.typ == IDENTIFIER && tok.value == "dev" && i == 10 { // "dev" identifier
+			if state != StatePatternBlock {
+				t.Errorf("At dev identifier, expected StatePatternBlock, got %s", state)
+			}
 		}
 	}
 }

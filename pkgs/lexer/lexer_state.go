@@ -195,6 +195,9 @@ func (sm *StateMachine) HandleToken(tokenType TokenType, value string) (LexerSta
 		return sm.handleRParen()
 	case IDENTIFIER:
 		return sm.handleIdentifier(value)
+	case WHEN, TRY:
+		// Pattern decorator keywords - treat like identifiers for state machine
+		return sm.handleIdentifier(value)
 	case EQUALS:
 		return sm.handleEquals()
 	case NEWLINE:
@@ -316,7 +319,7 @@ func (sm *StateMachine) handleRBrace() (LexerState, error) {
 	var targetContext *Context
 	for i := len(sm.contextStack) - 1; i >= 0; i-- {
 		ctx := &sm.contextStack[i]
-		if ctx.BraceLevel == sm.braceLevel + 1 {
+		if ctx.BraceLevel == sm.braceLevel+1 {
 			targetContext = ctx
 			break
 		}
@@ -396,6 +399,15 @@ func (sm *StateMachine) handleIdentifier(value string) (LexerState, error) {
 		// If we see an identifier after decorator, it's shell content
 		return StateCommandContent, sm.Transition(StateCommandContent)
 
+	case StateAfterPatternColon:
+		// After pattern colon, identifier could be shell content or next pattern
+		if sm.IsInPatternContext() {
+			// In pattern context, identifier is likely the next pattern
+			return StatePatternBlock, sm.Transition(StatePatternBlock)
+		}
+		// Otherwise it's shell content
+		return StateCommandContent, sm.Transition(StateCommandContent)
+
 	case StateCommandContent:
 		// In command content, an identifier could be a new pattern (if in pattern context)
 		// This happens when we finish executing a pattern branch command and see the next pattern
@@ -460,11 +472,13 @@ func (sm *StateMachine) handleNewline() (LexerState, error) {
 		if sm.braceLevel == 0 {
 			return StateTopLevel, sm.Transition(StateTopLevel)
 		}
-		// Inside braces, check if we should return to pattern mode
-		if sm.IsInPatternContext() {
+		// Inside braces, check the immediate context (not overall pattern context)
+		ctx := sm.CurrentContext()
+		if ctx != nil && ctx.Type == ContextPatternBlock {
+			// We're directly in a pattern block, return to pattern mode
 			return StatePatternBlock, sm.Transition(StatePatternBlock)
 		}
-		// Otherwise stay in command content
+		// Otherwise stay in command content (e.g., we're in a regular decorator block)
 		return sm.current, nil
 
 	case StateVarValue:
@@ -506,9 +520,9 @@ type transitionRule struct {
 func generateTransitionMap() map[LexerState]map[LexerState]bool {
 	rules := []transitionRule{
 		{StateTopLevel, []LexerState{
-			StateTopLevel,       // self-loop
-			StateAfterColon,     // saw ':'
-			StateVarDecl,        // saw 'var'
+			StateTopLevel,   // self-loop
+			StateAfterColon, // saw ':'
+			StateVarDecl,    // saw 'var'
 		}},
 		{StateAfterColon, []LexerState{
 			StateCommandContent, // direct shell content or saw SHELL_TEXT

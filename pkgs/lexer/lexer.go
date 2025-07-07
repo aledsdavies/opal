@@ -294,6 +294,11 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		l.skipWhitespace()
 		l.updateStateMachine(NEWLINE, "\n")
 		return l.lexToken() // Get the next meaningful token
+	case ';':
+		// Semicolon separates patterns - consume it but don't emit token
+		l.readChar()
+		l.skipWhitespace()
+		return l.lexToken() // Get the next meaningful token
 	case ':':
 		tok := l.createSimpleToken(COLON, ":", start, startLine, startColumn)
 		l.readChar()
@@ -563,8 +568,8 @@ func (l *Lexer) lexShellText(start int) Token {
 			if !inSingleQuotes && !inDoubleQuotes && !inBackticks &&
 			   l.stateMachine.IsInPatternContext() && l.isPatternBreak() {
 				prevWasBackslash = false
-				l.readChar() // include semicolon
-				tok := l.makeShellTokenForPattern(start, startOffset, startLine, startColumn)
+				// Don't consume the semicolon - let pattern mode handle it
+				tok := l.makeShellToken(start, startOffset, startLine, startColumn)
 				l.updateStateMachine(SHELL_TEXT, tok.Value)
 				return tok
 			}
