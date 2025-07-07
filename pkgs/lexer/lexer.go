@@ -1,31 +1,11 @@
 package lexer
 
 import (
+	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
-
-// Character classification lookup tables for fast operations
-var (
-	isWhitespace [256]bool
-	isLetter     [256]bool
-	isDigit      [256]bool
-	isIdentStart [256]bool
-	isIdentPart  [256]bool
-	isHexDigit   [256]bool
-)
-
-func init() {
-	for i := 0; i < 256; i++ {
-		ch := byte(i)
-		isWhitespace[i] = ch == ' ' || ch == '\t' || ch == '\r' || ch == '\f'
-		isLetter[i] = ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_' || ch >= 0x80
-		isDigit[i] = '0' <= ch && ch <= '9'
-		isIdentStart[i] = isLetter[i]
-		isIdentPart[i] = isIdentStart[i] || isDigit[i] || ch == '-'
-		isHexDigit[i] = isDigit[i] || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
-	}
-}
 
 // LexerMode represents the current parsing context
 type LexerMode int
@@ -39,28 +19,51 @@ const (
 	PatternMode
 )
 
-// Lexer tokenizes Devcmd source code with state machine-based parsing
+// String implements Stringer for LexerMode
+func (lm LexerMode) String() string {
+	switch lm {
+	case LanguageMode:
+		return "LanguageMode"
+	case CommandMode:
+		return "CommandMode"
+	case PatternMode:
+		return "PatternMode"
+	default:
+		return fmt.Sprintf("LexerMode(%d)", int(lm))
+	}
+}
+
+// Lexer tokenizes Devcmd source code with rune-based parsing
 type Lexer struct {
-	input        string // Changed from []byte to string for efficiency
-	position     int
-	readPos      int
-	ch           byte
-	line         int
-	column       int
+	input        string // Source text
+	position     int    // Current position in input (byte offset)
+	readPos      int    // Current reading position in input (byte offset)
+	ch           rune   // Current rune under examination
+	line         int    // Current line number
+	column       int    // Current column number
 	stateMachine *StateMachine // State machine for parsing context
 	braceLevel   int           // Track brace nesting for command mode
 	patternLevel int           // Track pattern-matching decorator nesting
+
+	// Infinite loop detection
+	lastPosition     int
+	lastLine         int
+	lastColumn       int
+	stuckCounter     int
+	maxStuckAttempts int // Set to 3-5 typically
 }
 
 // New creates a new lexer instance with state machine
 func New(input string) *Lexer {
 	l := &Lexer{
-		input:        input,
-		line:         1,
-		column:       0, // Start at column 0, will be incremented to 1 on first readChar
-		stateMachine: NewStateMachine(),
-		braceLevel:   0,
-		patternLevel: 0,
+		input:            input,
+		line:             1,
+		column:           0, // Start at column 0, will be incremented to 1 on first readChar
+		stateMachine:     NewStateMachine(),
+		braceLevel:       0,
+		patternLevel:     0,
+		maxStuckAttempts: 3,  // Allow 3 attempts before panicking
+		lastPosition:     -1, // Start with -1 so first token is always progress
 	}
 	l.readChar()
 	return l
@@ -71,6 +74,68 @@ func NewWithDebug(input string) *Lexer {
 	l := New(input)
 	l.stateMachine.SetDebug(true)
 	return l
+}
+
+// checkStuck detects infinite loops in lexing
+func (l *Lexer) checkStuck(context string) {
+	if l.position == l.lastPosition &&
+	   l.line == l.lastLine &&
+	   l.column == l.lastColumn {
+		l.stuckCounter++
+		if l.stuckCounter >= l.maxStuckAttempts {
+			// Fatal log with detailed context
+			panic(fmt.Sprintf(
+				"LEXER STUCK: Infinite loop detected in %s\n"+
+				"Position: %d, Line: %d, Column: %d\n"+
+				"Current char: %q (U+%04X)\n"+
+				"State: %s, Mode: %s\n"+
+				"Brace level: %d, Pattern level: %d\n"+
+				"Input around position: %s\n"+
+				"Context stack: %+v",
+				context,
+				l.position, l.line, l.column,
+				l.ch, l.ch,
+				l.stateMachine.Current().String(),
+				l.stateMachine.GetMode().String(),
+				l.braceLevel, l.patternLevel,
+				l.getContextWindow(),
+				l.stateMachine.contextStack,
+			))
+		}
+	} else {
+		// Reset counter when we make progress
+		l.stuckCounter = 0
+		l.lastPosition = l.position
+		l.lastLine = l.line
+		l.lastColumn = l.column
+	}
+}
+
+// getContextWindow returns input context around current position
+func (l *Lexer) getContextWindow() string {
+	start := l.position - 20
+	if start < 0 {
+		start = 0
+	}
+	end := l.position + 20
+	if end > len(l.input) {
+		end = len(l.input)
+	}
+
+	context := l.input[start:end]
+	result := make([]rune, 0, len(context)+1)
+
+	// Mark current position with »
+	runePos := 0
+	for _, r := range context {
+		if start+runePos == l.position {
+			result = append(result, '»')
+		}
+		result = append(result, r)
+		runePos += utf8.RuneLen(r)
+	}
+
+	return string(result)
 }
 
 // TokenizeToSlice tokenizes to pre-allocated slice with memory optimization
@@ -86,11 +151,31 @@ func (l *Lexer) TokenizeToSlice() []Token {
 
 	result := make([]Token, 0, estimatedTokens)
 
+	// Add iteration limit as additional safeguard
+	maxTokens := len(l.input) * 2 // Reasonable upper bound
+	tokenCount := 0
+
 	for {
-		tok := l.NextToken()
+		tok := l.NextToken() // Now includes stuck detection
 		result = append(result, tok)
+		tokenCount++
+
 		if tok.Type == EOF {
 			break
+		}
+
+		// Additional safeguard
+		if tokenCount > maxTokens {
+			panic(fmt.Sprintf(
+				"LEXER ERROR: Token count (%d) exceeds reasonable limit (%d) for input size %d\n"+
+				"Last token: %+v\n"+
+				"Position: %d\n"+
+				"Context: %s",
+				tokenCount, maxTokens, len(l.input),
+				tok,
+				l.position,
+				l.getContextWindow(),
+			))
 		}
 	}
 
@@ -99,6 +184,7 @@ func (l *Lexer) TokenizeToSlice() []Token {
 
 // NextToken returns the next token from the input
 func (l *Lexer) NextToken() Token {
+	l.checkStuck("NextToken")
 	return l.lexToken()
 }
 
@@ -267,11 +353,9 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		}
 		fallthrough
 	default:
-		if l.ch < 128 && isIdentStart[l.ch] {
+		if unicode.IsLetter(l.ch) || l.ch == '_' {
 			return l.lexIdentifierOrKeyword(start)
-		} else if l.ch >= 128 && isLetter[l.ch] {
-			return l.lexIdentifierOrKeyword(start)
-		} else if isDigit[l.ch] || (l.ch == '-' && l.peekChar() != 0 && isDigit[l.peekChar()]) {
+		} else if unicode.IsDigit(l.ch) || (l.ch == '-' && unicode.IsDigit(l.peekChar())) {
 			return l.lexNumberOrDuration(start)
 		} else {
 			return l.lexSingleChar(start)
@@ -350,11 +434,9 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		return l.lexString('`', Backtick, start)
 	default:
 		// In pattern mode, identifiers should be treated as pattern identifiers
-		if l.ch < 128 && isIdentStart[l.ch] {
+		if unicode.IsLetter(l.ch) || l.ch == '_' {
 			return l.lexPatternIdentifier(start)
-		} else if l.ch >= 128 && isLetter[l.ch] {
-			return l.lexPatternIdentifier(start)
-		} else if isDigit[l.ch] || (l.ch == '-' && l.peekChar() != 0 && isDigit[l.peekChar()]) {
+		} else if unicode.IsDigit(l.ch) || (l.ch == '-' && unicode.IsDigit(l.peekChar())) {
 			return l.lexNumberOrDuration(start)
 		} else {
 			return l.lexSingleChar(start)
@@ -366,10 +448,10 @@ func (l *Lexer) lexPatternMode(start int) Token {
 func (l *Lexer) lexPatternIdentifier(start int) Token {
 	startLine, startColumn := l.line, l.column
 
-	// Use readIdentifier to handle the full identifier
+	// Read the full identifier
 	l.readIdentifier()
 
-	value := string(l.input[start:l.position])
+	value := l.input[start:l.position]
 
 	tok := Token{
 		Type:      IDENTIFIER,
@@ -616,46 +698,48 @@ func (l *Lexer) processLineContinuations(text string) string {
 	var result strings.Builder
 	result.Grow(len(text))
 
+	runes := []rune(text)
 	i := 0
 	inSingleQuotes := false
 
-	for i < len(text) {
-		ch := text[i]
+	for i < len(runes) {
+		ch := runes[i]
 
 		// Track single quote state
 		if ch == '\'' {
 			inSingleQuotes = !inSingleQuotes
-			result.WriteByte(ch)
+			result.WriteRune(ch)
 			i++
 			continue
 		}
 
 		// In single quotes, everything is literal
 		if inSingleQuotes {
-			result.WriteByte(ch)
+			result.WriteRune(ch)
 			i++
 			continue
 		}
 
 		// Check for line continuation outside single quotes
-		if ch == '\\' && i+1 < len(text) && text[i+1] == '\n' {
+		if ch == '\\' && i+1 < len(runes) && runes[i+1] == '\n' {
 			// Skip the backslash and newline
 			i += 2
 
 			// Skip following whitespace
-			for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+			for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t') {
 				i++
 			}
 
 			// Add a space to join the lines
-			if result.Len() > 0 && i < len(text) {
-				lastCh := result.String()[result.Len()-1]
+			if result.Len() > 0 && i < len(runes) {
+				str := result.String()
+				lastCh := rune(str[len(str)-1])
 				if lastCh != ' ' && lastCh != '\t' {
-					result.WriteByte(' ')
+					result.WriteRune(' ')
 				}
 			}
 		} else {
-			result.WriteByte(ch)
+			result.WriteRune(ch)
 			i++
 		}
 	}
@@ -667,12 +751,10 @@ func (l *Lexer) processLineContinuations(text string) string {
 func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
 	startLine, startColumn := l.line, l.column
 
-	// Use readIdentifier to handle the full identifier
+	// Read the full identifier
 	l.readIdentifier()
 
-	// Get value as byte slice first, then convert only once
-	valueBytes := l.input[start:l.position]
-	value := string(valueBytes) // Single allocation
+	value := l.input[start:l.position]
 
 	var tokenType TokenType
 	var semantic SemanticTokenType
@@ -736,85 +818,36 @@ var keywords = map[string]TokenType{
 	"try":   TRY,
 }
 
-// lexNumberOrDuration lexes numbers and durations with optimized lookahead
+// lexNumberOrDuration lexes numbers and durations with rune-based scanning
 func (l *Lexer) lexNumberOrDuration(start int) Token {
 	startLine, startColumn := l.line, l.column
 
-	// Fast path: use lookahead to scan number in one pass
-	pos := l.position
-	input := l.input
-	inputLen := len(input)
-
 	// Handle negative numbers
-	if pos < inputLen && input[pos] == '-' {
-		pos++
+	if l.ch == '-' {
 		l.readChar()
 	}
 
-	// Scan integer part using lookahead
-	for pos < inputLen && input[pos] >= '0' && input[pos] <= '9' {
-		pos++
+	// Scan integer part
+	for unicode.IsDigit(l.ch) {
+		l.readChar()
 	}
 
 	// Check for decimal part
-	if pos < inputLen && input[pos] == '.' && pos+1 < inputLen && input[pos+1] >= '0' && input[pos+1] <= '9' {
-		pos++ // consume '.'
-		for pos < inputLen && input[pos] >= '0' && input[pos] <= '9' {
-			pos++
+	if l.ch == '.' && unicode.IsDigit(l.peekChar()) {
+		l.readChar() // consume '.'
+		for unicode.IsDigit(l.ch) {
+			l.readChar()
 		}
 	}
 
-	// Update lexer position efficiently
-	for l.position < pos {
-		l.readChar()
-	}
-
-	// Check for duration unit using optimized lookahead
+	// Check for duration unit
 	isDuration := false
-	if l.position < inputLen {
-		ch := l.input[l.position]
-		switch ch {
-		case 'n':
-			// nanoseconds: ns
-			if l.position+1 < inputLen && l.input[l.position+1] == 's' {
-				isDuration = true
-				l.readChar()
-				l.readChar()
-			}
-		case 'u':
-			// microseconds: us (instead of μs)
-			if l.position+1 < inputLen && l.input[l.position+1] == 's' {
-				isDuration = true
-				l.readChar()
-				l.readChar()
-			}
-		case 'm':
-			// milliseconds: ms OR minutes: m
-			if l.position+1 < inputLen && l.input[l.position+1] == 's' {
-				isDuration = true
-				l.readChar()
-				l.readChar()
-			} else if l.position+1 >= inputLen || !isLetter[l.input[l.position+1]] {
-				isDuration = true
-				l.readChar()
-			}
-		case 's':
-			// seconds: s
-			if l.position+1 >= inputLen || !isLetter[l.input[l.position+1]] {
-				isDuration = true
-				l.readChar()
-			}
-		case 'h':
-			// hours: h
-			if l.position+1 >= inputLen || !isLetter[l.input[l.position+1]] {
-				isDuration = true
-				l.readChar()
-			}
-		}
+	if l.isDurationUnit() {
+		isDuration = true
+		l.readDurationUnit()
 	}
 
-	// Single string allocation
-	value := string(l.input[start:l.position])
+	value := l.input[start:l.position]
 
 	tokenType := NUMBER
 	if isDuration {
@@ -838,74 +871,23 @@ func (l *Lexer) lexNumberOrDuration(start int) Token {
 	return tok
 }
 
-// lexString lexes string literals with optimized lookahead and minimal allocations
-func (l *Lexer) lexString(quote byte, stringType StringType, start int) Token {
+// lexString lexes string literals with rune-based scanning
+func (l *Lexer) lexString(quote rune, stringType StringType, start int) Token {
 	startLine, startColumn := l.line, l.column
 	l.readChar() // consume opening quote
 
-	input := l.input
-	inputLen := len(input)
-
-	// Fast path: scan for simple strings without escapes using lookahead
-	pos := l.position
-	hasEscapes := false
-
-	// For single-quoted strings, `\` is not an escape character.
-	if stringType != SingleQuoted {
-		for pos < inputLen {
-			ch := input[pos]
-			if ch == quote {
-				break
-			}
-			if ch == 0 {
-				break
-			}
-			if ch == '\\' {
-				hasEscapes = true
-				break
-			}
-			pos++
-		}
-	} else {
-		// For single-quoted strings, just find the next quote.
-		for pos < inputLen {
-			if input[pos] == quote {
-				break
-			}
-			pos++
-		}
-	}
-
 	var value string
+	var hasEscapes bool
 
-	if !hasEscapes && pos < inputLen && input[pos] == quote {
-		// Fast path: simple string without escapes
-		value = string(input[l.position:pos]) // Single allocation
-
-		// Update lexer position efficiently
-		for l.position < pos {
-			l.readChar()
-		}
-
-		if l.ch == quote {
-			l.readChar() // consume closing quote
-		}
-	} else if stringType == SingleQuoted {
-		// For single-quoted strings, no escape processing at all
+	// For single-quoted strings, just find the next quote
+	if stringType == SingleQuoted {
 		valueStart := l.position
-
-		// Just consume characters until closing quote
 		for l.ch != quote && l.ch != 0 {
 			l.readChar()
 		}
-
 		value = l.input[valueStart:l.position]
-
-		if l.ch == quote {
-			l.readChar() // consume closing quote
-		}
 	} else {
-		// Slow path: string with escapes or complex cases (not single-quoted)
+		// For double-quoted and backtick strings, handle escapes
 		var escaped strings.Builder
 		valueStart := l.position
 
@@ -913,8 +895,6 @@ func (l *Lexer) lexString(quote byte, stringType StringType, start int) Token {
 			if l.ch == '\\' {
 				if !hasEscapes {
 					hasEscapes = true
-					escaped.WriteString(l.input[valueStart:l.position])
-				} else {
 					escaped.WriteString(l.input[valueStart:l.position])
 				}
 				l.readChar()
@@ -934,12 +914,12 @@ func (l *Lexer) lexString(quote byte, stringType StringType, start int) Token {
 			escaped.WriteString(l.input[valueStart:l.position])
 			value = escaped.String()
 		} else {
-			value = l.input[valueStart:l.position] // String slicing
+			value = l.input[valueStart:l.position]
 		}
+	}
 
-		if l.ch == quote {
-			l.readChar() // consume closing quote
-		}
+	if l.ch == quote {
+		l.readChar() // consume closing quote
 	}
 
 	tok := Token{
@@ -950,7 +930,7 @@ func (l *Lexer) lexString(quote byte, stringType StringType, start int) Token {
 		EndLine:    l.line,
 		EndColumn:  l.column,
 		StringType: stringType,
-		Raw:        l.input[start:l.position], // String slicing
+		Raw:        l.input[start:l.position],
 		Semantic:   SemString,
 		Span: SourceSpan{
 			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
@@ -969,7 +949,7 @@ func (l *Lexer) lexComment(start int) Token {
 	}
 	tok := Token{
 		Type:      COMMENT,
-		Value:     l.input[start:l.position], // String slicing
+		Value:     l.input[start:l.position],
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
@@ -1004,7 +984,7 @@ func (l *Lexer) lexMultilineComment(start int) Token {
 
 	tok := Token{
 		Type:      MULTILINE_COMMENT,
-		Value:     l.input[start:l.position], // String slicing
+		Value:     l.input[start:l.position],
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
@@ -1087,22 +1067,14 @@ func (l *Lexer) updateTokenEnd(token *Token) {
 // Helper methods
 
 func (l *Lexer) readIdentifier() {
-	for l.ch != 0 && l.ch < 128 && isIdentPart[l.ch] {
+	for (unicode.IsLetter(l.ch) || unicode.IsDigit(l.ch) || l.ch == '_' || l.ch == '-') && l.ch != 0 {
 		l.readChar()
 	}
 }
 
-// skipWhitespace with optimized lookahead
+// skipWhitespace with rune-based scanning
 func (l *Lexer) skipWhitespace() {
-	input := l.input
-	inputLen := len(input)
-
-	// Fast lookahead for whitespace skipping
-	for l.position < inputLen {
-		ch := input[l.position]
-		if ch != ' ' && ch != '\t' && ch != '\r' && ch != '\f' {
-			break
-		}
+	for unicode.IsSpace(l.ch) && l.ch != '\n' && l.ch != 0 {
 		l.readChar()
 	}
 }
@@ -1112,9 +1084,10 @@ func (l *Lexer) readChar() {
 		l.ch = 0
 		l.position = l.readPos
 	} else {
-		l.ch = l.input[l.readPos]
+		r, size := utf8.DecodeRuneInString(l.input[l.readPos:])
+		l.ch = r
 		l.position = l.readPos
-		l.readPos++
+		l.readPos += size
 	}
 
 	// Position tracking: increment column before handling newline
@@ -1125,19 +1098,25 @@ func (l *Lexer) readChar() {
 	}
 }
 
-func (l *Lexer) peekChar() byte {
+func (l *Lexer) peekChar() rune {
 	if l.readPos >= len(l.input) {
 		return 0
 	}
-	return l.input[l.readPos]
+	r, _ := utf8.DecodeRuneInString(l.input[l.readPos:])
+	return r
 }
 
-func (l *Lexer) peekCharAt(n int) byte {
-	pos := l.readPos + n - 1
+func (l *Lexer) peekCharAt(n int) rune {
+	pos := l.readPos
+	for i := 0; i < n && pos < len(l.input); i++ {
+		_, size := utf8.DecodeRuneInString(l.input[pos:])
+		pos += size
+	}
 	if pos >= len(l.input) {
 		return 0
 	}
-	return l.input[pos]
+	r, _ := utf8.DecodeRuneInString(l.input[pos:])
+	return r
 }
 
 func (l *Lexer) isDurationUnit() bool {
@@ -1149,9 +1128,9 @@ func (l *Lexer) isDurationUnit() bool {
 	case 'n', 'u':
 		return next == 's'
 	case 'm':
-		return next == 's' || next == 0 || !isLetter[next]
+		return next == 's' || next == 0 || !unicode.IsLetter(next)
 	case 's', 'h':
-		return next == 0 || !isLetter[next]
+		return next == 0 || !unicode.IsLetter(next)
 	}
 	return false
 }
@@ -1177,8 +1156,6 @@ func (l *Lexer) handleEscape(stringType StringType) string {
 	switch stringType {
 	case SingleQuoted:
 		// In single-quoted strings, a backslash is a literal character.
-		// It does not escape anything. This function should not be called
-		// for single-quoted strings if the logic in lexString is correct.
 		return "\\" + string(l.ch)
 	case DoubleQuoted:
 		switch l.ch {
@@ -1234,13 +1211,13 @@ func (l *Lexer) handleEscape(stringType StringType) string {
 }
 
 func (l *Lexer) readHexEscape() string {
-	if !isHexDigit[l.peekChar()] {
+	if !isHexDigit(l.peekChar()) {
 		return "\\x"
 	}
 	l.readChar()
 	hex1 := l.ch
 	l.readChar()
-	if !isHexDigit[l.ch] {
+	if !isHexDigit(l.ch) {
 		return "\\x" + string(hex1)
 	}
 	hex2 := l.ch
@@ -1252,7 +1229,7 @@ func (l *Lexer) readUnicodeEscape() string {
 	l.readChar()
 	l.readChar()
 	start := l.position
-	for l.ch != '}' && l.ch != 0 && isHexDigit[l.ch] {
+	for l.ch != '}' && l.ch != 0 && isHexDigit(l.ch) {
 		l.readChar()
 	}
 	if l.ch != '}' {
@@ -1265,7 +1242,7 @@ func (l *Lexer) readUnicodeEscape() string {
 	}
 	var value rune
 	for _, ch := range hexDigits {
-		value = value*16 + rune(hexValue(byte(ch)))
+		value = value*16 + rune(hexValue(ch))
 	}
 	if !utf8.ValidRune(value) {
 		return "\\u{" + hexDigits + "}"
@@ -1273,9 +1250,13 @@ func (l *Lexer) readUnicodeEscape() string {
 	return string(value)
 }
 
-func hexValue(ch byte) int {
+func isHexDigit(ch rune) bool {
+	return unicode.IsDigit(ch) || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
+}
+
+func hexValue(ch rune) int {
 	switch {
-	case '0' <= ch && ch <= '9':
+	case unicode.IsDigit(ch):
 		return int(ch - '0')
 	case 'a' <= ch && ch <= 'f':
 		return int(ch - 'a' + 10)
