@@ -408,44 +408,47 @@ func (p *Parser) parseShellContent(inBlock bool) (*ast.ShellContent, error) {
 	}, nil
 }
 
-// extractInlineDecorators extracts function decorators from shell text
-// **FIXED**: Now handles both @var() and @env() decorators correctly and preserves whitespace
+// extractInlineDecorators extracts function decorators from shell text using stdlib registry validation
 func (p *Parser) extractInlineDecorators(shellText string) ([]ast.ShellPart, error) {
 	var parts []ast.ShellPart
-	i := 0
+	textStart := 0
 
-	for i < len(shellText) {
+	for i := 0; i < len(shellText); {
 		// Look for @ symbol
 		atPos := strings.IndexByte(shellText[i:], '@')
 		if atPos == -1 {
-			// No more decorators, add remaining text
-			if i < len(shellText) {
-				parts = append(parts, &ast.TextPart{Text: shellText[i:]})
+			// No more @ symbols, add remaining text if any
+			if textStart < len(shellText) {
+				parts = append(parts, &ast.TextPart{Text: shellText[textStart:]})
 			}
 			break
 		}
 
-		// Add text before the @
-		if atPos > 0 {
-			parts = append(parts, &ast.TextPart{Text: shellText[i : i+atPos]})
-		}
+		// Absolute position of @
+		absAtPos := i + atPos
 
 		// Try to extract decorator starting at @
-		decorator, newPos, found := p.extractFunctionDecorator(shellText, i+atPos)
+		decorator, newPos, found := p.extractFunctionDecorator(shellText, absAtPos)
 		if found {
+			// Add any text before the decorator
+			if absAtPos > textStart {
+				parts = append(parts, &ast.TextPart{Text: shellText[textStart:absAtPos]})
+			}
+			// Add the decorator
 			parts = append(parts, decorator)
+			// Update positions
 			i = newPos
+			textStart = newPos
 		} else {
-			// Not a valid decorator, treat @ as regular text
-			parts = append(parts, &ast.TextPart{Text: "@"})
-			i = i + atPos + 1
+			// Not a valid function decorator, continue scanning after this @
+			i = absAtPos + 1
 		}
 	}
 
 	return parts, nil
 }
 
-// extractFunctionDecorator extracts a function decorator starting at position i
+// extractFunctionDecorator extracts a function decorator starting at position i using stdlib validation
 // Returns the decorator, new position, and whether a decorator was found
 func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.FunctionDecorator, int, bool) {
 	if i >= len(shellText) || shellText[i] != '@' {
@@ -469,7 +472,7 @@ func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.Functio
 
 	decoratorName := shellText[nameStart:start]
 
-	// Check if this is a valid function decorator
+	// **CRITICAL FIX**: Use stdlib registry to validate function decorators
 	if !stdlib.IsFunctionDecorator(decoratorName) {
 		return nil, i, false
 	}

@@ -207,14 +207,14 @@ func TestLineContinuationEdgeCases(t *testing.T) {
 			Name:  "continuation at end of line with no following content",
 			Input: "test: echo hello \\\n",
 			Expected: Program(
-				Cmd("test", Simple(Text("echo hello "))),
+				Cmd("test", Simple(Text("echo hello"))),
 			),
 		},
 		{
 			Name:  "continuation with only whitespace on next line",
 			Input: "test: echo hello \\\n   ",
 			Expected: Program(
-				Cmd("test", Simple(Text("echo hello "))),
+				Cmd("test", Simple(Text("echo hello"))),
 			),
 		},
 		{
