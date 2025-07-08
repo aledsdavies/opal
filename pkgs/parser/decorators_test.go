@@ -240,60 +240,43 @@ func TestBlockDecorators(t *testing.T) {
 	}
 }
 
-func TestFunctionDecorators(t *testing.T) {
+func TestShellSubstitution(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "function decorator @env() within shell content - gets syntax sugar",
-			Input: "build: echo start && @env(\"NODE_ENV\") && echo done",
+			Name:  "shell command substitution - native shell feature",
+			Input: "build: echo \"Current date: $(date)\"",
 			Expected: Program(
 				Cmd("build", Simple(
-					Text("echo start && "),
-					At("env", Str("NODE_ENV")),
-					Text(" && echo done"),
+					Text("echo \"Current date: $(date)\""),
 				)),
 			),
 		},
 		{
-			Name:  "function decorator @env() with simple command - gets syntax sugar",
-			Input: "deploy: kubectl config use-context @env(\"KUBE_CONTEXT\")",
+			Name:  "shell substitution with @var",
+			Input: "deploy: echo \"Building in $(pwd) for @var(ENV)\"",
 			Expected: Program(
 				Cmd("deploy", Simple(
-					Text("kubectl config use-context "),
-					At("env", Str("KUBE_CONTEXT")),
-				)),
-			),
-		},
-		{
-			Name:  "mixed function decorators and text - gets syntax sugar",
-			Input: "info: echo \"Date: @env(\"TODAY\")\" and \"User: @env(\"USER\")\"",
-			Expected: Program(
-				Cmd("info", Simple(
-					Text("echo \"Date: "),
-					At("env", Str("TODAY")),
-					Text("\" and \"User: "),
-					At("env", Str("USER")),
+					Text("echo \"Building in $(pwd) for "),
+					At("var", Id("ENV")),
 					Text("\""),
 				)),
 			),
 		},
 		{
-			Name:  "function decorator with simple argument - gets syntax sugar",
-			Input: "test: @env(\"NODE_ENV\") && echo success",
+			Name:  "complex shell substitution",
+			Input: "info: echo \"Files: $(ls | wc -l), User: $(whoami)\"",
 			Expected: Program(
-				Cmd("test", Simple(
-					At("env", Str("NODE_ENV")),
-					Text(" && echo success"),
+				Cmd("info", Simple(
+					Text("echo \"Files: $(ls | wc -l), User: $(whoami)\""),
 				)),
 			),
 		},
 		{
-			Name:  "function decorators in explicit block",
-			Input: "build: { echo start && @env(\"NODE_ENV\") && echo done }",
+			Name:  "shell substitution in block",
+			Input: "backup: { DATE=$(date +%Y%m%d); echo \"Backup date: $DATE\" }",
 			Expected: Program(
-				CmdBlock("build",
-					Text("echo start && "),
-					At("env", Str("NODE_ENV")),
-					Text(" && echo done"),
+				CmdBlock("backup",
+					Text("DATE=$(date +%Y%m%d); echo \"Backup date: $DATE\""),
 				),
 			),
 		},
@@ -307,13 +290,13 @@ func TestFunctionDecorators(t *testing.T) {
 func TestNestedDecorators(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "block decorator with function decorator inside",
-			Input: "deploy: @timeout(30s) { echo \"Environment: @env(\"NODE_ENV\")\" }",
+			Name:  "block decorator with @var inside",
+			Input: "deploy: @timeout(30s) { echo \"Deploying @var(APP)\" }",
 			Expected: Program(
 				CmdBlock("deploy",
 					Decorator("timeout", Dur("30s")),
-					Text("echo \"Environment: "),
-					At("env", Str("NODE_ENV")),
+					Text("echo \"Deploying "),
+					At("var", Id("APP")),
 					Text("\""),
 				),
 			),
