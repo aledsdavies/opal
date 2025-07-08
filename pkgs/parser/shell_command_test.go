@@ -57,10 +57,9 @@ backup: {
 			Expected: Program(
 				Var("KUBE_NAMESPACE", Str("default")),
 				CmdBlock("backup",
-					// Lexer preserves the entire content as a single text block with embedded decorators
-					Text(`echo "Creating backup..."
-        DATE=$(date +%Y%m%d-%H%M%S); echo "Backup timestamp: $DATE"
-        (which kubectl && kubectl exec deployment/database -n `),
+					Text(`echo "Creating backup..."`),
+					Text(`DATE=$(date +%Y%m%d-%H%M%S); echo "Backup timestamp: $DATE"`),
+					Text("(which kubectl && kubectl exec deployment/database -n "),
 					At("var", Id("KUBE_NAMESPACE")),
 					Text(` -- pg_dump myapp > backup-$(date +%Y%m%d-%H%M%S).sql) || echo "No database"`),
 				),
