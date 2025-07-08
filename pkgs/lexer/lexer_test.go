@@ -396,7 +396,7 @@ world`,
 			},
 		},
 		{
-			name:  "continuation in quoted string",
+			name: "continuation in quoted string",
 			input: `build: echo 'hello \
 world'`,
 			expected: []tokenExpectation{
@@ -851,10 +851,10 @@ func TestModeTransitions(t *testing.T) {
 			name:  "language to command mode",
 			input: "build: echo hello",
 			expected: []tokenExpectation{
-				{IDENTIFIER, "build"},    // LanguageMode
-				{COLON, ":"},            // LanguageMode → CommandMode
+				{IDENTIFIER, "build"},      // LanguageMode
+				{COLON, ":"},               // LanguageMode → CommandMode
 				{SHELL_TEXT, "echo hello"}, // CommandMode
-				{EOF, ""},               // LanguageMode
+				{EOF, ""},                  // LanguageMode
 			},
 		},
 		{
@@ -862,16 +862,16 @@ func TestModeTransitions(t *testing.T) {
 			input: "build: @timeout(30s) { echo hello }",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "build"},      // LanguageMode
-				{COLON, ":"},              // LanguageMode
-				{AT, "@"},                 // CommandMode → LanguageMode
-				{IDENTIFIER, "timeout"},   // LanguageMode
-				{LPAREN, "("},             // LanguageMode
-				{DURATION, "30s"},         // LanguageMode
-				{RPAREN, ")"},             // LanguageMode
-				{LBRACE, "{"},             // LanguageMode → CommandMode
+				{COLON, ":"},               // LanguageMode
+				{AT, "@"},                  // CommandMode → LanguageMode
+				{IDENTIFIER, "timeout"},    // LanguageMode
+				{LPAREN, "("},              // LanguageMode
+				{DURATION, "30s"},          // LanguageMode
+				{RPAREN, ")"},              // LanguageMode
+				{LBRACE, "{"},              // LanguageMode → CommandMode
 				{SHELL_TEXT, "echo hello"}, // CommandMode
-				{RBRACE, "}"},             // CommandMode → LanguageMode
-				{EOF, ""},                 // LanguageMode
+				{RBRACE, "}"},              // CommandMode → LanguageMode
+				{EOF, ""},                  // LanguageMode
 			},
 		},
 	}
@@ -939,15 +939,15 @@ build: echo hello`
 		column    int
 		value     string
 	}{
-		{VAR, 1, 1, "var"},           // 'var' starts at column 1
-		{IDENTIFIER, 1, 5, "PORT"},    // 'PORT' starts at column 5
-		{EQUALS, 1, 10, "="},          // '=' at column 10
-		{NUMBER, 1, 12, "8080"},       // '8080' starts at column 12
-		{NEWLINE, 2, 1, "\n"},         // Newline should be at line 2, column 1 (or 0)
-		{IDENTIFIER, 2, 1, "build"},   // 'build' starts at line 2, column 1
-		{COLON, 2, 6, ":"},           // ':' at column 6
+		{VAR, 1, 1, "var"},               // 'var' starts at column 1
+		{IDENTIFIER, 1, 5, "PORT"},       // 'PORT' starts at column 5
+		{EQUALS, 1, 10, "="},             // '=' at column 10
+		{NUMBER, 1, 12, "8080"},          // '8080' starts at column 12
+		{NEWLINE, 2, 1, "\n"},            // Newline should be at line 2, column 1 (or 0)
+		{IDENTIFIER, 2, 1, "build"},      // 'build' starts at line 2, column 1
+		{COLON, 2, 6, ":"},               // ':' at column 6
 		{SHELL_TEXT, 2, 8, "echo hello"}, // Shell text starts at column 8
-		{EOF, 2, 18, ""},              // EOF position (CORRECTED from 19)
+		{EOF, 2, 18, ""},                 // EOF position (CORRECTED from 19)
 	}
 
 	// Convert to comparable format
@@ -1059,7 +1059,7 @@ func TestVarInShellText(t *testing.T) {
 			},
 		},
 		{
-			name:  "@var with line continuation",
+			name: "@var with line continuation",
 			input: `test: cd @var(DIR) \
 && make`,
 			expected: []tokenExpectation{
@@ -1174,6 +1174,16 @@ func TestVarInShellText(t *testing.T) {
 				{SHELL_TEXT, "cd @var(DIR)"},
 				{SHELL_TEXT, "make @var(TARGET)"},
 				{RBRACE, "}"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "@var with double @ in shell text",
+			input: `connect: ssh -p @var(PORT) user@@var(HOST)`,
+			expected: []tokenExpectation{
+				{IDENTIFIER, "connect"},
+				{COLON, ":"},
+				{SHELL_TEXT, "ssh -p @var(PORT) user@@var(HOST)"},
 				{EOF, ""},
 			},
 		},
