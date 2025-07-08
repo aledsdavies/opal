@@ -5,6 +5,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/aledsdavies/devcmd/pkgs/stdlib"
 )
 
 // LexerMode represents the current parsing context
@@ -220,7 +222,7 @@ func (l *Lexer) lexToken() Token {
 func (l *Lexer) shouldLexShellContent(state LexerState) bool {
 	// Don't lex shell content if we're at structural tokens
 	switch l.ch {
-	case 0, '\n', '{', '}', '@':
+	case 0, '\n', '{', '}':
 		return false
 	case ':':
 		// Colon is structural in pattern mode
@@ -234,16 +236,25 @@ func (l *Lexer) shouldLexShellContent(state LexerState) bool {
 			return false
 		}
 		// In other modes, continue to check state
+	case '@':
+		// Special handling for @ - check if it's followed by a function decorator
+		if l.stateMachine.GetMode() == CommandMode || state == StateAfterColon || state == StateAfterPatternColon {
+			// Look ahead to see if this is a function decorator
+			if l.isFunctionDecorator() {
+				return true // Treat as shell content
+			}
+		}
+		return false
 	}
 
 	// Lex shell content in these states when we're not at structural boundaries
 	switch state {
 	case StateAfterColon:
-		// After colon, if we see content that isn't a decorator or brace, it's shell content
-		return l.ch != '@' && l.ch != '{'
+		// After colon, if we see content that isn't a block decorator or brace, it's shell content
+		return l.ch != '{'
 	case StateAfterPatternColon:
-		// After pattern colon, if we see content that isn't a decorator or brace, it's shell content
-		return l.ch != '@' && l.ch != '{'
+		// After pattern colon, if we see content that isn't a block decorator or brace, it's shell content
+		return l.ch != '{'
 	case StateCommandContent:
 		// In command content, everything except structural tokens is shell content
 		return true
@@ -256,6 +267,48 @@ func (l *Lexer) shouldLexShellContent(state LexerState) bool {
 	default:
 		return false
 	}
+}
+
+// isFunctionDecorator looks ahead to determine if @ is followed by a function decorator
+func (l *Lexer) isFunctionDecorator() bool {
+	if l.ch != '@' {
+		return false
+	}
+
+	// Save current state
+	savePos := l.position
+	saveReadPos := l.readPos
+	saveCh := l.ch
+	saveLine := l.line
+	saveColumn := l.column
+
+	// Move past @
+	l.readChar()
+
+	// Skip any whitespace (though there shouldn't be any)
+	for unicode.IsSpace(l.ch) && l.ch != '\n' && l.ch != 0 {
+		l.readChar()
+	}
+
+	// Read identifier if present
+	var decoratorName string
+	if unicode.IsLetter(l.ch) || l.ch == '_' {
+		identStart := l.position
+		for (unicode.IsLetter(l.ch) || unicode.IsDigit(l.ch) || l.ch == '_' || l.ch == '-') && l.ch != 0 {
+			l.readChar()
+		}
+		decoratorName = l.input[identStart:l.position]
+	}
+
+	// Restore state
+	l.position = savePos
+	l.readPos = saveReadPos
+	l.ch = saveCh
+	l.line = saveLine
+	l.column = saveColumn
+
+	// Check if it's a function decorator
+	return decoratorName != "" && stdlib.IsFunctionDecorator(decoratorName)
 }
 
 // lexLanguageMode handles structural Devcmd syntax
@@ -507,7 +560,13 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		// Otherwise, treat as shell content
 		return l.lexShellText(start)
 	case '@':
-		// Handle decorator in command mode - switch back to LanguageMode temporarily
+		// Check if this is a function decorator
+		if l.isFunctionDecorator() {
+			// Function decorator should be part of shell text
+			return l.lexShellText(start)
+		}
+
+		// It's a block/pattern decorator, treat it as structural.
 		tok := l.createTokenWithSemantic(AT, SemOperator, "@", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
@@ -629,20 +688,9 @@ func (l *Lexer) lexShellText(start int) Token {
 			prevWasBackslash = false
 			l.readChar()
 
-		case '@':
-			// Decorator boundary only if not in quotes
-			if !inSingleQuotes && !inDoubleQuotes && !inBackticks {
-				prevWasBackslash = false
-				tok := l.makeShellToken(start, startOffset, startLine, startColumn)
-				l.updateStateMachine(SHELL_TEXT, tok.Value)
-				return tok
-			}
-			prevWasBackslash = false
-			l.readChar()
-
 		default:
 			// Any other character resets line continuation and continues as shell content
-			// This includes semicolons - they are always part of shell content now
+			// This includes semicolons and the '@' symbol.
 			if l.ch != ' ' && l.ch != '\t' {
 				prevWasBackslash = false
 			}
