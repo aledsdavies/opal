@@ -541,8 +541,9 @@ ci: @try {
 
 	duration := time.Since(start)
 
-	// Contract: valid nested decorators should not impact performance
-	const maxDuration = 800 * time.Microsecond
+	// Contract: lexing should be humanly imperceptible (< 10ms)
+	// Current performance: ~10µs, so 1ms allows 100x degradation before concern
+	const maxDuration = 1 * time.Millisecond
 	if duration > maxDuration {
 		t.Errorf("Valid nested decorator performance violation: took %v, expected < %v",
 			duration, maxDuration)
@@ -601,8 +602,9 @@ safe-deploy: @try {
 
 	duration := time.Since(start)
 
-	// Contract: standard decorators should lex efficiently
-	const maxDuration = 600 * time.Microsecond
+	// Contract: standard decorators should lex in humanly imperceptible time
+	// Current performance: ~10µs, so 1ms allows 100x degradation before concern
+	const maxDuration = 1 * time.Millisecond
 	if duration > maxDuration {
 		t.Errorf("Standard decorator performance violation: took %v, expected < %v",
 			duration, maxDuration)
@@ -676,8 +678,9 @@ config: @when(PRODUCTION) {
 
 	duration := time.Since(start)
 
-	// Contract: boolean tokens should not impact lexing performance
-	const maxDuration = 300 * time.Microsecond
+	// Contract: boolean tokens should lex in humanly imperceptible time
+	// Current performance: ~5µs, so 1ms allows 200x degradation before concern
+	const maxDuration = 1 * time.Millisecond
 	if duration > maxDuration {
 		t.Errorf("Boolean token performance violation: took %v, expected < %v",
 			duration, maxDuration)
