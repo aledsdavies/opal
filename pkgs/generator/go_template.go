@@ -8,15 +8,9 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/aledsdavies/devcmd/pkgs/parser"
+	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/stdlib"
 )
-
-// Known decorators that devcmd supports
-var supportedDecorators = map[string]bool{
-	"sh":       true, // Shell command execution
-	"parallel": true, // Parallel execution
-	"var":      true, // Variable reference (compile-time expansion)
-}
 
 // TemplateData represents preprocessed data for template generation
 type TemplateData struct {
@@ -24,7 +18,7 @@ type TemplateData struct {
 	Imports             []string
 	HasProcessMgmt      bool
 	HasParallelCommands bool
-	HasUserDefinedHelp  bool // NEW: Track if user defined help command
+	HasUserDefinedHelp  bool
 	Commands            []TemplateCommand
 	ProcessMgmtFuncs    []string
 }
@@ -52,28 +46,28 @@ type TemplateCommand struct {
 }
 
 // validateHelpCommandRestrictions ensures help command isn't used with watch/stop
-func validateHelpCommandRestrictions(commands []parser.Command, sourceLines []string) error {
-	for _, cmd := range commands {
+func validateHelpCommandRestrictions(program *ast.Program) error {
+	for _, cmd := range program.Commands {
 		if cmd.Name == "help" {
-			if cmd.IsWatch {
-				return createValidationError(
+			if cmd.Type == ast.WatchCommand {
+				return NewValidationError(
 					"'help' command cannot be used with 'watch' modifier. Help is a special reserved command",
-					cmd.Name, cmd.Line, sourceLines)
+					cmd.Name, cmd.Position().Line, "")
 			}
-			if cmd.IsStop {
-				return createValidationError(
+			if cmd.Type == ast.StopCommand {
+				return NewValidationError(
 					"'help' command cannot be used with 'stop' modifier. Help is a special reserved command",
-					cmd.Name, cmd.Line, sourceLines)
+					cmd.Name, cmd.Position().Line, "")
 			}
 		}
 	}
 	return nil
 }
 
-// PreprocessCommands converts parser commands into template-ready data with standard library support
-func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
-	if cf == nil {
-		return nil, fmt.Errorf("command file cannot be nil")
+// PreprocessCommands converts ast.Program into template-ready data with standard library support
+func PreprocessCommands(program *ast.Program) (*TemplateData, error) {
+	if program == nil {
+		return nil, fmt.Errorf("program cannot be nil")
 	}
 
 	data := &TemplateData{
@@ -83,11 +77,12 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	}
 
 	// Create variable definitions map for expansion
-	definitions := createDefinitionMap(cf.Definitions)
+	definitions := createDefinitionMapFromProgram(program)
 
 	// Group commands by name to find watch/stop pairs
-	commandGroups := make(map[string][]parser.Command)
-	for _, cmd := range cf.Commands {
+	commandGroups := make(map[string][]*ast.CommandDecl)
+	for i := range program.Commands {
+		cmd := &program.Commands[i]
 		commandGroups[cmd.Name] = append(commandGroups[cmd.Name], cmd)
 	}
 
@@ -96,25 +91,25 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	data.HasUserDefinedHelp = hasUserHelp
 
 	// Validate help command restrictions FIRST
-	if err := validateHelpCommandRestrictions(cf.Commands, cf.Lines); err != nil {
+	if err := validateHelpCommandRestrictions(program); err != nil {
 		return nil, err
 	}
 
-	// Validate decorators before processing with source context
-	if err := validateDecoratorsWithContext(cf.Commands, cf.Lines); err != nil {
+	// Validate decorators before processing
+	if err := validateProgramDecorators(program); err != nil {
 		return nil, err
 	}
 
 	// Determine what features we need
 	hasWatchCommands := false
 	hasParallelCommands := false
-	hasRegularCommands := len(cf.Commands) > 0
+	hasRegularCommands := len(program.Commands) > 0
 
-	for _, cmd := range cf.Commands {
-		if cmd.IsWatch {
+	for _, cmd := range program.Commands {
+		if cmd.Type == ast.WatchCommand {
 			hasWatchCommands = true
 		}
-		if containsParallelDecorator(cmd) {
+		if containsParallelDecorator(&cmd) {
 			hasParallelCommands = true
 		}
 	}
@@ -130,7 +125,7 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 		}
 
 		// Only add os/exec if we have actual commands
-		if len(cf.Commands) > 0 {
+		if len(program.Commands) > 0 {
 			data.Imports = append(data.Imports, "os/exec")
 		}
 
@@ -158,9 +153,9 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 	// Sort imports for consistent output
 	sort.Strings(data.Imports)
 
-	// Process command groups with variable expansion and enhanced error reporting
+	// Process command groups with variable expansion
 	for name, commands := range commandGroups {
-		templateCmd, err := processCommandGroupWithContext(name, commands, definitions, cf.Lines)
+		templateCmd, err := processCommandGroup(name, commands, definitions)
 		if err != nil {
 			return nil, err
 		}
@@ -186,76 +181,61 @@ func PreprocessCommands(cf *parser.CommandFile) (*TemplateData, error) {
 }
 
 // containsParallelDecorator checks if a command contains @parallel decorator
-func containsParallelDecorator(cmd parser.Command) bool {
-	if cmd.IsBlock {
-		return containsParallelInBlock(cmd.Block)
-	}
-	return containsParallelInElements(cmd.Elements)
+func containsParallelDecorator(cmd *ast.CommandDecl) bool {
+	return containsParallelInContent(cmd.Body.Content)
 }
 
-// containsParallelInBlock checks for @parallel in block statements
-func containsParallelInBlock(statements []parser.BlockStatement) bool {
-	for _, stmt := range statements {
-		if stmt.IsDecorated && stmt.Decorator == "parallel" {
-			return true
-		}
-		if stmt.IsDecorated && len(stmt.DecoratedBlock) > 0 {
-			if containsParallelInBlock(stmt.DecoratedBlock) {
-				return true
-			}
-		}
-		if containsParallelInElements(stmt.Elements) {
-			return true
-		}
-	}
-	return false
-}
-
-// containsParallelInElements checks for @parallel in command elements
-func containsParallelInElements(elements []parser.CommandElement) bool {
-	for _, elem := range elements {
-		if decorator, ok := elem.(*parser.DecoratorElement); ok {
+// containsParallelInContent checks for @parallel in command content
+func containsParallelInContent(content ast.CommandContent) bool {
+	switch c := content.(type) {
+	case *ast.DecoratedContent:
+		for _, decorator := range c.Decorators {
 			if decorator.Name == "parallel" {
 				return true
 			}
-			if containsParallelInElements(decorator.Args) {
-				return true
-			}
-			if len(decorator.Block) > 0 && containsParallelInBlock(decorator.Block) {
+		}
+		return containsParallelInContent(c.Content)
+	case *ast.PatternContent:
+		for _, pattern := range c.Patterns {
+			if containsParallelInContent(pattern.Command) {
 				return true
 			}
 		}
+		return false
+	case *ast.ShellContent:
+		return false
+	default:
+		return false
 	}
-	return false
 }
 
-// processCommandGroupWithContext processes a group of commands with enhanced error reporting
-func processCommandGroupWithContext(name string, commands []parser.Command, definitions map[string]string, sourceLines []string) (TemplateCommand, error) {
+// processCommandGroup processes a group of commands
+func processCommandGroup(name string, commands []*ast.CommandDecl, definitions map[string]string) (TemplateCommand, error) {
 	templateCmd := TemplateCommand{
 		Name:         name,
 		FunctionName: sanitizeFunctionName(name),
 		GoCase:       name,
 	}
 
-	var watchCmd, stopCmd *parser.Command
-	var regularCmd *parser.Command
+	var watchCmd, stopCmd, regularCmd *ast.CommandDecl
 
 	// Categorize commands in the group
-	for i, cmd := range commands {
-		if cmd.IsWatch {
-			watchCmd = &commands[i]
-		} else if cmd.IsStop {
-			stopCmd = &commands[i]
-		} else {
-			regularCmd = &commands[i]
+	for _, cmd := range commands {
+		switch cmd.Type {
+		case ast.WatchCommand:
+			watchCmd = cmd
+		case ast.StopCommand:
+			stopCmd = cmd
+		case ast.Command:
+			regularCmd = cmd
 		}
 	}
 
-	// Determine command type and structure with enhanced error context
+	// Determine command type and structure
 	if regularCmd != nil {
 		// Check if it's a parallel or mixed command
-		if containsParallelDecorator(*regularCmd) {
-			segments, err := analyzeCommandStructure(*regularCmd, definitions, sourceLines)
+		if containsParallelDecorator(regularCmd) {
+			segments, err := analyzeCommandStructure(regularCmd, definitions)
 			if err != nil {
 				return templateCmd, fmt.Errorf("failed to analyze command structure for '%s': %w", name, err)
 			}
@@ -271,7 +251,7 @@ func processCommandGroupWithContext(name string, commands []parser.Command, defi
 		} else {
 			// Regular command (no parallel)
 			templateCmd.Type = "regular"
-			shellCmd, err := buildShellCommandWithContext(*regularCmd, definitions, sourceLines)
+			shellCmd, err := buildShellCommand(regularCmd, definitions)
 			if err != nil {
 				return templateCmd, fmt.Errorf("failed to build shell command for '%s': %w", name, err)
 			}
@@ -281,11 +261,11 @@ func processCommandGroupWithContext(name string, commands []parser.Command, defi
 	} else if watchCmd != nil && stopCmd != nil {
 		// Watch/stop pair
 		templateCmd.Type = "watch-stop"
-		watchShell, err := buildShellCommandWithContext(*watchCmd, definitions, sourceLines)
+		watchShell, err := buildShellCommand(watchCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build watch command for '%s': %w", name, err)
 		}
-		stopShell, err := buildShellCommandWithContext(*stopCmd, definitions, sourceLines)
+		stopShell, err := buildShellCommand(stopCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build stop command for '%s': %w", name, err)
 		}
@@ -296,7 +276,7 @@ func processCommandGroupWithContext(name string, commands []parser.Command, defi
 	} else if watchCmd != nil {
 		// Watch only
 		templateCmd.Type = "watch-only"
-		watchShell, err := buildShellCommandWithContext(*watchCmd, definitions, sourceLines)
+		watchShell, err := buildShellCommand(watchCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build watch command for '%s': %w", name, err)
 		}
@@ -306,7 +286,7 @@ func processCommandGroupWithContext(name string, commands []parser.Command, defi
 	} else if stopCmd != nil {
 		// Stop only (unusual, but handle it)
 		templateCmd.Type = "stop-only"
-		stopShell, err := buildShellCommandWithContext(*stopCmd, definitions, sourceLines)
+		stopShell, err := buildShellCommand(stopCmd, definitions)
 		if err != nil {
 			return templateCmd, fmt.Errorf("failed to build stop command for '%s': %w", name, err)
 		}
@@ -319,336 +299,230 @@ func processCommandGroupWithContext(name string, commands []parser.Command, defi
 	return templateCmd, nil
 }
 
-// analyzeCommandStructure analyzes a command and returns segments of parallel and sequential execution
-func analyzeCommandStructure(cmd parser.Command, definitions map[string]string, sourceLines []string) ([]CommandSegment, error) {
-	if cmd.IsBlock {
-		return analyzeBlockStructure(cmd.Block, cmd.Name, cmd.Line, definitions, sourceLines)
-	}
-
-	// Simple command - check if it contains parallel decorators
-	if containsParallelInElements(cmd.Elements) {
-		// This would be unusual but handle it
-		commands := []string{processElementsWithContext(cmd.Elements, definitions, cmd.Name, cmd.Line, sourceLines)}
-		return []CommandSegment{{IsParallel: true, Commands: commands}}, nil
-	}
-
-	// Regular sequential command
-	shellCmd := processElementsWithContext(cmd.Elements, definitions, cmd.Name, cmd.Line, sourceLines)
-	if shellCmd == "" && cmd.Command != "" {
-		shellCmd = expandVariablesInText(cmd.Command, definitions)
-	}
-	return []CommandSegment{{IsParallel: false, Command: shellCmd}}, nil
+// analyzeCommandStructure analyzes a command and returns segments
+func analyzeCommandStructure(cmd *ast.CommandDecl, definitions map[string]string) ([]CommandSegment, error) {
+	return analyzeContentStructure(cmd.Body.Content, definitions)
 }
 
-// analyzeBlockStructure analyzes block statements and groups them into parallel and sequential segments
-func analyzeBlockStructure(statements []parser.BlockStatement, cmdName string, cmdLine int, definitions map[string]string, sourceLines []string) ([]CommandSegment, error) {
-	var segments []CommandSegment
+// analyzeContentStructure analyzes command content structure
+func analyzeContentStructure(content ast.CommandContent, definitions map[string]string) ([]CommandSegment, error) {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		// Regular shell content
+		shellCmd := buildShellContentString(c, definitions)
+		return []CommandSegment{{IsParallel: false, Command: shellCmd}}, nil
 
-	for _, stmt := range statements {
-		if stmt.IsDecorated && stmt.Decorator == "parallel" {
-			// This is a parallel block
-			if stmt.DecoratorType == "block" && len(stmt.DecoratedBlock) > 0 {
-				var parallelCommands []string
-				for _, nestedStmt := range stmt.DecoratedBlock {
-					if nestedStmt.IsDecorated {
-						// Handle nested decorators within parallel block
-						part, err := buildDecoratedStatementWithContext(nestedStmt, cmdName, cmdLine, definitions, sourceLines)
-						if err != nil {
-							return nil, err
-						}
-						if part != "" {
-							parallelCommands = append(parallelCommands, part)
-						}
-					} else {
-						// Regular command in parallel block
-						if len(nestedStmt.Elements) > 0 {
-							processedCommand := processElementsWithContext(nestedStmt.Elements, definitions, cmdName, cmdLine, sourceLines)
-							parallelCommands = append(parallelCommands, processedCommand)
-						} else if nestedStmt.Command != "" {
-							processedCommand := expandVariablesInText(nestedStmt.Command, definitions)
-							parallelCommands = append(parallelCommands, processedCommand)
-						}
-					}
-				}
-				segments = append(segments, CommandSegment{IsParallel: true, Commands: parallelCommands})
-			}
-		} else {
-			// This is a sequential statement
-			var command string
-			if stmt.IsDecorated {
-				part, err := buildDecoratedStatementWithContext(stmt, cmdName, cmdLine, definitions, sourceLines)
+	case *ast.DecoratedContent:
+		// Check for parallel decorator
+		for _, decorator := range c.Decorators {
+			if decorator.Name == "parallel" {
+				// This is a parallel block
+				parallelCommands, err := extractParallelCommands(c.Content, definitions)
 				if err != nil {
 					return nil, err
 				}
-				command = part
-			} else {
-				if len(stmt.Elements) > 0 {
-					command = processElementsWithContext(stmt.Elements, definitions, cmdName, cmdLine, sourceLines)
-				} else if stmt.Command != "" {
-					command = expandVariablesInText(stmt.Command, definitions)
-				}
-			}
-
-			if command != "" {
-				segments = append(segments, CommandSegment{IsParallel: false, Command: command})
+				return []CommandSegment{{IsParallel: true, Commands: parallelCommands}}, nil
 			}
 		}
-	}
+		// Non-parallel decorated content
+		shellCmd := buildDecoratedContentString(c, definitions)
+		return []CommandSegment{{IsParallel: false, Command: shellCmd}}, nil
 
-	return segments, nil
-}
-
-// buildShellCommandWithContext constructs the shell command string with enhanced error reporting
-func buildShellCommandWithContext(cmd parser.Command, definitions map[string]string, sourceLines []string) (string, error) {
-	if cmd.IsBlock {
-		return buildBlockCommandWithContext(cmd.Block, cmd.Name, cmd.Line, definitions, sourceLines)
-	}
-	// Process Elements if available, otherwise fall back to legacy Command
-	if len(cmd.Elements) > 0 {
-		return processElementsWithContext(cmd.Elements, definitions, cmd.Name, cmd.Line, sourceLines), nil
-	}
-	// Expand variables in the command text
-	return expandVariablesInText(cmd.Command, definitions), nil
-}
-
-// buildBlockCommandWithContext handles block statements but now excludes @parallel blocks since they're handled separately
-func buildBlockCommandWithContext(statements []parser.BlockStatement, cmdName string, cmdLine int, definitions map[string]string, sourceLines []string) (string, error) {
-	var parts []string
-
-	for _, stmt := range statements {
-		if stmt.IsDecorated {
-			// Skip @parallel decorators - they're handled in analyzeCommandStructure
-			if stmt.Decorator == "parallel" {
-				continue
-			}
-
-			part, err := buildDecoratedStatementWithContext(stmt, cmdName, cmdLine, definitions, sourceLines)
-			if err != nil {
-				return "", err
-			}
-			if part != "" {
-				parts = append(parts, part)
-			}
-		} else {
-			// Regular command (no decorator) - use Elements if available
-			if len(stmt.Elements) > 0 {
-				processedCommand := processElementsWithContext(stmt.Elements, definitions, cmdName, cmdLine, sourceLines)
-				parts = append(parts, processedCommand)
-			} else if stmt.Command != "" {
-				// Process the command for variable expansion
-				processedCommand := expandVariablesInText(stmt.Command, definitions)
-				parts = append(parts, processedCommand)
-			}
-		}
-	}
-
-	return strings.Join(parts, "; "), nil
-}
-
-// buildDecoratedStatementWithContext handles different decorator types (updated to skip @parallel)
-func buildDecoratedStatementWithContext(stmt parser.BlockStatement, cmdName string, cmdLine int, definitions map[string]string, sourceLines []string) (string, error) {
-	switch stmt.Decorator {
-	case "sh":
-		// Shell command - process Elements if available
-		if len(stmt.Elements) > 0 {
-			for _, elem := range stmt.Elements {
-				if elem.IsDecorator() {
-					decorator := elem.(*parser.DecoratorElement)
-					if decorator.Name == "sh" {
-						return processElementsWithContext(decorator.Args, definitions, cmdName, cmdLine, sourceLines), nil
-					}
-				}
-			}
-		}
-		command := stmt.Command
-		if len(stmt.Elements) > 0 {
-			command = processElementsWithContext(stmt.Elements, definitions, cmdName, cmdLine, sourceLines)
-		}
-		return command, nil
-
-	case "var":
-		// Variable reference
-		varName := stmt.Command
-		if value, exists := definitions[varName]; exists {
-			return value, nil
-		}
-		return fmt.Sprintf("@var(%s)", varName), nil
-
-	case "parallel":
-		// @parallel is now handled separately in analyzeCommandStructure
-		// This should not be reached, but return empty to be safe
-		return "", nil
+	case *ast.PatternContent:
+		// Pattern content is complex - for now, treat as sequential
+		shellCmd := buildPatternContentString(c, definitions)
+		return []CommandSegment{{IsParallel: false, Command: shellCmd}}, nil
 
 	default:
-		return "", createValidationError(
-			fmt.Sprintf("unsupported decorator '@%s'", stmt.Decorator),
-			cmdName, cmdLine, sourceLines)
+		return nil, fmt.Errorf("unsupported command content type")
 	}
 }
 
-// createDefinitionMap creates a map from variable definitions for quick lookup
-func createDefinitionMap(definitions []parser.Definition) map[string]string {
-	defMap := make(map[string]string)
-	for _, def := range definitions {
-		defMap[def.Name] = def.Value
+// extractParallelCommands extracts commands from parallel content
+func extractParallelCommands(content ast.CommandContent, definitions map[string]string) ([]string, error) {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		// If the shell content has multiple parts separated by semicolons, split them
+		shellCmd := buildShellContentString(c, definitions)
+		// For simplicity, just return as single command for now
+		return []string{shellCmd}, nil
+
+	case *ast.DecoratedContent:
+		// Extract from nested content
+		return extractParallelCommands(c.Content, definitions)
+
+	default:
+		shellCmd := buildContentString(content, definitions)
+		return []string{shellCmd}, nil
 	}
+}
+
+// buildShellCommand constructs the shell command string
+func buildShellCommand(cmd *ast.CommandDecl, definitions map[string]string) (string, error) {
+	return buildContentString(cmd.Body.Content, definitions), nil
+}
+
+// buildContentString builds a shell command string from command content
+func buildContentString(content ast.CommandContent, definitions map[string]string) string {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		return buildShellContentString(c, definitions)
+	case *ast.DecoratedContent:
+		return buildDecoratedContentString(c, definitions)
+	case *ast.PatternContent:
+		return buildPatternContentString(c, definitions)
+	default:
+		return ""
+	}
+}
+
+// buildShellContentString builds shell content into a string
+func buildShellContentString(content *ast.ShellContent, definitions map[string]string) string {
+	var result strings.Builder
+
+	for _, part := range content.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			result.WriteString(expandVariablesInText(p.Text, definitions))
+		case *ast.FunctionDecorator:
+			if p.Name == "var" && len(p.Args) > 0 {
+				if id, ok := p.Args[0].(*ast.Identifier); ok {
+					if value, exists := definitions[id.Name]; exists {
+						result.WriteString(value)
+					} else {
+						result.WriteString(p.String())
+					}
+				} else {
+					result.WriteString(p.String())
+				}
+			} else {
+				result.WriteString(p.String())
+			}
+		default:
+			result.WriteString(part.String())
+		}
+	}
+
+	return result.String()
+}
+
+// buildDecoratedContentString builds decorated content into a string
+func buildDecoratedContentString(content *ast.DecoratedContent, definitions map[string]string) string {
+	// For now, skip decorators that aren't parallel and just build the content
+	// TODO: Handle other decorators like timeout, retry
+	return buildContentString(content.Content, definitions)
+}
+
+// buildPatternContentString builds pattern content into a string
+func buildPatternContentString(content *ast.PatternContent, definitions map[string]string) string {
+	// For now, just build all pattern branches sequentially
+	// TODO: Implement proper pattern matching logic
+	var parts []string
+	for _, pattern := range content.Patterns {
+		cmd := buildContentString(pattern.Command, definitions)
+		if cmd != "" {
+			parts = append(parts, cmd)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// createDefinitionMapFromProgram creates a map from variable definitions
+func createDefinitionMapFromProgram(program *ast.Program) map[string]string {
+	defMap := make(map[string]string)
+
+	// Add individual variables
+	for _, varDecl := range program.Variables {
+		defMap[varDecl.Name] = getVariableValue(varDecl.Value)
+	}
+
+	// Add grouped variables
+	for _, varGroup := range program.VarGroups {
+		for _, varDecl := range varGroup.Variables {
+			defMap[varDecl.Name] = getVariableValue(varDecl.Value)
+		}
+	}
+
 	return defMap
 }
 
-// validateDecoratorsWithContext validates decorators with source line context
-func validateDecoratorsWithContext(commands []parser.Command, sourceLines []string) error {
-	for _, cmd := range commands {
-		if cmd.IsBlock {
-			if err := validateBlockDecoratorsWithContext(cmd.Block, cmd.Name, cmd.Line, sourceLines); err != nil {
-				return err
-			}
-		}
-		if err := validateCommandElementsWithContext(cmd.Elements, cmd.Name, cmd.Line, sourceLines); err != nil {
+// getVariableValue extracts the string value from an expression
+func getVariableValue(expr ast.Expression) string {
+	switch e := expr.(type) {
+	case *ast.StringLiteral:
+		return e.Value
+	case *ast.NumberLiteral:
+		return e.Value
+	case *ast.DurationLiteral:
+		return e.Value
+	case *ast.BooleanLiteral:
+		return e.Raw
+	case *ast.Identifier:
+		return e.Name
+	default:
+		return expr.String()
+	}
+}
+
+// validateProgramDecorators validates decorators in the program
+func validateProgramDecorators(program *ast.Program) error {
+	for _, cmd := range program.Commands {
+		if err := validateCommandDecorators(&cmd); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// validateCommandElementsWithContext validates decorators in command elements with source context
-func validateCommandElementsWithContext(elements []parser.CommandElement, cmdName string, cmdLine int, sourceLines []string) error {
-	for _, elem := range elements {
-		if elem.IsDecorator() {
-			decorator := elem.(*parser.DecoratorElement)
-			if !supportedDecorators[decorator.Name] {
-				return createValidationError(
-					fmt.Sprintf("unsupported decorator '@%s'. Supported decorators: %s",
-						decorator.Name, GetSupportedDecoratorsString()),
-					cmdName, cmdLine, sourceLines)
-			}
+// validateCommandDecorators validates decorators in a command
+func validateCommandDecorators(cmd *ast.CommandDecl) error {
+	return validateContentDecorators(cmd.Body.Content, cmd.Name, cmd.Position().Line)
+}
 
-			switch decorator.Name {
-			case "var":
-				if decorator.Type != "function" {
-					return createDecoratorError(
-						"var", decorator.Type,
-						"@var decorator must be used with function syntax",
-						"Use: @var(VARIABLE_NAME)",
-						cmdName, cmdLine, sourceLines)
-				}
-				if len(decorator.Args) == 0 {
-					return createDecoratorError(
-						"var", "function",
-						"@var decorator requires a variable name",
-						"Use: @var(VARIABLE_NAME)",
-						cmdName, cmdLine, sourceLines)
-				}
-			case "sh":
-				if decorator.Type != "function" {
-					return createDecoratorError(
-						"sh", decorator.Type,
-						"@sh decorator must be used with function syntax",
-						"Use: @sh(command)",
-						cmdName, cmdLine, sourceLines)
-				}
-				if err := validateShDecoratorElementsWithContext(decorator.Args, cmdName, cmdLine, sourceLines); err != nil {
-					return err
-				}
-			case "parallel":
-				if decorator.Type == "function" {
-					return createDecoratorError(
-						"parallel", decorator.Type,
-						"@parallel decorator cannot be used with function syntax",
-						"Use block syntax: @parallel: { command1; command2 }",
-						cmdName, cmdLine, sourceLines)
-				}
+// validateContentDecorators validates decorators in command content
+func validateContentDecorators(content ast.CommandContent, cmdName string, cmdLine int) error {
+	switch c := content.(type) {
+	case *ast.DecoratedContent:
+		for _, decorator := range c.Decorators {
+			if !stdlib.IsValidDecorator(decorator.Name) {
+				return NewValidationError(
+					fmt.Sprintf("unsupported decorator '@%s'. Use 'devcmd help decorators' to see supported decorators",
+						decorator.Name),
+					cmdName, cmdLine, "")
 			}
+		}
+		return validateContentDecorators(c.Content, cmdName, cmdLine)
 
-			if err := validateCommandElementsWithContext(decorator.Args, cmdName, cmdLine, sourceLines); err != nil {
+	case *ast.PatternContent:
+		if !stdlib.IsValidDecorator(c.Decorator.Name) {
+			return NewValidationError(
+				fmt.Sprintf("unsupported decorator '@%s'. Use 'devcmd help decorators' to see supported decorators",
+					c.Decorator.Name),
+				cmdName, cmdLine, "")
+		}
+		for _, pattern := range c.Patterns {
+			if err := validateContentDecorators(pattern.Command, cmdName, cmdLine); err != nil {
 				return err
 			}
+		}
+		return nil
 
-			if len(decorator.Block) > 0 {
-				if err := validateBlockDecoratorsWithContext(decorator.Block, cmdName, cmdLine, sourceLines); err != nil {
-					return err
+	case *ast.ShellContent:
+		for _, part := range c.Parts {
+			if funcDec, ok := part.(*ast.FunctionDecorator); ok {
+				if !stdlib.IsValidDecorator(funcDec.Name) {
+					return NewValidationError(
+						fmt.Sprintf("unsupported decorator '@%s'. Use 'devcmd help decorators' to see supported decorators",
+							funcDec.Name),
+						cmdName, cmdLine, "")
 				}
 			}
 		}
+		return nil
+
+	default:
+		return nil
 	}
-	return nil
-}
-
-// validateShDecoratorElementsWithContext checks for invalid nested decorators in @sh with source context
-func validateShDecoratorElementsWithContext(elements []parser.CommandElement, cmdName string, cmdLine int, sourceLines []string) error {
-	for _, elem := range elements {
-		if elem.IsDecorator() {
-			decorator := elem.(*parser.DecoratorElement)
-			if decorator.Name == "sh" {
-				return createDecoratorError(
-					"sh", decorator.Type,
-					"nested decorator '@sh' not allowed inside @sh",
-					"Remove the nested @sh decorator",
-					cmdName, cmdLine, sourceLines)
-			} else if decorator.Name != "var" {
-				return createDecoratorError(
-					decorator.Name, decorator.Type,
-					fmt.Sprintf("nested decorator '@%s' not allowed inside @sh", decorator.Name),
-					"Only @var() is allowed inside @sh() decorators",
-					cmdName, cmdLine, sourceLines)
-			}
-
-			if len(decorator.Args) > 0 {
-				if err := validateShDecoratorElementsWithContext(decorator.Args, cmdName, cmdLine, sourceLines); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// validateBlockDecoratorsWithContext validates decorators in block statements with source context
-func validateBlockDecoratorsWithContext(statements []parser.BlockStatement, cmdName string, cmdLine int, sourceLines []string) error {
-	for _, stmt := range statements {
-		if stmt.IsDecorated {
-			if !supportedDecorators[stmt.Decorator] {
-				return createValidationError(
-					fmt.Sprintf("unsupported decorator '@%s'. Supported decorators: %s",
-						stmt.Decorator, GetSupportedDecoratorsString()),
-					cmdName, cmdLine, sourceLines)
-			}
-
-			switch stmt.Decorator {
-			case "parallel":
-				// @parallel is valid when used as a block decorator
-			case "sh":
-				if stmt.DecoratorType != "function" && stmt.DecoratorType != "simple" && stmt.DecoratorType != "block" {
-					return createDecoratorError(
-						"sh", stmt.DecoratorType,
-						"@sh decorator must be used with function or simple syntax",
-						"Use: @sh(command) or @sh: command",
-						cmdName, cmdLine, sourceLines)
-				}
-				if err := validateCommandElementsWithContext(stmt.Elements, cmdName, cmdLine, sourceLines); err != nil {
-					return err
-				}
-			case "var":
-				if stmt.DecoratorType != "function" {
-					return createDecoratorError(
-						"var", stmt.DecoratorType,
-						"@var decorator must be used with function syntax",
-						"Use: @var(VARIABLE_NAME)",
-						cmdName, cmdLine, sourceLines)
-				}
-			}
-
-			if stmt.DecoratorType == "block" && len(stmt.DecoratedBlock) > 0 {
-				if err := validateBlockDecoratorsWithContext(stmt.DecoratedBlock, cmdName, cmdLine, sourceLines); err != nil {
-					return err
-				}
-			}
-		}
-
-		if err := validateCommandElementsWithContext(stmt.Elements, cmdName, cmdLine, sourceLines); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // expandVariablesInText expands @var(NAME) references in text
@@ -659,41 +533,6 @@ func expandVariablesInText(text string, definitions map[string]string) string {
 		result = strings.ReplaceAll(result, oldPattern, varValue)
 	}
 	return result
-}
-
-// processElementsWithContext traverses the AST with enhanced error context
-func processElementsWithContext(elements []parser.CommandElement, definitions map[string]string, cmdName string, cmdLine int, sourceLines []string) string {
-	var result strings.Builder
-
-	for _, elem := range elements {
-		if decorator, ok := elem.(*parser.DecoratorElement); ok {
-			switch decorator.Name {
-			case "var":
-				if len(decorator.Args) > 0 {
-					varName := processElementsWithContext(decorator.Args, definitions, cmdName, cmdLine, sourceLines)
-					if value, exists := definitions[varName]; exists {
-						result.WriteString(value)
-					} else {
-						result.WriteString(decorator.String())
-					}
-				} else {
-					result.WriteString(decorator.String())
-				}
-			case "sh":
-				if len(decorator.Args) > 0 {
-					result.WriteString(processElementsWithContext(decorator.Args, definitions, cmdName, cmdLine, sourceLines))
-				} else {
-					result.WriteString(decorator.String())
-				}
-			default:
-				result.WriteString(decorator.String())
-			}
-		} else {
-			result.WriteString(expandVariablesInText(elem.String(), definitions))
-		}
-	}
-
-	return result.String()
 }
 
 // sanitizeFunctionName converts command names to valid Go function names
@@ -721,10 +560,10 @@ func sanitizeFunctionName(name string) string {
 	return "run" + funcName
 }
 
-// GenerateGo creates a Go CLI from a CommandFile using the composable template system with standard library support
-func GenerateGo(cf *parser.CommandFile) (string, error) {
-	// Preprocess the command file into template-ready data
-	data, err := PreprocessCommands(cf)
+// GenerateGo creates a Go CLI from a Program using the composable template system with standard library support
+func GenerateGo(program *ast.Program) (string, error) {
+	// Preprocess the program into template-ready data
+	data, err := PreprocessCommands(program)
 	if err != nil {
 		return "", fmt.Errorf("failed to preprocess commands: %w", err)
 	}
@@ -822,13 +661,13 @@ func (tr *TemplateRegistry) GetAllTemplates() string {
 }
 
 // GenerateGoWithTemplate creates a Go CLI with a custom template (for testing)
-func GenerateGoWithTemplate(cf *parser.CommandFile, templateStr string) (string, error) {
+func GenerateGoWithTemplate(program *ast.Program, templateStr string) (string, error) {
 	if len(strings.TrimSpace(templateStr)) == 0 {
 		return "", fmt.Errorf("template string cannot be empty")
 	}
 
-	// Preprocess the command file
-	data, err := PreprocessCommands(cf)
+	// Preprocess the program
+	data, err := PreprocessCommands(program)
 	if err != nil {
 		return "", fmt.Errorf("failed to preprocess commands: %w", err)
 	}
@@ -859,9 +698,9 @@ func GetTemplateComponent(name string) (string, error) {
 }
 
 // GenerateComponentGo generates Go code using only specific template components
-func GenerateComponentGo(cf *parser.CommandFile, componentNames []string) (string, error) {
-	// Preprocess the command file into template-ready data
-	data, err := PreprocessCommands(cf)
+func GenerateComponentGo(program *ast.Program, componentNames []string) (string, error) {
+	// Preprocess the program into template-ready data
+	data, err := PreprocessCommands(program)
 	if err != nil {
 		return "", fmt.Errorf("failed to preprocess commands: %w", err)
 	}
