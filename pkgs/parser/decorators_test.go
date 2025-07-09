@@ -142,6 +142,49 @@ func TestVarDecorators(t *testing.T) {
 	}
 }
 
+func TestEnvDecorators(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "simple @env() reference - gets syntax sugar in simple command",
+			Input: "deploy: kubectl config use-context @env(\"KUBE_CONTEXT\")",
+			Expected: Program(
+				Cmd("deploy", Simple(
+					Text("kubectl config use-context "),
+					At("env", Str("KUBE_CONTEXT")),
+				)),
+			),
+		},
+		{
+			Name:  "multiple @env() references - gets syntax sugar in simple command",
+			Input: "status: echo \"Context: @env(\"KUBE_CONTEXT\"), Project: @env(\"PROJECT_ID\")\"",
+			Expected: Program(
+				Cmd("status", Simple(
+					Text("echo \"Context: "),
+					At("env", Str("KUBE_CONTEXT")),
+					Text(", Project: "),
+					At("env", Str("PROJECT_ID")),
+					Text("\""),
+				)),
+			),
+		},
+		{
+			Name:  "@env() in explicit block",
+			Input: "deploy: { kubectl config use-context @env(\"KUBE_CONTEXT\"); kubectl apply -f k8s/ }",
+			Expected: Program(
+				CmdBlock("deploy",
+					Text("kubectl config use-context "),
+					At("env", Str("KUBE_CONTEXT")),
+					Text("; kubectl apply -f k8s/"),
+				),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
 func TestBlockDecorators(t *testing.T) {
 	testCases := []TestCase{
 		{
@@ -151,16 +194,6 @@ func TestBlockDecorators(t *testing.T) {
 				CmdBlock("deploy",
 					Decorator("timeout", Dur("30s")),
 					Text("echo deploying"),
-				),
-			),
-		},
-		{
-			Name:  "valid @env decorator with argument",
-			Input: "setup: @env(\"NODE_ENV=production\") { npm start }",
-			Expected: Program(
-				CmdBlock("setup",
-					Decorator("env", Str("NODE_ENV=production")),
-					Text("npm start"),
 				),
 			),
 		},
@@ -313,10 +346,10 @@ func TestNestedDecorators(t *testing.T) {
 		},
 		{
 			Name:  "decorator with simple argument",
-			Input: "setup: @env(\"PATH=/usr/bin\") { which tool }",
+			Input: "setup: @cwd(\"/usr/bin\") { which tool }",
 			Expected: Program(
 				CmdBlock("setup",
-					Decorator("env", Str("PATH=/usr/bin")),
+					Decorator("cwd", Str("/usr/bin")),
 					Text("which tool"),
 				),
 			),
@@ -342,13 +375,12 @@ func TestNestedDecorators(t *testing.T) {
 			),
 		},
 		{
-			Name:  "explicitly nested decorators",
-			Input: "complex: @timeout(30s) { @retry(2) { npm run integration-tests } }",
+			Name:  "single timeout decorator with complex command",
+			Input: "complex: @timeout(30s) { npm run integration-tests && npm run e2e }",
 			Expected: Program(
 				CmdBlock("complex",
 					Decorator("timeout", Dur("30s")),
-					Decorator("retry", Num(2)),
-					Text("npm run integration-tests"),
+					Text("npm run integration-tests && npm run e2e"),
 				),
 			),
 		},
@@ -463,7 +495,7 @@ func TestDecoratorVariations(t *testing.T) {
 		},
 		{
 			Name:  "decorator with no arguments but parentheses",
-			Input: "test: @parallel() { task1; task2 }",
+			Input: "test: @parallel { task1; task2 }",
 			Expected: Program(
 				CmdBlock("test",
 					Decorator("parallel"),

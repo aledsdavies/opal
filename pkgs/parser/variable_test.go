@@ -305,18 +305,16 @@ test: @timeout(TIMEOUT) { npm test }`,
 			),
 		},
 		{
-			Name:  "complex variable usage with multiple decorators",
-			Input: `var ENV = "production"
-var TIME = 5m
-deploy: @env(NODE_ENV=production) @timeout(TIME) { npm run deploy }`,
+			Name:  "environment variable substitution with @env",
+			Input: `var TIME = 5m
+deploy: NODE_ENV=@env("NODE_ENV") npm run deploy`,
 			Expected: Program(
-				Var("ENV", Str("production")),
 				Var("TIME", Dur("5m")),
-				CmdBlock("deploy",
-					Decorator("env", Id("NODE_ENV=production")),
-					Decorator("timeout", Id("TIME")),
-					Text("npm run deploy"),
-				),
+				Cmd("deploy", Simple(
+					Text("NODE_ENV="),
+					At("env", Str("NODE_ENV")),
+					Text(" npm run deploy"),
+				)),
 			),
 		},
 		{

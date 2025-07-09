@@ -95,6 +95,16 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 		},
 	})
 
+	r.register(&DecoratorSignature{
+		Name:        "env",
+		Type:        FunctionDecorator,
+		Semantic:    SemFunction,
+		Description: "Environment variable substitution - replaces with environment variable value",
+		Args: []ArgumentSpec{
+			{Name: "name", Type: StringArg, Optional: false},
+		},
+	})
+
 	// Block Decorators - modify execution behavior and require explicit blocks
 	r.register(&DecoratorSignature{
 		Name:          "parallel",

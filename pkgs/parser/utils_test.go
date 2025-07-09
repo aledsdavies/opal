@@ -21,29 +21,6 @@ func init() {
 func registerTestOnlyDecorators() {
 	// Only register decorators that don't exist in stdlib and are needed for tests
 
-	// Additional function decorators needed for tests
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:        "env",
-		Type:        stdlib.FunctionDecorator,
-		Semantic:    stdlib.SemFunction,
-		Description: "Environment variable substitution",
-		Args: []stdlib.ArgumentSpec{
-			{Name: "name", Type: stdlib.IdentifierArg, Optional: false},
-		},
-	})
-
-	// Additional block decorators needed for tests (not in stdlib)
-	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
-		Name:          "env",
-		Type:          stdlib.BlockDecorator,
-		Semantic:      stdlib.SemDecorator,
-		Description:   "Sets environment variables for command execution",
-		RequiresBlock: true,
-		Args: []stdlib.ArgumentSpec{
-			{Name: "vars", Type: stdlib.StringArg, Optional: false},
-		},
-	})
-
 	stdlib.RegisterDecorator(&stdlib.DecoratorSignature{
 		Name:          "confirm",
 		Type:          stdlib.BlockDecorator,
