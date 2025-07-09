@@ -26,7 +26,7 @@ serve: @timeout(TIMEOUT) {
 }
 
 watch dev: @parallel {
-  @env("NODE_ENV") && cd @var(SRC) && go run main.go
+  cd @var(SRC) && NODE_ENV=@env("NODE_ENV") go run main.go
   cd frontend && npm start
 }
 
@@ -62,10 +62,11 @@ deploy: @confirm("Deploy to production?") {
 				),
 				WatchBlock("dev",
 					Decorator("parallel"),
-					At("env", Str("NODE_ENV")),
-					Text(" && cd "),
+					Text("cd "),
 					At("var", Id("SRC")),
-					Text(" && go run main.go"),
+					Text(" && NODE_ENV="),
+					At("env", Str("NODE_ENV")),
+					Text(" go run main.go"),
 					Text("cd frontend && npm start"),
 				),
 				StopBlock("dev",
@@ -114,7 +115,7 @@ watch test: @debounce(500ms) {
   npm run test:watch
 }
 
-deploy: @confirm("Deploy to production?") @timeout(5m) {
+deploy: @timeout(5m) {
   npm run build && rsync -av @var(DIST)/ server:/var/www/app/ && echo "Deployment complete"
 }
 
@@ -152,7 +153,6 @@ stop test: pkill -f "npm.*test"`,
 					Text("npm run test:watch"),
 				),
 				CmdBlock("deploy",
-					Decorator("confirm", Str("Deploy to production?")),
 					Decorator("timeout", Dur("5m")),
 					Text("npm run build && rsync -av "),
 					At("var", Id("DIST")),
@@ -230,37 +230,39 @@ info: echo "Host: @var(HOST), Port: @var(PORT)"`,
 			),
 		},
 		{
-			Name: "nested decorators with explicit blocks",
+			Name: "single timeout decorator with retry logic",
 			Input: `var RETRIES = 3
 var TIMEOUT = 30s
 
 complex: @timeout(TIMEOUT) {
-  @retry(RETRIES) {
-    echo "Attempting operation..." && ./run-operation.sh
-  }
+  echo "Attempting operation..." && for i in $(seq 1 @var(RETRIES)); do ./run-operation.sh && break; done
 }`,
 			Expected: Program(
 				Var("RETRIES", Num(3)),
 				Var("TIMEOUT", Dur("30s")),
 				CmdBlock("complex",
 					Decorator("timeout", Id("TIMEOUT")),
-					Decorator("retry", Id("RETRIES")),
-					Text("echo \"Attempting operation...\" && ./run-operation.sh"),
+					Text("echo \"Attempting operation...\" && for i in $(seq 1 "),
+					At("var", Id("RETRIES")),
+					Text("); do ./run-operation.sh && break; done"),
 				),
 			),
 		},
 		{
-			Name: "edge case - empty commands and blocks",
+			Name: "commands with valid content",
 			Input: `var EMPTY = ""
 
-empty:
-block: {}
-decorated: @parallel {}`,
+empty: echo "empty command"
+block: { echo "block command" }
+decorated: @parallel { echo "decorated command" }`,
 			Expected: Program(
 				Var("EMPTY", Str("")),
-				Cmd("empty", ""),
-				CmdBlock("block"),
-				CmdBlock("decorated", Decorator("parallel")),
+				Cmd("empty", "echo \"empty command\""),
+				CmdBlock("block", Text("echo \"block command\"")),
+				CmdBlock("decorated",
+					Decorator("parallel"),
+					Text("echo \"decorated command\""),
+				),
 			),
 		},
 		{

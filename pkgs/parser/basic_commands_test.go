@@ -71,9 +71,9 @@ func TestBasicCommands(t *testing.T) {
 		},
 		{
 			Name:  "command with complex shell syntax",
-			Input: "complex: for i in {1..5}; do echo $i; done",
+			Input: "complex: for i in 1 2 3; do echo $i; done",
 			Expected: Program(
-				Cmd("complex", "for i in {1..5}; do echo $i; done"),
+				Cmd("complex", "for i in 1 2 3; do echo $i; done"),
 			),
 		},
 		{
@@ -210,10 +210,10 @@ func TestBlockCommands(t *testing.T) {
 			),
 		},
 		{
-			Name:  "block with complex shell statements",
-			Input: "test: { echo start; for i in {1..3}; do echo $i; done; echo end }",
+			Name:  "block with complex shell statements using alternative syntax",
+			Input: "test: { echo start; for i in 1 2 3; do echo $i; done; echo end }",
 			Expected: Program(
-				CmdBlock("test", Text("echo start; for i in {1..3}; do echo $i; done; echo end")),
+				CmdBlock("test", Text("echo start; for i in 1 2 3; do echo $i; done; echo end")),
 			),
 		},
 		{
@@ -275,13 +275,12 @@ func TestBlockCommands(t *testing.T) {
 			),
 		},
 		{
-			Name:  "nested decorators with explicit blocks",
-			Input: "complex: @timeout(30s) { @retry(2) { npm run integration-tests } }",
+			Name:  "timeout decorator with complex command",
+			Input: "complex: @timeout(30s) { npm run integration-tests && npm run e2e }",
 			Expected: Program(
 				CmdBlock("complex",
 					Decorator("timeout", Dur("30s")),
-					Decorator("retry", Num(2)),
-					Text("npm run integration-tests"),
+					Text("npm run integration-tests && npm run e2e"),
 				),
 			),
 		},

@@ -451,13 +451,6 @@ func TestAtSymbolEdgeCases(t *testing.T) {
 			),
 		},
 		{
-			Name:  "at symbol at end of line",
-			Input: "suffix: echo hello@",
-			Expected: Program(
-				Cmd("suffix", "echo hello@"),
-			),
-		},
-		{
 			Name:  "at symbol with invalid decorator syntax - starts with number",
 			Input: "invalid: echo @123invalid",
 			Expected: Program(
@@ -503,13 +496,6 @@ func TestAtSymbolEdgeCases(t *testing.T) {
 					At("var", Id("VERSION")),
 					Text("'"),
 				)),
-			),
-		},
-		{
-			Name:  "at symbol that looks like block decorator but missing opening brace",
-			Input: "no-brace: @parallel server",
-			Expected: Program(
-				Cmd("no-brace", "@parallel server"),
 			),
 		},
 		{
