@@ -92,6 +92,111 @@ func registerTestOnlyDecorators() {
 	})
 }
 
+// Test helper types for the new CST structure
+type ExpectedProgram struct {
+	Variables []ExpectedVariable
+	Commands  []ExpectedCommand
+}
+
+type ExpectedVariable struct {
+	Name  string
+	Value ExpectedExpression
+}
+
+type ExpectedCommand struct {
+	Name string
+	Type ast.CommandType
+	Body ExpectedCommandBody
+}
+
+type ExpectedCommandBody struct {
+	IsBlock bool
+	Content []ExpectedCommandContent // Now supports multiple content items
+}
+
+type ExpectedCommandContent interface {
+	IsExpectedCommandContent() bool
+}
+
+type ExpectedShellContent struct {
+	Parts []ExpectedShellPart
+}
+
+func (s ExpectedShellContent) IsExpectedCommandContent() bool { return true }
+
+type ExpectedDecoratedContent struct {
+	Decorators []ExpectedDecorator
+	Content    ExpectedCommandContent
+}
+
+func (d ExpectedDecoratedContent) IsExpectedCommandContent() bool { return true }
+
+type ExpectedPatternContent struct {
+	Decorator ExpectedDecorator
+	Branches  []ExpectedPatternBranch
+}
+
+func (p ExpectedPatternContent) IsExpectedCommandContent() bool { return true }
+
+// ExpectedBlockContent represents multiple commands within a decorator block
+type ExpectedBlockContent struct {
+	Commands []ExpectedCommandContent
+}
+
+func (b ExpectedBlockContent) IsExpectedCommandContent() bool { return true }
+
+type ExpectedPatternBranch struct {
+	Pattern  ExpectedPattern
+	Commands []ExpectedCommandContent // Updated to match AST structure
+}
+
+type ExpectedPattern interface {
+	IsExpectedPattern() bool
+}
+
+type ExpectedIdentifierPattern struct {
+	Name string
+}
+
+func (i ExpectedIdentifierPattern) IsExpectedPattern() bool { return true }
+
+type ExpectedWildcardPattern struct{}
+
+func (w ExpectedWildcardPattern) IsExpectedPattern() bool { return true }
+
+type ExpectedShellPart struct {
+	Type              string
+	Text              string
+	FunctionDecorator *ExpectedFunctionDecorator
+}
+
+type ExpectedDecorator struct {
+	Name string
+	Args []ExpectedExpression
+}
+
+type ExpectedFunctionDecorator struct {
+	Name string
+	Args []ExpectedExpression
+}
+
+type ExpectedExpression struct {
+	Type  string
+	Value string
+	// For function decorators
+	Name string                `json:"name,omitempty"`
+	Args []ExpectedExpression `json:"args,omitempty"`
+}
+
+// Test case structure
+type TestCase struct {
+	Name        string
+	Input       string
+	WantErr     bool
+	ErrorSubstr string
+	Expected    ExpectedProgram
+}
+
 // DSL for building expected test results using natural language
 
 // Program creates an expected program
@@ -209,37 +314,14 @@ func Cmd(name string, body interface{}) ExpectedCommand {
 			Type: ast.Command,
 			Body: ExpectedCommandBody{
 				IsBlock: false,
-				Content: ExpectedShellContent{
-					Parts: []ExpectedShellPart{
-						Text("ERROR: Cmd() is for simple commands only. Use CmdBlock() for explicit block syntax"),
+				Content: []ExpectedCommandContent{
+					ExpectedShellContent{
+						Parts: []ExpectedShellPart{
+							Text("ERROR: Cmd() is for simple commands only. Use CmdBlock() for explicit block syntax"),
+						},
 					},
 				},
 			},
-		}
-	}
-
-	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
-	// Function decorators (@var) are allowed in simple commands
-	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
-		for _, part := range shellContent.Parts {
-			if part.Type == "function_decorator" {
-				// Function decorators are allowed in simple commands - they get syntax sugar
-				if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
-					// Instead of panic, return an error command
-					return ExpectedCommand{
-						Name: name,
-						Type: ast.Command,
-						Body: ExpectedCommandBody{
-							IsBlock: false,
-							Content: ExpectedShellContent{
-								Parts: []ExpectedShellPart{
-									Text("ERROR: Cmd() cannot contain block decorators. Block decorators require explicit block syntax - use CmdBlock() instead"),
-								},
-							},
-						},
-					}
-				}
-			}
 		}
 	}
 
@@ -263,37 +345,14 @@ func Watch(name string, body interface{}) ExpectedCommand {
 			Type: ast.WatchCommand,
 			Body: ExpectedCommandBody{
 				IsBlock: false,
-				Content: ExpectedShellContent{
-					Parts: []ExpectedShellPart{
-						Text("ERROR: Watch() is for simple commands only. Use WatchBlock() for explicit block syntax"),
+				Content: []ExpectedCommandContent{
+					ExpectedShellContent{
+						Parts: []ExpectedShellPart{
+							Text("ERROR: Watch() is for simple commands only. Use WatchBlock() for explicit block syntax"),
+						},
 					},
 				},
 			},
-		}
-	}
-
-	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
-	// Function decorators (@var) are allowed in simple commands
-	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
-		for _, part := range shellContent.Parts {
-			if part.Type == "function_decorator" {
-				// Function decorators are allowed in simple commands - they get syntax sugar
-				if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
-					// Instead of panic, return an error command
-					return ExpectedCommand{
-						Name: name,
-						Type: ast.WatchCommand,
-						Body: ExpectedCommandBody{
-							IsBlock: false,
-							Content: ExpectedShellContent{
-								Parts: []ExpectedShellPart{
-									Text("ERROR: Watch() cannot contain block decorators. Block decorators require explicit block syntax - use WatchBlock() instead"),
-								},
-							},
-						},
-					}
-				}
-			}
 		}
 	}
 
@@ -311,7 +370,7 @@ func WatchBlock(name string, content ...interface{}) ExpectedCommand {
 		Type: ast.WatchCommand,
 		Body: ExpectedCommandBody{
 			IsBlock: true,
-			Content: toCommandContent(content...),
+			Content: toMultipleCommandContent(content...),
 		},
 	}
 }
@@ -329,37 +388,14 @@ func Stop(name string, body interface{}) ExpectedCommand {
 			Type: ast.StopCommand,
 			Body: ExpectedCommandBody{
 				IsBlock: false,
-				Content: ExpectedShellContent{
-					Parts: []ExpectedShellPart{
-						Text("ERROR: Stop() is for simple commands only. Use StopBlock() for explicit block syntax"),
+				Content: []ExpectedCommandContent{
+					ExpectedShellContent{
+						Parts: []ExpectedShellPart{
+							Text("ERROR: Stop() is for simple commands only. Use StopBlock() for explicit block syntax"),
+						},
 					},
 				},
 			},
-		}
-	}
-
-	// Check if the content contains BLOCK decorators - this would violate syntax sugar rules
-	// Function decorators (@var) are allowed in simple commands
-	if shellContent, ok := cmdBody.Content.(ExpectedShellContent); ok {
-		for _, part := range shellContent.Parts {
-			if part.Type == "function_decorator" {
-				// Function decorators are allowed in simple commands - they get syntax sugar
-				if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
-					// Instead of panic, return an error command
-					return ExpectedCommand{
-						Name: name,
-						Type: ast.StopCommand,
-						Body: ExpectedCommandBody{
-							IsBlock: false,
-							Content: ExpectedShellContent{
-								Parts: []ExpectedShellPart{
-									Text("ERROR: Stop() cannot contain block decorators. Block decorators require explicit block syntax - use StopBlock() instead"),
-								},
-							},
-						},
-					}
-				}
-			}
 		}
 	}
 
@@ -377,7 +413,7 @@ func StopBlock(name string, content ...interface{}) ExpectedCommand {
 		Type: ast.StopCommand,
 		Body: ExpectedCommandBody{
 			IsBlock: true,
-			Content: toCommandContent(content...),
+			Content: toMultipleCommandContent(content...),
 		},
 	}
 }
@@ -389,7 +425,7 @@ func CmdBlock(name string, content ...interface{}) ExpectedCommand {
 		Type: ast.Command,
 		Body: ExpectedCommandBody{
 			IsBlock: true,
-			Content: toCommandContent(content...),
+			Content: toMultipleCommandContent(content...),
 		},
 	}
 }
@@ -398,7 +434,7 @@ func CmdBlock(name string, content ...interface{}) ExpectedCommand {
 func Block(content ...interface{}) ExpectedCommandBody {
 	return ExpectedCommandBody{
 		IsBlock: true,
-		Content: toCommandContent(content...),
+		Content: toMultipleCommandContent(content...),
 	}
 }
 
@@ -416,9 +452,11 @@ func Simple(parts ...interface{}) ExpectedCommandBody {
 				// Instead of panic, return an error body
 				return ExpectedCommandBody{
 					IsBlock: false,
-					Content: ExpectedShellContent{
-						Parts: []ExpectedShellPart{
-							Text("ERROR: Simple() command bodies cannot contain block decorators. Per spec: 'Block decorators require explicit braces' - use Block() instead"),
+					Content: []ExpectedCommandContent{
+						ExpectedShellContent{
+							Parts: []ExpectedShellPart{
+								Text("ERROR: Simple() command bodies cannot contain block decorators. Per spec: 'Block decorators require explicit braces' - use Block() instead"),
+							},
 						},
 					},
 				}
@@ -428,8 +466,10 @@ func Simple(parts ...interface{}) ExpectedCommandBody {
 
 	return ExpectedCommandBody{
 		IsBlock: false,
-		Content: ExpectedShellContent{
-			Parts: shellParts,
+		Content: []ExpectedCommandContent{
+			ExpectedShellContent{
+				Parts: shellParts,
+			},
 		},
 	}
 }
@@ -465,16 +505,6 @@ func At(name string, args ...interface{}) ExpectedShellPart {
 			Name: name,
 			Args: decoratorArgs,
 		},
-	}
-}
-
-// FuncDecorator is no longer valid - function decorators are not allowed as decorator arguments
-// Use direct variable names instead: @timeout(DURATION) not @timeout(@var(DURATION))
-// This function is kept for backwards compatibility but will return an error
-func FuncDecorator(name string, args ...interface{}) ExpectedExpression {
-	return ExpectedExpression{
-		Type:  "identifier",
-		Value: fmt.Sprintf("ERROR: FuncDecorator() is no longer valid. Use direct variable names in decorator arguments instead of @%s(...)", name),
 	}
 }
 
@@ -534,7 +564,7 @@ func Pattern(decorator ExpectedDecorator, branches ...ExpectedPatternBranch) Exp
 }
 
 // Branch creates a pattern branch: pattern: command
-func Branch(pattern interface{}, command interface{}) ExpectedPatternBranch {
+func Branch(pattern interface{}, commands ...interface{}) ExpectedPatternBranch {
 	var patternObj ExpectedPattern
 
 	switch p := pattern.(type) {
@@ -550,9 +580,15 @@ func Branch(pattern interface{}, command interface{}) ExpectedPatternBranch {
 		patternObj = ExpectedIdentifierPattern{Name: fmt.Sprintf("%v", p)}
 	}
 
+	// Convert commands to array of CommandContent
+	var commandArray []ExpectedCommandContent
+	for _, cmd := range commands {
+		commandArray = append(commandArray, toSingleCommandContent(cmd))
+	}
+
 	return ExpectedPatternBranch{
-		Pattern: patternObj,
-		Command: toCommandContent(command),
+		Pattern:  patternObj,
+		Commands: commandArray,
 	}
 }
 
@@ -566,16 +602,54 @@ func PatternId(name string) ExpectedPattern {
 	return ExpectedIdentifierPattern{Name: name}
 }
 
-// validateDecoratorsForNestedUsage validates that decorators can only be used in explicit blocks
-func validateDecoratorsForNestedUsage(decorators []ExpectedDecorator) {
-	// Note: Multiple decorators are allowed in CmdBlock context as they represent
-	// explicit nesting like: @timeout(30s) { @retry(2) { ... } }
-	// The parser will handle the actual nesting validation
+// New DSL functions for multiple content support
 
-	for _, decorator := range decorators {
-		if stdlib.RequiresExplicitBlock(decorator.Name) {
-			// This will be validated at the call site to ensure explicit braces
+// Shell creates a shell content item
+func Shell(parts ...interface{}) ExpectedCommandContent {
+	return ExpectedShellContent{
+		Parts: toShellParts(parts...),
+	}
+}
+
+// DecoratedShell creates decorated shell content: @timeout(30s) npm run build
+func DecoratedShell(decorator ExpectedDecorator, parts ...interface{}) ExpectedCommandContent {
+	return ExpectedDecoratedContent{
+		Decorators: []ExpectedDecorator{decorator},
+		Content: Shell(parts...),
+	}
+}
+
+// DecoratedBlock creates decorated content with multiple inner content: @parallel { shell1; shell2 }
+func DecoratedBlock(decorator ExpectedDecorator, content ...interface{}) ExpectedCommandContent {
+	// If there's only one item and it's already CommandContent, use it directly
+	if len(content) == 1 {
+		if singleContent, ok := content[0].(ExpectedCommandContent); ok {
+			return ExpectedDecoratedContent{
+				Decorators: []ExpectedDecorator{decorator},
+				Content:    singleContent,
+			}
 		}
+	}
+
+	// For multiple items, create separate shell commands within a block
+	var commands []ExpectedCommandContent
+	for _, item := range content {
+		commands = append(commands, toSingleCommandContent(item))
+	}
+
+	return ExpectedDecoratedContent{
+		Decorators: []ExpectedDecorator{decorator},
+		Content: ExpectedBlockContent{
+			Commands: commands,
+		},
+	}
+}
+
+// MultiDecorated creates content with multiple decorators: @timeout(30s) @retry(3) { ... }
+func MultiDecorated(decorators []ExpectedDecorator, content interface{}) ExpectedCommandContent {
+	return ExpectedDecoratedContent{
+		Decorators: decorators,
+		Content:    toSingleCommandContent(content),
 	}
 }
 
@@ -630,7 +704,9 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 		if val == "" {
 			return ExpectedCommandBody{
 				IsBlock: false,
-				Content: ExpectedShellContent{Parts: []ExpectedShellPart{}},
+				Content: []ExpectedCommandContent{
+					ExpectedShellContent{Parts: []ExpectedShellPart{}},
+				},
 			}
 		}
 		// Simple string becomes simple command body (gets syntax sugar)
@@ -645,9 +721,11 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 					// Instead of panic, return an error body
 					return ExpectedCommandBody{
 						IsBlock: true, // Force block to avoid syntax sugar issues
-						Content: ExpectedShellContent{
-							Parts: []ExpectedShellPart{
-								Text("ERROR: Shell content with block decorators requires explicit block syntax"),
+						Content: []ExpectedCommandContent{
+							ExpectedShellContent{
+								Parts: []ExpectedShellPart{
+									Text("ERROR: Shell content with block decorators requires explicit block syntax"),
+								},
 							},
 						},
 					}
@@ -656,78 +734,126 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 		}
 		return ExpectedCommandBody{
 			IsBlock: false,
-			Content: val,
+			Content: []ExpectedCommandContent{val},
 		}
 	case ExpectedDecoratedContent:
 		// Decorated content ALWAYS requires explicit blocks per spec
 		return ExpectedCommandBody{
 			IsBlock: true,
-			Content: val,
+			Content: []ExpectedCommandContent{val},
 		}
 	case ExpectedPatternContent:
 		// Pattern content ALWAYS requires explicit blocks per spec
 		return ExpectedCommandBody{
 			IsBlock: true,
-			Content: val,
+			Content: []ExpectedCommandContent{val},
 		}
 	default:
 		return ExpectedCommandBody{
 			IsBlock: false,
-			Content: ExpectedShellContent{
-				Parts: []ExpectedShellPart{},
+			Content: []ExpectedCommandContent{
+				ExpectedShellContent{
+					Parts: []ExpectedShellPart{},
+				},
 			},
 		}
 	}
 }
 
-func toCommandContent(items ...interface{}) ExpectedCommandContent {
+// toMultipleCommandContent converts variadic args to array of command content
+func toMultipleCommandContent(items ...interface{}) []ExpectedCommandContent {
 	if len(items) == 0 {
-		return ExpectedShellContent{Parts: []ExpectedShellPart{}}
+		return []ExpectedCommandContent{}
 	}
 
-	var decorators []ExpectedDecorator
-	var contentStart int
+	var contentItems []ExpectedCommandContent
 
-	// Check if the first item is a pattern decorator
-	if len(items) > 0 {
-		if patternContent, ok := items[0].(ExpectedPatternContent); ok {
-			return patternContent
+	i := 0
+	for i < len(items) {
+		item := items[i]
+
+		// Check if this is already a CommandContent
+		if content, ok := item.(ExpectedCommandContent); ok {
+			contentItems = append(contentItems, content)
+			i++
+			continue
 		}
+
+		// Check if this is a decorator followed by content
+		if decorator, ok := item.(ExpectedDecorator); ok {
+			// Look for content after the decorator
+			if i+1 < len(items) {
+				nextItem := items[i+1]
+
+				// If next item is also a decorator, this decorator has no content
+				if _, isDecorator := nextItem.(ExpectedDecorator); isDecorator {
+					// Decorator with no content - create empty shell content
+					contentItems = append(contentItems, ExpectedDecoratedContent{
+						Decorators: []ExpectedDecorator{decorator},
+						Content:    ExpectedShellContent{Parts: []ExpectedShellPart{}},
+					})
+					i++
+					continue
+				}
+
+				// If next item is CommandContent, use it directly
+				if content, ok := nextItem.(ExpectedCommandContent); ok {
+					contentItems = append(contentItems, ExpectedDecoratedContent{
+						Decorators: []ExpectedDecorator{decorator},
+						Content:    content,
+					})
+					i += 2
+					continue
+				}
+
+				// Otherwise, convert next item to shell content
+				shellContent := toSingleCommandContent(nextItem)
+				contentItems = append(contentItems, ExpectedDecoratedContent{
+					Decorators: []ExpectedDecorator{decorator},
+					Content:    shellContent,
+				})
+				i += 2
+				continue
+			} else {
+				// Decorator at end with no content
+				contentItems = append(contentItems, ExpectedDecoratedContent{
+					Decorators: []ExpectedDecorator{decorator},
+					Content:    ExpectedShellContent{Parts: []ExpectedShellPart{}},
+				})
+				i++
+				continue
+			}
+		}
+
+		// Convert other items to shell content
+		contentItems = append(contentItems, toSingleCommandContent(item))
+		i++
 	}
 
-	// Collect all leading decorators
-	for i, item := range items {
-		if dec, ok := item.(ExpectedDecorator); ok {
-			decorators = append(decorators, dec)
-			contentStart = i + 1
-		} else {
-			break
+	return contentItems
+}
+
+// toSingleCommandContent converts a single item to CommandContent
+func toSingleCommandContent(item interface{}) ExpectedCommandContent {
+	switch val := item.(type) {
+	case ExpectedCommandContent:
+		return val
+	case string:
+		return ExpectedShellContent{
+			Parts: []ExpectedShellPart{Text(val)},
 		}
-	}
-
-	// If we have decorators, create decorated content
-	if len(decorators) > 0 {
-		// Validate decorator usage - but allow multiple decorators in CmdBlock context
-		// This is for explicit nesting like: @timeout(30s) { @retry(2) { ... } }
-		// which becomes: CmdBlock("cmd", Decorator("timeout", "30s"), Decorator("retry", "2"), Text(...))
-
-		// Rest is the content
-		var content ExpectedCommandContent
-		if contentStart < len(items) {
-			content = toCommandContent(items[contentStart:]...)
-		} else {
-			content = ExpectedShellContent{Parts: []ExpectedShellPart{}}
+	case ExpectedShellPart:
+		return ExpectedShellContent{
+			Parts: []ExpectedShellPart{val},
 		}
-
-		return ExpectedDecoratedContent{
-			Decorators: decorators,
-			Content:    content,
+	case []ExpectedShellPart:
+		return ExpectedShellContent{
+			Parts: val,
 		}
-	}
-
-	// This is shell content
-	return ExpectedShellContent{
-		Parts: toShellParts(items...),
+	default:
+		return ExpectedShellContent{
+			Parts: []ExpectedShellPart{Text(fmt.Sprintf("%v", val))},
+		}
 	}
 }
 
@@ -755,125 +881,6 @@ func toShellParts(items ...interface{}) []ExpectedShellPart {
 		}
 	}
 	return parts
-}
-
-func toDecorators(v interface{}) []ExpectedDecorator {
-	switch val := v.(type) {
-	case ExpectedDecorator:
-		return []ExpectedDecorator{val}
-	case []ExpectedDecorator:
-		// Allow multiple decorators - this represents explicit nesting
-		return val
-	case []interface{}:
-		var decorators []ExpectedDecorator
-		for _, item := range val {
-			if dec, ok := item.(ExpectedDecorator); ok {
-				decorators = append(decorators, dec)
-			}
-		}
-		// Allow multiple decorators - parser will handle nesting validation
-		return decorators
-	default:
-		return []ExpectedDecorator{}
-	}
-}
-
-// Test helper types for the new CST structure
-type ExpectedProgram struct {
-	Variables []ExpectedVariable
-	Commands  []ExpectedCommand
-}
-
-type ExpectedVariable struct {
-	Name  string
-	Value ExpectedExpression
-}
-
-type ExpectedCommand struct {
-	Name string
-	Type ast.CommandType
-	Body ExpectedCommandBody
-}
-
-type ExpectedCommandBody struct {
-	IsBlock bool
-	Content ExpectedCommandContent
-}
-
-type ExpectedCommandContent interface {
-	IsExpectedCommandContent() bool
-}
-
-type ExpectedShellContent struct {
-	Parts []ExpectedShellPart
-}
-
-func (s ExpectedShellContent) IsExpectedCommandContent() bool { return true }
-
-type ExpectedDecoratedContent struct {
-	Decorators []ExpectedDecorator
-	Content    ExpectedCommandContent
-}
-
-func (d ExpectedDecoratedContent) IsExpectedCommandContent() bool { return true }
-
-type ExpectedPatternContent struct {
-	Decorator ExpectedDecorator
-	Branches  []ExpectedPatternBranch
-}
-
-func (p ExpectedPatternContent) IsExpectedCommandContent() bool { return true }
-
-type ExpectedPatternBranch struct {
-	Pattern ExpectedPattern
-	Command ExpectedCommandContent
-}
-
-type ExpectedPattern interface {
-	IsExpectedPattern() bool
-}
-
-type ExpectedIdentifierPattern struct {
-	Name string
-}
-
-func (i ExpectedIdentifierPattern) IsExpectedPattern() bool { return true }
-
-type ExpectedWildcardPattern struct{}
-
-func (w ExpectedWildcardPattern) IsExpectedPattern() bool { return true }
-
-type ExpectedShellPart struct {
-	Type              string
-	Text              string
-	FunctionDecorator *ExpectedFunctionDecorator
-}
-
-type ExpectedDecorator struct {
-	Name string
-	Args []ExpectedExpression
-}
-
-type ExpectedFunctionDecorator struct {
-	Name string
-	Args []ExpectedExpression
-}
-
-type ExpectedExpression struct {
-	Type  string
-	Value string
-	// For function decorators
-	Name string                `json:"name,omitempty"`
-	Args []ExpectedExpression `json:"args,omitempty"`
-}
-
-// Test case structure
-type TestCase struct {
-	Name        string
-	Input       string
-	WantErr     bool
-	ErrorSubstr string
-	Expected    ExpectedProgram
 }
 
 // flattenVariables collects all variables from individual and grouped declarations
@@ -1081,9 +1088,13 @@ func commandContentToComparable(content ast.CommandContent) interface{} {
 
 		branches := make([]interface{}, len(c.Patterns))
 		for i, branch := range c.Patterns {
+			commandArray := make([]interface{}, len(branch.Commands))
+			for j, cmd := range branch.Commands {
+				commandArray[j] = commandContentToComparable(cmd)
+			}
 			branches[i] = map[string]interface{}{
-				"Pattern": patternToComparable(branch.Pattern),
-				"Command": commandContentToComparable(branch.Command),
+				"Pattern":  patternToComparable(branch.Pattern),
+				"Commands": commandArray,
 			}
 		}
 
@@ -1093,6 +1104,8 @@ func commandContentToComparable(content ast.CommandContent) interface{} {
 			"Branches":  branches,
 		}
 	default:
+		// Handle potential BlockContent type if it exists in AST
+		// For now, return unknown type
 		return map[string]interface{}{
 			"Type": "unknown",
 		}
@@ -1138,9 +1151,13 @@ func expectedCommandContentToComparable(content ExpectedCommandContent) interfac
 
 		branches := make([]interface{}, len(c.Branches))
 		for i, branch := range c.Branches {
+			commandArray := make([]interface{}, len(branch.Commands))
+			for j, cmd := range branch.Commands {
+				commandArray[j] = expectedCommandContentToComparable(cmd)
+			}
 			branches[i] = map[string]interface{}{
-				"Pattern": expectedPatternToComparable(branch.Pattern),
-				"Command": expectedCommandContentToComparable(branch.Command),
+				"Pattern":  expectedPatternToComparable(branch.Pattern),
+				"Commands": commandArray,
 			}
 		}
 
@@ -1148,6 +1165,15 @@ func expectedCommandContentToComparable(content ExpectedCommandContent) interfac
 			"Type":      "pattern",
 			"Decorator": decorator,
 			"Branches":  branches,
+		}
+	case ExpectedBlockContent:
+		commands := make([]interface{}, len(c.Commands))
+		for i, command := range c.Commands {
+			commands[i] = expectedCommandContentToComparable(command)
+		}
+		return map[string]interface{}{
+			"Type":     "block",
+			"Commands": commands,
 		}
 	default:
 		return map[string]interface{}{
@@ -1157,16 +1183,26 @@ func expectedCommandContentToComparable(content ExpectedCommandContent) interfac
 }
 
 func commandBodyToComparable(body ast.CommandBody) interface{} {
+	contentArray := make([]interface{}, len(body.Content))
+	for i, content := range body.Content {
+		contentArray[i] = commandContentToComparable(content)
+	}
+
 	return map[string]interface{}{
 		"IsBlock": body.IsBlock,
-		"Content": commandContentToComparable(body.Content),
+		"Content": contentArray,
 	}
 }
 
 func expectedCommandBodyToComparable(body ExpectedCommandBody) interface{} {
+	contentArray := make([]interface{}, len(body.Content))
+	for i, content := range body.Content {
+		contentArray[i] = expectedCommandContentToComparable(content)
+	}
+
 	return map[string]interface{}{
 		"IsBlock": body.IsBlock,
-		"Content": expectedCommandContentToComparable(body.Content),
+		"Content": contentArray,
 	}
 }
 

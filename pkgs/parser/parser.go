@@ -163,7 +163,7 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 		if p.match(lexer.LBRACE) {
 			// **SYNTAX SUGAR**: @decorator(args) { ... } becomes { @decorator(args) { ... } }
 			openBrace, _ := p.consume(lexer.LBRACE, "") // already checked
-			content, err := p.parseCommandContent(true) // Pass inBlock=true
+			blockContent, err := p.parseBlockContent() // Parse multiple content items
 			if err != nil {
 				return nil, err
 			}
@@ -172,20 +172,46 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 				return nil, err
 			}
 
-			// Wrap content with decorators
-			decoratedContent := &ast.DecoratedContent{
-				Decorators: decorators,
-				Content:    content,
-				Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+			// For decorator syntax sugar, we need to wrap the block content properly
+			if len(blockContent) == 1 {
+				// Single item - wrap with decorator
+				decoratedContent := &ast.DecoratedContent{
+					Decorators: decorators,
+					Content:    blockContent[0],
+					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+				}
+				return &ast.CommandBody{
+					Content:    []ast.CommandContent{decoratedContent},
+					IsBlock:    true,
+					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+					OpenBrace:  &openBrace,
+					CloseBrace: &closeBrace,
+				}, nil
+			} else {
+				// Multiple items - combine into single shell content and wrap with decorator
+				var allParts []ast.ShellPart
+				for _, item := range blockContent {
+					if shellContent, ok := item.(*ast.ShellContent); ok {
+						allParts = append(allParts, shellContent.Parts...)
+					}
+				}
+				combinedContent := &ast.ShellContent{
+					Parts: allParts,
+					Pos:   ast.Position{Line: startPos.Line, Column: startPos.Column},
+				}
+				decoratedContent := &ast.DecoratedContent{
+					Decorators: decorators,
+					Content:    combinedContent,
+					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+				}
+				return &ast.CommandBody{
+					Content:    []ast.CommandContent{decoratedContent},
+					IsBlock:    true,
+					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+					OpenBrace:  &openBrace,
+					CloseBrace: &closeBrace,
+				}, nil
 			}
-
-			return &ast.CommandBody{
-				Content:    decoratedContent,
-				IsBlock:    true, // **CRITICAL**: This is block syntax sugar
-				Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
-				OpenBrace:  &openBrace,
-				CloseBrace: &closeBrace,
-			}, nil
 		} else {
 			// Decorators without braces - check if they're all function decorators
 			allFunctionDecorators := true
@@ -209,7 +235,7 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 				return nil, err
 			}
 			return &ast.CommandBody{
-				Content: content,
+				Content: []ast.CommandContent{content},
 				IsBlock: false,
 				Pos:     ast.Position{Line: startPos.Line, Column: startPos.Column},
 			}, nil
@@ -219,7 +245,7 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 	// Explicit block: { ... }
 	if p.match(lexer.LBRACE) {
 		openBrace, _ := p.consume(lexer.LBRACE, "") // already checked
-		content, err := p.parseCommandContent(true) // Pass inBlock=true
+		contentItems, err := p.parseBlockContent() // Parse multiple content items
 		if err != nil {
 			return nil, err
 		}
@@ -228,7 +254,7 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 			return nil, err
 		}
 		return &ast.CommandBody{
-			Content:    content,
+			Content:    contentItems, // Already a slice
 			IsBlock:    true,
 			Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 			OpenBrace:  &openBrace,
@@ -242,7 +268,7 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 		return nil, err
 	}
 	return &ast.CommandBody{
-		Content: content,
+		Content: []ast.CommandContent{content},
 		IsBlock: false,
 		Pos:     ast.Position{Line: startPos.Line, Column: startPos.Column},
 	}, nil
@@ -274,6 +300,10 @@ func (p *Parser) parseCommandContent(inBlock bool) (ast.CommandContent, error) {
 	}
 
 	// Otherwise, it must be shell content.
+	// But wait - if we're in a block and there are multiple lines,
+	// we need to handle this differently...
+	// Actually, this should be handled at a higher level.
+	// For now, just parse single shell content
 	return p.parseShellContent(inBlock)
 }
 
@@ -356,7 +386,7 @@ func (p *Parser) parsePatternBranch() (*ast.PatternBranch, error) {
 		return nil, err
 	}
 
-	// Parse command content
+	// Parse command content - for now, just parse single command content
 	content, err := p.parseCommandContent(true) // Pattern branches are always in block context
 	if err != nil {
 		return nil, err
@@ -364,42 +394,114 @@ func (p *Parser) parsePatternBranch() (*ast.PatternBranch, error) {
 
 	return &ast.PatternBranch{
 		Pattern:    pattern,
-		Command:    content,
+		Commands:   []ast.CommandContent{content}, // Wrap single content in array
 		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 		ColonToken: colonToken,
 	}, nil
 }
 
-// parseShellContent parses shell content, extracting inline function decorators
-// **FIXED**: Now properly handles SHELL_TEXT tokens and preserves multi-line content
+// parseBlockContent parses multiple content items within a block
+func (p *Parser) parseBlockContent() ([]ast.CommandContent, error) {
+	var contentItems []ast.CommandContent
+
+	for !p.match(lexer.RBRACE) && !p.isAtEnd() {
+		p.skipWhitespaceAndComments()
+		if p.match(lexer.RBRACE) {
+			break
+		}
+
+		// Check for pattern decorators (@when, @try)
+		if p.match(lexer.AT) && p.isPatternDecorator() {
+			pattern, err := p.parsePatternContent()
+			if err != nil {
+				return nil, err
+			}
+			contentItems = append(contentItems, pattern)
+			continue
+		}
+
+		// Check for block decorators
+		if p.match(lexer.AT) && !p.isFunctionDecorator() {
+			decorators := p.parseDecorators()
+
+			// Expect content after decorators
+			var content ast.CommandContent
+			var err error
+
+			if p.match(lexer.LBRACE) {
+				// Nested block
+				p.advance()
+				nestedContent, err := p.parseBlockContent()
+				if err != nil {
+					return nil, err
+				}
+				_, err = p.consume(lexer.RBRACE, "expected '}' to close nested block")
+				if err != nil {
+					return nil, err
+				}
+
+				// If there's only one item, use it directly; otherwise create a wrapper
+				if len(nestedContent) == 1 {
+					content = nestedContent[0]
+				} else {
+					// Multiple items need to be wrapped - for now, combine into single shell content
+					// This is a simplification; real implementation might need a BlockContent type
+					var allParts []ast.ShellPart
+					for _, item := range nestedContent {
+						if shellContent, ok := item.(*ast.ShellContent); ok {
+							allParts = append(allParts, shellContent.Parts...)
+						}
+					}
+					content = &ast.ShellContent{Parts: allParts}
+				}
+			} else {
+				// Parse single shell content
+				content, err = p.parseShellContent(true)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			decoratedContent := &ast.DecoratedContent{
+				Decorators: decorators,
+				Content:    content,
+			}
+			contentItems = append(contentItems, decoratedContent)
+			continue
+		}
+
+		// Otherwise, parse shell content
+		shellContent, err := p.parseShellContent(true)
+		if err != nil {
+			return nil, err
+		}
+
+		// Only add non-empty shell content
+		if len(shellContent.Parts) > 0 {
+			contentItems = append(contentItems, shellContent)
+		}
+	}
+
+	return contentItems, nil
+}
+
+// parseShellContent parses a single shell content item (one SHELL_TEXT token)
+// **UPDATED**: Now parses only one SHELL_TEXT token to create separate content items
 func (p *Parser) parseShellContent(inBlock bool) (*ast.ShellContent, error) {
 	startPos := p.current()
 	var parts []ast.ShellPart
 
-	// First, collect all the shell content until we hit a terminator
-	for !p.isCommandTerminator(inBlock) {
-		if p.match(lexer.SHELL_TEXT) {
-			// Process this shell text token and extract inline decorators
-			shellToken := p.current()
-			p.advance()
+	// Parse only one SHELL_TEXT token at a time
+	if p.match(lexer.SHELL_TEXT) {
+		shellToken := p.current()
+		p.advance()
 
-			extractedParts, err := p.extractInlineDecorators(shellToken.Value)
-			if err != nil {
-				return nil, err
-			}
-			parts = append(parts, extractedParts...)
-		} else if p.match(lexer.NEWLINE) {
-			// In blocks, preserve newlines as text parts
-			if inBlock {
-				parts = append(parts, &ast.TextPart{Text: "\n"})
-			}
-			p.advance()
-		} else {
-			// Unexpected token - treat as text to be more resilient
-			tok := p.current()
-			parts = append(parts, &ast.TextPart{Text: tok.Value})
-			p.advance()
+		extractedParts, err := p.extractInlineDecorators(shellToken.Value)
+		if err != nil {
+			return nil, err
 		}
+
+		parts = append(parts, extractedParts...)
 	}
 
 	return &ast.ShellContent{

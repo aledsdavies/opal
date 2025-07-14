@@ -21,7 +21,7 @@ func TestVariableDefinitions(t *testing.T) {
 			),
 		},
 		{
-			Name:  "multiple variables",
+			Name: "multiple variables",
 			Input: `var SRC = "./src"
 var BIN = "./bin"`,
 			Expected: Program(
@@ -146,7 +146,7 @@ var BIN = "./bin"`,
 			),
 		},
 		{
-			Name:  "multiple variables with mixed types",
+			Name: "multiple variables with mixed types",
 			Input: `var PORT = 3000
 var HOST = "localhost"
 var TIMEOUT = 30s
@@ -211,8 +211,8 @@ func TestVariableDecoratorArgumentRestrictions(t *testing.T) {
 	// Test that @var() is not allowed in decorator arguments
 	testCases := []TestCase{
 		{
-			Name:        "reject @var() in decorator arguments",
-			Input:       `var TIMEOUT = 30s
+			Name: "reject @var() in decorator arguments",
+			Input: `var TIMEOUT = 30s
 test: @timeout(@var(TIMEOUT)) { npm test }`,
 			WantErr:     true,
 			ErrorSubstr: "function decorators (@var, @env, etc.) are not allowed as decorator arguments",
@@ -224,14 +224,15 @@ test: @timeout(@var(TIMEOUT)) { npm test }`,
 			ErrorSubstr: "function decorators (@var, @env, etc.) are not allowed as decorator arguments",
 		},
 		{
-			Name:  "allow direct variable references in decorator arguments",
+			Name: "allow direct variable references in decorator arguments",
 			Input: `var TIMEOUT = 30s
 test: @timeout(TIMEOUT) { npm test }`,
 			Expected: Program(
 				Var("TIMEOUT", Dur("30s")),
 				CmdBlock("test",
-					Decorator("timeout", Id("TIMEOUT")),
-					Text("npm test"),
+					DecoratedShell(Decorator("timeout", Id("TIMEOUT")),
+						Text("npm test"),
+					),
 				),
 			),
 		},
@@ -245,7 +246,7 @@ test: @timeout(TIMEOUT) { npm test }`,
 func TestVariableUsageInCommands(t *testing.T) {
 	testCases := []TestCase{
 		{
-			Name:  "variables with command usage - requires explicit block",
+			Name: "variables with command usage - requires explicit block",
 			Input: `var SRC = "./src"
 var DEST = "./dist"
 build: { cp -r @var(SRC)/* @var(DEST)/ }`,
@@ -253,16 +254,12 @@ build: { cp -r @var(SRC)/* @var(DEST)/ }`,
 				Var("SRC", Str("./src")),
 				Var("DEST", Str("./dist")),
 				CmdBlock("build",
-					Text("cp -r "),
-					At("var", Id("SRC")),
-					Text("/* "),
-					At("var", Id("DEST")),
-					Text("/"),
+					Shell("cp -r ", At("var", Id("SRC")), "/* ", At("var", Id("DEST")), "/"),
 				),
 			),
 		},
 		{
-			Name:  "grouped variables with usage - requires explicit block",
+			Name: "grouped variables with usage - requires explicit block",
 			Input: `var (
   PORT = 8080
   HOST = "localhost"
@@ -272,40 +269,36 @@ serve: { go run main.go --port=@var(PORT) --host=@var(HOST) }`,
 				Var("PORT", Num(8080)),
 				Var("HOST", Str("localhost")),
 				CmdBlock("serve",
-					Text("go run main.go --port="),
-					At("var", Id("PORT")),
-					Text(" --host="),
-					At("var", Id("HOST")),
+					Shell("go run main.go --port=", At("var", Id("PORT")), " --host=", At("var", Id("HOST"))),
 				),
 			),
 		},
 		{
-			Name:  "variables in block commands",
+			Name: "variables in block commands",
 			Input: `var SRC = "./src"
 deploy: { cd @var(SRC); make clean; make install }`,
 			Expected: Program(
 				Var("SRC", Str("./src")),
 				CmdBlock("deploy",
-					Text("cd "),
-					At("var", Id("SRC")),
-					Text("; make clean; make install"),
+					Shell("cd ", At("var", Id("SRC")), "; make clean; make install"),
 				),
 			),
 		},
 		{
-			Name:  "variables in decorator arguments",
+			Name: "variables in decorator arguments",
 			Input: `var TIMEOUT = 30s
 test: @timeout(TIMEOUT) { npm test }`,
 			Expected: Program(
 				Var("TIMEOUT", Dur("30s")),
 				CmdBlock("test",
-					Decorator("timeout", Id("TIMEOUT")),
-					Text("npm test"),
+					DecoratedShell(Decorator("timeout", Id("TIMEOUT")),
+						Text("npm test"),
+					),
 				),
 			),
 		},
 		{
-			Name:  "environment variable substitution with @env",
+			Name: "environment variable substitution with @env",
 			Input: `var TIME = 5m
 deploy: NODE_ENV=@env("NODE_ENV") npm run deploy`,
 			Expected: Program(
@@ -318,62 +311,57 @@ deploy: NODE_ENV=@env("NODE_ENV") npm run deploy`,
 			),
 		},
 		{
-			Name:  "variables in watch commands",
+			Name: "variables in watch commands",
 			Input: `var SRC = "./src"
 watch build: @debounce(500ms) { echo "Building @var(SRC)" }`,
 			Expected: Program(
 				Var("SRC", Str("./src")),
 				WatchBlock("build",
-					Decorator("debounce", Dur("500ms")),
-					Text(`echo "Building `),
-					At("var", Id("SRC")),
-					Text(`"`),
+					DecoratedShell(Decorator("debounce", Dur("500ms")),
+						Text(`echo "Building `),
+						At("var", Id("SRC")),
+						Text(`"`),
+					),
 				),
 			),
 		},
 		{
-			Name:  "variables in stop commands - simple command gets syntax sugar",
+			Name: "variables in stop commands - simple command gets syntax sugar",
 			Input: `var PROCESS = "myapp"
 stop server: { pkill -f @var(PROCESS) }`,
 			Expected: Program(
 				Var("PROCESS", Str("myapp")),
 				StopBlock("server",
-					Text("pkill -f "),
-					At("var", Id("PROCESS")),
+					Shell("pkill -f ", At("var", Id("PROCESS"))),
 				),
 			),
 		},
 		{
-			Name:  "variables with file counting command - requires explicit block",
+			Name: "variables with file counting command - requires explicit block",
 			Input: `var SRC = "./src"
 build: { echo "Files: $(ls @var(SRC) | wc -l)" }`,
 			Expected: Program(
 				Var("SRC", Str("./src")),
 				CmdBlock("build",
-					Text(`echo "Files: $(ls `),
-					At("var", Id("SRC")),
-					Text(` | wc -l)"`),
+					Shell(`echo "Files: $(ls `, At("var", Id("SRC")), ` | wc -l)"`),
 				),
 			),
 		},
 		{
-			Name:  "variables with nested shell content - requires explicit block",
+			Name: "variables with nested shell content - requires explicit block",
 			Input: `var HOST = "server.com"
 var PORT = 22
-connect: { ssh -p @var(PORT) user@@var(HOST) }`,
+connect: { ssh -p @var(PORT) user@@@var(HOST) }`,
 			Expected: Program(
 				Var("HOST", Str("server.com")),
 				Var("PORT", Num(22)),
 				CmdBlock("connect",
-					Text("ssh -p "),
-					At("var", Id("PORT")),
-					Text(" user@"),
-					At("var", Id("HOST")),
+					Shell("ssh -p ", At("var", Id("PORT")), " user@@", At("var", Id("HOST"))),
 				),
 			),
 		},
 		{
-			Name:  "variables in complex command chains - requires explicit block",
+			Name: "variables in complex command chains - requires explicit block",
 			Input: `var SRC = "./src"
 var DEST = "./dist"
 var ENV = "prod"
@@ -383,26 +371,18 @@ build: { cd @var(SRC) && npm run build:@var(ENV) && cp -r dist/* @var(DEST)/ }`,
 				Var("DEST", Str("./dist")),
 				Var("ENV", Str("prod")),
 				CmdBlock("build",
-					Text("cd "),
-					At("var", Id("SRC")),
-					Text(" && npm run build:"),
-					At("var", Id("ENV")),
-					Text(" && cp -r dist/* "),
-					At("var", Id("DEST")),
-					Text("/"),
+					Shell("cd ", At("var", Id("SRC")), " && npm run build:", At("var", Id("ENV")), " && cp -r dist/* ", At("var", Id("DEST")), "/"),
 				),
 			),
 		},
 		{
-			Name:  "variables in conditional expressions - requires explicit block",
+			Name: "variables in conditional expressions - requires explicit block",
 			Input: `var ENV = "production"
 check: { test "@var(ENV)" = "production" && echo "prod mode" || echo "dev mode" }`,
 			Expected: Program(
 				Var("ENV", Str("production")),
 				CmdBlock("check",
-					Text(`test "`),
-					At("var", Id("ENV")),
-					Text(`" = "production" && echo "prod mode" || echo "dev mode"`),
+					Shell(`test "`, At("var", Id("ENV")), `" = "production" && echo "prod mode" || echo "dev mode"`),
 				),
 			),
 		},
@@ -458,7 +438,7 @@ func TestVariableEdgeCases(t *testing.T) {
 			),
 		},
 		{
-			Name:  "variables with similar names",
+			Name: "variables with similar names",
 			Input: `var API_URL = "https://api.com"
 var API_URL_V2 = "https://api.com/v2"`,
 			Expected: Program(
@@ -467,41 +447,35 @@ var API_URL_V2 = "https://api.com/v2"`,
 			),
 		},
 		{
-			Name:  "variable usage in quoted strings - requires explicit block",
+			Name: "variable usage in quoted strings - requires explicit block",
 			Input: `var NAME = "World"
 greet: { echo "Hello @var(NAME)!" }`,
 			Expected: Program(
 				Var("NAME", Str("World")),
 				CmdBlock("greet",
-					Text(`echo "Hello `),
-					At("var", Id("NAME")),
-					Text(`!"`),
+					Shell(`echo "Hello `, At("var", Id("NAME")), `!"`),
 				),
 			),
 		},
 		{
-			Name:  "variable usage with shell operators - requires explicit block",
+			Name: "variable usage with shell operators - requires explicit block",
 			Input: `var FILE = "data.txt"
 process: { cat @var(FILE) | grep pattern | sort }`,
 			Expected: Program(
 				Var("FILE", Str("data.txt")),
 				CmdBlock("process",
-					Text("cat "),
-					At("var", Id("FILE")),
-					Text(" | grep pattern | sort"),
+					Shell("cat ", At("var", Id("FILE")), " | grep pattern | sort"),
 				),
 			),
 		},
 		{
-			Name:  "variable usage in file paths - requires explicit block",
+			Name: "variable usage in file paths - requires explicit block",
 			Input: `var HOME = "/home/user"
 backup: { cp important.txt @var(HOME)/backup/ }`,
 			Expected: Program(
 				Var("HOME", Str("/home/user")),
 				CmdBlock("backup",
-					Text("cp important.txt "),
-					At("var", Id("HOME")),
-					Text("/backup/"),
+					Shell("cp important.txt ", At("var", Id("HOME")), "/backup/"),
 				),
 			),
 		},
@@ -528,7 +502,7 @@ backup: { cp important.txt @var(HOME)/backup/ }`,
 			),
 		},
 		{
-			Name:  "mixed duration units",
+			Name: "mixed duration units",
 			Input: `var (
   SHORT = 100ms
   MEDIUM = 30s

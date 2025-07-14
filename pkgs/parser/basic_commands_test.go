@@ -129,7 +129,9 @@ func TestWatchStopCommands(t *testing.T) {
 			Name:  "watch block command",
 			Input: "watch dev: { npm start; go run main.go }",
 			Expected: Program(
-				WatchBlock("dev", Text("npm start; go run main.go")),
+				WatchBlock("dev",
+					Shell("npm start; go run main.go"),
+				),
 			),
 		},
 		{
@@ -137,8 +139,9 @@ func TestWatchStopCommands(t *testing.T) {
 			Input: "watch build: @timeout(60s) { npm run watch:build }",
 			Expected: Program(
 				WatchBlock("build",
-					Decorator("timeout", Dur("60s")),
-					Text("npm run watch:build"),
+					DecoratedShell(Decorator("timeout", Dur("60s")),
+						Text("npm run watch:build"),
+					),
 				),
 			),
 		},
@@ -147,8 +150,9 @@ func TestWatchStopCommands(t *testing.T) {
 			Input: "watch services: @parallel { npm run api; npm run worker; npm run scheduler }",
 			Expected: Program(
 				WatchBlock("services",
-					Decorator("parallel"),
-					Text("npm run api; npm run worker; npm run scheduler"),
+					DecoratedShell(Decorator("parallel"),
+						Text("npm run api; npm run worker; npm run scheduler"),
+					),
 				),
 			),
 		},
@@ -156,7 +160,9 @@ func TestWatchStopCommands(t *testing.T) {
 			Name:  "stop with cleanup block",
 			Input: "stop services: { pkill -f node; docker stop $(docker ps -q); echo cleaned }",
 			Expected: Program(
-				StopBlock("services", Text("pkill -f node; docker stop $(docker ps -q); echo cleaned")),
+				StopBlock("services",
+					Shell("pkill -f node; docker stop $(docker ps -q); echo cleaned"),
+				),
 			),
 		},
 		{
@@ -187,14 +193,18 @@ func TestBlockCommands(t *testing.T) {
 			Name:  "single statement block",
 			Input: "setup: { npm install }",
 			Expected: Program(
-				CmdBlock("setup", Text("npm install")),
+				CmdBlock("setup",
+					Shell("npm install"),
+				),
 			),
 		},
 		{
 			Name:  "multiple statements",
 			Input: "setup: { npm install; go mod tidy; echo done }",
 			Expected: Program(
-				CmdBlock("setup", Text("npm install; go mod tidy; echo done")),
+				CmdBlock("setup",
+					Shell("npm install; go mod tidy; echo done"),
+				),
 			),
 		},
 		{
@@ -202,10 +212,7 @@ func TestBlockCommands(t *testing.T) {
 			Input: "build: { cd @var(SRC); make @var(TARGET) }",
 			Expected: Program(
 				CmdBlock("build",
-					Text("cd "),
-					At("var", Id("SRC")),
-					Text("; make "),
-					At("var", Id("TARGET")),
+					Shell("cd ", At("var", Id("SRC")), "; make ", At("var", Id("TARGET"))),
 				),
 			),
 		},
@@ -213,21 +220,27 @@ func TestBlockCommands(t *testing.T) {
 			Name:  "block with complex shell statements using alternative syntax",
 			Input: "test: { echo start; for i in 1 2 3; do echo $i; done; echo end }",
 			Expected: Program(
-				CmdBlock("test", Text("echo start; for i in 1 2 3; do echo $i; done; echo end")),
+				CmdBlock("test",
+					Shell("echo start; for i in 1 2 3; do echo $i; done; echo end"),
+				),
 			),
 		},
 		{
 			Name:  "block with conditional statements",
 			Input: "conditional: { test -f file.txt && echo exists || echo missing; echo checked }",
 			Expected: Program(
-				CmdBlock("conditional", Text("test -f file.txt && echo exists || echo missing; echo checked")),
+				CmdBlock("conditional",
+					Shell("test -f file.txt && echo exists || echo missing; echo checked"),
+				),
 			),
 		},
 		{
 			Name:  "block with background processes",
 			Input: "background: { server &; client &; wait }",
 			Expected: Program(
-				CmdBlock("background", Text("server &; client &; wait")),
+				CmdBlock("background",
+					Shell("server &; client &; wait"),
+				),
 			),
 		},
 		{
@@ -235,12 +248,7 @@ func TestBlockCommands(t *testing.T) {
 			Input: "deploy: { echo \"Deploying @var(APP_NAME) to @var(ENVIRONMENT)\"; kubectl apply -f @var(CONFIG_FILE) }",
 			Expected: Program(
 				CmdBlock("deploy",
-					Text("echo \"Deploying "),
-					At("var", Id("APP_NAME")),
-					Text(" to "),
-					At("var", Id("ENVIRONMENT")),
-					Text("\"; kubectl apply -f "),
-					At("var", Id("CONFIG_FILE")),
+					Shell("echo \"Deploying ", At("var", Id("APP_NAME")), " to ", At("var", Id("ENVIRONMENT")), "\"; kubectl apply -f ", At("var", Id("CONFIG_FILE"))),
 				),
 			),
 		},
@@ -249,8 +257,9 @@ func TestBlockCommands(t *testing.T) {
 			Input: "services: @parallel { server; client }",
 			Expected: Program(
 				CmdBlock("services",
-					Decorator("parallel"),
-					Text("server; client"),
+					DecoratedShell(Decorator("parallel"),
+						Text("server; client"),
+					),
 				),
 			),
 		},
@@ -259,8 +268,9 @@ func TestBlockCommands(t *testing.T) {
 			Input: "deploy: @timeout(5m) { npm run build; npm run deploy }",
 			Expected: Program(
 				CmdBlock("deploy",
-					Decorator("timeout", Dur("5m")),
-					Text("npm run build; npm run deploy"),
+					DecoratedShell(Decorator("timeout", Dur("5m")),
+						Text("npm run build; npm run deploy"),
+					),
 				),
 			),
 		},
@@ -269,8 +279,9 @@ func TestBlockCommands(t *testing.T) {
 			Input: "flaky-task: @retry(3) { npm test }",
 			Expected: Program(
 				CmdBlock("flaky-task",
-					Decorator("retry", Num(3)),
-					Text("npm test"),
+					DecoratedShell(Decorator("retry", Num(3)),
+						Text("npm test"),
+					),
 				),
 			),
 		},
@@ -279,8 +290,9 @@ func TestBlockCommands(t *testing.T) {
 			Input: "complex: @timeout(30s) { npm run integration-tests && npm run e2e }",
 			Expected: Program(
 				CmdBlock("complex",
-					Decorator("timeout", Dur("30s")),
-					Text("npm run integration-tests && npm run e2e"),
+					DecoratedShell(Decorator("timeout", Dur("30s")),
+						Text("npm run integration-tests && npm run e2e"),
+					),
 				),
 			),
 		},

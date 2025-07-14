@@ -183,7 +183,13 @@ func PreprocessCommands(program *ast.Program) (*TemplateData, error) {
 
 // containsParallelDecorator checks if a command contains @parallel decorator
 func containsParallelDecorator(cmd *ast.CommandDecl) bool {
-	return containsParallelInContent(cmd.Body.Content)
+	// Check all content items in the command body
+	for _, content := range cmd.Body.Content {
+		if containsParallelInContent(content) {
+			return true
+		}
+	}
+	return false
 }
 
 // containsParallelInContent checks for @parallel in command content
@@ -198,12 +204,21 @@ func containsParallelInContent(content ast.CommandContent) bool {
 		return containsParallelInContent(c.Content)
 	case *ast.PatternContent:
 		for _, pattern := range c.Patterns {
-			if containsParallelInContent(pattern.Command) {
-				return true
+			for _, command := range pattern.Commands {
+				if containsParallelInContent(command) {
+					return true
+				}
 			}
 		}
 		return false
 	case *ast.ShellContent:
+		return false
+	case *ast.BlockContent:
+		for _, cmd := range c.Commands {
+			if containsParallelInContent(cmd) {
+				return true
+			}
+		}
 		return false
 	default:
 		return false
@@ -322,7 +337,18 @@ func processCommandGroup(name string, commands []*ast.CommandDecl, definitions m
 
 // analyzeCommandStructure analyzes a command and returns segments
 func analyzeCommandStructure(cmd *ast.CommandDecl, definitions map[string]string) ([]CommandSegment, error) {
-	return analyzeContentStructure(cmd.Body.Content, definitions)
+	// Analyze all content items in the command body
+	var allSegments []CommandSegment
+
+	for _, content := range cmd.Body.Content {
+		segments, err := analyzeContentStructure(content, definitions)
+		if err != nil {
+			return nil, err
+		}
+		allSegments = append(allSegments, segments...)
+	}
+
+	return allSegments, nil
 }
 
 // analyzeContentStructure analyzes command content structure
@@ -361,6 +387,18 @@ func analyzeContentStructure(content ast.CommandContent, definitions map[string]
 		shellCmd := buildPatternContentString(c, definitions)
 		return []CommandSegment{{IsParallel: false, Command: shellCmd}}, nil
 
+	case *ast.BlockContent:
+		// Block content contains multiple commands - analyze each
+		var allSegments []CommandSegment
+		for _, cmd := range c.Commands {
+			segments, err := analyzeContentStructure(cmd, definitions)
+			if err != nil {
+				return nil, err
+			}
+			allSegments = append(allSegments, segments...)
+		}
+		return allSegments, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported command content type")
 	}
@@ -370,16 +408,42 @@ func analyzeContentStructure(content ast.CommandContent, definitions map[string]
 func extractParallelCommands(content ast.CommandContent, definitions map[string]string) ([]string, error) {
 	switch c := content.(type) {
 	case *ast.ShellContent:
-		// Extract individual commands from shell content parts
-		return extractCommandsFromShellContent(c, definitions), nil
+		// For parallel commands, we want each ShellContent to be treated as one command
+		// even if it contains semicolon-separated commands
+		commands := buildShellContentString(c, definitions)
+		if len(commands) == 1 {
+			return commands, nil
+		}
+		// If there are multiple lines in ShellContent, they should be separate parallel commands
+		var result []string
+		for _, cmd := range commands {
+			if strings.TrimSpace(cmd) != "" {
+				result = append(result, cmd)
+			}
+		}
+		return result, nil
 
 	case *ast.DecoratedContent:
 		// Extract from nested content
 		return extractParallelCommands(c.Content, definitions)
 
+	case *ast.BlockContent:
+		// Each command in block content becomes a separate parallel command
+		var allCommands []string
+		for _, cmd := range c.Commands {
+			cmdStr := buildContentString(cmd, definitions)
+			if strings.TrimSpace(cmdStr) != "" {
+				allCommands = append(allCommands, cmdStr)
+			}
+		}
+		return allCommands, nil
+
 	default:
 		shellCmd := buildContentString(content, definitions)
-		return []string{shellCmd}, nil
+		if strings.TrimSpace(shellCmd) != "" {
+			return []string{shellCmd}, nil
+		}
+		return []string{}, nil
 	}
 }
 
@@ -399,26 +463,47 @@ func extractCommandsFromShellContent(content *ast.ShellContent, definitions map[
 	return result
 }
 
-// extractShellCommands extracts individual shell commands from command content
-func extractShellCommands(content ast.CommandContent, definitions map[string]string) ([]string, error) {
-	switch c := content.(type) {
-	case *ast.ShellContent:
-		return buildShellContentString(c, definitions), nil
-	case *ast.DecoratedContent:
-		// For decorated content, we need to handle it differently
-		// For now, treat as single command
-		return []string{buildContentString(c, definitions)}, nil
-	case *ast.PatternContent:
-		// Pattern content is complex - treat as single command
-		return []string{buildContentString(c, definitions)}, nil
-	default:
-		return []string{}, nil
+// extractShellCommands extracts individual shell commands from command content array
+func extractShellCommands(contentArray []ast.CommandContent, definitions map[string]string) ([]string, error) {
+	var allCommands []string
+
+	for _, content := range contentArray {
+		switch c := content.(type) {
+		case *ast.ShellContent:
+			commands := buildShellContentString(c, definitions)
+			allCommands = append(allCommands, commands...)
+		case *ast.DecoratedContent:
+			// For decorated content, we need to handle it differently
+			// For now, treat as single command
+			cmd := buildContentString(c, definitions)
+			allCommands = append(allCommands, cmd)
+		case *ast.PatternContent:
+			// Pattern content is complex - treat as single command
+			cmd := buildContentString(c, definitions)
+			allCommands = append(allCommands, cmd)
+		case *ast.BlockContent:
+			// Block content contains multiple commands
+			for _, blockCmd := range c.Commands {
+				cmd := buildContentString(blockCmd, definitions)
+				allCommands = append(allCommands, cmd)
+			}
+		}
 	}
+
+	return allCommands, nil
 }
 
 // buildShellCommand constructs the shell command string
 func buildShellCommand(cmd *ast.CommandDecl, definitions map[string]string) (string, error) {
-	return buildContentString(cmd.Body.Content, definitions), nil
+	// Build command from all content items
+	var parts []string
+	for _, content := range cmd.Body.Content {
+		part := buildContentString(content, definitions)
+		if strings.TrimSpace(part) != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, "\n"), nil
 }
 
 // buildContentString builds shell commands from command content
@@ -432,6 +517,15 @@ func buildContentString(content ast.CommandContent, definitions map[string]strin
 		return buildDecoratedContentString(c, definitions)
 	case *ast.PatternContent:
 		return buildPatternContentString(c, definitions)
+	case *ast.BlockContent:
+		var parts []string
+		for _, cmd := range c.Commands {
+			part := buildContentString(cmd, definitions)
+			if strings.TrimSpace(part) != "" {
+				parts = append(parts, part)
+			}
+		}
+		return strings.Join(parts, "\n")
 	default:
 		return ""
 	}
@@ -494,9 +588,11 @@ func buildPatternContentString(content *ast.PatternContent, definitions map[stri
 	// TODO: Implement proper pattern matching logic
 	var parts []string
 	for _, pattern := range content.Patterns {
-		cmd := buildContentString(pattern.Command, definitions)
-		if cmd != "" {
-			parts = append(parts, cmd)
+		for _, cmd := range pattern.Commands {
+			cmdStr := buildContentString(cmd, definitions)
+			if cmdStr != "" {
+				parts = append(parts, cmdStr)
+			}
 		}
 	}
 	return strings.Join(parts, "; ")
@@ -551,7 +647,12 @@ func validateProgramDecorators(program *ast.Program) error {
 
 // validateCommandDecorators validates decorators in a command
 func validateCommandDecorators(cmd *ast.CommandDecl) error {
-	return validateContentDecorators(cmd.Body.Content, cmd.Name, cmd.Position().Line)
+	for _, content := range cmd.Body.Content {
+		if err := validateContentDecorators(content, cmd.Name, cmd.Position().Line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateContentDecorators validates decorators in command content
@@ -576,8 +677,10 @@ func validateContentDecorators(content ast.CommandContent, cmdName string, cmdLi
 				cmdName, cmdLine, "")
 		}
 		for _, pattern := range c.Patterns {
-			if err := validateContentDecorators(pattern.Command, cmdName, cmdLine); err != nil {
-				return err
+			for _, cmd := range pattern.Commands {
+				if err := validateContentDecorators(cmd, cmdName, cmdLine); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -591,6 +694,14 @@ func validateContentDecorators(content ast.CommandContent, cmdName string, cmdLi
 							funcDec.Name),
 						cmdName, cmdLine, "")
 				}
+			}
+		}
+		return nil
+
+	case *ast.BlockContent:
+		for _, cmd := range c.Commands {
+			if err := validateContentDecorators(cmd, cmdName, cmdLine); err != nil {
+				return err
 			}
 		}
 		return nil
