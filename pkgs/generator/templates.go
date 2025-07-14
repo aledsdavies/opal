@@ -1,6 +1,6 @@
 package generator
 
-// Updated template component definitions with proper shell command escaping
+// Updated template component definitions with separate exec calls for parallel commands
 
 const packageTemplate = `{{define "package"}}package {{.PackageName}}{{end}}`
 
@@ -358,6 +358,26 @@ const regularCommandTemplate = `{{define "regular-command"}}
 	}
 {{- end}}`
 
+const multiRegularCommandTemplate = `{{define "multi-regular-command"}}
+	// Multiple commands from block
+	{{range .ShellCommands}}
+	{
+		cmd := exec.Command("sh", "-c", {{printf "%q" .}})
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+
+		if err := cmd.Run(); err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				os.Exit(exitError.ExitCode())
+			}
+			fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	{{end}}
+{{- end}}`
+
 const watchStopCommandTemplate = `{{define "watch-stop-command"}}
 	// Watch/stop command pair
 	if len(args) == 0 {
@@ -433,25 +453,25 @@ const stopOnlyCommandTemplate = `{{define "stop-only-command"}}
 	}
 {{- end}}`
 
-// Updated parallel command template using standard library with proper command escaping
+// Updated parallel command template using separate exec calls for better error handling
 const parallelCommandTemplate = `{{define "parallel-command"}}
-	// Parallel command execution using standard library goroutines
+	// Parallel command execution using separate exec calls for better error handling
 	{
 		var wg sync.WaitGroup
 		errChan := make(chan error, {{len .ParallelCommands}})
 
 		{{range .ParallelCommands}}
 		wg.Add(1)
-		go func() {
+		go func(command string) {
 			defer wg.Done()
-			cmd := exec.Command("sh", "-c", {{printf "%q" .}})
+			cmd := exec.Command("sh", "-c", command)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {
 				errChan <- fmt.Errorf("command failed: %v", err)
 				return
 			}
-		}()
+		}({{printf "%q" .}})
 		{{end}}
 
 		// Wait for all goroutines to complete
@@ -470,28 +490,28 @@ const parallelCommandTemplate = `{{define "parallel-command"}}
 	}
 {{- end}}`
 
-// Updated mixed command template with proper command escaping for multiple parallel segments
+// Updated mixed command template with separate exec calls for parallel segments
 const mixedCommandTemplate = `{{define "mixed-command"}}
 	// Mixed command with both parallel and sequential execution
 	{{range $index, $segment := .CommandSegments}}
 	{{if .IsParallel}}
-	// Parallel segment using standard library
+	// Parallel segment using separate exec calls
 	{
 		var wg sync.WaitGroup
 		errChan := make(chan error, {{len .Commands}})
 
 		{{range .Commands}}
 		wg.Add(1)
-		go func() {
+		go func(command string) {
 			defer wg.Done()
-			cmd := exec.Command("sh", "-c", {{printf "%q" .}})
+			cmd := exec.Command("sh", "-c", command)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {
 				errChan <- fmt.Errorf("command failed: %v", err)
 				return
 			}
-		}()
+		}({{printf "%q" .}})
 		{{end}}
 
 		go func() {
@@ -559,4 +579,4 @@ const masterTemplate = `{{define "main"}}{{template "package" .}}
 {{template "command-functions" .}}
 {{template "main-function" .}}{{end}}
 
-	{{define "command-impl"}}{{if eq .Type "regular"}}{{template "regular-command" .}}{{else if eq .Type "watch-stop"}}{{template "watch-stop-command" .}}{{else if eq .Type "watch-only"}}{{template "watch-only-command" .}}{{else if eq .Type "stop-only"}}{{template "stop-only-command" .}}{{else if eq .Type "parallel"}}{{template "parallel-command" .}}{{else if eq .Type "mixed"}}{{template "mixed-command" .}}{{end}}{{end}}`
+{{define "command-impl"}}{{if eq .Type "regular"}}{{template "regular-command" .}}{{else if eq .Type "multi-regular"}}{{template "multi-regular-command" .}}{{else if eq .Type "watch-stop"}}{{template "watch-stop-command" .}}{{else if eq .Type "watch-only"}}{{template "watch-only-command" .}}{{else if eq .Type "stop-only"}}{{template "stop-only-command" .}}{{else if eq .Type "parallel"}}{{template "parallel-command" .}}{{else if eq .Type "mixed"}}{{template "mixed-command" .}}{{end}}{{end}}`

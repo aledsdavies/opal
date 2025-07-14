@@ -35,8 +35,9 @@ type TemplateCommand struct {
 	Name             string           // Original command name
 	FunctionName     string           // Sanitized Go function name
 	GoCase           string           // Case statement value
-	Type             string           // "regular", "watch-stop", "watch-only", "stop-only", "parallel", "mixed"
-	ShellCommand     string           // For regular commands
+	Type             string           // "regular", "watch-stop", "watch-only", "stop-only", "parallel", "mixed", "multi-regular"
+	ShellCommand     string           // For single regular commands
+	ShellCommands    []string         // For multiple regular commands (block with newlines)
 	WatchCommand     string           // For watch part of watch-stop commands
 	StopCommand      string           // For stop part of watch-stop commands
 	ParallelCommands []string         // For pure parallel commands
@@ -249,13 +250,33 @@ func processCommandGroup(name string, commands []*ast.CommandDecl, definitions m
 				templateCmd.CommandSegments = segments
 			}
 		} else {
-			// Regular command (no parallel)
-			templateCmd.Type = "regular"
-			shellCmd, err := buildShellCommand(regularCmd, definitions)
-			if err != nil {
-				return templateCmd, fmt.Errorf("failed to build shell command for '%s': %w", name, err)
+			// Regular command (no parallel) - check if it's a multi-line block
+			if regularCmd.Body.IsBlock {
+				// For block commands, check if we have multiple shell commands
+				shellCommands, err := extractShellCommands(regularCmd.Body.Content, definitions)
+				if err != nil {
+					return templateCmd, fmt.Errorf("failed to extract shell commands for '%s': %w", name, err)
+				}
+
+				if len(shellCommands) > 1 {
+					templateCmd.Type = "multi-regular"
+					templateCmd.ShellCommands = shellCommands
+				} else if len(shellCommands) == 1 {
+					templateCmd.Type = "regular"
+					templateCmd.ShellCommand = shellCommands[0]
+				} else {
+					templateCmd.Type = "regular"
+					templateCmd.ShellCommand = ""
+				}
+			} else {
+				// Simple command - always single
+				templateCmd.Type = "regular"
+				shellCmd, err := buildShellCommand(regularCmd, definitions)
+				if err != nil {
+					return templateCmd, fmt.Errorf("failed to build shell command for '%s': %w", name, err)
+				}
+				templateCmd.ShellCommand = shellCmd
 			}
-			templateCmd.ShellCommand = shellCmd
 		}
 		templateCmd.HelpDescription = name
 	} else if watchCmd != nil && stopCmd != nil {
@@ -308,15 +329,23 @@ func analyzeCommandStructure(cmd *ast.CommandDecl, definitions map[string]string
 func analyzeContentStructure(content ast.CommandContent, definitions map[string]string) ([]CommandSegment, error) {
 	switch c := content.(type) {
 	case *ast.ShellContent:
-		// Regular shell content
-		shellCmd := buildShellContentString(c, definitions)
-		return []CommandSegment{{IsParallel: false, Command: shellCmd}}, nil
+		// Regular shell content - get individual commands
+		commands := buildShellContentString(c, definitions)
+		if len(commands) == 1 {
+			return []CommandSegment{{IsParallel: false, Command: commands[0]}}, nil
+		}
+		// Multiple commands - create separate segments for each
+		var segments []CommandSegment
+		for _, cmd := range commands {
+			segments = append(segments, CommandSegment{IsParallel: false, Command: cmd})
+		}
+		return segments, nil
 
 	case *ast.DecoratedContent:
 		// Check for parallel decorator
 		for _, decorator := range c.Decorators {
 			if decorator.Name == "parallel" {
-				// This is a parallel block
+				// This is a parallel block - extract individual commands
 				parallelCommands, err := extractParallelCommands(c.Content, definitions)
 				if err != nil {
 					return nil, err
@@ -325,8 +354,7 @@ func analyzeContentStructure(content ast.CommandContent, definitions map[string]
 			}
 		}
 		// Non-parallel decorated content
-		shellCmd := buildDecoratedContentString(c, definitions)
-		return []CommandSegment{{IsParallel: false, Command: shellCmd}}, nil
+		return analyzeContentStructure(c.Content, definitions)
 
 	case *ast.PatternContent:
 		// Pattern content is complex - for now, treat as sequential
@@ -338,14 +366,12 @@ func analyzeContentStructure(content ast.CommandContent, definitions map[string]
 	}
 }
 
-// extractParallelCommands extracts commands from parallel content
+// extractParallelCommands extracts individual commands from parallel content
 func extractParallelCommands(content ast.CommandContent, definitions map[string]string) ([]string, error) {
 	switch c := content.(type) {
 	case *ast.ShellContent:
-		// If the shell content has multiple parts separated by semicolons, split them
-		shellCmd := buildShellContentString(c, definitions)
-		// For simplicity, just return as single command for now
-		return []string{shellCmd}, nil
+		// Extract individual commands from shell content parts
+		return extractCommandsFromShellContent(c, definitions), nil
 
 	case *ast.DecoratedContent:
 		// Extract from nested content
@@ -357,16 +383,51 @@ func extractParallelCommands(content ast.CommandContent, definitions map[string]
 	}
 }
 
+// extractCommandsFromShellContent builds individual commands from shell content
+func extractCommandsFromShellContent(content *ast.ShellContent, definitions map[string]string) []string {
+	// Get the individual commands from shell content
+	commands := buildShellContentString(content, definitions)
+
+	// Filter out empty commands
+	var result []string
+	for _, cmd := range commands {
+		if strings.TrimSpace(cmd) != "" {
+			result = append(result, cmd)
+		}
+	}
+
+	return result
+}
+
+// extractShellCommands extracts individual shell commands from command content
+func extractShellCommands(content ast.CommandContent, definitions map[string]string) ([]string, error) {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		return buildShellContentString(c, definitions), nil
+	case *ast.DecoratedContent:
+		// For decorated content, we need to handle it differently
+		// For now, treat as single command
+		return []string{buildContentString(c, definitions)}, nil
+	case *ast.PatternContent:
+		// Pattern content is complex - treat as single command
+		return []string{buildContentString(c, definitions)}, nil
+	default:
+		return []string{}, nil
+	}
+}
+
 // buildShellCommand constructs the shell command string
 func buildShellCommand(cmd *ast.CommandDecl, definitions map[string]string) (string, error) {
 	return buildContentString(cmd.Body.Content, definitions), nil
 }
 
-// buildContentString builds a shell command string from command content
+// buildContentString builds shell commands from command content
 func buildContentString(content ast.CommandContent, definitions map[string]string) string {
 	switch c := content.(type) {
 	case *ast.ShellContent:
-		return buildShellContentString(c, definitions)
+		// For shell content, join all commands with newlines
+		commands := buildShellContentString(c, definitions)
+		return strings.Join(commands, "\n")
 	case *ast.DecoratedContent:
 		return buildDecoratedContentString(c, definitions)
 	case *ast.PatternContent:
@@ -376,34 +437,48 @@ func buildContentString(content ast.CommandContent, definitions map[string]strin
 	}
 }
 
-// buildShellContentString builds shell content into a string
-func buildShellContentString(content *ast.ShellContent, definitions map[string]string) string {
-	var result strings.Builder
+// buildShellContentString returns a slice of commands, one for each line in block contexts
+func buildShellContentString(content *ast.ShellContent, definitions map[string]string) []string {
+	var builder strings.Builder
 
+	// First, build the entire content string, processing variables and functions.
 	for _, part := range content.Parts {
 		switch p := part.(type) {
 		case *ast.TextPart:
-			result.WriteString(expandVariablesInText(p.Text, definitions))
+			builder.WriteString(p.Text)
 		case *ast.FunctionDecorator:
 			if p.Name == "var" && len(p.Args) > 0 {
 				if id, ok := p.Args[0].(*ast.Identifier); ok {
 					if value, exists := definitions[id.Name]; exists {
-						result.WriteString(value)
+						builder.WriteString(value)
 					} else {
-						result.WriteString(p.String())
+						builder.WriteString(p.String())
 					}
 				} else {
-					result.WriteString(p.String())
+					builder.WriteString(p.String())
 				}
 			} else {
-				result.WriteString(p.String())
+				builder.WriteString(p.String())
 			}
 		default:
-			result.WriteString(part.String())
+			builder.WriteString(part.String())
 		}
 	}
 
-	return result.String()
+	// Now, split the fully constructed string by newlines.
+	fullString := builder.String()
+	lines := strings.Split(fullString, "\n")
+
+	// Filter out empty lines that might result from splitting.
+	var commands []string
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine != "" {
+			commands = append(commands, trimmedLine)
+		}
+	}
+
+	return commands
 }
 
 // buildDecoratedContentString builds decorated content into a string
@@ -525,16 +600,6 @@ func validateContentDecorators(content ast.CommandContent, cmdName string, cmdLi
 	}
 }
 
-// expandVariablesInText expands @var(NAME) references in text
-func expandVariablesInText(text string, definitions map[string]string) string {
-	result := text
-	for varName, varValue := range definitions {
-		oldPattern := fmt.Sprintf("@var(%s)", varName)
-		result = strings.ReplaceAll(result, oldPattern, varValue)
-	}
-	return result
-}
-
 // sanitizeFunctionName converts command names to valid Go function names
 func sanitizeFunctionName(name string) string {
 	parts := strings.FieldsFunc(name, func(r rune) bool {
@@ -624,6 +689,7 @@ func (tr *TemplateRegistry) registerComponents() {
 
 	// Command type implementations
 	tr.templates["regular-command"] = regularCommandTemplate
+	tr.templates["multi-regular-command"] = multiRegularCommandTemplate
 	tr.templates["watch-stop-command"] = watchStopCommandTemplate
 	tr.templates["watch-only-command"] = watchOnlyCommandTemplate
 	tr.templates["stop-only-command"] = stopOnlyCommandTemplate
