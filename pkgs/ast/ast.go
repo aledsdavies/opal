@@ -411,7 +411,6 @@ func (ct CommandType) String() string {
 // Now supports multiple content items for complex command structures
 type CommandBody struct {
 	Content []CommandContent // Multiple content items within the command body
-	IsBlock bool             // Indicates if this uses explicit block syntax {}
 	Pos     Position
 	Tokens  TokenRange
 
@@ -428,9 +427,6 @@ func (b *CommandBody) String() string {
 
 	contentStr := strings.Join(parts, " ")
 
-	if b.IsBlock {
-		return fmt.Sprintf("{ %s }", contentStr)
-	}
 	return contentStr
 }
 
@@ -1007,9 +1003,6 @@ func Walk(node Node, fn func(Node) bool) {
 
 // IsSimpleCommand checks if a command body represents a simple (non-decorated) command
 func (b *CommandBody) IsSimpleCommand() bool {
-	if b.IsBlock || len(b.Content) != 1 {
-		return false
-	}
 	_, isShell := b.Content[0].(*ShellContent)
 	return isShell
 }

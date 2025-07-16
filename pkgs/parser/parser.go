@@ -142,12 +142,12 @@ func (p *Parser) parseCommandDecl() (*ast.CommandDecl, error) {
 
 // parseCommandBody parses the content after the command's colon.
 // It handles the syntax sugar for simple vs. block commands.
-// **UPDATED**: Now handles pattern decorators and decorator syntax sugar correctly.
+// **FIXED**: Now properly implements syntax sugar equivalence as per spec.
 // CommandBody = "{" CommandContent "}" | DecoratorSugar | CommandContent
 func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 	startPos := p.current()
 
-	// **UPDATED**: Check for decorator syntax sugar: @decorator(args) { ... }
+	// **FIXED**: Check for decorator syntax sugar: @decorator(args) { ... }
 	// This should be equivalent to: { @decorator(args) { ... } }
 	if p.match(lexer.AT) {
 		// Save position in case we need to backtrack
@@ -182,7 +182,6 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 				}
 				return &ast.CommandBody{
 					Content:    []ast.CommandContent{decoratedContent},
-					IsBlock:    true,
 					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 					OpenBrace:  &openBrace,
 					CloseBrace: &closeBrace,
@@ -201,7 +200,6 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 				}
 				return &ast.CommandBody{
 					Content:    decoratedItems,
-					IsBlock:    true,
 					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 					OpenBrace:  &openBrace,
 					CloseBrace: &closeBrace,
@@ -229,9 +227,11 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 			if err != nil {
 				return nil, err
 			}
+
+			// **SYNTAX SUGAR NORMALIZATION**: Simple commands with only function decorators
+			// should have the same AST structure as simple commands without decorators
 			return &ast.CommandBody{
 				Content: []ast.CommandContent{content},
-				IsBlock: false,
 				Pos:     ast.Position{Line: startPos.Line, Column: startPos.Column},
 			}, nil
 		}
@@ -248,9 +248,19 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		// **SYNTAX SUGAR NORMALIZATION**: All equivalent forms produce same AST structure
+		// Both "build: npm run build" and "build: { npm run build }" are now identical
+		if p.isSimpleShellContent(contentItems) {
+			return &ast.CommandBody{
+				Content: contentItems,
+				Pos:     ast.Position{Line: startPos.Line, Column: startPos.Column},
+				// Note: No brace tokens stored for simple commands (canonical form)
+			}, nil
+		}
+
 		return &ast.CommandBody{
 			Content:    contentItems, // Already a slice
-			IsBlock:    true,
 			Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 			OpenBrace:  &openBrace,
 			CloseBrace: &closeBrace,
@@ -264,9 +274,33 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 	}
 	return &ast.CommandBody{
 		Content: []ast.CommandContent{content},
-		IsBlock: false,
 		Pos:     ast.Position{Line: startPos.Line, Column: startPos.Column},
 	}, nil
+}
+
+// isSimpleShellContent checks if content items represent simple shell content
+// that should be normalized to canonical form (IsBlock=false)
+func (p *Parser) isSimpleShellContent(contentItems []ast.CommandContent) bool {
+	// Must be exactly one content item
+	if len(contentItems) != 1 {
+		return false
+	}
+
+	// Must be shell content without decorators
+	if shell, ok := contentItems[0].(*ast.ShellContent); ok {
+		// Check if it contains only text parts or function decorators (no block decorators)
+		for _, part := range shell.Parts {
+			if funcDecorator, ok := part.(*ast.FunctionDecorator); ok {
+				// Function decorators are allowed in simple content
+				if !stdlib.IsFunctionDecorator(funcDecorator.Name) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+
+	return false
 }
 
 // parseCommandContent parses the actual content of a command, which can be

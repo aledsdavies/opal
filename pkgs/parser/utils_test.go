@@ -110,7 +110,6 @@ type ExpectedCommand struct {
 }
 
 type ExpectedCommandBody struct {
-	IsBlock bool
 	Content []ExpectedCommandContent // Updated to match AST structure
 }
 
@@ -299,25 +298,6 @@ func BooleanExpr(value bool) ExpectedExpression {
 func Cmd(name string, body interface{}) ExpectedCommand {
 	cmdBody := toCommandBody(body)
 
-	// Validate syntax sugar rules: only simple shell content gets automatic braces
-	if cmdBody.IsBlock {
-		// Instead of panic, return an error command that will fail the test gracefully
-		return ExpectedCommand{
-			Name: name,
-			Type: ast.Command,
-			Body: ExpectedCommandBody{
-				IsBlock: false,
-				Content: []ExpectedCommandContent{
-					ExpectedShellContent{
-						Parts: []ExpectedShellPart{
-							Text("ERROR: Cmd() is for simple commands only. Use CmdBlock() for explicit block syntax"),
-						},
-					},
-				},
-			},
-		}
-	}
-
 	return ExpectedCommand{
 		Name: name,
 		Type: ast.Command,
@@ -329,25 +309,6 @@ func Cmd(name string, body interface{}) ExpectedCommand {
 // This applies syntax sugar for simple shell commands with or without function decorators
 func Watch(name string, body interface{}) ExpectedCommand {
 	cmdBody := toCommandBody(body)
-
-	// Validate syntax sugar rules: only simple shell content gets automatic braces
-	if cmdBody.IsBlock {
-		// Instead of panic, return an error command
-		return ExpectedCommand{
-			Name: name,
-			Type: ast.WatchCommand,
-			Body: ExpectedCommandBody{
-				IsBlock: false,
-				Content: []ExpectedCommandContent{
-					ExpectedShellContent{
-						Parts: []ExpectedShellPart{
-							Text("ERROR: Watch() is for simple commands only. Use WatchBlock() for explicit block syntax"),
-						},
-					},
-				},
-			},
-		}
-	}
 
 	return ExpectedCommand{
 		Name: name,
@@ -362,7 +323,6 @@ func WatchBlock(name string, content ...interface{}) ExpectedCommand {
 		Name: name,
 		Type: ast.WatchCommand,
 		Body: ExpectedCommandBody{
-			IsBlock: true,
 			Content: toMultipleCommandContent(content...),
 		},
 	}
@@ -372,25 +332,6 @@ func WatchBlock(name string, content ...interface{}) ExpectedCommand {
 // This applies syntax sugar for simple shell commands with or without function decorators
 func Stop(name string, body interface{}) ExpectedCommand {
 	cmdBody := toCommandBody(body)
-
-	// Validate syntax sugar rules: only simple shell content gets automatic braces
-	if cmdBody.IsBlock {
-		// Instead of panic, return an error command
-		return ExpectedCommand{
-			Name: name,
-			Type: ast.StopCommand,
-			Body: ExpectedCommandBody{
-				IsBlock: false,
-				Content: []ExpectedCommandContent{
-					ExpectedShellContent{
-						Parts: []ExpectedShellPart{
-							Text("ERROR: Stop() is for simple commands only. Use StopBlock() for explicit block syntax"),
-						},
-					},
-				},
-			},
-		}
-	}
 
 	return ExpectedCommand{
 		Name: name,
@@ -405,7 +346,6 @@ func StopBlock(name string, content ...interface{}) ExpectedCommand {
 		Name: name,
 		Type: ast.StopCommand,
 		Body: ExpectedCommandBody{
-			IsBlock: true,
 			Content: toMultipleCommandContent(content...),
 		},
 	}
@@ -417,7 +357,6 @@ func CmdBlock(name string, content ...interface{}) ExpectedCommand {
 		Name: name,
 		Type: ast.Command,
 		Body: ExpectedCommandBody{
-			IsBlock: true,
 			Content: toMultipleCommandContent(content...),
 		},
 	}
@@ -436,7 +375,6 @@ func Simple(parts ...interface{}) ExpectedCommandBody {
 			if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
 				// Instead of panic, return an error body
 				return ExpectedCommandBody{
-					IsBlock: false,
 					Content: []ExpectedCommandContent{
 						ExpectedShellContent{
 							Parts: []ExpectedShellPart{
@@ -450,7 +388,6 @@ func Simple(parts ...interface{}) ExpectedCommandBody {
 	}
 
 	return ExpectedCommandBody{
-		IsBlock: false,
 		Content: []ExpectedCommandContent{
 			ExpectedShellContent{
 				Parts: shellParts,
@@ -660,7 +597,6 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 		// Empty string should create empty shell content
 		if val == "" {
 			return ExpectedCommandBody{
-				IsBlock: false,
 				Content: []ExpectedCommandContent{
 					ExpectedShellContent{Parts: []ExpectedShellPart{}},
 				},
@@ -677,7 +613,6 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 				if part.FunctionDecorator != nil && !stdlib.IsFunctionDecorator(part.FunctionDecorator.Name) {
 					// Instead of panic, return an error body
 					return ExpectedCommandBody{
-						IsBlock: true, // Force block to avoid syntax sugar issues
 						Content: []ExpectedCommandContent{
 							ExpectedShellContent{
 								Parts: []ExpectedShellPart{
@@ -690,24 +625,20 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 			}
 		}
 		return ExpectedCommandBody{
-			IsBlock: false,
 			Content: []ExpectedCommandContent{val},
 		}
 	case ExpectedDecoratedContent:
 		// Decorated content ALWAYS requires explicit blocks per spec
 		return ExpectedCommandBody{
-			IsBlock: true,
 			Content: []ExpectedCommandContent{val},
 		}
 	case ExpectedPatternContent:
 		// Pattern content ALWAYS requires explicit blocks per spec
 		return ExpectedCommandBody{
-			IsBlock: true,
 			Content: []ExpectedCommandContent{val},
 		}
 	default:
 		return ExpectedCommandBody{
-			IsBlock: false,
 			Content: []ExpectedCommandContent{
 				ExpectedShellContent{
 					Parts: []ExpectedShellPart{},
@@ -1135,7 +1066,6 @@ func commandBodyToComparable(body ast.CommandBody) interface{} {
 	}
 
 	return map[string]interface{}{
-		"IsBlock": body.IsBlock,
 		"Content": contentArray,
 	}
 }
@@ -1147,7 +1077,6 @@ func expectedCommandBodyToComparable(body ExpectedCommandBody) interface{} {
 	}
 
 	return map[string]interface{}{
-		"IsBlock": body.IsBlock,
 		"Content": contentArray,
 	}
 }
