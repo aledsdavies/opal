@@ -453,7 +453,7 @@ const stopOnlyCommandTemplate = `{{define "stop-only-command"}}
 	}
 {{- end}}`
 
-// Updated parallel command template using separate exec calls for better error handling
+// Updated parallel command template - preserving semicolon-separated commands as single exec calls
 const parallelCommandTemplate = `{{define "parallel-command"}}
 	// Parallel command execution using separate exec calls for better error handling
 	{

@@ -111,7 +111,7 @@ type ExpectedCommand struct {
 
 type ExpectedCommandBody struct {
 	IsBlock bool
-	Content []ExpectedCommandContent // Now supports multiple content items
+	Content []ExpectedCommandContent // Updated to match AST structure
 }
 
 type ExpectedCommandContent interface {
@@ -137,13 +137,6 @@ type ExpectedPatternContent struct {
 }
 
 func (p ExpectedPatternContent) IsExpectedCommandContent() bool { return true }
-
-// ExpectedBlockContent represents multiple commands within a decorator block
-type ExpectedBlockContent struct {
-	Commands []ExpectedCommandContent
-}
-
-func (b ExpectedBlockContent) IsExpectedCommandContent() bool { return true }
 
 type ExpectedPatternBranch struct {
 	Pattern  ExpectedPattern
@@ -430,14 +423,6 @@ func CmdBlock(name string, content ...interface{}) ExpectedCommand {
 	}
 }
 
-// Block creates a block command body: { content }
-func Block(content ...interface{}) ExpectedCommandBody {
-	return ExpectedCommandBody{
-		IsBlock: true,
-		Content: toMultipleCommandContent(content...),
-	}
-}
-
 // Simple creates a simple command body (single line)
 // This enforces that simple commands cannot contain BLOCK decorators (per syntax sugar rules)
 // Function decorators (@var) are allowed and get syntax sugar
@@ -563,7 +548,8 @@ func Pattern(decorator ExpectedDecorator, branches ...ExpectedPatternBranch) Exp
 	}
 }
 
-// Branch creates a pattern branch: pattern: command
+// Branch creates a pattern branch: pattern: command or pattern: { commands }
+// **UPDATED**: Now supports multiple commands per branch
 func Branch(pattern interface{}, commands ...interface{}) ExpectedPatternBranch {
 	var patternObj ExpectedPattern
 
@@ -586,6 +572,13 @@ func Branch(pattern interface{}, commands ...interface{}) ExpectedPatternBranch 
 		commandArray = append(commandArray, toSingleCommandContent(cmd))
 	}
 
+	// If no commands provided, create empty shell content
+	if len(commandArray) == 0 {
+		commandArray = []ExpectedCommandContent{
+			ExpectedShellContent{Parts: []ExpectedShellPart{}},
+		}
+	}
+
 	return ExpectedPatternBranch{
 		Pattern:  patternObj,
 		Commands: commandArray,
@@ -602,8 +595,6 @@ func PatternId(name string) ExpectedPattern {
 	return ExpectedIdentifierPattern{Name: name}
 }
 
-// New DSL functions for multiple content support
-
 // Shell creates a shell content item
 func Shell(parts ...interface{}) ExpectedCommandContent {
 	return ExpectedShellContent{
@@ -616,40 +607,6 @@ func DecoratedShell(decorator ExpectedDecorator, parts ...interface{}) ExpectedC
 	return ExpectedDecoratedContent{
 		Decorators: []ExpectedDecorator{decorator},
 		Content: Shell(parts...),
-	}
-}
-
-// DecoratedBlock creates decorated content with multiple inner content: @parallel { shell1; shell2 }
-func DecoratedBlock(decorator ExpectedDecorator, content ...interface{}) ExpectedCommandContent {
-	// If there's only one item and it's already CommandContent, use it directly
-	if len(content) == 1 {
-		if singleContent, ok := content[0].(ExpectedCommandContent); ok {
-			return ExpectedDecoratedContent{
-				Decorators: []ExpectedDecorator{decorator},
-				Content:    singleContent,
-			}
-		}
-	}
-
-	// For multiple items, create separate shell commands within a block
-	var commands []ExpectedCommandContent
-	for _, item := range content {
-		commands = append(commands, toSingleCommandContent(item))
-	}
-
-	return ExpectedDecoratedContent{
-		Decorators: []ExpectedDecorator{decorator},
-		Content: ExpectedBlockContent{
-			Commands: commands,
-		},
-	}
-}
-
-// MultiDecorated creates content with multiple decorators: @timeout(30s) @retry(3) { ... }
-func MultiDecorated(decorators []ExpectedDecorator, content interface{}) ExpectedCommandContent {
-	return ExpectedDecoratedContent{
-		Decorators: decorators,
-		Content:    toSingleCommandContent(content),
 	}
 }
 
@@ -1104,8 +1061,6 @@ func commandContentToComparable(content ast.CommandContent) interface{} {
 			"Branches":  branches,
 		}
 	default:
-		// Handle potential BlockContent type if it exists in AST
-		// For now, return unknown type
 		return map[string]interface{}{
 			"Type": "unknown",
 		}
@@ -1165,15 +1120,6 @@ func expectedCommandContentToComparable(content ExpectedCommandContent) interfac
 			"Type":      "pattern",
 			"Decorator": decorator,
 			"Branches":  branches,
-		}
-	case ExpectedBlockContent:
-		commands := make([]interface{}, len(c.Commands))
-		for i, command := range c.Commands {
-			commands[i] = expectedCommandContentToComparable(command)
-		}
-		return map[string]interface{}{
-			"Type":     "block",
-			"Commands": commands,
 		}
 	default:
 		return map[string]interface{}{

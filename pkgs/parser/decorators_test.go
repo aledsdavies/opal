@@ -263,8 +263,137 @@ func TestBlockDecorators(t *testing.T) {
 			Name:  "empty block with decorators",
 			Input: "parallel-empty: @parallel { }",
 			Expected: Program(
-				CmdBlock("parallel-empty",
-					DecoratedShell(Decorator("parallel")),
+				CmdBlock("parallel-empty"),
+			),
+		},
+		{
+			Name:  "multiple commands in parallel block - each gets decorated",
+			Input: `services: @parallel {
+  npm run api
+  npm run worker
+}`,
+			Expected: Program(
+				CmdBlock("services",
+					DecoratedShell(Decorator("parallel"),
+						Text("npm run api"),
+					),
+					DecoratedShell(Decorator("parallel"),
+						Text("npm run worker"),
+					),
+				),
+			),
+		},
+		{
+			Name:  "multiple commands in timeout block - each gets decorated",
+			Input: `deploy: @timeout(5m) {
+  npm run build
+  npm test
+  kubectl apply -f k8s/
+}`,
+			Expected: Program(
+				CmdBlock("deploy",
+					DecoratedShell(Decorator("timeout", Dur("5m")),
+						Text("npm run build"),
+					),
+					DecoratedShell(Decorator("timeout", Dur("5m")),
+						Text("npm test"),
+					),
+					DecoratedShell(Decorator("timeout", Dur("5m")),
+						Text("kubectl apply -f k8s/"),
+					),
+				),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
+func TestPatternDecorators(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name: "@when pattern decorator with simple branches",
+			Input: `deploy: @when(ENV) {
+  production: kubectl apply -f k8s/prod/
+  staging: kubectl apply -f k8s/staging/
+  *: echo "Unknown environment"
+}`,
+			Expected: Program(
+				Cmd("deploy",
+					Pattern(PatternDecorator("when", Id("ENV")),
+						Branch("production", Shell("kubectl apply -f k8s/prod/")),
+						Branch("staging", Shell("kubectl apply -f k8s/staging/")),
+						Branch("*", Shell("echo \"Unknown environment\"")),
+					),
+				),
+			),
+		},
+		{
+			Name: "@when pattern decorator with multiple commands per branch",
+			Input: `deploy: @when(ENV) {
+  production: {
+    kubectl config use-context prod
+    kubectl apply -f k8s/prod/
+    kubectl rollout status deployment/app
+  }
+  staging: kubectl apply -f k8s/staging/
+}`,
+			Expected: Program(
+				Cmd("deploy",
+					Pattern(PatternDecorator("when", Id("ENV")),
+						Branch("production",
+							Shell("kubectl config use-context prod"),
+							Shell("kubectl apply -f k8s/prod/"),
+							Shell("kubectl rollout status deployment/app"),
+						),
+						Branch("staging", Shell("kubectl apply -f k8s/staging/")),
+					),
+				),
+			),
+		},
+		{
+			Name: "@try pattern decorator with error handling",
+			Input: `backup: @try {
+  main: {
+    pg_dump mydb > backup.sql
+    aws s3 cp backup.sql s3://backups/
+  }
+  error: {
+    echo "Backup failed"
+    rm -f backup.sql
+  }
+  finally: echo "Backup process completed"
+}`,
+			Expected: Program(
+				Cmd("backup",
+					Pattern(PatternDecorator("try"),
+						Branch("main",
+							Shell("pg_dump mydb > backup.sql"),
+							Shell("aws s3 cp backup.sql s3://backups/"),
+						),
+						Branch("error",
+							Shell("echo \"Backup failed\""),
+							Shell("rm -f backup.sql"),
+						),
+						Branch("finally", Shell("echo \"Backup process completed\"")),
+					),
+				),
+			),
+		},
+		{
+			Name: "@when with @var references in commands",
+			Input: `deploy: @when(MODE) {
+  production: echo "Deploying @var(APP) to production"
+  staging: echo "Deploying @var(APP) to staging"
+}`,
+			Expected: Program(
+				Cmd("deploy",
+					Pattern(PatternDecorator("when", Id("MODE")),
+						Branch("production", Shell("echo \"Deploying ", At("var", Id("APP")), " to production\"")),
+						Branch("staging", Shell("echo \"Deploying ", At("var", Id("APP")), " to staging\"")),
+					),
 				),
 			),
 		},
@@ -388,6 +517,27 @@ func TestNestedDecorators(t *testing.T) {
 				CmdBlock("complex",
 					DecoratedShell(Decorator("timeout", Dur("30s")),
 						Text("npm run integration-tests && npm run e2e"),
+					),
+				),
+			),
+		},
+		{
+			Name:  "multiple commands with decorator - each gets decorated",
+			Input: `build: @timeout(2m) {
+  echo "Starting build"
+  npm run build
+  echo "Build complete"
+}`,
+			Expected: Program(
+				CmdBlock("build",
+					DecoratedShell(Decorator("timeout", Dur("2m")),
+						Text("echo \"Starting build\""),
+					),
+					DecoratedShell(Decorator("timeout", Dur("2m")),
+						Text("npm run build"),
+					),
+					DecoratedShell(Decorator("timeout", Dur("2m")),
+						Text("echo \"Build complete\""),
 					),
 				),
 			),

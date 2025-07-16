@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/aledsdavies/devcmd/pkgs/lexer"
-	"github.com/aledsdavies/devcmd/pkgs/stdlib"
 )
 
 // Node represents any node in the AST
@@ -503,42 +502,6 @@ func (s *ShellContent) IsCommandContent() bool {
 	return true
 }
 
-// BlockContent represents multiple command content items within a block
-// This handles cases like: @parallel { cmd1; cmd2 } or explicit blocks { cmd1; cmd2 }
-type BlockContent struct {
-	Commands []CommandContent // Multiple commands within the block
-	Pos      Position
-	Tokens   TokenRange
-}
-
-func (b *BlockContent) String() string {
-	var parts []string
-	for _, cmd := range b.Commands {
-		parts = append(parts, cmd.String())
-	}
-	return strings.Join(parts, "; ")
-}
-
-func (b *BlockContent) Position() Position {
-	return b.Pos
-}
-
-func (b *BlockContent) TokenRange() TokenRange {
-	return b.Tokens
-}
-
-func (b *BlockContent) SemanticTokens() []lexer.Token {
-	var tokens []lexer.Token
-	for _, cmd := range b.Commands {
-		tokens = append(tokens, cmd.SemanticTokens()...)
-	}
-	return tokens
-}
-
-func (b *BlockContent) IsCommandContent() bool {
-	return true
-}
-
 // ShellPart represents a part of shell content (text or inline decorator)
 type ShellPart interface {
 	Node
@@ -588,7 +551,7 @@ func (t *TextPart) IsShellPart() bool {
 // deploy: { @parallel() {}; @retry(3) {} }
 type DecoratedContent struct {
 	Decorators []Decorator  // Leading decorators (valid when nested in blocks)
-	Content    CommandContent // The actual content (can be ShellContent, BlockContent, or nested DecoratedContent)
+	Content    CommandContent // The actual content (can be ShellContent or nested DecoratedContent)
 	Pos        Position
 	Tokens     TokenRange
 }
@@ -694,9 +657,10 @@ func (p *PatternContent) IsCommandContent() bool {
 
 // PatternBranch represents a single pattern branch in pattern-matching decorators
 // Examples: "production: deploy.sh", "main: npm start", "*: default.sh"
+// Supports multiple commands per pattern when using newlines
 type PatternBranch struct {
-	Pattern  Pattern          // The pattern identifier or wildcard
-	Commands []CommandContent // The commands to execute for this pattern
+	Pattern  Pattern           // The pattern identifier or wildcard
+	Commands []CommandContent  // The commands to execute for this pattern (supports multiple)
 	Pos      Position
 	Tokens   TokenRange
 
@@ -705,11 +669,11 @@ type PatternBranch struct {
 }
 
 func (b *PatternBranch) String() string {
-	var parts []string
+	var commandStrs []string
 	for _, cmd := range b.Commands {
-		parts = append(parts, cmd.String())
+		commandStrs = append(commandStrs, cmd.String())
 	}
-	return fmt.Sprintf("%s: %s", b.Pattern.String(), strings.Join(parts, "; "))
+	return fmt.Sprintf("%s: %s", b.Pattern.String(), strings.Join(commandStrs, "\n"))
 }
 
 func (b *PatternBranch) Position() Position {
@@ -729,8 +693,8 @@ func (b *PatternBranch) SemanticTokens() []lexer.Token {
 	colonToken.Semantic = lexer.SemOperator
 	tokens = append(tokens, colonToken)
 
-	for _, cmd := range b.Commands {
-		tokens = append(tokens, cmd.SemanticTokens()...)
+	for _, command := range b.Commands {
+		tokens = append(tokens, command.SemanticTokens()...)
 	}
 
 	return tokens
@@ -871,13 +835,11 @@ func (d *Decorator) SemanticTokens() []lexer.Token {
 	tokens = append(tokens, atToken)
 
 	nameToken := d.NameToken
-	semanticType := stdlib.GetDecoratorSemanticType(d.Name)
-	switch semanticType {
-	case stdlib.SemVariable:
+	if d.Name == "var" || d.Name == "env" {
 		nameToken.Semantic = lexer.SemVariable
-	case stdlib.SemPattern:
+	} else if d.Name == "when" || d.Name == "try" {
 		nameToken.Semantic = lexer.SemPattern
-	default:
+	} else {
 		nameToken.Semantic = lexer.SemDecorator
 	}
 	tokens = append(tokens, nameToken)
@@ -934,15 +896,11 @@ func (f *FunctionDecorator) SemanticTokens() []lexer.Token {
 	atToken.Semantic = lexer.SemOperator
 	tokens = append(tokens, atToken)
 
-	// Function decorator name with proper semantic based on registry
+	// Function decorator name with proper semantic
 	nameToken := f.NameToken
-	semanticType := stdlib.GetDecoratorSemanticType(f.Name)
-	switch semanticType {
-	case stdlib.SemVariable:
+	if f.Name == "var" || f.Name == "sh" {
 		nameToken.Semantic = lexer.SemVariable
-	case stdlib.SemFunction:
-		nameToken.Semantic = lexer.SemDecorator
-	default:
+	} else {
 		nameToken.Semantic = lexer.SemDecorator
 	}
 	tokens = append(tokens, nameToken)
@@ -1013,10 +971,6 @@ func Walk(node Node, fn func(Node) bool) {
 		for _, part := range n.Parts {
 			Walk(part, fn)
 		}
-	case *BlockContent:
-		for _, cmd := range n.Commands {
-			Walk(cmd, fn)
-		}
 	case *TextPart:
 		// Leaf node - plain text
 	case *DecoratedContent:
@@ -1031,8 +985,8 @@ func Walk(node Node, fn func(Node) bool) {
 		}
 	case *PatternBranch:
 		Walk(n.Pattern, fn)
-		for _, cmd := range n.Commands {
-			Walk(cmd, fn)
+		for _, command := range n.Commands {
+			Walk(command, fn)
 		}
 	case *IdentifierPattern:
 		// Leaf node - pattern identifier
@@ -1134,19 +1088,6 @@ func (b *CommandBody) GetAllPatternContent() []*PatternContent {
 	return patternContents
 }
 
-// GetAllBlockContent returns all block content from the command body
-func (b *CommandBody) GetAllBlockContent() []*BlockContent {
-	var blockContents []*BlockContent
-
-	for _, content := range b.Content {
-		if block, ok := content.(*BlockContent); ok {
-			blockContents = append(blockContents, block)
-		}
-	}
-
-	return blockContents
-}
-
 // GetPatternDecorators returns all pattern decorators in the AST
 func GetPatternDecorators(node Node) []*PatternContent {
 	var patterns []*PatternContent
@@ -1177,31 +1118,16 @@ func FindPatternBranches(node Node, decoratorName string) []*PatternBranch {
 	return branches
 }
 
-// ValidatePatternContent validates pattern-matching decorator content using the registry
+// ValidatePatternContent validates pattern-matching decorator content
 func ValidatePatternContent(pattern *PatternContent) []error {
 	var errors []error
 
-	// Check if decorator is actually a pattern decorator using registry
-	if !stdlib.IsPatternDecorator(pattern.Decorator.Name) {
-		errors = append(errors, fmt.Errorf("@%s is not a pattern decorator at line %d", pattern.Decorator.Name, pattern.Pos.Line))
-		return errors
-	}
-
-	// Get pattern spec from registry
-	spec := stdlib.GetPatternSpec(pattern.Decorator.Name)
-	if spec == nil {
-		errors = append(errors, fmt.Errorf("no pattern specification found for @%s at line %d", pattern.Decorator.Name, pattern.Pos.Line))
-		return errors
-	}
-
-	// Collect pattern names for validation
-	var patternNames []string
+	// Check for duplicate patterns
 	seenPatterns := make(map[string]*PatternBranch)
 	hasWildcard := false
 
 	for _, branch := range pattern.Patterns {
 		patternStr := branch.Pattern.String()
-		patternNames = append(patternNames, patternStr)
 
 		if patternStr == "*" {
 			if hasWildcard {
@@ -1216,9 +1142,16 @@ func ValidatePatternContent(pattern *PatternContent) []error {
 		}
 	}
 
-	// Use registry to validate patterns
-	if err := stdlib.ValidatePatterns(pattern.Decorator.Name, patternNames); err != nil {
-		errors = append(errors, fmt.Errorf("%s at line %d", err.Error(), pattern.Pos.Line))
+	// Decorator-specific validation
+	switch pattern.Decorator.Name {
+	case "try":
+		if _, hasMain := seenPatterns["main"]; !hasMain {
+			errors = append(errors, fmt.Errorf("@try decorator requires 'main' pattern at line %d", pattern.Pos.Line))
+		}
+	case "when":
+		if len(pattern.Patterns) == 0 {
+			errors = append(errors, fmt.Errorf("@when decorator requires at least one pattern at line %d", pattern.Pos.Line))
+		}
 	}
 
 	return errors
@@ -1358,9 +1291,9 @@ func GetPatternBranchForPattern(patternContent *PatternContent, patternName stri
 	return nil
 }
 
-// IsPatternDecorator checks if a decorator is a pattern-matching decorator using registry
+// IsPatternDecorator checks if a decorator is a pattern-matching decorator
 func IsPatternDecorator(decoratorName string) bool {
-	return stdlib.IsPatternDecorator(decoratorName)
+	return decoratorName == "when" || decoratorName == "try"
 }
 
 // GetPatternContentByDecorator finds pattern content for a specific decorator type
@@ -1377,34 +1310,35 @@ func GetPatternContentByDecorator(node Node, decoratorName string) []*PatternCon
 	return patterns
 }
 
-// GetPatternType returns the type of pattern for a specific lexer token using registry
+// GetPatternType returns the type of pattern for a specific lexer token
 func GetPatternType(token lexer.Token) lexer.PatternType {
 	if token.Type == lexer.ASTERISK {
 		return lexer.WildcardPattern
 	}
 
 	if token.Type == lexer.IDENTIFIER {
-		// Use registry to determine pattern types for different decorators
-		// Since we don't have decorator context here, we return custom pattern
-		// The actual validation should be done with decorator context
-		return lexer.CustomPattern
+		switch token.Value {
+		case "main", "error", "finally":
+			return lexer.TryPattern
+		case "production", "development", "staging", "test", "prod", "dev":
+			return lexer.WhenPattern
+		default:
+			return lexer.CustomPattern
+		}
 	}
 
 	return lexer.UnknownPattern
 }
 
-// ValidatePatternSequence validates a sequence of pattern tokens using registry
+// ValidatePatternSequence validates a sequence of pattern tokens
 func ValidatePatternSequence(tokens []lexer.Token, decoratorType string) []lexer.PatternError {
 	var errors []lexer.PatternError
 
-	// Use registry for validation
-	var patternNames []string
 	patterns := make(map[string]lexer.Token)
 	hasWildcard := false
 
 	for _, token := range tokens {
 		if token.Type == lexer.ASTERISK {
-			patternNames = append(patternNames, "*")
 			if hasWildcard {
 				errors = append(errors, lexer.PatternError{
 					Message: "multiple wildcard patterns not allowed",
@@ -1414,7 +1348,6 @@ func ValidatePatternSequence(tokens []lexer.Token, decoratorType string) []lexer
 			}
 			hasWildcard = true
 		} else if token.Type == lexer.IDENTIFIER {
-			patternNames = append(patternNames, token.Value)
 			if existing, exists := patterns[token.Value]; exists {
 				errors = append(errors, lexer.PatternError{
 					Message: fmt.Sprintf("duplicate pattern '%s'", token.Value),
@@ -1427,12 +1360,15 @@ func ValidatePatternSequence(tokens []lexer.Token, decoratorType string) []lexer
 		}
 	}
 
-	// Use registry to validate pattern names
-	if err := stdlib.ValidatePatterns(decoratorType, patternNames); err != nil {
-		errors = append(errors, lexer.PatternError{
-			Message: err.Error(),
-			Code:    "invalid-pattern-sequence",
-		})
+	// Decorator-specific validation
+	switch decoratorType {
+	case "try":
+		if _, hasMain := patterns["main"]; !hasMain {
+			errors = append(errors, lexer.PatternError{
+				Message: "@try decorator requires 'main' pattern",
+				Code:    "missing-main-pattern",
+			})
+		}
 	}
 
 	return errors

@@ -254,7 +254,7 @@ build: { cp -r @var(SRC)/* @var(DEST)/ }`,
 				Var("SRC", Str("./src")),
 				Var("DEST", Str("./dist")),
 				CmdBlock("build",
-					Shell("cp -r ", At("var", Id("SRC")), "/* ", At("var", Id("DEST")), "/"),
+					Shell(Text("cp -r "), At("var", Id("SRC")), Text("/* "), At("var", Id("DEST")), Text("/")),
 				),
 			),
 		},
@@ -269,7 +269,7 @@ serve: { go run main.go --port=@var(PORT) --host=@var(HOST) }`,
 				Var("PORT", Num(8080)),
 				Var("HOST", Str("localhost")),
 				CmdBlock("serve",
-					Shell("go run main.go --port=", At("var", Id("PORT")), " --host=", At("var", Id("HOST"))),
+					Shell(Text("go run main.go --port="), At("var", Id("PORT")), Text(" --host="), At("var", Id("HOST"))),
 				),
 			),
 		},
@@ -280,7 +280,7 @@ deploy: { cd @var(SRC); make clean; make install }`,
 			Expected: Program(
 				Var("SRC", Str("./src")),
 				CmdBlock("deploy",
-					Shell("cd ", At("var", Id("SRC")), "; make clean; make install"),
+					Shell(Text("cd "), At("var", Id("SRC")), Text("; make clean; make install")),
 				),
 			),
 		},
@@ -298,7 +298,7 @@ test: @timeout(TIMEOUT) { npm test }`,
 			),
 		},
 		{
-			Name: "environment variable substitution with @env",
+			Name: "environment variable substitution with @env - simple command",
 			Input: `var TIME = 5m
 deploy: NODE_ENV=@env("NODE_ENV") npm run deploy`,
 			Expected: Program(
@@ -326,13 +326,13 @@ watch build: @debounce(500ms) { echo "Building @var(SRC)" }`,
 			),
 		},
 		{
-			Name: "variables in stop commands - simple command gets syntax sugar",
+			Name: "variables in stop commands - explicit block required",
 			Input: `var PROCESS = "myapp"
 stop server: { pkill -f @var(PROCESS) }`,
 			Expected: Program(
 				Var("PROCESS", Str("myapp")),
 				StopBlock("server",
-					Shell("pkill -f ", At("var", Id("PROCESS"))),
+					Shell(Text("pkill -f "), At("var", Id("PROCESS"))),
 				),
 			),
 		},
@@ -343,7 +343,7 @@ build: { echo "Files: $(ls @var(SRC) | wc -l)" }`,
 			Expected: Program(
 				Var("SRC", Str("./src")),
 				CmdBlock("build",
-					Shell(`echo "Files: $(ls `, At("var", Id("SRC")), ` | wc -l)"`),
+					Shell(Text(`echo "Files: $(ls `), At("var", Id("SRC")), Text(` | wc -l)"`)),
 				),
 			),
 		},
@@ -356,7 +356,7 @@ connect: { ssh -p @var(PORT) user@@@var(HOST) }`,
 				Var("HOST", Str("server.com")),
 				Var("PORT", Num(22)),
 				CmdBlock("connect",
-					Shell("ssh -p ", At("var", Id("PORT")), " user@@", At("var", Id("HOST"))),
+					Shell(Text("ssh -p "), At("var", Id("PORT")), Text(" user@@"), At("var", Id("HOST"))),
 				),
 			),
 		},
@@ -371,7 +371,7 @@ build: { cd @var(SRC) && npm run build:@var(ENV) && cp -r dist/* @var(DEST)/ }`,
 				Var("DEST", Str("./dist")),
 				Var("ENV", Str("prod")),
 				CmdBlock("build",
-					Shell("cd ", At("var", Id("SRC")), " && npm run build:", At("var", Id("ENV")), " && cp -r dist/* ", At("var", Id("DEST")), "/"),
+					Shell(Text("cd "), At("var", Id("SRC")), Text(" && npm run build:"), At("var", Id("ENV")), Text(" && cp -r dist/* "), At("var", Id("DEST")), Text("/")),
 				),
 			),
 		},
@@ -382,7 +382,7 @@ check: { test "@var(ENV)" = "production" && echo "prod mode" || echo "dev mode" 
 			Expected: Program(
 				Var("ENV", Str("production")),
 				CmdBlock("check",
-					Shell(`test "`, At("var", Id("ENV")), `" = "production" && echo "prod mode" || echo "dev mode"`),
+					Shell(Text(`test "`), At("var", Id("ENV")), Text(`" = "production" && echo "prod mode" || echo "dev mode"`)),
 				),
 			),
 		},
@@ -453,7 +453,7 @@ greet: { echo "Hello @var(NAME)!" }`,
 			Expected: Program(
 				Var("NAME", Str("World")),
 				CmdBlock("greet",
-					Shell(`echo "Hello `, At("var", Id("NAME")), `!"`),
+					Shell(Text(`echo "Hello `), At("var", Id("NAME")), Text(`!"`)),
 				),
 			),
 		},
@@ -464,7 +464,7 @@ process: { cat @var(FILE) | grep pattern | sort }`,
 			Expected: Program(
 				Var("FILE", Str("data.txt")),
 				CmdBlock("process",
-					Shell("cat ", At("var", Id("FILE")), " | grep pattern | sort"),
+					Shell(Text("cat "), At("var", Id("FILE")), Text(" | grep pattern | sort")),
 				),
 			),
 		},
@@ -475,7 +475,7 @@ backup: { cp important.txt @var(HOME)/backup/ }`,
 			Expected: Program(
 				Var("HOME", Str("/home/user")),
 				CmdBlock("backup",
-					Shell("cp important.txt ", At("var", Id("HOME")), "/backup/"),
+					Shell(Text("cp important.txt "), At("var", Id("HOME")), Text("/backup/")),
 				),
 			),
 		},
@@ -514,6 +514,62 @@ backup: { cp important.txt @var(HOME)/backup/ }`,
 				Var("MEDIUM", Dur("30s")),
 				Var("LONG", Dur("5m")),
 				Var("VERY_LONG", Dur("2h")),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
+func TestVariableTypeValidation(t *testing.T) {
+	// Test that only the 4 supported types are allowed
+	testCases := []TestCase{
+		{
+			Name:        "reject unquoted identifier",
+			Input:       "var PATH = ./src",
+			WantErr:     true,
+			ErrorSubstr: "variable value must be a quoted string, number, duration, or boolean literal",
+		},
+		{
+			Name:        "reject array syntax",
+			Input:       "var ITEMS = [1, 2, 3]",
+			WantErr:     true,
+			ErrorSubstr: "variable value must be a quoted string, number, duration, or boolean literal",
+		},
+		{
+			Name:        "reject object syntax",
+			Input:       "var CONFIG = { key: value }",
+			WantErr:     true,
+			ErrorSubstr: "variable value must be a quoted string, number, duration, or boolean literal",
+		},
+		{
+			Name:  "accept string literal",
+			Input: `var PATH = "./src"`,
+			Expected: Program(
+				Var("PATH", Str("./src")),
+			),
+		},
+		{
+			Name:  "accept number literal",
+			Input: "var COUNT = 42",
+			Expected: Program(
+				Var("COUNT", Num(42)),
+			),
+		},
+		{
+			Name:  "accept duration literal",
+			Input: "var TIMEOUT = 30s",
+			Expected: Program(
+				Var("TIMEOUT", Dur("30s")),
+			),
+		},
+		{
+			Name:  "accept boolean literal",
+			Input: "var ENABLED = true",
+			Expected: Program(
+				Var("ENABLED", Bool(true)),
 			),
 		},
 	}

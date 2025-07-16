@@ -188,24 +188,19 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 					CloseBrace: &closeBrace,
 				}, nil
 			} else {
-				// Multiple items - combine into single shell content and wrap with decorator
-				var allParts []ast.ShellPart
+				// Multiple items - wrap each with the decorator
+				// This handles cases like: @timeout(30s) { cmd1; cmd2; cmd3 }
+				var decoratedItems []ast.CommandContent
 				for _, item := range blockContent {
-					if shellContent, ok := item.(*ast.ShellContent); ok {
-						allParts = append(allParts, shellContent.Parts...)
+					decoratedContent := &ast.DecoratedContent{
+						Decorators: decorators,
+						Content:    item,
+						Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 					}
-				}
-				combinedContent := &ast.ShellContent{
-					Parts: allParts,
-					Pos:   ast.Position{Line: startPos.Line, Column: startPos.Column},
-				}
-				decoratedContent := &ast.DecoratedContent{
-					Decorators: decorators,
-					Content:    combinedContent,
-					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+					decoratedItems = append(decoratedItems, decoratedContent)
 				}
 				return &ast.CommandBody{
-					Content:    []ast.CommandContent{decoratedContent},
+					Content:    decoratedItems,
 					IsBlock:    true,
 					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 					OpenBrace:  &openBrace,
@@ -300,10 +295,6 @@ func (p *Parser) parseCommandContent(inBlock bool) (ast.CommandContent, error) {
 	}
 
 	// Otherwise, it must be shell content.
-	// But wait - if we're in a block and there are multiple lines,
-	// we need to handle this differently...
-	// Actually, this should be handled at a higher level.
-	// For now, just parse single shell content
 	return p.parseShellContent(inBlock)
 }
 
@@ -355,7 +346,8 @@ func (p *Parser) parsePatternContent() (*ast.PatternContent, error) {
 	}, nil
 }
 
-// parsePatternBranch parses a single pattern branch: pattern: command
+// parsePatternBranch parses a single pattern branch: pattern: command or pattern: { commands }
+// **FIXED**: Now properly handles multiple commands per pattern branch
 func (p *Parser) parsePatternBranch() (*ast.PatternBranch, error) {
 	startPos := p.current()
 
@@ -386,21 +378,40 @@ func (p *Parser) parsePatternBranch() (*ast.PatternBranch, error) {
 		return nil, err
 	}
 
-	// Parse command content - for now, just parse single command content
-	content, err := p.parseCommandContent(true) // Pattern branches are always in block context
-	if err != nil {
-		return nil, err
+	// **FIXED**: Parse command content - handle both single commands and blocks
+	var commands []ast.CommandContent
+
+	// Check if pattern branch has explicit block syntax: pattern: { ... }
+	if p.match(lexer.LBRACE) {
+		p.advance() // consume '{'
+		blockCommands, err := p.parseBlockContent()
+		if err != nil {
+			return nil, err
+		}
+		_, err = p.consume(lexer.RBRACE, "expected '}' to close pattern branch block")
+		if err != nil {
+			return nil, err
+		}
+		commands = blockCommands
+	} else {
+		// Single command without braces: pattern: command
+		content, err := p.parseCommandContent(true) // Pattern branches are always in block context
+		if err != nil {
+			return nil, err
+		}
+		commands = []ast.CommandContent{content}
 	}
 
 	return &ast.PatternBranch{
 		Pattern:    pattern,
-		Commands:   []ast.CommandContent{content}, // Wrap single content in array
+		Commands:   commands, // Now properly supports multiple commands
 		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 		ColonToken: colonToken,
 	}, nil
 }
 
 // parseBlockContent parses multiple content items within a block
+// **FIXED**: Now properly handles multiple consecutive SHELL_TEXT tokens as separate commands
 func (p *Parser) parseBlockContent() ([]ast.CommandContent, error) {
 	var contentItems []ast.CommandContent
 
@@ -440,19 +451,20 @@ func (p *Parser) parseBlockContent() ([]ast.CommandContent, error) {
 					return nil, err
 				}
 
-				// If there's only one item, use it directly; otherwise create a wrapper
+				// **FIXED**: Handle multiple nested commands properly
 				if len(nestedContent) == 1 {
 					content = nestedContent[0]
 				} else {
-					// Multiple items need to be wrapped - for now, combine into single shell content
-					// This is a simplification; real implementation might need a BlockContent type
-					var allParts []ast.ShellPart
-					for _, item := range nestedContent {
-						if shellContent, ok := item.(*ast.ShellContent); ok {
-							allParts = append(allParts, shellContent.Parts...)
+					// Create a composite content that represents multiple commands
+					// For now, we'll create separate decorated items for each command
+					for _, nestedItem := range nestedContent {
+						decoratedContent := &ast.DecoratedContent{
+							Decorators: decorators,
+							Content:    nestedItem,
 						}
+						contentItems = append(contentItems, decoratedContent)
 					}
-					content = &ast.ShellContent{Parts: allParts}
+					continue // Skip the single decorator creation below
 				}
 			} else {
 				// Parse single shell content
@@ -470,16 +482,23 @@ func (p *Parser) parseBlockContent() ([]ast.CommandContent, error) {
 			continue
 		}
 
-		// Otherwise, parse shell content
-		shellContent, err := p.parseShellContent(true)
-		if err != nil {
-			return nil, err
+		// **CRITICAL FIX**: Parse consecutive SHELL_TEXT tokens as separate commands
+		// This implements the spec requirement: "newlines create multiple commands everywhere"
+		if p.match(lexer.SHELL_TEXT) {
+			shellContent, err := p.parseShellContent(true)
+			if err != nil {
+				return nil, err
+			}
+
+			// Only add non-empty shell content
+			if len(shellContent.Parts) > 0 {
+				contentItems = append(contentItems, shellContent)
+			}
+			continue
 		}
 
-		// Only add non-empty shell content
-		if len(shellContent.Parts) > 0 {
-			contentItems = append(contentItems, shellContent)
-		}
+		// If we get here, we have an unexpected token
+		break
 	}
 
 	return contentItems, nil
@@ -671,7 +690,7 @@ func (p *Parser) parseExpression() (ast.Expression, error) {
 		// This function consumes tokens until a separator is found.
 		return p.parseDecoratorArgument()
 	case lexer.AT:
-		// REJECT function decorators in decorator arguments - this makes the language confusing
+		// **SPEC COMPLIANCE**: REJECT function decorators in decorator arguments
 		return nil, fmt.Errorf("function decorators (@var, @env, etc.) are not allowed as decorator arguments. Use direct variable names instead (e.g., @timeout(DURATION) not @timeout(@var(DURATION)))")
 	}
 	return nil, fmt.Errorf("unexpected token %s, expected an expression (literal or identifier)", p.current().Type)
@@ -728,7 +747,7 @@ func (p *Parser) parseDecoratorArgument() (ast.Expression, error) {
 // --- Variable Parsing ---
 
 // parseVariableDecl parses a variable declaration.
-// **UPDATED**: Now enforces that values must be string, number, duration, or boolean literals
+// **SPEC COMPLIANCE**: Now enforces that values must be string, number, duration, or boolean literals
 func (p *Parser) parseVariableDecl() (*ast.VariableDecl, error) {
 	startPos := p.current()
 	_, err := p.consume(lexer.VAR, "expected 'var'")
@@ -760,6 +779,7 @@ func (p *Parser) parseVariableDecl() (*ast.VariableDecl, error) {
 }
 
 // parseVariableValue parses variable values, now restricted to literals only.
+// **SPEC COMPLIANCE**: Only allows the 4 supported types: string, number, duration, boolean
 func (p *Parser) parseVariableValue() (ast.Expression, error) {
 	startToken := p.current()
 
@@ -778,7 +798,7 @@ func (p *Parser) parseVariableValue() (ast.Expression, error) {
 		p.advance()
 		return &ast.BooleanLiteral{Value: startToken.Value == "true", Token: startToken}, nil
 	default:
-		// No longer allow arbitrary unquoted strings
+		// **SPEC COMPLIANCE**: No longer allow arbitrary unquoted strings
 		return nil, fmt.Errorf("variable value must be a quoted string, number, duration, or boolean literal at line %d, col %d (got %s)",
 			startToken.Line, startToken.Column, startToken.Type)
 	}
