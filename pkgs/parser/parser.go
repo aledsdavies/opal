@@ -153,8 +153,11 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 		// Save position in case we need to backtrack
 		savedPos := p.pos
 
-		// Try to parse decorators after the colon
-		decorators := p.parseDecorators()
+		// Try to parse a single decorator after the colon
+		decorator, err := p.parseDecorator()
+		if err != nil {
+			return nil, err
+		}
 
 		// After decorators, we expect either:
 		// 1. A block { ... } (syntax sugar - should be treated as IsBlock=true)
@@ -163,59 +166,48 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 		if p.match(lexer.LBRACE) {
 			// **SYNTAX SUGAR**: @decorator(args) { ... } becomes { @decorator(args) { ... } }
 			openBrace, _ := p.consume(lexer.LBRACE, "") // already checked
-			blockContent, err := p.parseBlockContent() // Parse multiple content items
-			if err != nil {
-				return nil, err
-			}
-			closeBrace, err := p.consume(lexer.RBRACE, "expected '}' to close command block")
-			if err != nil {
-				return nil, err
-			}
-
-			// For decorator syntax sugar, we need to wrap the block content properly
-			if len(blockContent) == 1 {
-				// Single item - wrap with decorator
-				decoratedContent := &ast.DecoratedContent{
-					Decorators: decorators,
-					Content:    blockContent[0],
-					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
+			
+			// Parse content differently based on decorator type
+			switch d := decorator.(type) {
+			case *ast.BlockDecorator:
+				blockContent, err := p.parseBlockContent() // Parse multiple content items
+				if err != nil {
+					return nil, err
 				}
+				closeBrace, err := p.consume(lexer.RBRACE, "expected '}' to close command block")
+				if err != nil {
+					return nil, err
+				}
+				d.Content = blockContent
 				return &ast.CommandBody{
-					Content:    []ast.CommandContent{decoratedContent},
+					Content:    []ast.CommandContent{d},
 					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 					OpenBrace:  &openBrace,
 					CloseBrace: &closeBrace,
 				}, nil
-			} else {
-				// Multiple items - wrap each with the decorator
-				// This handles cases like: @timeout(30s) { cmd1; cmd2; cmd3 }
-				var decoratedItems []ast.CommandContent
-				for _, item := range blockContent {
-					decoratedContent := &ast.DecoratedContent{
-						Decorators: decorators,
-						Content:    item,
-						Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
-					}
-					decoratedItems = append(decoratedItems, decoratedContent)
+			case *ast.PatternDecorator:
+				// For pattern decorators, parse pattern branches directly
+				patterns, err := p.parsePatternBranchesInBlock()
+				if err != nil {
+					return nil, err
 				}
+				closeBrace, err := p.consume(lexer.RBRACE, "expected '}' to close pattern block")
+				if err != nil {
+					return nil, err
+				}
+				d.Patterns = patterns
 				return &ast.CommandBody{
-					Content:    decoratedItems,
+					Content:    []ast.CommandContent{d},
 					Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
 					OpenBrace:  &openBrace,
 					CloseBrace: &closeBrace,
 				}, nil
+			default:
+				return nil, fmt.Errorf("unexpected decorator type in block context")
 			}
 		} else {
-			// Decorators without braces - check if they're all function decorators
-			allFunctionDecorators := true
-			for _, decorator := range decorators {
-				if !stdlib.IsFunctionDecorator(decorator.Name) {
-					allFunctionDecorators = false
-					break
-				}
-			}
-
-			if !allFunctionDecorators {
+			// Decorator without braces - check if it's a function decorator
+			if _, ok := decorator.(*ast.FunctionDecorator); !ok {
 				// Block decorators must be followed by braces
 				return nil, fmt.Errorf("expected '{' after block decorator(s) (at %d:%d, got %s)",
 					p.current().Line, p.current().Column, p.current().Type)
@@ -307,25 +299,43 @@ func (p *Parser) isSimpleShellContent(contentItems []ast.CommandContent) bool {
 // shell text, decorators, or pattern content.
 // It is context-aware via the `inBlock` parameter.
 func (p *Parser) parseCommandContent(inBlock bool) (ast.CommandContent, error) {
-	startPos := p.current()
-
 	// Check for pattern decorators (@when, @try)
-	if p.match(lexer.AT) && p.isPatternDecorator() {
+	if p.isPatternDecorator() {
 		return p.parsePatternContent()
 	}
 
 	// Check for block decorators
-	if p.match(lexer.AT) && !p.isFunctionDecorator() {
-		decorators := p.parseDecorators()
-		content, err := p.parseCommandContent(inBlock) // Recursive call
+	if p.isBlockDecorator() {
+		decorator, err := p.parseDecorator()
 		if err != nil {
 			return nil, err
 		}
-		return &ast.DecoratedContent{
-			Decorators: decorators,
-			Content:    content,
-			Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
-		}, nil
+		
+		// Handle different decorator types
+		switch d := decorator.(type) {
+		case *ast.BlockDecorator:
+			// Parse the block content for block decorators
+			if p.match(lexer.LBRACE) {
+				p.advance() // consume '{'
+				contentItems, err := p.parseBlockContent()
+				if err != nil {
+					return nil, err
+				}
+				_, err = p.consume(lexer.RBRACE, "expected '}' after block decorator content")
+				if err != nil {
+					return nil, err
+				}
+				d.Content = contentItems
+			} else {
+				return nil, fmt.Errorf("expected '{' after block decorator @%s", d.Name)
+			}
+			return d, nil
+		case *ast.PatternDecorator:
+			// Pattern decorators are handled separately
+			return nil, fmt.Errorf("pattern decorators should be handled by parsePatternContent")
+		default:
+			return nil, fmt.Errorf("unexpected decorator type in block context")
+		}
 	}
 
 	// Otherwise, it must be shell content.
@@ -334,17 +344,37 @@ func (p *Parser) parseCommandContent(inBlock bool) (ast.CommandContent, error) {
 
 // parsePatternContent parses pattern-matching decorator content (@when, @try)
 // This handles syntax like: @when(VAR) { pattern: command; pattern: command }
-func (p *Parser) parsePatternContent() (*ast.PatternContent, error) {
+func (p *Parser) parsePatternContent() (*ast.PatternDecorator, error) {
 	startPos := p.current()
 
-	// Parse the pattern decorator
-	decorator, err := p.parsePatternDecorator()
+	// Parse @ symbol
+	atToken, err := p.consume(lexer.AT, "expected '@' to start pattern decorator")
 	if err != nil {
 		return nil, err
 	}
 
+	// Parse decorator name
+	nameToken, err := p.consume(lexer.IDENTIFIER, "expected decorator name after '@'")
+	if err != nil {
+		return nil, err
+	}
+	decoratorName := nameToken.Value
+
+	// Parse arguments if present
+	var args []ast.Expression
+	if p.match(lexer.LPAREN) {
+		args, err = p.parseArgumentList()
+		if err != nil {
+			return nil, err
+		}
+		_, err = p.consume(lexer.RPAREN, "expected ')' after decorator arguments")
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Expect opening brace
-	openBrace, err := p.consume(lexer.LBRACE, "expected '{' after pattern decorator")
+	_, err = p.consume(lexer.LBRACE, "expected '{' after pattern decorator")
 	if err != nil {
 		return nil, err
 	}
@@ -366,17 +396,18 @@ func (p *Parser) parsePatternContent() (*ast.PatternContent, error) {
 	}
 
 	// Expect closing brace
-	closeBrace, err := p.consume(lexer.RBRACE, "expected '}' to close pattern block")
+	_, err = p.consume(lexer.RBRACE, "expected '}' to close pattern block")
 	if err != nil {
 		return nil, err
 	}
 
-	return &ast.PatternContent{
-		Decorator:  *decorator,
-		Patterns:   patterns,
-		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
-		OpenBrace:  openBrace,
-		CloseBrace: closeBrace,
+	return &ast.PatternDecorator{
+		Name:      decoratorName,
+		Args:      args,
+		Patterns:  patterns,
+		Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
+		AtToken:   atToken,
+		NameToken: nameToken,
 	}, nil
 }
 
@@ -456,7 +487,7 @@ func (p *Parser) parseBlockContent() ([]ast.CommandContent, error) {
 		}
 
 		// Check for pattern decorators (@when, @try)
-		if p.match(lexer.AT) && p.isPatternDecorator() {
+		if p.isPatternDecorator() {
 			pattern, err := p.parsePatternContent()
 			if err != nil {
 				return nil, err
@@ -466,53 +497,42 @@ func (p *Parser) parseBlockContent() ([]ast.CommandContent, error) {
 		}
 
 		// Check for block decorators
-		if p.match(lexer.AT) && !p.isFunctionDecorator() {
-			decorators := p.parseDecorators()
+		if p.isBlockDecorator() {
+			decorator, err := p.parseDecorator()
+			if err != nil {
+				return nil, err
+			}
 
-			// Expect content after decorators
-			var content ast.CommandContent
-			var err error
-
-			if p.match(lexer.LBRACE) {
-				// Nested block
-				p.advance()
-				nestedContent, err := p.parseBlockContent()
-				if err != nil {
-					return nil, err
-				}
-				_, err = p.consume(lexer.RBRACE, "expected '}' to close nested block")
-				if err != nil {
-					return nil, err
-				}
-
-				// **FIXED**: Handle multiple nested commands properly
-				if len(nestedContent) == 1 {
-					content = nestedContent[0]
-				} else {
-					// Create a composite content that represents multiple commands
-					// For now, we'll create separate decorated items for each command
-					for _, nestedItem := range nestedContent {
-						decoratedContent := &ast.DecoratedContent{
-							Decorators: decorators,
-							Content:    nestedItem,
-						}
-						contentItems = append(contentItems, decoratedContent)
+			// Handle different decorator types
+			switch d := decorator.(type) {
+			case *ast.BlockDecorator:
+				// Parse the block content for block decorators
+				if p.match(lexer.LBRACE) {
+					p.advance() // consume '{'
+					nestedContent, err := p.parseBlockContent()
+					if err != nil {
+						return nil, err
 					}
-					continue // Skip the single decorator creation below
+					_, err = p.consume(lexer.RBRACE, "expected '}' after block decorator content")
+					if err != nil {
+						return nil, err
+					}
+					d.Content = nestedContent
+				} else {
+					// Parse single shell content
+					content, err := p.parseShellContent(true)
+					if err != nil {
+						return nil, err
+					}
+					d.Content = []ast.CommandContent{content}
 				}
-			} else {
-				// Parse single shell content
-				content, err = p.parseShellContent(true)
-				if err != nil {
-					return nil, err
-				}
+				contentItems = append(contentItems, d)
+			case *ast.PatternDecorator:
+				// Pattern decorators shouldn't appear here
+				return nil, fmt.Errorf("pattern decorators should be handled separately")
+			default:
+				return nil, fmt.Errorf("unexpected decorator type in block context")
 			}
-
-			decoratedContent := &ast.DecoratedContent{
-				Decorators: decorators,
-				Content:    content,
-			}
-			contentItems = append(contentItems, decoratedContent)
 			continue
 		}
 
@@ -909,26 +929,12 @@ func (p *Parser) parseGroupedVariableDecl() (*ast.VariableDecl, error) {
 
 // --- Decorator Parsing ---
 
-// parseDecorators parses a sequence of one or more block decorators.
-func (p *Parser) parseDecorators() []ast.Decorator {
-	var decorators []ast.Decorator
-	for p.match(lexer.AT) && !p.isFunctionDecorator() && !p.isPatternDecorator() {
-		decorator, err := p.parseBlockDecorator()
-		if err != nil {
-			p.addError(err)
-			p.synchronize()
-			return decorators // Stop parsing decorators on error
-		}
-		decorators = append(decorators, *decorator)
-	}
-	return decorators
-}
-
-func (p *Parser) parseBlockDecorator() (*ast.Decorator, error) {
+// parseDecorator parses a single decorator and returns the appropriate AST node type
+func (p *Parser) parseDecorator() (ast.CommandContent, error) {
 	startPos := p.current()
 	atToken, _ := p.consume(lexer.AT, "expected '@'")
 
-	// **FIXED**: Handle keywords like "var" that appear as decorator names
+	// Get decorator name
 	var nameToken lexer.Token
 	var err error
 
@@ -936,7 +942,6 @@ func (p *Parser) parseBlockDecorator() (*ast.Decorator, error) {
 		nameToken, err = p.consume(lexer.IDENTIFIER, "expected decorator name")
 	} else {
 		// Handle special cases where keywords appear as decorator names
-		// This is needed for decorators like @var, @env, etc.
 		nameToken = p.current()
 		if !p.isValidDecoratorName(nameToken) {
 			return nil, fmt.Errorf("expected decorator name, got %s", nameToken.Type)
@@ -950,14 +955,10 @@ func (p *Parser) parseBlockDecorator() (*ast.Decorator, error) {
 
 	decoratorName := nameToken.Value
 	if nameToken.Type != lexer.IDENTIFIER {
-		// Convert token value to string for non-identifier tokens
 		decoratorName = strings.ToLower(nameToken.Value)
 	}
 
-	if !stdlib.IsBlockDecorator(decoratorName) {
-		return nil, fmt.Errorf("@%s is not a block decorator", decoratorName)
-	}
-
+	// Parse arguments if present
 	var args []ast.Expression
 	if p.match(lexer.LPAREN) {
 		p.advance() // consume '('
@@ -971,66 +972,41 @@ func (p *Parser) parseBlockDecorator() (*ast.Decorator, error) {
 		}
 	}
 
-	return &ast.Decorator{
-		Name:      decoratorName,
-		Args:      args,
-		Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
-		AtToken:   atToken,
-		NameToken: nameToken,
-	}, nil
-}
-
-func (p *Parser) parsePatternDecorator() (*ast.Decorator, error) {
-	startPos := p.current()
-	atToken, _ := p.consume(lexer.AT, "expected '@'")
-
-	var nameToken lexer.Token
-	var err error
-
-	if p.current().Type == lexer.IDENTIFIER {
-		nameToken, err = p.consume(lexer.IDENTIFIER, "expected decorator name")
+	// Determine decorator type from registry and create appropriate AST node
+	if stdlib.IsBlockDecorator(decoratorName) {
+		return &ast.BlockDecorator{
+			Name:      decoratorName,
+			Args:      args,
+			Content:   nil, // Will be filled in by caller
+			Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
+			AtToken:   atToken,
+			NameToken: nameToken,
+		}, nil
+	} else if stdlib.IsPatternDecorator(decoratorName) {
+		return &ast.PatternDecorator{
+			Name:      decoratorName,
+			Args:      args,
+			Patterns:  nil, // Will be filled in by caller
+			Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
+			AtToken:   atToken,
+			NameToken: nameToken,
+		}, nil
+	} else if stdlib.IsFunctionDecorator(decoratorName) {
+		return &ast.FunctionDecorator{
+			Name:      decoratorName,
+			Args:      args,
+			Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
+			AtToken:   atToken,
+			NameToken: nameToken,
+		}, nil
 	} else {
-		nameToken = p.current()
-		if !p.isValidDecoratorName(nameToken) {
-			return nil, fmt.Errorf("expected decorator name, got %s", nameToken.Type)
-		}
-		p.advance()
+		return nil, fmt.Errorf("unknown decorator: @%s", decoratorName)
 	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	decoratorName := nameToken.Value
-	if nameToken.Type != lexer.IDENTIFIER {
-		decoratorName = strings.ToLower(nameToken.Value)
-	}
-
-	if !stdlib.IsPatternDecorator(decoratorName) {
-		return nil, fmt.Errorf("@%s is not a pattern decorator", decoratorName)
-	}
-
-	var args []ast.Expression
-	if p.match(lexer.LPAREN) {
-		p.advance() // consume '('
-		args, err = p.parseArgumentList()
-		if err != nil {
-			return nil, err
-		}
-		_, err = p.consume(lexer.RPAREN, "expected ')' after decorator arguments")
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return &ast.Decorator{
-		Name:      decoratorName,
-		Args:      args,
-		Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
-		AtToken:   atToken,
-		NameToken: nameToken,
-	}, nil
 }
+
+// parseBlockDecorator removed - block decorators are now created directly in parseBlockDecoratorContent
+
+// parsePatternDecorator removed - pattern decorators are now created directly in parsePatternContent
 
 func (p *Parser) parseFunctionDecorator() (*ast.FunctionDecorator, error) {
 	startPos := p.current()
@@ -1127,6 +1103,85 @@ func (p *Parser) parseArgumentList() ([]ast.Expression, error) {
 	return args, nil
 }
 
+// parsePatternBranchesInBlock parses pattern branches directly from the token stream
+func (p *Parser) parsePatternBranchesInBlock() ([]ast.PatternBranch, error) {
+	var patterns []ast.PatternBranch
+
+	for !p.match(lexer.RBRACE) && !p.isAtEnd() {
+		p.skipWhitespaceAndComments()
+		if p.match(lexer.RBRACE) {
+			break
+		}
+
+		branch, err := p.parsePatternBranch()
+		if err != nil {
+			return nil, err
+		}
+		patterns = append(patterns, *branch)
+
+		p.skipWhitespaceAndComments()
+	}
+
+	return patterns, nil
+}
+
+// parsePatternBranches converts block content into pattern branches for pattern decorators
+func (p *Parser) parsePatternBranches(blockContent []ast.CommandContent) ([]ast.PatternBranch, error) {
+	var patterns []ast.PatternBranch
+	
+	for _, content := range blockContent {
+		// Each content item should be a shell content that represents "pattern: commands"
+		// We need to parse this to extract the pattern and commands
+		if shellContent, ok := content.(*ast.ShellContent); ok {
+			// Parse shell content that looks like "production: deploy.sh"
+			text := shellContent.String()
+			
+			// Find the first colon to split pattern from commands
+			colonIndex := strings.Index(text, ":")
+			if colonIndex == -1 {
+				return nil, fmt.Errorf("pattern branch missing colon: %s", text)
+			}
+			
+			patternText := strings.TrimSpace(text[:colonIndex])
+			commandText := strings.TrimSpace(text[colonIndex+1:])
+			
+			// Create pattern
+			var pattern ast.Pattern
+			if patternText == "*" {
+				pattern = &ast.WildcardPattern{
+					Pos: shellContent.Pos,
+				}
+			} else {
+				pattern = &ast.IdentifierPattern{
+					Name: patternText,
+					Pos:  shellContent.Pos,
+				}
+			}
+			
+			// Create commands
+			var commands []ast.CommandContent
+			if commandText != "" {
+				commands = []ast.CommandContent{
+					&ast.ShellContent{
+						Parts: []ast.ShellPart{
+							&ast.TextPart{Text: commandText},
+						},
+						Pos: shellContent.Pos,
+					},
+				}
+			}
+			
+			patterns = append(patterns, ast.PatternBranch{
+				Pattern:  pattern,
+				Commands: commands,
+				Pos:      shellContent.Pos,
+			})
+		}
+	}
+	
+	return patterns, nil
+}
+
 // --- Utility and Helper Methods ---
 
 func (p *Parser) advance() lexer.Token {
@@ -1161,7 +1216,8 @@ func (p *Parser) consume(t lexer.TokenType, message string) (lexer.Token, error)
 }
 
 func (p *Parser) skipWhitespaceAndComments() {
-	for p.match(lexer.NEWLINE, lexer.COMMENT, lexer.MULTILINE_COMMENT) {
+	// NEWLINE tokens no longer exist - they're handled as whitespace by lexer
+	for p.match(lexer.COMMENT, lexer.MULTILINE_COMMENT) {
 		p.advance()
 	}
 }
@@ -1175,13 +1231,13 @@ func (p *Parser) isCommandTerminator(inBlock bool) bool {
 		// In a block, only a '}' terminates the command content.
 		return p.match(lexer.RBRACE)
 	}
-	// In a simple command, a newline terminates it.
-	return p.match(lexer.NEWLINE)
+	// In a simple command, it ends at EOF or when we see structural tokens
+	return p.match(lexer.EOF) || p.match(lexer.IDENTIFIER, lexer.VAR, lexer.WATCH, lexer.STOP)
 }
 
-// isFunctionDecorator checks if the current '@' token starts a function decorator.
+// isFunctionDecorator checks if the current position starts a function decorator.
 func (p *Parser) isFunctionDecorator() bool {
-	if !p.match(lexer.AT) {
+	if p.current().Type != lexer.AT {
 		return false
 	}
 	if p.pos+1 < len(p.tokens) {
@@ -1201,9 +1257,9 @@ func (p *Parser) isFunctionDecorator() bool {
 	return false
 }
 
-// isPatternDecorator checks if the current '@' token starts a pattern decorator.
+// isPatternDecorator checks if the current position starts a pattern decorator.
 func (p *Parser) isPatternDecorator() bool {
-	if !p.match(lexer.AT) {
+	if p.current().Type != lexer.AT {
 		return false
 	}
 	if p.pos+1 < len(p.tokens) {
@@ -1225,6 +1281,26 @@ func (p *Parser) isPatternDecorator() bool {
 	return false
 }
 
+// isBlockDecorator checks if the current position starts a block decorator.
+func (p *Parser) isBlockDecorator() bool {
+	if p.current().Type != lexer.AT {
+		return false
+	}
+	if p.pos+1 < len(p.tokens) {
+		nextToken := p.tokens[p.pos+1]
+		var name string
+
+		if nextToken.Type == lexer.IDENTIFIER {
+			name = nextToken.Value
+		} else {
+			return false
+		}
+
+		return stdlib.IsBlockDecorator(name)
+	}
+	return false
+}
+
 // addError records an error and allows parsing to continue.
 func (p *Parser) addError(err error) {
 	p.errors = append(p.errors, err.Error())
@@ -1235,10 +1311,7 @@ func (p *Parser) addError(err error) {
 func (p *Parser) synchronize() {
 	p.advance()
 	for !p.isAtEnd() {
-		// A newline is a good place to resume.
-		if p.previous().Type == lexer.NEWLINE {
-			return
-		}
+		// NEWLINE tokens no longer exist - removed synchronization point
 		// A new top-level keyword is also a good place.
 		switch p.current().Type {
 		case lexer.VAR, lexer.WATCH, lexer.STOP:

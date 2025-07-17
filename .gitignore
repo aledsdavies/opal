@@ -5,6 +5,7 @@
 # PROJECT-SPECIFIC FILES
 # =============================================================================
 .idea/
+CLAUDE.local.md
 
 # ANTLR Generated Files
 internal/gen/

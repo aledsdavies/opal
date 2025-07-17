@@ -24,13 +24,13 @@ func TestStateMachineTransitions(t *testing.T) {
 				{IDENTIFIER, "build"},
 				{COLON, ":"},
 				{SHELL_TEXT, "echo hello"},
-				{NEWLINE, "\n"},
+				{EOF, ""},
 			},
 			wantStates: []LexerState{
 				StateTopLevel,       // build
 				StateAfterColon,     // :
 				StateCommandContent, // echo hello
-				StateTopLevel,       // \n
+				StateTopLevel,       // EOF
 			},
 		},
 		{
@@ -54,7 +54,7 @@ func TestStateMachineTransitions(t *testing.T) {
 			},
 		},
 		{
-			name: "variable declaration",
+			name: "variable declaration followed by command",
 			tokens: []struct {
 				typ   TokenType
 				value string
@@ -63,14 +63,40 @@ func TestStateMachineTransitions(t *testing.T) {
 				{IDENTIFIER, "PORT"},
 				{EQUALS, "="},
 				{NUMBER, "8080"},
-				{NEWLINE, "\n"},
+				{IDENTIFIER, "server"},
+				{COLON, ":"},
 			},
 			wantStates: []LexerState{
-				StateVarDecl,  // var
-				StateVarDecl,  // PORT
-				StateVarValue, // =
-				StateVarValue, // 8080
-				StateTopLevel, // \n
+				StateVarDecl,    // var
+				StateVarDecl,    // PORT
+				StateVarValue,   // =
+				StateVarValue,   // 8080
+				StateTopLevel,   // server (transition back from VarValue)
+				StateAfterColon, // :
+			},
+		},
+		{
+			name: "variable declaration with function decorator",
+			tokens: []struct {
+				typ   TokenType
+				value string
+			}{
+				{VAR, "var"},
+				{IDENTIFIER, "PORT"},
+				{EQUALS, "="},
+				{NUMBER, "8080"},
+				{IDENTIFIER, "server"},
+				{COLON, ":"},
+				{SHELL_TEXT, "go run main.go --port=@var(PORT)"},
+			},
+			wantStates: []LexerState{
+				StateVarDecl,        // var
+				StateVarDecl,        // PORT
+				StateVarValue,       // =
+				StateVarValue,       // 8080
+				StateTopLevel,       // server (critical transition from VarValue to TopLevel)
+				StateAfterColon,     // :
+				StateCommandContent, // go run main.go --port=@var(PORT)
 			},
 		},
 		{

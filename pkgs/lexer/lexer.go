@@ -46,6 +46,9 @@ type Lexer struct {
 	stateMachine *StateMachine // State machine for parsing context
 	braceLevel   int           // Track brace nesting for command mode
 	patternLevel int           // Track pattern-matching decorator nesting
+	
+	// Structural brace tracking - only track braces that are part of Devcmd structure
+	structuralBraceStack []int // positions of structural { braces
 
 	// Infinite loop detection
 	lastPosition     int
@@ -58,14 +61,15 @@ type Lexer struct {
 // New creates a new lexer instance with state machine
 func New(input string) *Lexer {
 	l := &Lexer{
-		input:            input,
-		line:             1,
-		column:           0, // Start at column 0, will be incremented to 1 on first readChar
-		stateMachine:     NewStateMachine(),
-		braceLevel:       0,
-		patternLevel:     0,
-		maxStuckAttempts: 3,  // Allow 3 attempts before panicking
-		lastPosition:     -1, // Start with -1 so first token is always progress
+		input:                input,
+		line:                 1,
+		column:               0, // Start at column 0, will be incremented to 1 on first readChar
+		stateMachine:         NewStateMachine(),
+		braceLevel:           0,
+		patternLevel:         0,
+		structuralBraceStack: make([]int, 0, 8), // Pre-allocate small capacity
+		maxStuckAttempts:     3,  // Allow 3 attempts before panicking
+		lastPosition:         -1, // Start with -1 so first token is always progress
 	}
 	l.readChar()
 	return l
@@ -321,11 +325,10 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		l.updateStateMachine(EOF, "")
 		return tok
 	case '\n':
-		tok := l.createSimpleToken(NEWLINE, "\n", start, startLine, startColumn)
+		// Skip newlines - they're not needed in the parser/AST
 		l.readChar()
-		l.updateTokenEnd(&tok)
-		l.updateStateMachine(NEWLINE, "\n")
-		return tok
+		l.skipWhitespace()
+		return l.lexToken() // Get the next meaningful token
 	case '@':
 		tok := l.createTokenWithSemantic(AT, SemOperator, "@", start, startLine, startColumn)
 		l.readChar()
@@ -365,6 +368,12 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 	case '{':
 		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
+		
+		// Track if this is a structural brace
+		if l.isStructuralContext() {
+			l.pushStructuralBrace()
+		}
+		
 		l.readChar()
 		l.skipWhitespace() // Skip whitespace after opening brace
 		l.updateTokenEnd(&tok)
@@ -375,6 +384,12 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		if l.braceLevel > 0 {
 			l.braceLevel--
 		}
+		
+		// Pop structural brace if this closes one
+		if l.hasStructuralBraces() {
+			l.popStructuralBrace()
+		}
+		
 		l.readChar()
 		l.updateTokenEnd(&tok)
 		l.updateStateMachine(RBRACE, "}")
@@ -426,10 +441,9 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		l.updateStateMachine(EOF, "")
 		return tok
 	case '\n':
-		// In pattern mode, consume newlines but don't emit tokens
+		// Skip newlines - they're not needed in the parser/AST
 		l.readChar()
 		l.skipWhitespace()
-		l.updateStateMachine(NEWLINE, "\n")
 		return l.lexToken() // Get the next meaningful token
 	case ':':
 		tok := l.createSimpleToken(COLON, ":", start, startLine, startColumn)
@@ -442,6 +456,12 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		if l.braceLevel > 0 {
 			l.braceLevel--
 		}
+		
+		// Pop structural brace if this closes one
+		if l.hasStructuralBraces() {
+			l.popStructuralBrace()
+		}
+		
 		l.readChar()
 		l.updateTokenEnd(&tok)
 		l.updateStateMachine(RBRACE, "}")
@@ -449,6 +469,12 @@ func (l *Lexer) lexPatternMode(start int) Token {
 	case '{':
 		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
+		
+		// Track if this is a structural brace
+		if l.isStructuralContext() {
+			l.pushStructuralBrace()
+		}
+		
 		l.readChar()
 		l.skipWhitespace()
 		l.updateTokenEnd(&tok)
@@ -533,25 +559,16 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		l.updateStateMachine(EOF, "")
 		return tok
 	case '\n':
-		if l.braceLevel > 0 {
-			// Inside a command block `{}`, consume newlines and continue lexing
-			l.readChar()       // Consume '\n'
-			l.skipWhitespace() // Consume all whitespace before the next token
-			l.updateStateMachine(NEWLINE, "\n")
-			return l.lexToken() // Return the next meaningful token
-		}
-
-		// Outside braces: a newline terminates the command line
-		tok := l.createSimpleToken(NEWLINE, "\n", start, startLine, startColumn)
+		// Skip newlines - they're not needed in the parser/AST
 		l.readChar()
-		l.updateTokenEnd(&tok)
-		l.updateStateMachine(NEWLINE, "\n")
-		return tok
+		l.skipWhitespace()
+		return l.lexToken() // Get the next meaningful token
 	case '}':
-		// Only recognize } as structural if it closes a Devcmd brace
-		if l.braceLevel > 0 {
+		// Only recognize } as structural if it closes a structural Devcmd brace
+		if l.hasStructuralBraces() {
 			tok := l.createSimpleToken(RBRACE, "}", start, startLine, startColumn)
 			l.braceLevel--
+			l.popStructuralBrace()
 			l.readChar()
 			l.updateTokenEnd(&tok)
 			l.updateStateMachine(RBRACE, "}")
@@ -576,6 +593,12 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		// Handle opening brace in command mode
 		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
+		
+		// Track if this is a structural brace
+		if l.isStructuralContext() {
+			l.pushStructuralBrace()
+		}
+		
 		l.readChar()
 		l.skipWhitespace()
 		l.updateTokenEnd(&tok)
@@ -606,6 +629,10 @@ func (l *Lexer) lexShellText(start int) Token {
 
 	var inSingleQuotes, inDoubleQuotes, inBackticks bool
 	var prevWasBackslash bool
+	
+	// Track shell-level brace nesting separate from structural braces
+	// This handles things like find -exec cmd {} +
+	shellBraceLevel := 0
 
 	for {
 		switch l.ch {
@@ -638,6 +665,13 @@ func (l *Lexer) lexShellText(start int) Token {
 			prevWasBackslash = false
 			tok := l.makeShellToken(start, startOffset, startLine, startColumn)
 			l.updateStateMachine(SHELL_TEXT, tok.Value)
+			// Also handle the newline for state transitions (but don't generate NEWLINE token)
+			if _, err := l.stateMachine.handleNewline(); err != nil {
+				// Log error but continue
+				if l.stateMachine.debug {
+					println("Newline state transition error:", err.Error())
+				}
+			}
 			return tok
 
 		case '\'':
@@ -677,16 +711,37 @@ func (l *Lexer) lexShellText(start int) Token {
 				}
 			}
 
-		case '}':
-			// Structural boundary only if not in quotes and we're in a block
-			if !inSingleQuotes && !inDoubleQuotes && !inBackticks && l.braceLevel > 0 {
-				prevWasBackslash = false
-				tok := l.makeShellToken(start, startOffset, startLine, startColumn)
-				l.updateStateMachine(SHELL_TEXT, tok.Value)
-				return tok
+		case '{':
+			// Track shell-level braces (like in find -exec cmd {} +)
+			if !inSingleQuotes && !inDoubleQuotes && !inBackticks {
+				shellBraceLevel++
 			}
 			prevWasBackslash = false
 			l.readChar()
+
+		case '}':
+			// Handle shell-level and structural braces
+			if !inSingleQuotes && !inDoubleQuotes && !inBackticks {
+				if shellBraceLevel > 0 {
+					// This closes a shell-level brace, continue in shell text
+					shellBraceLevel--
+					prevWasBackslash = false
+					l.readChar()
+				} else if len(l.structuralBraceStack) > 0 {
+					// This could close a structural brace, exit shell text
+					prevWasBackslash = false
+					tok := l.makeShellToken(start, startOffset, startLine, startColumn)
+					l.updateStateMachine(SHELL_TEXT, tok.Value)
+					return tok
+				} else {
+					// No braces to close, continue as shell text
+					prevWasBackslash = false
+					l.readChar()
+				}
+			} else {
+				prevWasBackslash = false
+				l.readChar()
+			}
 
 		default:
 			// Any other character resets line continuation and continues as shell content
@@ -1312,4 +1367,39 @@ func hexValue(ch rune) int {
 		return int(ch - 'A' + 10)
 	}
 	return 0
+}
+
+// pushStructuralBrace adds a structural brace to the stack
+func (l *Lexer) pushStructuralBrace() {
+	l.structuralBraceStack = append(l.structuralBraceStack, l.position)
+}
+
+// popStructuralBrace removes the most recent structural brace from the stack
+func (l *Lexer) popStructuralBrace() {
+	if len(l.structuralBraceStack) > 0 {
+		l.structuralBraceStack = l.structuralBraceStack[:len(l.structuralBraceStack)-1]
+	}
+}
+
+// hasStructuralBraces returns true if there are structural braces on the stack
+func (l *Lexer) hasStructuralBraces() bool {
+	return len(l.structuralBraceStack) > 0
+}
+
+// isStructuralContext determines if the current context expects a structural brace
+func (l *Lexer) isStructuralContext() bool {
+	currentState := l.stateMachine.Current()
+	switch currentState {
+	case StateAfterColon:
+		// After command: or pattern:, a { is structural
+		return true
+	case StateAfterDecorator:
+		// After @parallel, @timeout, etc., a { is structural
+		return true
+	case StateAfterPatternColon:
+		// After pattern:, a { is structural
+		return true
+	default:
+		return false
+	}
 }

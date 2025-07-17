@@ -195,16 +195,28 @@ func containsParallelDecorator(cmd *ast.CommandDecl) bool {
 // containsParallelInContent checks for @parallel in command content
 func containsParallelInContent(content ast.CommandContent) bool {
 	switch c := content.(type) {
-	case *ast.DecoratedContent:
-		for _, decorator := range c.Decorators {
-			if decorator.Name == "parallel" {
+	case *ast.BlockDecorator:
+		if c.Name == "parallel" {
+			return true
+		}
+		// Check content inside the block decorator
+		for _, innerContent := range c.Content {
+			if containsParallelInContent(innerContent) {
 				return true
 			}
 		}
-		return containsParallelInContent(c.Content)
+		return false
 	case *ast.PatternContent:
+		// Check if any commands in this pattern contain parallel
+		for _, cmd := range c.Commands {
+			if containsParallelInContent(cmd) {
+				return true
+			}
+		}
+		return false
+	case *ast.PatternDecorator:
+		// Check if any pattern branches contain parallel
 		for _, pattern := range c.Patterns {
-			// Check if any commands in this pattern branch contain parallel
 			for _, cmd := range pattern.Commands {
 				if containsParallelInContent(cmd) {
 					return true
@@ -248,11 +260,21 @@ func processCommandGroup(name string, commands []*ast.CommandDecl, definitions m
 			// Extract parallel commands directly from command body content array
 			var parallelCommands []string
 			for _, content := range regularCmd.Body.Content {
-				if decoratedContent, ok := content.(*ast.DecoratedContent); ok {
-					// Check if this content has parallel decorator or if it's inside a parallel block
-					shellCmd := buildContentString(decoratedContent, definitions)
-					if strings.TrimSpace(shellCmd) != "" {
-						parallelCommands = append(parallelCommands, shellCmd)
+				if decoratedContent, ok := content.(*ast.BlockDecorator); ok {
+					// For parallel block decorators, extract individual commands from the Content array
+					if decoratedContent.Name == "parallel" {
+						for _, innerContent := range decoratedContent.Content {
+							shellCmd := buildContentString(innerContent, definitions)
+							if strings.TrimSpace(shellCmd) != "" {
+								parallelCommands = append(parallelCommands, shellCmd)
+							}
+						}
+					} else {
+						// Non-parallel decorated content
+						shellCmd := buildContentString(decoratedContent, definitions)
+						if strings.TrimSpace(shellCmd) != "" {
+							parallelCommands = append(parallelCommands, shellCmd)
+						}
 					}
 				} else {
 					// Non-decorated content (shouldn't happen in parallel blocks, but handle it)
@@ -357,20 +379,17 @@ func analyzeContentStructure(content ast.CommandContent, definitions map[string]
 		}
 		return segments, nil
 
-	case *ast.DecoratedContent:
-		// Check for parallel decorator
-		for _, decorator := range c.Decorators {
-			if decorator.Name == "parallel" {
-				// This is a parallel block - extract individual commands
-				parallelCommands, err := extractParallelCommands(c.Content, definitions)
-				if err != nil {
-					return nil, err
-				}
-				return []CommandSegment{{IsParallel: true, Commands: parallelCommands}}, nil
+	case *ast.BlockDecorator:
+		if c.Name == "parallel" {
+			// This is a parallel block - extract individual commands
+			parallelCommands, err := extractParallelCommandsFromContent(c.Content, definitions)
+			if err != nil {
+				return nil, err
 			}
+			return []CommandSegment{{IsParallel: true, Commands: parallelCommands}}, nil
 		}
 		// Non-parallel decorated content
-		return analyzeContentStructure(c.Content, definitions)
+		return analyzeContentStructureFromContent(c.Content, definitions)
 
 	case *ast.PatternContent:
 		// Pattern content is complex - for now, treat as sequential
@@ -400,9 +419,9 @@ func extractParallelCommands(content ast.CommandContent, definitions map[string]
 		}
 		return result, nil
 
-	case *ast.DecoratedContent:
-		// Extract from nested content
-		return extractParallelCommands(c.Content, definitions)
+	case *ast.BlockDecorator:
+		// Extract from nested content array
+		return extractParallelCommandsFromContent(c.Content, definitions)
 
 	default:
 		shellCmd := buildContentString(content, definitions)
@@ -422,16 +441,17 @@ func extractShellCommands(contentArray []ast.CommandContent, definitions map[str
 		case *ast.ShellContent:
 			commands := buildShellContentString(c, definitions)
 			allCommands = append(allCommands, commands...)
-		case *ast.DecoratedContent:
-			// For decorated content, extract individual shell commands from the content
-			// This handles block commands where each line is a separate DecoratedContent
-			if shellContent, ok := c.Content.(*ast.ShellContent); ok {
-				commands := buildShellContentString(shellContent, definitions)
-				allCommands = append(allCommands, commands...)
-			} else {
-				// Non-shell content, treat as single command
-				cmd := buildContentString(c, definitions)
-				allCommands = append(allCommands, cmd)
+		case *ast.BlockDecorator:
+			// For decorated content, extract individual shell commands from the content array
+			for _, innerContent := range c.Content {
+				if shellContent, ok := innerContent.(*ast.ShellContent); ok {
+					commands := buildShellContentString(shellContent, definitions)
+					allCommands = append(allCommands, commands...)
+				} else {
+					// Non-shell content, treat as single command
+					cmd := buildContentString(innerContent, definitions)
+					allCommands = append(allCommands, cmd)
+				}
 			}
 		case *ast.PatternContent:
 			// Pattern content is complex - treat as single command
@@ -463,7 +483,7 @@ func buildContentString(content ast.CommandContent, definitions map[string]strin
 		// For shell content, join all commands with newlines
 		commands := buildShellContentString(c, definitions)
 		return strings.Join(commands, "\n")
-	case *ast.DecoratedContent:
+	case *ast.BlockDecorator:
 		return buildDecoratedContentString(c, definitions)
 	case *ast.PatternContent:
 		return buildPatternContentString(c, definitions)
@@ -517,14 +537,33 @@ func buildShellContentString(content *ast.ShellContent, definitions map[string]s
 }
 
 // buildDecoratedContentString builds decorated content into a string
-func buildDecoratedContentString(content *ast.DecoratedContent, definitions map[string]string) string {
-	// For now, skip decorators that aren't parallel and just build the content
-	// TODO: Handle other decorators like timeout, retry
-	return buildContentString(content.Content, definitions)
+func buildDecoratedContentString(content *ast.BlockDecorator, definitions map[string]string) string {
+	// Build content from the content array
+	var parts []string
+	for _, innerContent := range content.Content {
+		part := buildContentString(innerContent, definitions)
+		if strings.TrimSpace(part) != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
-// buildPatternContentString builds pattern content into a string
+// buildPatternContentString builds pattern content into a string  
 func buildPatternContentString(content *ast.PatternContent, definitions map[string]string) string {
+	// PatternContent has a single pattern with commands
+	var parts []string
+	for _, cmd := range content.Commands {
+		cmdStr := buildContentString(cmd, definitions)
+		if cmdStr != "" {
+			parts = append(parts, cmdStr)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// buildPatternDecoratorString builds pattern decorator into a string
+func buildPatternDecoratorString(content *ast.PatternDecorator, definitions map[string]string) string {
 	// For now, just build all pattern branches sequentially
 	// TODO: Implement proper pattern matching logic
 	var parts []string
@@ -600,22 +639,35 @@ func validateCommandDecorators(cmd *ast.CommandDecl) error {
 // validateContentDecorators validates decorators in command content
 func validateContentDecorators(content ast.CommandContent, cmdName string, cmdLine int) error {
 	switch c := content.(type) {
-	case *ast.DecoratedContent:
-		for _, decorator := range c.Decorators {
-			if !stdlib.IsValidDecorator(decorator.Name) {
-				return NewValidationError(
-					fmt.Sprintf("unsupported decorator '@%s'. Use 'devcmd help decorators' to see supported decorators",
-						decorator.Name),
-					cmdName, cmdLine, "")
-			}
-		}
-		return validateContentDecorators(c.Content, cmdName, cmdLine)
-
-	case *ast.PatternContent:
-		if !stdlib.IsValidDecorator(c.Decorator.Name) {
+	case *ast.BlockDecorator:
+		if !stdlib.IsValidDecorator(c.Name) {
 			return NewValidationError(
 				fmt.Sprintf("unsupported decorator '@%s'. Use 'devcmd help decorators' to see supported decorators",
-					c.Decorator.Name),
+					c.Name),
+				cmdName, cmdLine, "")
+		}
+		// Validate content inside the block decorator
+		for _, innerContent := range c.Content {
+			if err := validateContentDecorators(innerContent, cmdName, cmdLine); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case *ast.PatternContent:
+		// PatternContent doesn't have decorators directly, just validate commands
+		for _, cmd := range c.Commands {
+			if err := validateContentDecorators(cmd, cmdName, cmdLine); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case *ast.PatternDecorator:
+		if !stdlib.IsValidDecorator(c.Name) {
+			return NewValidationError(
+				fmt.Sprintf("unsupported decorator '@%s'. Use 'devcmd help decorators' to see supported decorators",
+					c.Name),
 				cmdName, cmdLine, "")
 		}
 		for _, pattern := range c.Patterns {
@@ -847,4 +899,33 @@ func GenerateComponentGo(program *ast.Program, componentNames []string) (string,
 	}
 
 	return buf.String(), nil
+}
+
+
+// Helper functions for handling arrays of CommandContent in the new AST structure
+
+// extractParallelCommandsFromContent extracts parallel commands from an array of CommandContent
+func extractParallelCommandsFromContent(contentArray []ast.CommandContent, definitions map[string]string) ([]string, error) {
+	var allCommands []string
+	for _, content := range contentArray {
+		commands, err := extractParallelCommands(content, definitions)
+		if err != nil {
+			return nil, err
+		}
+		allCommands = append(allCommands, commands...)
+	}
+	return allCommands, nil
+}
+
+// analyzeContentStructureFromContent analyzes content structure from an array of CommandContent
+func analyzeContentStructureFromContent(contentArray []ast.CommandContent, definitions map[string]string) ([]CommandSegment, error) {
+	var allSegments []CommandSegment
+	for _, content := range contentArray {
+		segments, err := analyzeContentStructure(content, definitions)
+		if err != nil {
+			return nil, err
+		}
+		allSegments = append(allSegments, segments...)
+	}
+	return allSegments, nil
 }

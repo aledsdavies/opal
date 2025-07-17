@@ -408,3 +408,33 @@ func TestCommandsWithVariables(t *testing.T) {
 		RunTestCase(t, tc)
 	}
 }
+
+// TestRealWorldFormatCommand tests parsing of the failing format command from commands.cli
+func TestRealWorldFormatCommand(t *testing.T) {
+	testCase := TestCase{
+		Name: "Real world format command with parallel decorator",
+		Input: `# Format all code
+format: {
+    echo "📝 Formatting all code..."
+    echo "Formatting Go code..."
+    @parallel {
+        if command -v gofumpt >/dev/null 2>&1; then gofumpt -w .; else go fmt ./...; fi
+        if command -v nixpkgs-fmt >/dev/null 2>&1; then find . -name '*.nix' -exec nixpkgs-fmt {} +; else echo "⚠️  nixpkgs-fmt not available"; fi
+    }
+    echo "✅ Code formatted!"
+}`,
+		Expected: Program(
+			CmdBlock("format",
+				Shell("echo \"📝 Formatting all code...\""),
+				Shell("echo \"Formatting Go code...\""),
+				BlockDecorator("parallel", 
+					"if command -v gofumpt >/dev/null 2>&1; then gofumpt -w .; else go fmt ./...; fi",
+					"if command -v nixpkgs-fmt >/dev/null 2>&1; then find . -name '*.nix' -exec nixpkgs-fmt {} +; else echo \"⚠️  nixpkgs-fmt not available\"; fi",
+				),
+				Shell("echo \"✅ Code formatted!\""),
+			),
+		),
+	}
+
+	RunTestCase(t, testCase)
+}

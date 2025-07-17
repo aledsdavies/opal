@@ -123,12 +123,26 @@ type ExpectedShellContent struct {
 
 func (s ExpectedShellContent) IsExpectedCommandContent() bool { return true }
 
-type ExpectedDecoratedContent struct {
-	Decorators []ExpectedDecorator
-	Content    ExpectedCommandContent
+// ExpectedBlockDecoratorContent removed - use ExpectedBlockDecorator instead
+
+// New expected types for the refactored AST structure
+type ExpectedBlockDecorator struct {
+	Name    string
+	Args    []ExpectedExpression
+	Content []ExpectedCommandContent
 }
 
-func (d ExpectedDecoratedContent) IsExpectedCommandContent() bool { return true }
+func (d ExpectedBlockDecorator) IsExpectedCommandContent() bool { return true }
+
+type ExpectedPatternDecorator struct {
+	Name     string
+	Args     []ExpectedExpression
+	Patterns []ExpectedPatternBranch
+}
+
+func (d ExpectedPatternDecorator) IsExpectedCommandContent() bool { return true }
+
+// ExpectedFunctionDecorator moved to avoid duplication
 
 type ExpectedPatternContent struct {
 	Decorator ExpectedDecorator
@@ -171,6 +185,8 @@ type ExpectedFunctionDecorator struct {
 	Name string
 	Args []ExpectedExpression
 }
+
+func (f ExpectedFunctionDecorator) IsExpectedCommandContent() bool { return true }
 
 type ExpectedExpression struct {
 	Type  string
@@ -477,6 +493,24 @@ func PatternDecorator(name string, args ...interface{}) ExpectedDecorator {
 	}
 }
 
+func PatternDecoratorWithBranches(name string, firstArg interface{}, branches ...ExpectedPatternBranch) ExpectedPatternDecorator {
+	// Validate that this is a pattern decorator
+	if !stdlib.IsPatternDecorator(name) {
+		panic(fmt.Sprintf("Not a pattern decorator: %s", name))
+	}
+
+	var decoratorArgs []ExpectedExpression
+	if firstArg != nil {
+		decoratorArgs = append(decoratorArgs, toDecoratorArgument(name, firstArg))
+	}
+
+	return ExpectedPatternDecorator{
+		Name:     name,
+		Args:     decoratorArgs,
+		Patterns: branches,
+	}
+}
+
 // Pattern creates a pattern content with branches: @when(VAR) { pattern: command }
 func Pattern(decorator ExpectedDecorator, branches ...ExpectedPatternBranch) ExpectedPatternContent {
 	return ExpectedPatternContent{
@@ -541,9 +575,59 @@ func Shell(parts ...interface{}) ExpectedCommandContent {
 
 // DecoratedShell creates decorated shell content: @timeout(30s) npm run build
 func DecoratedShell(decorator ExpectedDecorator, parts ...interface{}) ExpectedCommandContent {
-	return ExpectedDecoratedContent{
-		Decorators: []ExpectedDecorator{decorator},
-		Content: Shell(parts...),
+	// Determine decorator type and create appropriate expected structure
+	if stdlib.IsBlockDecorator(decorator.Name) {
+		return ExpectedBlockDecorator{
+			Name:    decorator.Name,
+			Args:    decorator.Args,
+			Content: []ExpectedCommandContent{Shell(parts...)},
+		}
+	} else if stdlib.IsPatternDecorator(decorator.Name) {
+		return ExpectedPatternDecorator{
+			Name:     decorator.Name,
+			Args:     decorator.Args,
+			Patterns: []ExpectedPatternBranch{}, // Would need to be populated based on content
+		}
+	} else {
+		// For unknown decorators, assume block decorator
+		return ExpectedBlockDecorator{
+			Name:    decorator.Name,
+			Args:    decorator.Args,
+			Content: []ExpectedCommandContent{Shell(parts...)},
+		}
+	}
+}
+
+// BlockDecorator creates a block decorator with multiple commands in its content
+func BlockDecorator(name string, args ...interface{}) ExpectedCommandContent {
+	// Split args into decorator args and content
+	var decoratorArgs []ExpectedExpression
+	var content []ExpectedCommandContent
+	
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case ExpectedExpression:
+			decoratorArgs = append(decoratorArgs, v)
+		case ExpectedCommandContent:
+			content = append(content, v)
+		case string:
+			// If it's a string, treat it as shell content
+			content = append(content, Shell(Text(v)))
+		default:
+			// Try to convert to expression (for decorator args like timeouts)
+			if len(content) == 0 {
+				decoratorArgs = append(decoratorArgs, toExpression(arg))
+			} else {
+				// If we already have content, this should be shell content
+				content = append(content, Shell(Text(fmt.Sprintf("%v", arg))))
+			}
+		}
+	}
+	
+	return ExpectedBlockDecorator{
+		Name:    name,
+		Args:    decoratorArgs,
+		Content: content,
 	}
 }
 
@@ -627,13 +711,18 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 		return ExpectedCommandBody{
 			Content: []ExpectedCommandContent{val},
 		}
-	case ExpectedDecoratedContent:
-		// Decorated content ALWAYS requires explicit blocks per spec
+	case ExpectedBlockDecorator:
+		// Block decorators ALWAYS require explicit blocks per spec
 		return ExpectedCommandBody{
 			Content: []ExpectedCommandContent{val},
 		}
 	case ExpectedPatternContent:
 		// Pattern content ALWAYS requires explicit blocks per spec
+		return ExpectedCommandBody{
+			Content: []ExpectedCommandContent{val},
+		}
+	case ExpectedPatternDecorator:
+		// Pattern decorators ALWAYS require explicit blocks per spec
 		return ExpectedCommandBody{
 			Content: []ExpectedCommandContent{val},
 		}
@@ -676,9 +765,10 @@ func toMultipleCommandContent(items ...interface{}) []ExpectedCommandContent {
 				// If next item is also a decorator, this decorator has no content
 				if _, isDecorator := nextItem.(ExpectedDecorator); isDecorator {
 					// Decorator with no content - create empty shell content
-					contentItems = append(contentItems, ExpectedDecoratedContent{
-						Decorators: []ExpectedDecorator{decorator},
-						Content:    ExpectedShellContent{Parts: []ExpectedShellPart{}},
+					contentItems = append(contentItems, ExpectedBlockDecorator{
+						Name:    decorator.Name,
+						Args:    decorator.Args,
+						Content: []ExpectedCommandContent{ExpectedShellContent{Parts: []ExpectedShellPart{}}},
 					})
 					i++
 					continue
@@ -686,9 +776,10 @@ func toMultipleCommandContent(items ...interface{}) []ExpectedCommandContent {
 
 				// If next item is CommandContent, use it directly
 				if content, ok := nextItem.(ExpectedCommandContent); ok {
-					contentItems = append(contentItems, ExpectedDecoratedContent{
-						Decorators: []ExpectedDecorator{decorator},
-						Content:    content,
+					contentItems = append(contentItems, ExpectedBlockDecorator{
+						Name:    decorator.Name,
+						Args:    decorator.Args,
+						Content: []ExpectedCommandContent{content},
 					})
 					i += 2
 					continue
@@ -696,17 +787,19 @@ func toMultipleCommandContent(items ...interface{}) []ExpectedCommandContent {
 
 				// Otherwise, convert next item to shell content
 				shellContent := toSingleCommandContent(nextItem)
-				contentItems = append(contentItems, ExpectedDecoratedContent{
-					Decorators: []ExpectedDecorator{decorator},
-					Content:    shellContent,
+				contentItems = append(contentItems, ExpectedBlockDecorator{
+					Name:    decorator.Name,
+					Args:    decorator.Args,
+					Content: []ExpectedCommandContent{shellContent},
 				})
 				i += 2
 				continue
 			} else {
 				// Decorator at end with no content
-				contentItems = append(contentItems, ExpectedDecoratedContent{
-					Decorators: []ExpectedDecorator{decorator},
-					Content:    ExpectedShellContent{Parts: []ExpectedShellPart{}},
+				contentItems = append(contentItems, ExpectedBlockDecorator{
+					Name:    decorator.Name,
+					Args:    decorator.Args,
+					Content: []ExpectedCommandContent{ExpectedShellContent{Parts: []ExpectedShellPart{}}},
 				})
 				i++
 				continue
@@ -948,48 +1041,54 @@ func commandContentToComparable(content ast.CommandContent) interface{} {
 			"Type":  "shell",
 			"Parts": parts,
 		}
-	case *ast.DecoratedContent:
-		decorators := make([]interface{}, len(c.Decorators))
-		for i, decorator := range c.Decorators {
-			args := make([]interface{}, len(decorator.Args))
-			for j, arg := range decorator.Args {
-				args[j] = expressionToComparable(arg)
-			}
-			decorators[i] = map[string]interface{}{
-				"Name": decorator.Name,
-				"Args": args,
-			}
+	// ast.BlockDecoratorContent removed - functionality moved to BlockDecorator
+	case *ast.BlockDecorator:
+		args := make([]interface{}, len(c.Args))
+		for i, arg := range c.Args {
+			args[i] = expressionToComparable(arg)
+		}
+		contentArray := make([]interface{}, len(c.Content))
+		for i, content := range c.Content {
+			contentArray[i] = commandContentToComparable(content)
 		}
 		return map[string]interface{}{
-			"Type":       "decorated",
-			"Decorators": decorators,
-			"Content":    commandContentToComparable(c.Content),
+			"Type":    "block_decorator",
+			"Name":    c.Name,
+			"Args":    args,
+			"Content": contentArray,
 		}
-	case *ast.PatternContent:
-		decorator := map[string]interface{}{
-			"Name": c.Decorator.Name,
-			"Args": make([]interface{}, len(c.Decorator.Args)),
+	case *ast.PatternDecorator:
+		args := make([]interface{}, len(c.Args))
+		for i, arg := range c.Args {
+			args[i] = expressionToComparable(arg)
 		}
-		for i, arg := range c.Decorator.Args {
-			decorator["Args"].([]interface{})[i] = expressionToComparable(arg)
-		}
-
-		branches := make([]interface{}, len(c.Patterns))
-		for i, branch := range c.Patterns {
-			commandArray := make([]interface{}, len(branch.Commands))
-			for j, cmd := range branch.Commands {
+		patterns := make([]interface{}, len(c.Patterns))
+		for i, pattern := range c.Patterns {
+			commandArray := make([]interface{}, len(pattern.Commands))
+			for j, cmd := range pattern.Commands {
 				commandArray[j] = commandContentToComparable(cmd)
 			}
-			branches[i] = map[string]interface{}{
-				"Pattern":  patternToComparable(branch.Pattern),
+			patterns[i] = map[string]interface{}{
+				"Pattern":  patternToComparable(pattern.Pattern),
 				"Commands": commandArray,
 			}
 		}
-
 		return map[string]interface{}{
-			"Type":      "pattern",
-			"Decorator": decorator,
-			"Branches":  branches,
+			"Type":     "pattern_decorator",
+			"Name":     c.Name,
+			"Args":     args,
+			"Patterns": patterns,
+		}
+	case *ast.PatternContent:
+		// Simplified PatternContent now just has Pattern string and Commands
+		commandArray := make([]interface{}, len(c.Commands))
+		for i, cmd := range c.Commands {
+			commandArray[i] = commandContentToComparable(cmd)
+		}
+		return map[string]interface{}{
+			"Type":     "pattern_content",
+			"Pattern":  c.Pattern,
+			"Commands": commandArray,
 		}
 	default:
 		return map[string]interface{}{
@@ -997,6 +1096,8 @@ func commandContentToComparable(content ast.CommandContent) interface{} {
 		}
 	}
 }
+
+// Duplicate helper functions removed - already defined above
 
 func expectedCommandContentToComparable(content ExpectedCommandContent) interface{} {
 	switch c := content.(type) {
@@ -1009,32 +1110,52 @@ func expectedCommandContentToComparable(content ExpectedCommandContent) interfac
 			"Type":  "shell",
 			"Parts": parts,
 		}
-	case ExpectedDecoratedContent:
-		decorators := make([]interface{}, len(c.Decorators))
-		for i, decorator := range c.Decorators {
-			args := make([]interface{}, len(decorator.Args))
-			for j, arg := range decorator.Args {
-				args[j] = expectedExpressionToComparable(arg)
-			}
-			decorators[i] = map[string]interface{}{
-				"Name": decorator.Name,
-				"Args": args,
+	case ExpectedBlockDecorator:
+		args := make([]interface{}, len(c.Args))
+		for i, arg := range c.Args {
+			args[i] = expectedExpressionToComparable(arg)
+		}
+		content := make([]interface{}, len(c.Content))
+		for i, cont := range c.Content {
+			content[i] = expectedCommandContentToComparable(cont)
+		}
+		return map[string]interface{}{
+			"Type":    "block_decorator",
+			"Name":    c.Name,
+			"Args":    args,
+			"Content": content,
+		}
+	case ExpectedPatternDecorator:
+		args := make([]interface{}, len(c.Args))
+		for i, arg := range c.Args {
+			args[i] = expectedExpressionToComparable(arg)
+		}
+		patterns := make([]interface{}, len(c.Patterns))
+		for i, pattern := range c.Patterns {
+			// Convert pattern branch to comparable format
+			patterns[i] = map[string]interface{}{
+				"Pattern":  expectedPatternToComparable(pattern.Pattern),
+				"Commands": expectedCommandContentArrayToComparable(pattern.Commands),
 			}
 		}
 		return map[string]interface{}{
-			"Type":       "decorated",
-			"Decorators": decorators,
-			"Content":    expectedCommandContentToComparable(c.Content),
+			"Type":     "pattern_decorator",
+			"Name":     c.Name,
+			"Args":     args,
+			"Patterns": patterns,
+		}
+	case ExpectedFunctionDecorator:
+		args := make([]interface{}, len(c.Args))
+		for i, arg := range c.Args {
+			args[i] = expectedExpressionToComparable(arg)
+		}
+		return map[string]interface{}{
+			"Type": "function_decorator",
+			"Name": c.Name,
+			"Args": args,
 		}
 	case ExpectedPatternContent:
-		decorator := map[string]interface{}{
-			"Name": c.Decorator.Name,
-			"Args": make([]interface{}, len(c.Decorator.Args)),
-		}
-		for i, arg := range c.Decorator.Args {
-			decorator["Args"].([]interface{})[i] = expectedExpressionToComparable(arg)
-		}
-
+		// Use the new simplified structure
 		branches := make([]interface{}, len(c.Branches))
 		for i, branch := range c.Branches {
 			commandArray := make([]interface{}, len(branch.Commands))
@@ -1048,9 +1169,8 @@ func expectedCommandContentToComparable(content ExpectedCommandContent) interfac
 		}
 
 		return map[string]interface{}{
-			"Type":      "pattern",
-			"Decorator": decorator,
-			"Branches":  branches,
+			"Type":     "pattern",
+			"Branches": branches,
 		}
 	default:
 		return map[string]interface{}{
@@ -1079,6 +1199,14 @@ func expectedCommandBodyToComparable(body ExpectedCommandBody) interface{} {
 	return map[string]interface{}{
 		"Content": contentArray,
 	}
+}
+
+func expectedCommandContentArrayToComparable(contents []ExpectedCommandContent) []interface{} {
+	result := make([]interface{}, len(contents))
+	for i, content := range contents {
+		result[i] = expectedCommandContentToComparable(content)
+	}
+	return result
 }
 
 func RunTestCase(t *testing.T, tc TestCase) {

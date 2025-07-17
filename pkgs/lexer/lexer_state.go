@@ -200,8 +200,7 @@ func (sm *StateMachine) HandleToken(tokenType TokenType, value string) (LexerSta
 		return sm.handleIdentifier(value)
 	case EQUALS:
 		return sm.handleEquals()
-	case NEWLINE:
-		return sm.handleNewline()
+	// NEWLINE removed - handled as whitespace
 	case SHELL_TEXT:
 		return sm.handleShellText()
 	case EOF:
@@ -425,6 +424,18 @@ func (sm *StateMachine) handleIdentifier(value string) (LexerState, error) {
 
 	case StateVarDecl:
 		// Variable name in declaration
+		return sm.current, nil
+
+	case StateVarValue:
+		// End of variable declaration - identifier indicates next statement
+		if ctx, err := sm.PopContext(); err == nil && ctx.Type == ContextVar {
+			// Clear the variable context and transition to top level
+			if err := sm.Transition(StateTopLevel); err != nil {
+				return sm.current, err
+			}
+			// Now handle this identifier as if we're at top level
+			return sm.handleIdentifier(value)
+		}
 		return sm.current, nil
 
 	default:

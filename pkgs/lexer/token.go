@@ -38,7 +38,7 @@ const (
 	BOOLEAN    // true, false
 
 	// Structure
-	NEWLINE // \n
+	// NEWLINE removed - handled as whitespace
 
 	// Comments
 	COMMENT           // #
@@ -69,7 +69,7 @@ var tokenNames = [...]string{
 	STRING:            "STRING",
 	DURATION:          "DURATION",
 	BOOLEAN:           "BOOLEAN",
-	NEWLINE:           "NEWLINE",
+	// NEWLINE removed
 	COMMENT:           "COMMENT",
 	MULTILINE_COMMENT: "MULTILINE_COMMENT",
 }
@@ -374,7 +374,7 @@ func GetTextMateGrammarScopes(tokens []Token) []string {
 // IsStructuralToken checks if a token represents Devcmd structure
 func IsStructuralToken(tokenType TokenType) bool {
 	switch tokenType {
-	case VAR, WATCH, STOP, WHEN, TRY, AT, COLON, EQUALS, COMMA, LPAREN, RPAREN, LBRACE, RBRACE, ASTERISK, NEWLINE:
+	case VAR, WATCH, STOP, WHEN, TRY, AT, COLON, EQUALS, COMMA, LPAREN, RPAREN, LBRACE, RBRACE, ASTERISK:
 		return true
 	default:
 		return false

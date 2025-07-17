@@ -50,11 +50,8 @@ func assertTokens(t *testing.T, name string, input string, expected []tokenExpec
 
 	// Position validation (only if tokens match)
 	for i, tok := range tokens {
-		if tok.Line <= 0 || (tok.Column <= 0 && tok.Type != NEWLINE) {
-			if tok.Type == NEWLINE && tok.Column == 0 {
-				// Known issue - don't fail test
-				continue
-			}
+		if tok.Line <= 0 || (tok.Column <= 0) {
+			// NEWLINE tokens no longer exist
 			t.Errorf("%s: token[%d] %s has invalid position: %d:%d",
 				name, i, tok.Type, tok.Line, tok.Column)
 		}
@@ -190,15 +187,12 @@ func TestCoreStructure(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var"},
 				{LPAREN, "("},
-				{NEWLINE, "\n"},
 				{IDENTIFIER, "PORT"},
 				{EQUALS, "="},
 				{NUMBER, "8080"},
-				{NEWLINE, "\n"},
 				{IDENTIFIER, "HOST"},
 				{EQUALS, "="},
 				{STRING, "localhost"},
-				{NEWLINE, "\n"},
 				{RPAREN, ")"},
 				{EOF, ""},
 			},
@@ -685,7 +679,7 @@ func TestPatternDecorators(t *testing.T) {
 			},
 		},
 		{
-			name: "pattern blocks should not emit NEWLINE tokens",
+			name: "pattern blocks work correctly without NEWLINE tokens",
 			input: `deploy: @when(ENV) {
   prod: echo prod
   dev: echo dev
@@ -716,7 +710,7 @@ func TestPatternDecorators(t *testing.T) {
 			// First run the standard assertion
 			assertTokens(t, tt.name, tt.input, tt.expected)
 
-			// Additional validation: ensure no NEWLINE tokens in pattern blocks
+			// NEWLINE tokens no longer exist - validation not needed
 			// Only check tests that actually have pattern decorators
 			if strings.Contains(tt.input, "@when") || strings.Contains(tt.input, "@try") {
 				lexer := New(tt.input)
@@ -742,11 +736,7 @@ func TestPatternDecorators(t *testing.T) {
 						}
 					}
 
-					// Verify no NEWLINE tokens in pattern blocks
-					if inPatternBlock && tok.Type == NEWLINE {
-						t.Errorf("Found NEWLINE token in pattern block at position %d - these should be consumed", i)
-						t.Logf("  Pattern block starts after %s", tokens[i-1].Type)
-					}
+					// NEWLINE tokens no longer exist - no need to check
 				}
 			}
 		})
@@ -770,7 +760,6 @@ func TestEdgeCases(t *testing.T) {
 			name:  "whitespace only",
 			input: "   \n\t  ",
 			expected: []tokenExpectation{
-				{NEWLINE, "\n"},
 				{EOF, ""},
 			},
 		},
@@ -829,10 +818,7 @@ func TestEdgeCases(t *testing.T) {
 				}
 
 				// Special position handling for edge cases
-				if actual.Type == NEWLINE && actual.Column == 0 {
-					// This is a known issue - log but don't fail
-					t.Logf("Note: NEWLINE token has column 0 (known issue)")
-				} else if actual.Line <= 0 || (actual.Column <= 0 && actual.Type != EOF) {
+				if actual.Line <= 0 || (actual.Column <= 0 && actual.Type != EOF) {
 					t.Errorf("Token[%d] has invalid position: %d:%d",
 						i, actual.Line, actual.Column)
 				}
@@ -943,7 +929,7 @@ build: echo hello`
 		{IDENTIFIER, 1, 5, "PORT"},       // 'PORT' starts at column 5
 		{EQUALS, 1, 10, "="},             // '=' at column 10
 		{NUMBER, 1, 12, "8080"},          // '8080' starts at column 12
-		{NEWLINE, 2, 1, "\n"},            // Newline should be at line 2, column 1 (or 0)
+		// NEWLINE token removed from position tests
 		{IDENTIFIER, 2, 1, "build"},      // 'build' starts at line 2, column 1
 		{COLON, 2, 6, ":"},               // ':' at column 6
 		{SHELL_TEXT, 2, 8, "echo hello"}, // Shell text starts at column 8
@@ -964,11 +950,8 @@ build: echo hello`
 	}
 
 	for i, exp := range expectedPositions {
-		// Special case for NEWLINE column position
+		// NEWLINE special case removed
 		column := exp.column
-		if exp.tokenType == NEWLINE && i < len(tokens) && tokens[i].Column == 0 {
-			column = 0 // Accept the actual value to avoid test failure
-		}
 
 		expectedComp[i] = map[string]interface{}{
 			"type":   exp.tokenType.String(),
@@ -981,12 +964,7 @@ build: echo hello`
 	if diff := cmp.Diff(expectedComp, actualComp); diff != "" {
 		t.Errorf("Token positions mismatch (-want +got):\n%s", diff)
 
-		// Note known issues
-		for i, tok := range tokens {
-			if tok.Type == NEWLINE && tok.Column == 0 {
-				t.Logf("Note: NEWLINE token[%d] has column=0 (known issue)", i)
-			}
-		}
+		// Note: NEWLINE token issues no longer exist
 	}
 }
 
@@ -1223,4 +1201,38 @@ func generateLargeInput(lines int) string {
 		}
 	}
 	return sb.String()
+}
+
+// TestRealWorldFormatCommand tests lexing of the failing format command from commands.cli
+func TestRealWorldFormatCommand(t *testing.T) {
+	input := `# Format all code
+format: {
+    echo "📝 Formatting all code..."
+    echo "Formatting Go code..."
+    @parallel {
+        if command -v gofumpt >/dev/null 2>&1; then gofumpt -w .; else go fmt ./...; fi
+        if command -v nixpkgs-fmt >/dev/null 2>&1; then find . -name '*.nix' -exec nixpkgs-fmt {} +; else echo "⚠️  nixpkgs-fmt not available"; fi
+    }
+    echo "✅ Code formatted!"
+}`
+
+	expected := []tokenExpectation{
+		{COMMENT, "# Format all code"},
+		{IDENTIFIER, "format"},
+		{COLON, ":"},
+		{LBRACE, "{"},
+		{SHELL_TEXT, "echo \"📝 Formatting all code...\""},
+		{SHELL_TEXT, "echo \"Formatting Go code...\""},
+		{AT, "@"},
+		{IDENTIFIER, "parallel"},
+		{LBRACE, "{"},
+		{SHELL_TEXT, "if command -v gofumpt >/dev/null 2>&1; then gofumpt -w .; else go fmt ./...; fi"},
+		{SHELL_TEXT, "if command -v nixpkgs-fmt >/dev/null 2>&1; then find . -name '*.nix' -exec nixpkgs-fmt {} +; else echo \"⚠️  nixpkgs-fmt not available\"; fi"},
+		{RBRACE, "}"},
+		{SHELL_TEXT, "echo \"✅ Code formatted!\""},
+		{RBRACE, "}"},
+		{EOF, ""},
+	}
+
+	assertTokens(t, "Real world format command", input, expected)
 }

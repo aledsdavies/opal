@@ -541,82 +541,167 @@ func (t *TextPart) IsShellPart() bool {
 	return true
 }
 
-// DecoratedContent represents shell content with decorators
-// This handles cases like: @timeout(30s) { node app.js }
-// Multiple decorators in sequence within blocks are valid:
-// deploy: { @parallel() {}; @retry(3) {} }
-type DecoratedContent struct {
-	Decorators []Decorator  // Leading decorators (valid when nested in blocks)
-	Content    CommandContent // The actual content (can be ShellContent or nested DecoratedContent)
-	Pos        Position
-	Tokens     TokenRange
+// BlockDecoratorContent removed - functionality moved to BlockDecorator.Content
+
+// BlockDecorator represents block decorators like @parallel, @timeout, @retry
+// This handles cases like: @parallel { cmd1; cmd2 } or @timeout(30s) { npm start }
+type BlockDecorator struct {
+	Name    string           // Decorator name: "parallel", "timeout", "retry"
+	Args    []Expression     // Arguments within parentheses
+	Content []CommandContent // The commands inside the decorator block
+	Pos     Position
+	Tokens  TokenRange
+
+	// LSP support
+	AtToken   lexer.Token
+	NameToken lexer.Token
 }
 
-func (d *DecoratedContent) String() string {
-	var parts []string
-
-	for _, decorator := range d.Decorators {
-		parts = append(parts, decorator.String())
+func (d *BlockDecorator) String() string {
+	result := "@" + d.Name
+	if len(d.Args) > 0 {
+		var argStrs []string
+		for _, arg := range d.Args {
+			argStrs = append(argStrs, arg.String())
+		}
+		result += "(" + strings.Join(argStrs, ", ") + ")"
 	}
-
-	parts = append(parts, d.Content.String())
-
-	return strings.Join(parts, " ")
+	if len(d.Content) > 0 {
+		var contentStrs []string
+		for _, content := range d.Content {
+			contentStrs = append(contentStrs, content.String())
+		}
+		result += " { " + strings.Join(contentStrs, "; ") + " }"
+	}
+	return result
 }
 
-func (d *DecoratedContent) Position() Position {
+func (d *BlockDecorator) Position() Position {
 	return d.Pos
 }
 
-func (d *DecoratedContent) TokenRange() TokenRange {
+func (d *BlockDecorator) TokenRange() TokenRange {
 	return d.Tokens
 }
 
-func (d *DecoratedContent) SemanticTokens() []lexer.Token {
+func (d *BlockDecorator) SemanticTokens() []lexer.Token {
 	var tokens []lexer.Token
-
-	for _, decorator := range d.Decorators {
-		tokens = append(tokens, decorator.SemanticTokens()...)
+	
+	// Add @ token
+	atToken := d.AtToken
+	atToken.Semantic = lexer.SemOperator
+	tokens = append(tokens, atToken)
+	
+	// Add name token
+	nameToken := d.NameToken
+	nameToken.Semantic = lexer.SemKeyword
+	tokens = append(tokens, nameToken)
+	
+	// Add argument tokens
+	for _, arg := range d.Args {
+		tokens = append(tokens, arg.SemanticTokens()...)
 	}
-
-	tokens = append(tokens, d.Content.SemanticTokens()...)
-
+	
+	// Add content tokens
+	for _, content := range d.Content {
+		tokens = append(tokens, content.SemanticTokens()...)
+	}
+	
 	return tokens
 }
 
-func (d *DecoratedContent) IsCommandContent() bool {
+func (d *BlockDecorator) IsCommandContent() bool {
 	return true
 }
 
-// PatternContent represents pattern-matching decorator content like @when or @try
-// This handles syntax like: @when(MODE) { production: deploy.sh; staging: deploy-staging.sh }
-type PatternContent struct {
-	Decorator Decorator         // The pattern decorator (@when, @try, etc.)
-	Patterns  []PatternBranch   // Pattern branches with labels and commands
-	Pos       Position
-	Tokens    TokenRange
+// PatternDecorator represents pattern decorators like @when, @try
+// This handles cases like: @when(MODE) { production: deploy.sh; staging: deploy-staging.sh }
+type PatternDecorator struct {
+	Name     string            // Decorator name: "when", "try"
+	Args     []Expression      // Arguments within parentheses (e.g., variable for @when)
+	Patterns []PatternBranch   // Pattern branches inside the decorator block
+	Pos      Position
+	Tokens   TokenRange
 
-	// Concrete syntax tokens for precise formatting
-	OpenBrace  lexer.Token  // The "{" token
-	CloseBrace lexer.Token  // The "}" token
+	// LSP support
+	AtToken   lexer.Token
+	NameToken lexer.Token
+}
+
+func (d *PatternDecorator) String() string {
+	result := "@" + d.Name
+	if len(d.Args) > 0 {
+		var argStrs []string
+		for _, arg := range d.Args {
+			argStrs = append(argStrs, arg.String())
+		}
+		result += "(" + strings.Join(argStrs, ", ") + ")"
+	}
+	if len(d.Patterns) > 0 {
+		result += " { "
+		var patternStrs []string
+		for _, pattern := range d.Patterns {
+			patternStrs = append(patternStrs, pattern.String())
+		}
+		result += strings.Join(patternStrs, "; ")
+		result += " }"
+	}
+	return result
+}
+
+func (d *PatternDecorator) Position() Position {
+	return d.Pos
+}
+
+func (d *PatternDecorator) TokenRange() TokenRange {
+	return d.Tokens
+}
+
+func (d *PatternDecorator) SemanticTokens() []lexer.Token {
+	var tokens []lexer.Token
+	
+	// Add @ token
+	atToken := d.AtToken
+	atToken.Semantic = lexer.SemOperator
+	tokens = append(tokens, atToken)
+	
+	// Add name token
+	nameToken := d.NameToken
+	nameToken.Semantic = lexer.SemKeyword
+	tokens = append(tokens, nameToken)
+	
+	// Add argument tokens
+	for _, arg := range d.Args {
+		tokens = append(tokens, arg.SemanticTokens()...)
+	}
+	
+	// Add pattern tokens
+	for _, pattern := range d.Patterns {
+		tokens = append(tokens, pattern.SemanticTokens()...)
+	}
+	
+	return tokens
+}
+
+func (d *PatternDecorator) IsCommandContent() bool {
+	return true
+}
+
+// PatternContent represents a simple pattern with commands
+// Simplified to just Pattern and Commands
+type PatternContent struct {
+	Pattern  string            // The pattern string (e.g., "production", "main", "*")
+	Commands []CommandContent  // The commands to execute for this pattern
+	Pos      Position
+	Tokens   TokenRange
 }
 
 func (p *PatternContent) String() string {
 	var parts []string
-
-	parts = append(parts, p.Decorator.String())
-	parts = append(parts, "{")
-
-	for i, pattern := range p.Patterns {
-		if i > 0 {
-			parts = append(parts, "; ")
-		}
-		parts = append(parts, pattern.String())
+	for _, cmd := range p.Commands {
+		parts = append(parts, cmd.String())
 	}
-
-	parts = append(parts, "}")
-
-	return strings.Join(parts, " ")
+	return p.Pattern + ": " + strings.Join(parts, "; ")
 }
 
 func (p *PatternContent) Position() Position {
@@ -629,21 +714,9 @@ func (p *PatternContent) TokenRange() TokenRange {
 
 func (p *PatternContent) SemanticTokens() []lexer.Token {
 	var tokens []lexer.Token
-
-	tokens = append(tokens, p.Decorator.SemanticTokens()...)
-
-	openBrace := p.OpenBrace
-	openBrace.Semantic = lexer.SemOperator
-	tokens = append(tokens, openBrace)
-
-	for _, pattern := range p.Patterns {
-		tokens = append(tokens, pattern.SemanticTokens()...)
+	for _, cmd := range p.Commands {
+		tokens = append(tokens, cmd.SemanticTokens()...)
 	}
-
-	closeBrace := p.CloseBrace
-	closeBrace.Semantic = lexer.SemOperator
-	tokens = append(tokens, closeBrace)
-
 	return tokens
 }
 
@@ -789,63 +862,7 @@ func (w *WildcardPattern) GetPatternType() PatternType {
 	return WildcardPatternType
 }
 
-// Decorator represents decorators
-type Decorator struct {
-	Name  string
-	Args  []Expression // Arguments within parentheses
-	Pos   Position
-	Tokens TokenRange
-
-	// LSP support
-	AtToken   lexer.Token
-	NameToken lexer.Token
-}
-
-func (d *Decorator) String() string {
-	name := fmt.Sprintf("@%s", d.Name)
-
-	if len(d.Args) > 0 {
-		var argStrs []string
-		for _, arg := range d.Args {
-			argStrs = append(argStrs, arg.String())
-		}
-		name += fmt.Sprintf("(%s)", strings.Join(argStrs, ", "))
-	}
-
-	return name
-}
-
-func (d *Decorator) Position() Position {
-	return d.Pos
-}
-
-func (d *Decorator) TokenRange() TokenRange {
-	return d.Tokens
-}
-
-func (d *Decorator) SemanticTokens() []lexer.Token {
-	var tokens []lexer.Token
-
-	atToken := d.AtToken
-	atToken.Semantic = lexer.SemOperator
-	tokens = append(tokens, atToken)
-
-	nameToken := d.NameToken
-	if d.Name == "var" || d.Name == "env" {
-		nameToken.Semantic = lexer.SemVariable
-	} else if d.Name == "when" || d.Name == "try" {
-		nameToken.Semantic = lexer.SemPattern
-	} else {
-		nameToken.Semantic = lexer.SemDecorator
-	}
-	tokens = append(tokens, nameToken)
-
-	for _, arg := range d.Args {
-		tokens = append(tokens, arg.SemanticTokens()...)
-	}
-
-	return tokens
-}
+// Decorator type removed - replaced by specific decorator types (BlockDecorator, PatternDecorator, FunctionDecorator)
 
 // FunctionDecorator represents inline decorators like @var(NAME) or @sh(command)
 // These appear WITHIN shell content and return values
@@ -934,6 +951,10 @@ func (f *FunctionDecorator) IsShellPart() bool {
 	return true
 }
 
+func (f *FunctionDecorator) IsCommandContent() bool {
+	return true
+}
+
 // Utility functions for AST traversal and analysis
 
 // Walk traverses the CST and calls fn for each node
@@ -969,15 +990,24 @@ func Walk(node Node, fn func(Node) bool) {
 		}
 	case *TextPart:
 		// Leaf node - plain text
-	case *DecoratedContent:
-		for _, d := range n.Decorators {
-			Walk(&d, fn)
+	// BlockDecoratorContent removed - content is now in BlockDecorator.Content directly
+	case *BlockDecorator:
+		for _, arg := range n.Args {
+			Walk(arg, fn)
 		}
-		Walk(n.Content, fn)
-	case *PatternContent:
-		Walk(&n.Decorator, fn)
+		for _, content := range n.Content {
+			Walk(content, fn)
+		}
+	case *PatternDecorator:
+		for _, arg := range n.Args {
+			Walk(arg, fn)
+		}
 		for _, pattern := range n.Patterns {
 			Walk(&pattern, fn)
+		}
+	case *PatternContent:
+		for _, cmd := range n.Commands {
+			Walk(cmd, fn)
 		}
 	case *PatternBranch:
 		Walk(n.Pattern, fn)
@@ -988,10 +1018,7 @@ func Walk(node Node, fn func(Node) bool) {
 		// Leaf node - pattern identifier
 	case *WildcardPattern:
 		// Leaf node - wildcard pattern
-	case *Decorator:
-		for _, arg := range n.Args {
-			Walk(arg, fn)
-		}
+	// Decorator type removed - specific decorator types handle their own walking
 	case *FunctionDecorator:
 		for _, arg := range n.Args {
 			Walk(arg, fn)
@@ -1055,18 +1082,7 @@ func (b *CommandBody) GetAllShellContent() []*ShellContent {
 	return shellContents
 }
 
-// GetAllDecoratedContent returns all decorated content from the command body
-func (b *CommandBody) GetAllDecoratedContent() []*DecoratedContent {
-	var decoratedContents []*DecoratedContent
-
-	for _, content := range b.Content {
-		if decorated, ok := content.(*DecoratedContent); ok {
-			decoratedContents = append(decoratedContents, decorated)
-		}
-	}
-
-	return decoratedContents
-}
+// GetAllBlockDecoratorContent removed - use GetAllBlockDecorators instead
 
 // GetAllPatternContent returns all pattern content from the command body
 func (b *CommandBody) GetAllPatternContent() []*PatternContent {
@@ -1082,11 +1098,11 @@ func (b *CommandBody) GetAllPatternContent() []*PatternContent {
 }
 
 // GetPatternDecorators returns all pattern decorators in the AST
-func GetPatternDecorators(node Node) []*PatternContent {
-	var patterns []*PatternContent
+func GetPatternDecorators(node Node) []*PatternDecorator {
+	var patterns []*PatternDecorator
 
 	Walk(node, func(n Node) bool {
-		if pattern, ok := n.(*PatternContent); ok {
+		if pattern, ok := n.(*PatternDecorator); ok {
 			patterns = append(patterns, pattern)
 		}
 		return true
@@ -1100,7 +1116,7 @@ func FindPatternBranches(node Node, decoratorName string) []*PatternBranch {
 	var branches []*PatternBranch
 
 	Walk(node, func(n Node) bool {
-		if pattern, ok := n.(*PatternContent); ok && pattern.Decorator.Name == decoratorName {
+		if pattern, ok := n.(*PatternDecorator); ok && pattern.Name == decoratorName {
 			for _, branch := range pattern.Patterns {
 				branches = append(branches, &branch)
 			}
@@ -1111,8 +1127,8 @@ func FindPatternBranches(node Node, decoratorName string) []*PatternBranch {
 	return branches
 }
 
-// ValidatePatternContent validates pattern-matching decorator content
-func ValidatePatternContent(pattern *PatternContent) []error {
+// ValidatePatternDecorator validates pattern-matching decorator content
+func ValidatePatternDecorator(pattern *PatternDecorator) []error {
 	var errors []error
 
 	// Check for duplicate patterns
@@ -1124,19 +1140,19 @@ func ValidatePatternContent(pattern *PatternContent) []error {
 
 		if patternStr == "*" {
 			if hasWildcard {
-				errors = append(errors, fmt.Errorf("multiple wildcard patterns not allowed in @%s at line %d", pattern.Decorator.Name, branch.Pos.Line))
+				errors = append(errors, fmt.Errorf("multiple wildcard patterns not allowed in @%s at line %d", pattern.Name, branch.Pos.Line))
 			}
 			hasWildcard = true
 		} else {
 			if existing, exists := seenPatterns[patternStr]; exists {
-				errors = append(errors, fmt.Errorf("duplicate pattern '%s' in @%s at line %d (first occurrence at line %d)", patternStr, pattern.Decorator.Name, branch.Pos.Line, existing.Pos.Line))
+				errors = append(errors, fmt.Errorf("duplicate pattern '%s' in @%s at line %d (first occurrence at line %d)", patternStr, pattern.Name, branch.Pos.Line, existing.Pos.Line))
 			}
 			seenPatterns[patternStr] = &branch
 		}
 	}
 
 	// Decorator-specific validation
-	switch pattern.Decorator.Name {
+	switch pattern.Name {
 	case "try":
 		if _, hasMain := seenPatterns["main"]; !hasMain {
 			errors = append(errors, fmt.Errorf("@try decorator requires 'main' pattern at line %d", pattern.Pos.Line))
@@ -1150,25 +1166,13 @@ func ValidatePatternContent(pattern *PatternContent) []error {
 	return errors
 }
 
-// FindVariableReferences finds all @var() decorator references in the AST
-func FindVariableReferences(node Node) []*Decorator {
-	var refs []*Decorator
+// FindVariableReferences finds all @var() function decorator references in the AST
+func FindVariableReferences(node Node) []*FunctionDecorator {
+	var refs []*FunctionDecorator
 
 	Walk(node, func(n Node) bool {
-		if decorator, ok := n.(*Decorator); ok && decorator.Name == "var" {
-			refs = append(refs, decorator)
-		}
 		if funcDecorator, ok := n.(*FunctionDecorator); ok && funcDecorator.Name == "var" {
-			// Convert to regular decorator for compatibility
-			decorator := &Decorator{
-				Name:      funcDecorator.Name,
-				Args:      funcDecorator.Args,
-				Pos:       funcDecorator.Pos,
-				Tokens:    funcDecorator.Tokens,
-				AtToken:   funcDecorator.AtToken,
-				NameToken: funcDecorator.NameToken,
-			}
-			refs = append(refs, decorator)
+			refs = append(refs, funcDecorator)
 		}
 		return true
 	})
@@ -1176,19 +1180,7 @@ func FindVariableReferences(node Node) []*Decorator {
 	return refs
 }
 
-// FindDecorators finds all decorators in the AST
-func FindDecorators(node Node) []Decorator {
-	var decorators []Decorator
-
-	Walk(node, func(n Node) bool {
-		if decorator, ok := n.(*Decorator); ok {
-			decorators = append(decorators, *decorator)
-		}
-		return true
-	})
-
-	return decorators
-}
+// FindDecorators removed - use specific decorator type finders (FindBlockDecorators, FindPatternDecorators, FindFunctionDecorators)
 
 // ValidateVariableReferences checks that all @var() decorator references are defined
 func ValidateVariableReferences(program *Program) []error {
@@ -1230,7 +1222,7 @@ func ValidatePatternDecorators(program *Program) []error {
 
 	patterns := GetPatternDecorators(program)
 	for _, pattern := range patterns {
-		patternErrors := ValidatePatternContent(pattern)
+		patternErrors := ValidatePatternDecorator(pattern)
 		errors = append(errors, patternErrors...)
 	}
 
@@ -1258,9 +1250,9 @@ func GetDefinitionForVariable(program *Program, varName string) *VariableDecl {
 	return nil
 }
 
-// GetReferencesForVariable finds all @var() decorator references to a specific variable
-func GetReferencesForVariable(program *Program, varName string) []*Decorator {
-	var references []*Decorator
+// GetReferencesForVariable finds all @var() function decorator references to a specific variable
+func GetReferencesForVariable(program *Program, varName string) []*FunctionDecorator {
+	var references []*FunctionDecorator
 
 	refs := FindVariableReferences(program)
 	for _, ref := range refs {
@@ -1275,8 +1267,9 @@ func GetReferencesForVariable(program *Program, varName string) []*Decorator {
 }
 
 // GetPatternBranchForPattern finds a specific pattern branch within pattern content
-func GetPatternBranchForPattern(patternContent *PatternContent, patternName string) *PatternBranch {
-	for _, branch := range patternContent.Patterns {
+// GetPatternBranchForPattern finds a pattern branch for a specific pattern name
+func GetPatternBranchForPattern(patternDecorator *PatternDecorator, patternName string) *PatternBranch {
+	for _, branch := range patternDecorator.Patterns {
 		if branch.Pattern.String() == patternName {
 			return &branch
 		}
@@ -1289,12 +1282,12 @@ func IsPatternDecorator(decoratorName string) bool {
 	return decoratorName == "when" || decoratorName == "try"
 }
 
-// GetPatternContentByDecorator finds pattern content for a specific decorator type
-func GetPatternContentByDecorator(node Node, decoratorName string) []*PatternContent {
-	var patterns []*PatternContent
+// GetPatternDecoratorsByName finds pattern decorators for a specific decorator type
+func GetPatternDecoratorsByName(node Node, decoratorName string) []*PatternDecorator {
+	var patterns []*PatternDecorator
 
 	Walk(node, func(n Node) bool {
-		if pattern, ok := n.(*PatternContent); ok && pattern.Decorator.Name == decoratorName {
+		if pattern, ok := n.(*PatternDecorator); ok && pattern.Name == decoratorName {
 			patterns = append(patterns, pattern)
 		}
 		return true
