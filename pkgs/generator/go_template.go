@@ -204,9 +204,11 @@ func containsParallelInContent(content ast.CommandContent) bool {
 		return containsParallelInContent(c.Content)
 	case *ast.PatternContent:
 		for _, pattern := range c.Patterns {
-			// FIX: Use Command field instead of Commands
-			if containsParallelInContent(pattern.Command) {
-				return true
+			// Check if any commands in this pattern branch contain parallel
+			for _, cmd := range pattern.Commands {
+				if containsParallelInContent(cmd) {
+					return true
+				}
 			}
 		}
 		return false
@@ -243,46 +245,42 @@ func processCommandGroup(name string, commands []*ast.CommandDecl, definitions m
 	if regularCmd != nil {
 		// Check if it's a parallel or mixed command
 		if containsParallelDecorator(regularCmd) {
-			segments, err := analyzeCommandStructure(regularCmd, definitions)
-			if err != nil {
-				return templateCmd, fmt.Errorf("failed to analyze command structure for '%s': %w", name, err)
-			}
-
-			// Determine if it's pure parallel or mixed
-			if len(segments) == 1 && segments[0].IsParallel {
-				templateCmd.Type = "parallel"
-				templateCmd.ParallelCommands = segments[0].Commands
-			} else {
-				templateCmd.Type = "mixed"
-				templateCmd.CommandSegments = segments
-			}
-		} else {
-			// Regular command (no parallel) - check if it's a multi-line block
-			if regularCmd.Body.IsBlock {
-				// For block commands, check if we have multiple shell commands
-				shellCommands, err := extractShellCommands(regularCmd.Body.Content, definitions)
-				if err != nil {
-					return templateCmd, fmt.Errorf("failed to extract shell commands for '%s': %w", name, err)
-				}
-
-				if len(shellCommands) > 1 {
-					templateCmd.Type = "multi-regular"
-					templateCmd.ShellCommands = shellCommands
-				} else if len(shellCommands) == 1 {
-					templateCmd.Type = "regular"
-					templateCmd.ShellCommand = shellCommands[0]
+			// Extract parallel commands directly from command body content array
+			var parallelCommands []string
+			for _, content := range regularCmd.Body.Content {
+				if decoratedContent, ok := content.(*ast.DecoratedContent); ok {
+					// Check if this content has parallel decorator or if it's inside a parallel block
+					shellCmd := buildContentString(decoratedContent, definitions)
+					if strings.TrimSpace(shellCmd) != "" {
+						parallelCommands = append(parallelCommands, shellCmd)
+					}
 				} else {
-					templateCmd.Type = "regular"
-					templateCmd.ShellCommand = ""
+					// Non-decorated content (shouldn't happen in parallel blocks, but handle it)
+					shellCmd := buildContentString(content, definitions)
+					if strings.TrimSpace(shellCmd) != "" {
+						parallelCommands = append(parallelCommands, shellCmd)
+					}
 				}
-			} else {
-				// Simple command - always single
+			}
+			
+			templateCmd.Type = "parallel"
+			templateCmd.ParallelCommands = parallelCommands
+		} else {
+			// Regular command (no parallel) - extract shell commands from content
+			shellCommands, err := extractShellCommands(regularCmd.Body.Content, definitions)
+			if err != nil {
+				return templateCmd, fmt.Errorf("failed to extract shell commands for '%s': %w", name, err)
+			}
+
+			if len(shellCommands) > 1 {
+				templateCmd.Type = "multi-regular"
+				templateCmd.ShellCommands = shellCommands
+			} else if len(shellCommands) == 1 {
 				templateCmd.Type = "regular"
-				shellCmd, err := buildShellCommand(regularCmd, definitions)
-				if err != nil {
-					return templateCmd, fmt.Errorf("failed to build shell command for '%s': %w", name, err)
-				}
-				templateCmd.ShellCommand = shellCmd
+				templateCmd.ShellCommand = shellCommands[0]
+			} else {
+				templateCmd.Type = "regular"
+				templateCmd.ShellCommand = ""
 			}
 		}
 		templateCmd.HelpDescription = name
@@ -425,10 +423,16 @@ func extractShellCommands(contentArray []ast.CommandContent, definitions map[str
 			commands := buildShellContentString(c, definitions)
 			allCommands = append(allCommands, commands...)
 		case *ast.DecoratedContent:
-			// For decorated content, we need to handle it differently
-			// For now, treat as single command
-			cmd := buildContentString(c, definitions)
-			allCommands = append(allCommands, cmd)
+			// For decorated content, extract individual shell commands from the content
+			// This handles block commands where each line is a separate DecoratedContent
+			if shellContent, ok := c.Content.(*ast.ShellContent); ok {
+				commands := buildShellContentString(shellContent, definitions)
+				allCommands = append(allCommands, commands...)
+			} else {
+				// Non-shell content, treat as single command
+				cmd := buildContentString(c, definitions)
+				allCommands = append(allCommands, cmd)
+			}
 		case *ast.PatternContent:
 			// Pattern content is complex - treat as single command
 			cmd := buildContentString(c, definitions)
@@ -525,10 +529,12 @@ func buildPatternContentString(content *ast.PatternContent, definitions map[stri
 	// TODO: Implement proper pattern matching logic
 	var parts []string
 	for _, pattern := range content.Patterns {
-		// FIX: Use Command field instead of Commands
-		cmdStr := buildContentString(pattern.Command, definitions)
-		if cmdStr != "" {
-			parts = append(parts, cmdStr)
+		// Build all commands in this pattern branch
+		for _, cmd := range pattern.Commands {
+			cmdStr := buildContentString(cmd, definitions)
+			if cmdStr != "" {
+				parts = append(parts, cmdStr)
+			}
 		}
 	}
 	return strings.Join(parts, "; ")
@@ -613,9 +619,11 @@ func validateContentDecorators(content ast.CommandContent, cmdName string, cmdLi
 				cmdName, cmdLine, "")
 		}
 		for _, pattern := range c.Patterns {
-			// FIX: Use Command field instead of Commands
-			if err := validateContentDecorators(pattern.Command, cmdName, cmdLine); err != nil {
-				return err
+			// Validate decorators in all commands of this pattern branch
+			for _, cmd := range pattern.Commands {
+				if err := validateContentDecorators(cmd, cmdName, cmdLine); err != nil {
+					return err
+				}
 			}
 		}
 		return nil

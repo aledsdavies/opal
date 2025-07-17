@@ -388,8 +388,7 @@ const watchStopCommandTemplate = `{{define "watch-stop-command"}}
 	subcommand := args[0]
 	switch subcommand {
 	case "start":
-		command := {{printf "%q" .WatchCommand}}
-		if err := c.runInBackground("{{.Name}}", command); err != nil {
+		if err := c.runInBackground("{{.Name}}", {{printf "%q" .WatchCommand}}); err != nil {
 			fmt.Fprintf(os.Stderr, "Error starting {{.Name}}: %v\n", err)
 			os.Exit(1)
 		}
@@ -423,8 +422,7 @@ const watchOnlyCommandTemplate = `{{define "watch-only-command"}}
 	subcommand := args[0]
 	switch subcommand {
 	case "start":
-		command := {{printf "%q" .WatchCommand}}
-		if err := c.runInBackground("{{.Name}}", command); err != nil {
+		if err := c.runInBackground("{{.Name}}", {{printf "%q" .WatchCommand}}); err != nil {
 			fmt.Fprintf(os.Stderr, "Error starting {{.Name}}: %v\n", err)
 			os.Exit(1)
 		}
@@ -462,16 +460,16 @@ const parallelCommandTemplate = `{{define "parallel-command"}}
 
 		{{range .ParallelCommands}}
 		wg.Add(1)
-		go func(command string) {
+		go func() {
 			defer wg.Done()
-			cmd := exec.Command("sh", "-c", command)
+			cmd := exec.Command("sh", "-c", {{printf "%q" .}})
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {
 				errChan <- fmt.Errorf("command failed: %v", err)
 				return
 			}
-		}({{printf "%q" .}})
+		}()
 		{{end}}
 
 		// Wait for all goroutines to complete
@@ -502,16 +500,16 @@ const mixedCommandTemplate = `{{define "mixed-command"}}
 
 		{{range .Commands}}
 		wg.Add(1)
-		go func(command string) {
+		go func() {
 			defer wg.Done()
-			cmd := exec.Command("sh", "-c", command)
+			cmd := exec.Command("sh", "-c", {{printf "%q" .}})
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {
 				errChan <- fmt.Errorf("command failed: %v", err)
 				return
 			}
-		}({{printf "%q" .}})
+		}()
 		{{end}}
 
 		go func() {

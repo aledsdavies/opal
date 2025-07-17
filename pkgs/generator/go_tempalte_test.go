@@ -34,6 +34,18 @@ func assertGeneratedCode(t *testing.T, name string, input string, validate func(
 		return
 	}
 
+	// Debug logging for parallel commands
+	if strings.Contains(name, "Parallel") {
+		t.Logf("DEBUG %s: Program has %d commands", name, len(program.Commands))
+		for i, cmd := range program.Commands {
+			t.Logf("DEBUG %s: Command %d: name=%s, type=%v, body content count=%d", 
+				name, i, cmd.Name, cmd.Type, len(cmd.Body.Content))
+			for j, content := range cmd.Body.Content {
+				t.Logf("DEBUG %s: Content %d: type=%T", name, j, content)
+			}
+		}
+	}
+
 	// Generate Go code
 	generated, err := GenerateGo(program)
 	if err != nil {

@@ -6,8 +6,7 @@
 # =============================================================================
 
 def PROJECT = devcmd;
-def GRAMMAR_DIR = grammar;
-def GEN_DIR = internal/gen;
+# Note: ANTLR grammar generation removed - now using custom lexer
 def VERSION = $(git describe --tags --always --dirty 2>/dev/null || echo 'dev');
 def BUILD_TIME = $(date -u +%Y-%m-%dT%H:%M:%SZ);
 def GO_VERSION = 1.22;
@@ -19,29 +18,18 @@ def GO_VERSION = 1.22;
 # Project setup and initialization
 setup: {
     echo "🔧 Setting up @var(PROJECT) development environment...";
-    echo "📝 Generating ANTLR parser...";
-    dev grammar;
     echo "📦 Downloading Go dependencies...";
     go mod download;
     go mod verify;
     echo "✅ Setup complete! Run 'dev test' to verify.";
 }
 
-# Generate ANTLR parser
-grammar: {
-    echo "📝 Generating ANTLR parser...";
-    rm -rf @var(GEN_DIR);
-    mkdir -p @var(GEN_DIR);
-    @sh(cd @var(GRAMMAR_DIR) && antlr4 -Dlanguage=Go -package gen -listener -visitor -o ../@var(GEN_DIR) DevcmdLexer.g4 DevcmdParser.g4);
-    echo "Generated files:";
-    @sh(ls -la ../@var(GEN_DIR)/);
-    echo "✅ Parser generated";
-}
+# Note: ANTLR grammar generation removed - now using custom lexer in pkgs/lexer/
 
 # Build the CLI
 build: {
     echo "🔨 Building @var(PROJECT) CLI...";
-    @sh(if [ ! -f @var(GEN_DIR)/devcmd_lexer.go ]; then echo "⚠️  ANTLR parser not found, generating..."; dev grammar; fi);
+    # Note: Now using custom lexer - no parser generation needed
     go build -ldflags="-s -w -X main.Version=@var(VERSION) -X main.BuildTime=@var(BUILD_TIME)" -o @var(PROJECT) ./cmd/@var(PROJECT);
     echo "✅ Built: ./@var(PROJECT)";
 }
@@ -63,7 +51,7 @@ test-quick: {
 # Go unit tests with coverage
 test-go: {
     echo "🧪 Running Go tests with coverage...";
-    @sh(if [ ! -f @var(GEN_DIR)/devcmd_lexer.go ]; then echo "⚠️  ANTLR parser not found, generating..."; dev grammar; fi);
+    # Note: Now using custom lexer - no parser generation needed
     go test -race -coverprofile=coverage.out -covermode=atomic ./...;
     @sh(if command -v go >/dev/null 2>&1; then go tool cover -html=coverage.out -o coverage.html; echo "📊 Coverage report: coverage.html"; fi);
     echo "✅ Go tests passed!";
@@ -105,7 +93,7 @@ test-all: {
 # Run basic Go tests (for quick feedback)
 test: {
     echo "🧪 Running Go unit tests...";
-    @sh(if [ ! -f @var(GEN_DIR)/devcmd_lexer.go ]; then echo "⚠️  ANTLR parser not found, generating..."; dev grammar; fi);
+    # Note: Now using custom lexer - no parser generation needed
     go test ./...;
 }
 
@@ -327,9 +315,7 @@ info: {
     echo "Go version: @var(GO_VERSION)";
     echo "";
     echo "Statistics:";
-    echo "  Grammar files: $(find @var(GRAMMAR_DIR) -name '*.g4' | wc -l)";
-    echo "  Generated files: $(find @var(GEN_DIR) -name '*.go' 2>/dev/null | wc -l || echo 0)";
-    echo "  Go source files: $(find . -name '*.go' -not -path './@var(GEN_DIR)/*' | wc -l)";
+    echo "  Go source files: $(find . -name '*.go' | wc -l)";
     echo "  Test files: $(find . -name '*_test.go' | wc -l)";
     echo "  Nix files: $(find . -name '*.nix' | wc -l)";
     echo "";
@@ -442,13 +428,12 @@ help: {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
     echo "";
     echo "🚀 Quick Start:";
-    echo "  setup          - Initial project setup (grammar + deps)";
+    echo "  setup          - Initial project setup (deps only)";
     echo "  build          - Build the CLI tool";
     echo "  test           - Run Go unit tests";
     echo "  ci             - Run full CI workflow locally";
     echo "";
-    echo "📝 Grammar & Development:";
-    echo "  grammar        - Generate parser from ANTLR grammar";
+    echo "📝 Development:";
     echo "  format         - Format all code (Go + Nix)";
     echo "  lint           - Run all linters";
     echo "  clean          - Clean generated files and artifacts";
