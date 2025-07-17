@@ -333,7 +333,7 @@ in rec {
     preProcessors = {
       # Add common definitions to the top of commands
       addCommonDefs = defs: content:
-        (lib.concatMapStringsSep "\n" (def: "def ${def.name} = ${def.value};") defs) + "\n\n" + content;
+        (lib.concatMapStringsSep "\n" (def: "var ${def.name} = \"${def.value}\"") defs) + "\n\n" + content;
 
       # Strip comments from commands
       stripComments = content:
@@ -345,9 +345,9 @@ in rec {
       addProjectVars = projectName: version: content:
         ''
           # Auto-generated project variables
-          def PROJECT_NAME = ${projectName};
-          def PROJECT_VERSION = ${version};
-          def BUILD_TIME = $(date -u +%Y-%m-%dT%H:%M:%SZ);
+          var PROJECT_NAME = "${projectName}"
+          var PROJECT_VERSION = "${version}"
+          var BUILD_TIME = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
         '' + content;
     };
