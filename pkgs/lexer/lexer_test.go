@@ -876,6 +876,53 @@ func TestComments(t *testing.T) {
 				{EOF, ""},
 			},
 		},
+		{
+			name:  "comment at start followed by var declaration",
+			input: "# Data science project development\nvar PYTHON = \"python3\"",
+			expected: []tokenExpectation{
+				{COMMENT, "# Data science project development"},
+				{VAR, "var"},
+				{IDENTIFIER, "PYTHON"},
+				{EQUALS, "="},
+				{STRING, "python3"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "shell command with hash in URL",
+			input: "fetch: curl https://example.com#anchor",
+			expected: []tokenExpectation{
+				{IDENTIFIER, "fetch"},
+				{COLON, ":"},
+				{SHELL_TEXT, "curl https://example.com#anchor"}, // # should be part of shell text
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "shell command with git issue reference",
+			input: "commit: git commit -m \"Fix issue #123\"",
+			expected: []tokenExpectation{
+				{IDENTIFIER, "commit"},
+				{COLON, ":"},
+				{SHELL_TEXT, "git commit -m \"Fix issue #123\""}, // # should be part of shell text
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "reproduce failing example pattern",
+			input: "var PYTHON = \"python3\"\n# Data science project development\nsetup: echo \"Setting up...\"",
+			expected: []tokenExpectation{
+				{VAR, "var"},
+				{IDENTIFIER, "PYTHON"},
+				{EQUALS, "="},
+				{STRING, "python3"},
+				{COMMENT, "# Data science project development"},
+				{IDENTIFIER, "setup"},
+				{COLON, ":"},
+				{SHELL_TEXT, "echo \"Setting up...\""},
+				{EOF, ""},
+			},
+		},
 	}
 
 	for _, tt := range tests {

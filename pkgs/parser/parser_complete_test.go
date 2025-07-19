@@ -323,6 +323,18 @@ test: @retry(RETRIES) {
 				),
 			),
 		},
+		{
+			Name: "comment between variable and command",
+			Input: `var PYTHON = "python3"
+# Data science project development
+setup: echo "Setting up..."`,
+			Expected: Program(
+				Var("PYTHON", Str("python3")),
+				Cmd("setup", Simple(
+					Text("echo \"Setting up...\""),
+				)),
+			),
+		},
 	}
 
 	for _, tc := range testCases {
