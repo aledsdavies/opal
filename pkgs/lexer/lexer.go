@@ -3,11 +3,96 @@ package lexer
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/aledsdavies/devcmd/pkgs/stdlib"
 )
+
+// ASCII character lookup tables for fast classification
+var (
+	isWhitespace      [128]bool // Only ASCII range
+	isLetter          [128]bool
+	isDigit           [128]bool
+	isIdentStart      [128]bool
+	isIdentPart       [128]bool
+	singleCharTokens  [128]TokenType // Fast lookup for single-char tokens
+	singleCharStrings [128]string    // Pre-allocated single-char strings
+)
+
+func init() {
+	for i := 0; i < 128; i++ {
+		ch := byte(i)
+		isWhitespace[i] = ch == ' ' || ch == '\t' || ch == '\r' || ch == '\f'
+		isLetter[i] = ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_'
+		isDigit[i] = '0' <= ch && ch <= '9'
+		isIdentStart[i] = isLetter[i] || ch == '_'
+		isIdentPart[i] = isIdentStart[i] || isDigit[i] || ch == '-'
+		singleCharTokens[i] = ILLEGAL     // Default to ILLEGAL for non-single-char tokens
+		singleCharStrings[i] = string(ch) // Pre-allocate single char strings
+	}
+
+	// Initialize single character token mappings
+	singleCharTokens['@'] = AT
+	singleCharTokens[':'] = COLON
+	singleCharTokens['='] = EQUALS
+	singleCharTokens[','] = COMMA
+	singleCharTokens['('] = LPAREN
+	singleCharTokens[')'] = RPAREN
+	singleCharTokens['{'] = LBRACE
+	singleCharTokens['}'] = RBRACE
+	singleCharTokens['*'] = ASTERISK
+}
+
+// Object pools for memory optimization
+var (
+	// Pool for token slices with different capacity tiers
+	smallSlicePool = sync.Pool{
+		New: func() interface{} {
+			slice := make([]Token, 0, 16)
+			return &slice
+		},
+	}
+	mediumSlicePool = sync.Pool{
+		New: func() interface{} {
+			slice := make([]Token, 0, 64)
+			return &slice
+		},
+	}
+	largeSlicePool = sync.Pool{
+		New: func() interface{} {
+			slice := make([]Token, 0, 256)
+			return &slice
+		},
+	}
+)
+
+// getTokenSlice returns a token slice from the appropriate pool
+func getTokenSlice(estimatedSize int) *[]Token {
+	if estimatedSize <= 16 {
+		return smallSlicePool.Get().(*[]Token)
+	} else if estimatedSize <= 64 {
+		return mediumSlicePool.Get().(*[]Token)
+	} else {
+		return largeSlicePool.Get().(*[]Token)
+	}
+}
+
+// putTokenSlice returns a token slice to the appropriate pool
+func putTokenSlice(slice *[]Token) {
+	*slice = (*slice)[:0] // Reset length but keep capacity
+
+	cap := cap(*slice)
+	if cap <= 16 {
+		smallSlicePool.Put(slice)
+	} else if cap <= 64 {
+		mediumSlicePool.Put(slice)
+	} else if cap <= 256 {
+		largeSlicePool.Put(slice)
+	}
+	// For larger slices, let GC handle them
+}
 
 // LexerMode represents the current parsing context
 type LexerMode int
@@ -146,23 +231,35 @@ func (l *Lexer) getContextWindow() string {
 
 // TokenizeToSlice tokenizes to pre-allocated slice with memory optimization
 func (l *Lexer) TokenizeToSlice() []Token {
-	// More conservative estimate to reduce memory usage
-	estimatedTokens := len(l.input) / 12 // More conservative estimate
-	if estimatedTokens < 4 {
-		estimatedTokens = 4
-	}
-	if estimatedTokens > 500 {
-		estimatedTokens = 500 // Cap initial allocation
-	}
+	// Better estimation based on input characteristics
+	estimatedTokens := l.estimateTokenCount()
 
-	result := make([]Token, 0, estimatedTokens)
+	// Get a pooled slice
+	resultPtr := getTokenSlice(estimatedTokens)
+	result := *resultPtr
 
-	// Add iteration limit as additional safeguard
-	maxTokens := len(l.input) * 2 // Reasonable upper bound
+	// Iteration limit as safeguard
+	maxTokens := len(l.input) * 2
 	tokenCount := 0
 
 	for {
-		tok := l.NextToken() // Now includes stuck detection
+		tok := l.NextToken()
+
+		// Smart doubling if we exceed capacity
+		if len(result) == cap(result) {
+			newCap := cap(result) * 2
+			if newCap > maxTokens {
+				newCap = maxTokens
+			}
+			newResult := make([]Token, len(result), newCap)
+			copy(newResult, result)
+
+			// Return old slice to pool if it's a pooled size
+			putTokenSlice(resultPtr)
+			result = newResult
+			resultPtr = &result
+		}
+
 		result = append(result, tok)
 		tokenCount++
 
@@ -170,22 +267,47 @@ func (l *Lexer) TokenizeToSlice() []Token {
 			break
 		}
 
-		// Additional safeguard
 		if tokenCount > maxTokens {
-			panic(fmt.Sprintf(
-				"LEXER ERROR: Token count (%d) exceeds reasonable limit (%d) for input size %d\n"+
-					"Last token: %+v\n"+
-					"Position: %d\n"+
-					"Context: %s",
-				tokenCount, maxTokens, len(l.input),
-				tok,
-				l.position,
-				l.getContextWindow(),
-			))
+			putTokenSlice(resultPtr)
+			panic(fmt.Sprintf("Too many tokens: %d (input size: %d)", tokenCount, len(l.input)))
 		}
 	}
 
-	return result
+	// Create final result and return slice to pool
+	finalResult := make([]Token, len(result))
+	copy(finalResult, result)
+	putTokenSlice(resultPtr)
+
+	return finalResult
+}
+
+// estimateTokenCount provides better token count estimation
+func (l *Lexer) estimateTokenCount() int {
+	inputLen := len(l.input)
+	if inputLen == 0 {
+		return 4
+	}
+
+	// Count structural characters that likely generate tokens
+	structuralChars := 0
+	for i := 0; i < inputLen; i++ {
+		ch := l.input[i]
+		if ch == ':' || ch == '{' || ch == '}' || ch == '@' || ch == '(' || ch == ')' {
+			structuralChars++
+		}
+	}
+
+	// Base estimate on structural chars + some factor for identifiers/shell text
+	estimated := structuralChars + (inputLen / 20) // Assume avg 20 chars per token
+
+	if estimated < 4 {
+		estimated = 4
+	}
+	if estimated > 500 {
+		estimated = 500
+	}
+
+	return estimated
 }
 
 // NextToken returns the next token from the input
@@ -318,6 +440,23 @@ func (l *Lexer) isFunctionDecorator() bool {
 // lexLanguageMode handles structural Devcmd syntax
 func (l *Lexer) lexLanguageMode(start int) Token {
 	startLine, startColumn := l.line, l.column
+
+	// Fast path for ASCII single-character tokens (but skip context-sensitive ones)
+	if l.ch < 128 && l.ch != 0 && l.ch != '\n' && l.ch != '{' && l.ch != '}' {
+		if tokenType := singleCharTokens[l.ch]; tokenType != ILLEGAL {
+			value := singleCharStrings[l.ch] // Use pre-allocated string
+			var tok Token
+			if tokenType == AT {
+				tok = l.createTokenWithSemantic(AT, SemOperator, value, start, startLine, startColumn)
+			} else {
+				tok = l.createSimpleToken(tokenType, value, start, startLine, startColumn)
+			}
+			l.readChar()
+			l.updateTokenEnd(&tok)
+			l.updateStateMachine(tokenType, value)
+			return tok
+		}
+	}
 
 	switch l.ch {
 	case 0:
@@ -1165,14 +1304,36 @@ func (l *Lexer) updateTokenEnd(token *Token) {
 // Helper methods
 
 func (l *Lexer) readIdentifier() {
-	for (unicode.IsLetter(l.ch) || unicode.IsDigit(l.ch) || l.ch == '_' || l.ch == '-') && l.ch != 0 {
+	for l.ch != 0 {
+		// ASCII fast path using lookup table
+		if l.ch < 128 {
+			if !isIdentPart[l.ch] {
+				break
+			}
+		} else {
+			// Unicode fallback for non-ASCII characters
+			if !unicode.IsLetter(l.ch) && !unicode.IsDigit(l.ch) {
+				break
+			}
+		}
 		l.readChar()
 	}
 }
 
-// skipWhitespace with rune-based scanning
+// skipWhitespace with hybrid ASCII/Unicode scanning
 func (l *Lexer) skipWhitespace() {
-	for unicode.IsSpace(l.ch) && l.ch != '\n' && l.ch != 0 {
+	for l.ch != '\n' && l.ch != 0 {
+		// ASCII fast path using lookup table
+		if l.ch < 128 {
+			if !isWhitespace[l.ch] {
+				break
+			}
+		} else {
+			// Unicode fallback for non-ASCII characters
+			if !unicode.IsSpace(l.ch) {
+				break
+			}
+		}
 		l.readChar()
 	}
 }
@@ -1182,10 +1343,18 @@ func (l *Lexer) readChar() {
 		l.ch = 0
 		l.position = l.readPos
 	} else {
-		r, size := utf8.DecodeRuneInString(l.input[l.readPos:])
-		l.ch = r
-		l.position = l.readPos
-		l.readPos += size
+		// ASCII fast path - most config files are primarily ASCII
+		if b := l.input[l.readPos]; b < 0x80 {
+			l.ch = rune(b)
+			l.position = l.readPos
+			l.readPos++
+		} else {
+			// Unicode slow path
+			r, size := utf8.DecodeRuneInString(l.input[l.readPos:])
+			l.ch = r
+			l.position = l.readPos
+			l.readPos += size
+		}
 	}
 
 	// Position tracking: increment column before handling newline
@@ -1200,6 +1369,11 @@ func (l *Lexer) peekChar() rune {
 	if l.readPos >= len(l.input) {
 		return 0
 	}
+	// ASCII fast path
+	if b := l.input[l.readPos]; b < 0x80 {
+		return rune(b)
+	}
+	// Unicode slow path
 	r, _ := utf8.DecodeRuneInString(l.input[l.readPos:])
 	return r
 }
