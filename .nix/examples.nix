@@ -61,7 +61,7 @@ rec {
   # Web development with frontend/backend
   webDev = devcmdLib.mkDevCLI {
     name = "webdev";
-    commandsContent = '';
+    commandsContent = ''
       # Web development environment
       var FRONTEND_PORT = "3000"
       var BACKEND_PORT = "3001"
@@ -135,7 +135,7 @@ rec {
   # Go project with comprehensive tooling - demonstrates shell command substitution
   goProject = devcmdLib.mkDevCLI {
     name = "godev";
-    commandsContent = '';
+    commandsContent = ''
       # Go project development
       var MODULE = "github.com/example/myproject"
       var BINARY = "myproject"
@@ -238,7 +238,7 @@ rec {
   # Rust project development
   rustProject = devcmdLib.mkDevCLI {
     name = "rustdev";
-    commandsContent = '';
+    commandsContent = ''
       # Rust project development
       var CRATE_NAME = "myproject"
       var TARGET_DIR = "./target"
@@ -330,7 +330,7 @@ rec {
   # Data science / Python project
   dataScienceProject = devcmdLib.mkDevCLI {
     name = "datadev";
-    commandsContent = '';
+    commandsContent = ''
       # Data science project development
       var PYTHON = "python3"
       var VENV = "./venv"
@@ -412,7 +412,7 @@ rec {
   # DevOps / Infrastructure project
   devOpsProject = devcmdLib.mkDevCLI {
     name = "devops";
-    commandsContent = '';
+    commandsContent = ''
       # DevOps and infrastructure management
       var ENVIRONMENT = "development"
       var TERRAFORM_DIR = "./terraform"
@@ -421,25 +421,25 @@ rec {
 
       plan: {
         echo "Planning infrastructure changes..."
-        (cd @var(TERRAFORM_DIR) && terraform plan -var="environment=@var(ENVIRONMENT)") || echo "No Terraform")
+        (cd @var(TERRAFORM_DIR) && terraform plan -var="environment=@var(ENVIRONMENT)") || echo "No Terraform"
         echo "Plan complete"
       }
 
       apply: {
         echo "Applying infrastructure changes..."
-        (cd @var(TERRAFORM_DIR) && terraform apply -var="environment=@var(ENVIRONMENT)" -auto-approve) || echo "No Terraform")
+        (cd @var(TERRAFORM_DIR) && terraform apply -var="environment=@var(ENVIRONMENT)" -auto-approve) || echo "No Terraform"
         echo "Apply complete"
       }
 
       destroy: {
         echo "Destroying infrastructure..."
         echo "WARNING: This will destroy @var(ENVIRONMENT) environment"
-        (cd @var(TERRAFORM_DIR) && terraform destroy -var="environment=@var(ENVIRONMENT)" -auto-approve) || echo "No Terraform")
+        (cd @var(TERRAFORM_DIR) && terraform destroy -var="environment=@var(ENVIRONMENT)" -auto-approve) || echo "No Terraform"
       }
 
       provision: {
         echo "Provisioning servers..."
-        (cd @var(ANSIBLE_DIR) && ansible-playbook -i inventory/@var(ENVIRONMENT) site.yml) || echo "No Ansible")
+        (cd @var(ANSIBLE_DIR) && ansible-playbook -i inventory/@var(ENVIRONMENT) site.yml) || echo "No Ansible"
         echo "Provisioning complete"
       }
 
@@ -462,7 +462,7 @@ rec {
 
       shell: {
         echo "Opening shell in application pod..."
-        (which kubectl && kubectl exec -it deployment/myapp -n @var(KUBE_NAMESPACE) -- /bin/sh) || echo "No kubectl")
+        (which kubectl && kubectl exec -it deployment/myapp -n @var(KUBE_NAMESPACE) -- /bin/sh) || echo "No kubectl"
       }
 
       backup: {
@@ -480,8 +480,8 @@ rec {
       lint: {
         echo "Linting infrastructure code..."
         @parallel {
-          (cd @var(TERRAFORM_DIR) && terraform fmt -check) || echo "No Terraform")
-          (cd @var(ANSIBLE_DIR) && ansible-lint .) || echo "No Ansible")
+          (cd @var(TERRAFORM_DIR) && terraform fmt -check) || echo "No Terraform"
+          (cd @var(ANSIBLE_DIR) && ansible-lint .) || echo "No Ansible"
         }
         echo "Linting complete"
       }

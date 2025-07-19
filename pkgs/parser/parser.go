@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
@@ -1093,13 +1094,69 @@ func (p *Parser) match(types ...lexer.TokenType) bool {
 	return false
 }
 
+// formatError creates a detailed error message with source context
+func (p *Parser) formatError(message string, token lexer.Token) error {
+	lines := strings.Split(p.input, "\n")
+	lineNum := token.Line
+	colNum := token.Column
+
+	var errorMsg strings.Builder
+	errorMsg.WriteString(fmt.Sprintf("parsing failed:\n- %s\n\n", message))
+
+	// Show context around the error
+	startLine := max(1, lineNum-1)
+	endLine := min(len(lines), lineNum+1)
+
+	maxLineNumWidth := len(strconv.Itoa(endLine))
+
+	for i := startLine; i <= endLine; i++ {
+		lineContent := ""
+		if i <= len(lines) {
+			lineContent = lines[i-1] // lines are 0-indexed, but line numbers are 1-indexed
+		}
+
+		lineNumStr := fmt.Sprintf("%*d", maxLineNumWidth, i)
+
+		if i == lineNum {
+			// This is the error line - highlight it
+			errorMsg.WriteString(fmt.Sprintf(" --> %s | %s\n", lineNumStr, lineContent))
+
+			// Add pointer to the exact column
+			padding := strings.Repeat(" ", maxLineNumWidth+3+colNum-1) // account for " --> " and column position
+			errorMsg.WriteString(fmt.Sprintf("     %s | %s^\n", strings.Repeat(" ", maxLineNumWidth), padding))
+			errorMsg.WriteString(fmt.Sprintf("     %s | %s%s\n", strings.Repeat(" ", maxLineNumWidth), padding, "unexpected "+token.Type.String()))
+		} else {
+			// Context line
+			errorMsg.WriteString(fmt.Sprintf("     %s | %s\n", lineNumStr, lineContent))
+		}
+	}
+
+	return fmt.Errorf("%s", errorMsg.String())
+}
+
+// max returns the larger of two integers
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (p *Parser) consume(t lexer.TokenType, message string) (lexer.Token, error) {
 	if p.match(t) {
 		tok := p.current()
 		p.advance()
 		return tok, nil
 	}
-	return lexer.Token{}, fmt.Errorf("%s (at line %d, col %d, got %s)", message, p.current().Line, p.current().Column, p.current().Type)
+	return lexer.Token{}, p.formatError(message, p.current())
 }
 
 func (p *Parser) skipWhitespaceAndComments() {
