@@ -1,0 +1,181 @@
+package decorators
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/aledsdavies/devcmd/pkgs/ast"
+)
+
+// RetryDecorator implements the @retry decorator for retrying failed command execution
+type RetryDecorator struct{}
+
+// Name returns the decorator name
+func (r *RetryDecorator) Name() string {
+	return "retry"
+}
+
+// Description returns a human-readable description
+func (r *RetryDecorator) Description() string {
+	return "Retry command execution on failure with configurable attempts and delay"
+}
+
+// ParameterSchema returns the expected parameters for this decorator
+func (r *RetryDecorator) ParameterSchema() []ParameterSchema {
+	return []ParameterSchema{
+		{
+			Name:        "attempts",
+			Type:        ast.NumberType,
+			Required:    true,
+			Description: "Maximum number of retry attempts",
+		},
+		{
+			Name:        "delay",
+			Type:        ast.DurationType,
+			Required:    false,
+			Description: "Delay between retry attempts (default: 1s)",
+		},
+	}
+}
+
+// Validate checks if the decorator usage is correct during parsing
+func (r *RetryDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
+	if len(params) == 0 {
+		return fmt.Errorf("@retry requires at least 1 parameter (attempts), got 0")
+	}
+	if len(params) > 2 {
+		return fmt.Errorf("@retry accepts at most 2 parameters (attempts, delay), got %d", len(params))
+	}
+
+	// Validate the required attempts parameter
+	if err := ValidateRequiredParameter(params, "attempts", ast.NumberType, "retry"); err != nil {
+		return err
+	}
+
+	// Validate the optional delay parameter
+	if err := ValidateOptionalParameter(params, "delay", ast.DurationType, "retry"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Run executes the decorator at runtime with retry logic
+func (r *RetryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
+	if err := r.Validate(ctx, params); err != nil {
+		return err
+	}
+
+	// Parse parameters
+	maxAttempts := ast.GetIntParam(params, "attempts", 3)
+	delay := ast.GetDurationParam(params, "delay", 1*time.Second)
+
+	// Validate attempts is positive
+	if maxAttempts <= 0 {
+		return fmt.Errorf("retry attempts must be positive, got %d", maxAttempts)
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		fmt.Printf("Retry attempt %d/%d\n", attempt, maxAttempts)
+
+		// TODO: Execute commands using execution engine
+		// For now, simulate execution
+		execErr := r.executeCommands(ctx, content, attempt)
+		
+		if execErr == nil {
+			fmt.Printf("Commands succeeded on attempt %d\n", attempt)
+			return nil // Success!
+		}
+
+		lastErr = execErr
+		fmt.Printf("Attempt %d failed: %v\n", attempt, execErr)
+
+		// Don't delay after the last attempt
+		if attempt < maxAttempts {
+			fmt.Printf("Waiting %s before next attempt...\n", delay)
+			time.Sleep(delay)
+		}
+	}
+
+	return fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr)
+}
+
+// executeCommands simulates command execution (TODO: replace with actual execution engine)
+func (r *RetryDecorator) executeCommands(ctx *ExecutionContext, content []ast.CommandContent, attempt int) error {
+	for i, cmd := range content {
+		fmt.Printf("  Executing command %d: %+v\n", i, cmd)
+		
+		// Simulate some commands failing on first attempts
+		if attempt == 1 && i == 0 {
+			return fmt.Errorf("simulated failure for command %d", i)
+		}
+	}
+	return nil
+}
+
+// Generate produces Go code for the decorator in compiled mode
+func (r *RetryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
+	if err := r.Validate(ctx, params); err != nil {
+		return "", err
+	}
+
+	// Parse parameters for code generation
+	maxAttempts := ast.GetIntParam(params, "attempts", 3)
+	defaultDelay := "1s"
+	if delayParam := ast.FindParameter(params, "delay"); delayParam != nil {
+		if durLit, ok := delayParam.Value.(*ast.DurationLiteral); ok {
+			defaultDelay = durLit.Value
+		}
+	}
+
+	var builder strings.Builder
+	builder.WriteString("func() error {\n")
+	builder.WriteString(fmt.Sprintf("\tmaxAttempts := %d\n", maxAttempts))
+	builder.WriteString(fmt.Sprintf("\tdelay, err := time.ParseDuration(%q)\n", defaultDelay))
+	builder.WriteString("\tif err != nil {\n")
+	builder.WriteString(fmt.Sprintf("\t\treturn fmt.Errorf(\"invalid retry delay '%s': %%w\", err)\n", defaultDelay))
+	builder.WriteString("\t}\n")
+	builder.WriteString("\n")
+	builder.WriteString("\tvar lastErr error\n")
+	builder.WriteString("\tfor attempt := 1; attempt <= maxAttempts; attempt++ {\n")
+	builder.WriteString("\t\tfmt.Printf(\"Retry attempt %d/%d\\n\", attempt, maxAttempts)\n")
+	builder.WriteString("\n")
+
+	// Generate command execution with error handling
+	builder.WriteString("\t\t// Execute commands\n")
+	builder.WriteString("\t\texecErr := func() error {\n")
+	for i, cmd := range content {
+		builder.WriteString(fmt.Sprintf("\t\t\t// Execute command %d: %+v\n", i, cmd))
+		builder.WriteString("\t\t\t// TODO: Generate actual command execution code\n")
+		builder.WriteString("\t\t\t// if err := executeCommand(...); err != nil { return err }\n")
+	}
+	builder.WriteString("\t\t\treturn nil\n")
+	builder.WriteString("\t\t}()\n")
+	builder.WriteString("\n")
+	builder.WriteString("\t\tif execErr == nil {\n")
+	builder.WriteString("\t\t\tfmt.Printf(\"Commands succeeded on attempt %d\\n\", attempt)\n")
+	builder.WriteString("\t\t\treturn nil\n")
+	builder.WriteString("\t\t}\n")
+	builder.WriteString("\n")
+	builder.WriteString("\t\tlastErr = execErr\n")
+	builder.WriteString("\t\tfmt.Printf(\"Attempt %d failed: %v\\n\", attempt, execErr)\n")
+	builder.WriteString("\n")
+	builder.WriteString("\t\t// Don't delay after the last attempt\n")
+	builder.WriteString("\t\tif attempt < maxAttempts {\n")
+	builder.WriteString("\t\t\tfmt.Printf(\"Waiting %s before next attempt...\\n\", delay)\n")
+	builder.WriteString("\t\t\ttime.Sleep(delay)\n")
+	builder.WriteString("\t\t}\n")
+	builder.WriteString("\t}\n")
+	builder.WriteString("\n")
+	builder.WriteString(fmt.Sprintf("\treturn fmt.Errorf(\"all %d retry attempts failed, last error: %%w\", lastErr)\n", maxAttempts))
+	builder.WriteString("}()")
+
+	return builder.String(), nil
+}
+
+// init registers the retry decorator
+func init() {
+	RegisterBlock(&RetryDecorator{})
+}

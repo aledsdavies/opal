@@ -1,6 +1,7 @@
 package lexer
 
 import (
+	"github.com/aledsdavies/devcmd/pkgs/types"
 	"strings"
 	"testing"
 )
@@ -9,7 +10,7 @@ func TestStateMachineTransitions(t *testing.T) {
 	tests := []struct {
 		name   string
 		tokens []struct {
-			typ   TokenType
+			typ   types.TokenType
 			value string
 		}
 		wantStates []LexerState
@@ -18,32 +19,32 @@ func TestStateMachineTransitions(t *testing.T) {
 		{
 			name: "simple command",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{IDENTIFIER, "build"},
-				{COLON, ":"},
-				{SHELL_TEXT, "echo hello"},
-				{EOF, ""},
+				{types.IDENTIFIER, "build"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, "echo hello"},
+				{types.EOF, ""},
 			},
 			wantStates: []LexerState{
 				StateTopLevel,       // build
 				StateAfterColon,     // :
 				StateCommandContent, // echo hello
-				StateTopLevel,       // EOF
+				StateTopLevel,       // types.EOF
 			},
 		},
 		{
 			name: "command with block",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{IDENTIFIER, "build"},
-				{COLON, ":"},
-				{LBRACE, "{"},
-				{SHELL_TEXT, "echo hello"},
-				{RBRACE, "}"},
+				{types.IDENTIFIER, "build"},
+				{types.COLON, ":"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "echo hello"},
+				{types.RBRACE, "}"},
 			},
 			wantStates: []LexerState{
 				StateTopLevel,       // build
@@ -56,15 +57,15 @@ func TestStateMachineTransitions(t *testing.T) {
 		{
 			name: "variable declaration followed by command",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{VAR, "var"},
-				{IDENTIFIER, "PORT"},
-				{EQUALS, "="},
-				{NUMBER, "8080"},
-				{IDENTIFIER, "server"},
-				{COLON, ":"},
+				{types.VAR, "var"},
+				{types.IDENTIFIER, "PORT"},
+				{types.EQUALS, "="},
+				{types.NUMBER, "8080"},
+				{types.IDENTIFIER, "server"},
+				{types.COLON, ":"},
 			},
 			wantStates: []LexerState{
 				StateVarDecl,    // var
@@ -78,16 +79,16 @@ func TestStateMachineTransitions(t *testing.T) {
 		{
 			name: "variable declaration with function decorator",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{VAR, "var"},
-				{IDENTIFIER, "PORT"},
-				{EQUALS, "="},
-				{NUMBER, "8080"},
-				{IDENTIFIER, "server"},
-				{COLON, ":"},
-				{SHELL_TEXT, "go run main.go --port=@var(PORT)"},
+				{types.VAR, "var"},
+				{types.IDENTIFIER, "PORT"},
+				{types.EQUALS, "="},
+				{types.NUMBER, "8080"},
+				{types.IDENTIFIER, "server"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, "go run main.go --port=@var(PORT)"},
 			},
 			wantStates: []LexerState{
 				StateVarDecl,        // var
@@ -102,19 +103,19 @@ func TestStateMachineTransitions(t *testing.T) {
 		{
 			name: "decorator with command",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{IDENTIFIER, "build"},
-				{COLON, ":"},
-				{AT, "@"},
-				{IDENTIFIER, "timeout"},
-				{LPAREN, "("},
-				{DURATION, "30s"},
-				{RPAREN, ")"},
-				{LBRACE, "{"},
-				{SHELL_TEXT, "npm run build"},
-				{RBRACE, "}"},
+				{types.IDENTIFIER, "build"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "timeout"},
+				{types.LPAREN, "("},
+				{types.DURATION, "30s"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "npm run build"},
+				{types.RBRACE, "}"},
 			},
 			wantStates: []LexerState{
 				StateTopLevel,       // build
@@ -132,24 +133,24 @@ func TestStateMachineTransitions(t *testing.T) {
 		{
 			name: "pattern decorator @when",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{IDENTIFIER, "deploy"},
-				{COLON, ":"},
-				{AT, "@"},
-				{IDENTIFIER, "when"},
-				{LPAREN, "("},
-				{IDENTIFIER, "ENV"},
-				{RPAREN, ")"},
-				{LBRACE, "{"},
-				{IDENTIFIER, "prod"},
-				{COLON, ":"},
-				{SHELL_TEXT, "echo prod"},
-				{IDENTIFIER, "dev"},
-				{COLON, ":"},
-				{SHELL_TEXT, "echo dev"},
-				{RBRACE, "}"},
+				{types.IDENTIFIER, "deploy"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "when"},
+				{types.LPAREN, "("},
+				{types.IDENTIFIER, "ENV"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.IDENTIFIER, "prod"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, "echo prod"},
+				{types.IDENTIFIER, "dev"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, "echo dev"},
+				{types.RBRACE, "}"},
 			},
 			wantStates: []LexerState{
 				StateTopLevel,          // deploy
@@ -172,28 +173,28 @@ func TestStateMachineTransitions(t *testing.T) {
 		{
 			name: "nested decorators in pattern",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{IDENTIFIER, "deploy"},
-				{COLON, ":"},
-				{AT, "@"},
-				{IDENTIFIER, "when"},
-				{LPAREN, "("},
-				{IDENTIFIER, "ENV"},
-				{RPAREN, ")"},
-				{LBRACE, "{"},
-				{IDENTIFIER, "prod"},
-				{COLON, ":"},
-				{AT, "@"},
-				{IDENTIFIER, "timeout"},
-				{LPAREN, "("},
-				{DURATION, "60s"},
-				{RPAREN, ")"},
-				{LBRACE, "{"},
-				{SHELL_TEXT, "deploy prod"},
-				{RBRACE, "}"},
-				{RBRACE, "}"},
+				{types.IDENTIFIER, "deploy"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "when"},
+				{types.LPAREN, "("},
+				{types.IDENTIFIER, "ENV"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.IDENTIFIER, "prod"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "timeout"},
+				{types.LPAREN, "("},
+				{types.DURATION, "60s"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "deploy prod"},
+				{types.RBRACE, "}"},
+				{types.RBRACE, "}"},
 			},
 			wantStates: []LexerState{
 				StateTopLevel,          // deploy
@@ -220,25 +221,25 @@ func TestStateMachineTransitions(t *testing.T) {
 		{
 			name: "try pattern with nested decorators",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{IDENTIFIER, "test"},
-				{COLON, ":"},
-				{AT, "@"},
-				{IDENTIFIER, "try"},
-				{LBRACE, "{"},
-				{IDENTIFIER, "main"},
-				{COLON, ":"},
-				{AT, "@"},
-				{IDENTIFIER, "retry"},
-				{LPAREN, "("},
-				{NUMBER, "3"},
-				{RPAREN, ")"},
-				{LBRACE, "{"},
-				{SHELL_TEXT, "npm test"},
-				{RBRACE, "}"},
-				{RBRACE, "}"},
+				{types.IDENTIFIER, "test"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "try"},
+				{types.LBRACE, "{"},
+				{types.IDENTIFIER, "main"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "retry"},
+				{types.LPAREN, "("},
+				{types.NUMBER, "3"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "npm test"},
+				{types.RBRACE, "}"},
+				{types.RBRACE, "}"},
 			},
 			wantStates: []LexerState{
 				StateTopLevel,          // test
@@ -262,14 +263,14 @@ func TestStateMachineTransitions(t *testing.T) {
 		{
 			name: "decorator without args directly to shell",
 			tokens: []struct {
-				typ   TokenType
+				typ   types.TokenType
 				value string
 			}{
-				{IDENTIFIER, "prod"},
-				{COLON, ":"},
-				{AT, "@"},
-				{IDENTIFIER, "parallel"},
-				{SHELL_TEXT, "echo test"},
+				{types.IDENTIFIER, "prod"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "parallel"},
+				{types.SHELL_TEXT, "echo test"},
 			},
 			wantStates: []LexerState{
 				StateTopLevel,       // prod
@@ -297,7 +298,7 @@ func TestStateMachineTransitions(t *testing.T) {
 
 				if i < len(tt.wantStates) {
 					if state != tt.wantStates[i] {
-						t.Errorf("Token %d (%s): want state %s, got %s",
+						t.Errorf("types.Token %d (%s): want state %s, got %s",
 							i, tok.typ, tt.wantStates[i], state)
 					}
 				}
@@ -310,25 +311,25 @@ func TestStateMachineInvalidTransitions(t *testing.T) {
 	tests := []struct {
 		name      string
 		fromState LexerState
-		token     TokenType
+		token     types.TokenType
 		wantError bool
 	}{
 		{
 			name:      "var not at top level",
 			fromState: StateCommandContent,
-			token:     VAR,
+			token:     types.VAR,
 			wantError: true,
 		},
 		{
 			name:      "@ in variable declaration",
 			fromState: StateVarDecl,
-			token:     AT,
+			token:     types.AT,
 			wantError: true,
 		},
 		{
 			name:      "@ at top level",
 			fromState: StateTopLevel,
-			token:     AT,
+			token:     types.AT,
 			wantError: true,
 		},
 	}
@@ -461,7 +462,7 @@ func TestBraceBalancing(t *testing.T) {
 
 	// Test negative brace level detection
 	sm.braceLevel = 0
-	_, err := sm.HandleToken(RBRACE, "}")
+	_, err := sm.HandleToken(types.RBRACE, "}")
 	if err == nil || !strings.Contains(err.Error(), "unmatched") {
 		t.Error("Expected error for unmatched closing brace")
 	}
@@ -501,23 +502,23 @@ func TestEmptyPatternBranch(t *testing.T) {
 	sm := NewStateMachine()
 
 	tokens := []struct {
-		typ   TokenType
+		typ   types.TokenType
 		value string
 	}{
-		{IDENTIFIER, "deploy"}, // Missing command declaration
-		{COLON, ":"},           // Command colon
-		{AT, "@"},              // Now @ is valid (StateAfterColon)
-		{IDENTIFIER, "when"},
-		{LPAREN, "("},
-		{IDENTIFIER, "ENV"},
-		{RPAREN, ")"},
-		{LBRACE, "{"}, // Enter pattern block
-		{IDENTIFIER, "prod"},
-		{COLON, ":"}, // Empty branch
-		{IDENTIFIER, "dev"},
-		{COLON, ":"},
-		{SHELL_TEXT, "echo dev"},
-		{RBRACE, "}"},
+		{types.IDENTIFIER, "deploy"}, // Missing command declaration
+		{types.COLON, ":"},           // Command colon
+		{types.AT, "@"},              // Now @ is valid (StateAfterColon)
+		{types.IDENTIFIER, "when"},
+		{types.LPAREN, "("},
+		{types.IDENTIFIER, "ENV"},
+		{types.RPAREN, ")"},
+		{types.LBRACE, "{"}, // Enter pattern block
+		{types.IDENTIFIER, "prod"},
+		{types.COLON, ":"}, // Empty branch
+		{types.IDENTIFIER, "dev"},
+		{types.COLON, ":"},
+		{types.SHELL_TEXT, "echo dev"},
+		{types.RBRACE, "}"},
 	}
 
 	expectedStates := []LexerState{
@@ -540,24 +541,24 @@ func TestEmptyPatternBranch(t *testing.T) {
 	for i, tok := range tokens {
 		state, err := sm.HandleToken(tok.typ, tok.value)
 		if err != nil {
-			t.Errorf("Token %d (%s=%s): unexpected error: %v", i, tok.typ, tok.value, err)
+			t.Errorf("types.Token %d (%s=%s): unexpected error: %v", i, tok.typ, tok.value, err)
 		}
 
 		if i < len(expectedStates) {
 			if state != expectedStates[i] {
-				t.Errorf("Token %d (%s=%s): expected state %s, got %s",
+				t.Errorf("types.Token %d (%s=%s): expected state %s, got %s",
 					i, tok.typ, tok.value, expectedStates[i], state)
 			}
 		}
 
 		// Specific checks for pattern transitions
-		if tok.typ == COLON && tok.value == ":" && i == 9 { // After "prod:"
+		if tok.typ == types.COLON && tok.value == ":" && i == 9 { // After "prod:"
 			if state != StateAfterPatternColon {
 				t.Errorf("After prod:, expected StateAfterPatternColon, got %s", state)
 			}
 		}
 
-		if tok.typ == IDENTIFIER && tok.value == "dev" && i == 10 { // "dev" identifier
+		if tok.typ == types.IDENTIFIER && tok.value == "dev" && i == 10 { // "dev" identifier
 			if state != StatePatternBlock {
 				t.Errorf("At dev identifier, expected StatePatternBlock, got %s", state)
 			}

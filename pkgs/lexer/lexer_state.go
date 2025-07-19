@@ -2,6 +2,9 @@ package lexer
 
 import (
 	"fmt"
+	
+	"github.com/aledsdavies/devcmd/pkgs/decorators"
+	"github.com/aledsdavies/devcmd/pkgs/types"
 )
 
 // LexerState represents the current parsing state
@@ -155,7 +158,7 @@ func (sm *StateMachine) Transition(to LexerState) error {
 	}
 
 	if sm.debug {
-		fmt.Printf("STATE: %s → %s\n", sm.current, to)
+		fmt.Printf("STtypes.ATE: %s → %s\n", sm.current, to)
 	}
 
 	sm.current = to
@@ -177,33 +180,30 @@ func (sm *StateMachine) closeContextsUpTo(targetLevel int) error {
 }
 
 // HandleToken processes a token and updates state accordingly
-func (sm *StateMachine) HandleToken(tokenType TokenType, value string) (LexerState, error) {
+func (sm *StateMachine) HandleToken(tokenType types.TokenType, value string) (LexerState, error) {
 	switch tokenType {
-	case VAR:
+	case types.VAR:
 		return sm.handleVar()
-	case COLON:
+	case types.COLON:
 		return sm.handleColon()
-	case AT:
+	case types.AT:
 		return sm.handleAt()
-	case LBRACE:
+	case types.LBRACE:
 		return sm.handleLBrace()
-	case RBRACE:
+	case types.RBRACE:
 		return sm.handleRBrace()
-	case LPAREN:
+	case types.LPAREN:
 		return sm.handleLParen()
-	case RPAREN:
+	case types.RPAREN:
 		return sm.handleRParen()
-	case IDENTIFIER:
+	case types.IDENTIFIER:
 		return sm.handleIdentifier(value)
-	case WHEN, TRY:
-		// Pattern decorator keywords - treat like identifiers for state machine
-		return sm.handleIdentifier(value)
-	case EQUALS:
+	case types.EQUALS:
 		return sm.handleEquals()
 	// NEWLINE removed - handled as whitespace
-	case SHELL_TEXT:
+	case types.SHELL_TEXT:
 		return sm.handleShellText()
-	case EOF:
+	case types.EOF:
 		return sm.handleEOF()
 	default:
 		// Most tokens don't trigger state changes
@@ -385,7 +385,7 @@ func (sm *StateMachine) handleIdentifier(value string) (LexerState, error) {
 		ctx := sm.CurrentContext()
 		if ctx != nil && ctx.Type == ContextDecorator {
 			ctx.Decorator = value
-			ctx.IsPattern = (value == "when" || value == "try")
+			ctx.IsPattern = decorators.IsPatternDecorator(value)
 		}
 		// Check if this is a decorator without args
 		if value == "try" || value == "parallel" {

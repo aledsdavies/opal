@@ -13,6 +13,7 @@ let
       devcmdLib.mkDevCLI
         {
           name = "dev";
+          binaryName = "dev"; # Explicitly set binary name for self-awareness
           commandsFile = ../commands.cli;
           version = "latest";
           meta = {

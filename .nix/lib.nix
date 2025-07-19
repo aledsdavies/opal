@@ -107,7 +107,7 @@ rec {
         }
         ''
           echo "Parsing commands with devcmd..."
-          ${parserBin}/bin/devcmd ${parserArgs} ${commandsSrc} > $out || {
+          ${parserBin}/bin/devcmd ${parserArgs} -binary "${binaryName}" ${commandsSrc} > $out || {
             echo "# Error parsing commands" > $out
             echo 'echo "Error: Failed to parse commands"' >> $out
           }
@@ -159,6 +159,9 @@ rec {
     {
       # Package name (also used as binary name - follows Nix conventions)
       name
+
+      # Binary name (defaults to "dev" if not specified)
+    , binaryName ? "dev"
 
       # Content sources (same as mkDevCommands)
     , commandsFile ? null
@@ -237,7 +240,7 @@ rec {
         mkdir -p "$GOCACHE" "$out"
 
         echo "Generating Go CLI from commands.cli..."
-        ${devcmdBin}/bin/devcmd ${templateArgs} ${commandsSrc} > "$out/main.go"
+        ${devcmdBin}/bin/devcmd ${templateArgs} -binary "${binaryName}" ${commandsSrc} > "$out/main.go"
 
         cat > "$out/go.mod" <<EOF
         module ${name}
@@ -265,15 +268,23 @@ rec {
         "-s"
         "-w"
         "-X main.Version=${version}"
-        "-X main.GeneratedBy=devcmd"
+        "-X main.BinaryName=${binaryName}" # Self-awareness: binary knows its own name
         "-X main.BuildTime=1970-01-01T00:00:00Z" # Deterministic for caching
+        "-X main.GitCommit=nix-generated"
       ];
+
+      # Custom binary name support
+      postInstall = ''
+        if [ "$pname" != "${binaryName}" ]; then
+          mv $out/bin/$pname $out/bin/${binaryName}
+        fi
+      '';
 
       meta = {
         description = "Generated CLI from devcmd: ${name}";
         license = lib.licenses.mit;
         platforms = lib.platforms.unix;
-        mainProgram = name;
+        mainProgram = binaryName;
       } // meta;
     };
 
@@ -296,8 +307,8 @@ rec {
 
         ${lib.optionalString (cli != null) ''
           echo ""
-          echo "Generated CLI available as: ${cli.meta.mainProgram or name}"
-          echo "Run '${cli.meta.mainProgram or name} --help' to see available commands"
+          echo "Generated CLI available as: ${cli.meta.mainProgram or "dev"}"
+          echo "Run '${cli.meta.mainProgram or "dev"} --help' to see available commands"
         ''}
 
         ${shellHook}
@@ -310,6 +321,11 @@ rec {
   # Quick CLI generation with minimal config
   quickCLI = name: commandsFile: mkDevCLI {
     inherit name commandsFile;
+  };
+
+  # Quick CLI with custom binary name
+  quickCLIWithBinary = name: binaryName: commandsFile: mkDevCLI {
+    inherit name binaryName commandsFile;
   };
 
   # Quick shell hook generation
@@ -325,6 +341,12 @@ rec {
   # Auto-detect CLI with commands.cli as default filename
   autoCLI = name: mkDevCLI {
     inherit name;
+    # Auto-detection will find commands.cli by default
+  };
+
+  # Auto-detect CLI with custom binary name
+  autoCLIWithBinary = name: binaryName: mkDevCLI {
+    inherit name binaryName;
     # Auto-detection will find commands.cli by default
   };
 

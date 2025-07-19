@@ -9,13 +9,14 @@ import (
 	"unicode"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
-	"github.com/aledsdavies/devcmd/pkgs/stdlib"
+	"github.com/aledsdavies/devcmd/pkgs/decorators"
 )
 
 // TemplateData represents preprocessed data for template generation
 type TemplateData struct {
 	PackageName         string
 	Imports             []string
+	BinaryName          string
 	HasProcessMgmt      bool
 	HasParallelCommands bool
 	HasUserDefinedHelp  bool
@@ -66,7 +67,7 @@ func validateHelpCommandRestrictions(program *ast.Program) error {
 }
 
 // PreprocessCommands converts ast.Program into template-ready data with standard library support
-func PreprocessCommands(program *ast.Program) (*TemplateData, error) {
+func PreprocessCommands(program *ast.Program, binaryName string) (*TemplateData, error) {
 	if program == nil {
 		return nil, fmt.Errorf("program cannot be nil")
 	}
@@ -74,6 +75,7 @@ func PreprocessCommands(program *ast.Program) (*TemplateData, error) {
 	data := &TemplateData{
 		PackageName: "main",
 		Imports:     []string{},
+		BinaryName:  binaryName,
 		Commands:    []TemplateCommand{},
 	}
 
@@ -623,8 +625,12 @@ func sanitizeFunctionName(name string) string {
 
 // GenerateGo creates a Go CLI from a Program using the composable template system with standard library support
 func GenerateGo(program *ast.Program) (string, error) {
+	return GenerateGoWithBinaryName(program, "dev")
+}
+
+func GenerateGoWithBinaryName(program *ast.Program, binaryName string) (string, error) {
 	// Preprocess the program into template-ready data
-	data, err := PreprocessCommands(program)
+	data, err := PreprocessCommands(program, binaryName)
 	if err != nil {
 		return "", fmt.Errorf("failed to preprocess commands: %w", err)
 	}
@@ -672,6 +678,7 @@ func (tr *TemplateRegistry) registerComponents() {
 	// Core templates from the updated templates
 	tr.templates["package"] = packageTemplate
 	tr.templates["imports"] = importsTemplate
+	tr.templates["global-vars"] = globalVarsTemplate
 	tr.templates["process-types"] = processTypesTemplate
 	tr.templates["process-registry"] = processRegistryTemplate
 	tr.templates["cli-struct"] = cliStructTemplate
@@ -729,7 +736,7 @@ func GenerateGoWithTemplate(program *ast.Program, templateStr string) (string, e
 	}
 
 	// Preprocess the program
-	data, err := PreprocessCommands(program)
+	data, err := PreprocessCommands(program, "dev")
 	if err != nil {
 		return "", fmt.Errorf("failed to preprocess commands: %w", err)
 	}
@@ -762,7 +769,7 @@ func GetTemplateComponent(name string) (string, error) {
 // GenerateComponentGo generates Go code using only specific template components
 func GenerateComponentGo(program *ast.Program, componentNames []string) (string, error) {
 	// Preprocess the program into template-ready data
-	data, err := PreprocessCommands(program)
+	data, err := PreprocessCommands(program, "dev")
 	if err != nil {
 		return "", fmt.Errorf("failed to preprocess commands: %w", err)
 	}

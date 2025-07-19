@@ -1,6 +1,7 @@
 package lexer
 
 import (
+	"github.com/aledsdavies/devcmd/pkgs/types"
 	"fmt"
 	"runtime"
 	"strings"
@@ -241,7 +242,7 @@ process-files: {
 				for {
 					token := lexer.NextToken()
 					tokenCount++
-					if token.Type == EOF {
+					if token.Type == types.EOF {
 						break
 					}
 				}
@@ -472,7 +473,7 @@ build: echo "Debug: @var(DEBUG), Production: @var(PRODUCTION)"`,
 			for {
 				token := lexer.NextToken()
 				tokenCount++
-				if token.Type == EOF {
+				if token.Type == types.EOF {
 					break
 				}
 			}
@@ -531,10 +532,10 @@ ci: @try {
 	for {
 		token := lexer.NextToken()
 		tokenCount++
-		if token.Type == AT {
+		if token.Type == types.AT {
 			decoratorCount++
 		}
-		if token.Type == EOF {
+		if token.Type == types.EOF {
 			break
 		}
 	}
@@ -602,7 +603,7 @@ safe-deploy: @try {
 		for {
 			token := lexer.NextToken()
 			tokenCount++
-			if token.Type == EOF {
+			if token.Type == types.EOF {
 				break
 			}
 		}
@@ -639,7 +640,7 @@ func BenchmarkSpecCompliantMemory(b *testing.B) {
 		lexer := New(input)
 		for {
 			token := lexer.NextToken()
-			if token.Type == EOF {
+			if token.Type == types.EOF {
 				break
 			}
 		}
@@ -680,10 +681,10 @@ config: @when(PRODUCTION) {
 	for {
 		token := lexer.NextToken()
 		tokenCount++
-		if token.Type == BOOLEAN {
+		if token.Type == types.BOOLEAN {
 			booleanCount++
 		}
-		if token.Type == EOF {
+		if token.Type == types.EOF {
 			break
 		}
 	}

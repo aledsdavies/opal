@@ -7,8 +7,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/aledsdavies/devcmd/pkgs/stdlib"
+	"github.com/aledsdavies/devcmd/pkgs/decorators"
+	"github.com/aledsdavies/devcmd/pkgs/types"
 )
+
 
 // ASCII character lookup tables for fast classification
 var (
@@ -17,7 +19,7 @@ var (
 	isDigit           [128]bool
 	isIdentStart      [128]bool
 	isIdentPart       [128]bool
-	singleCharTokens  [128]TokenType // Fast lookup for single-char tokens
+	singleCharTokens  [128]types.TokenType // Fast lookup for single-char tokens
 	singleCharStrings [128]string    // Pre-allocated single-char strings
 )
 
@@ -29,20 +31,20 @@ func init() {
 		isDigit[i] = '0' <= ch && ch <= '9'
 		isIdentStart[i] = isLetter[i] || ch == '_'
 		isIdentPart[i] = isIdentStart[i] || isDigit[i] || ch == '-'
-		singleCharTokens[i] = ILLEGAL     // Default to ILLEGAL for non-single-char tokens
+		singleCharTokens[i] = types.ILLEGAL     // Default to ILLEGAL for non-single-char tokens
 		singleCharStrings[i] = string(ch) // Pre-allocate single char strings
 	}
 
 	// Initialize single character token mappings
-	singleCharTokens['@'] = AT
-	singleCharTokens[':'] = COLON
-	singleCharTokens['='] = EQUALS
-	singleCharTokens[','] = COMMA
-	singleCharTokens['('] = LPAREN
-	singleCharTokens[')'] = RPAREN
-	singleCharTokens['{'] = LBRACE
-	singleCharTokens['}'] = RBRACE
-	singleCharTokens['*'] = ASTERISK
+	singleCharTokens['@'] = types.AT
+	singleCharTokens[':'] = types.COLON
+	singleCharTokens['='] = types.EQUALS
+	singleCharTokens[','] = types.COMMA
+	singleCharTokens['('] = types.LPAREN
+	singleCharTokens[')'] = types.RPAREN
+	singleCharTokens['{'] = types.LBRACE
+	singleCharTokens['}'] = types.RBRACE
+	singleCharTokens['*'] = types.ASTERISK
 }
 
 // Object pools for memory optimization
@@ -50,37 +52,37 @@ var (
 	// Pool for token slices with different capacity tiers
 	smallSlicePool = sync.Pool{
 		New: func() interface{} {
-			slice := make([]Token, 0, 16)
+			slice := make([]types.Token, 0, 16)
 			return &slice
 		},
 	}
 	mediumSlicePool = sync.Pool{
 		New: func() interface{} {
-			slice := make([]Token, 0, 64)
+			slice := make([]types.Token, 0, 64)
 			return &slice
 		},
 	}
 	largeSlicePool = sync.Pool{
 		New: func() interface{} {
-			slice := make([]Token, 0, 256)
+			slice := make([]types.Token, 0, 256)
 			return &slice
 		},
 	}
 )
 
 // getTokenSlice returns a token slice from the appropriate pool
-func getTokenSlice(estimatedSize int) *[]Token {
+func getTokenSlice(estimatedSize int) *[]types.Token {
 	if estimatedSize <= 16 {
-		return smallSlicePool.Get().(*[]Token)
+		return smallSlicePool.Get().(*[]types.Token)
 	} else if estimatedSize <= 64 {
-		return mediumSlicePool.Get().(*[]Token)
+		return mediumSlicePool.Get().(*[]types.Token)
 	} else {
-		return largeSlicePool.Get().(*[]Token)
+		return largeSlicePool.Get().(*[]types.Token)
 	}
 }
 
 // putTokenSlice returns a token slice to the appropriate pool
-func putTokenSlice(slice *[]Token) {
+func putTokenSlice(slice *[]types.Token) {
 	*slice = (*slice)[:0] // Reset length but keep capacity
 
 	cap := cap(*slice)
@@ -230,7 +232,7 @@ func (l *Lexer) getContextWindow() string {
 }
 
 // TokenizeToSlice tokenizes to pre-allocated slice with memory optimization
-func (l *Lexer) TokenizeToSlice() []Token {
+func (l *Lexer) TokenizeToSlice() []types.Token {
 	// Better estimation based on input characteristics
 	estimatedTokens := l.estimateTokenCount()
 
@@ -251,7 +253,7 @@ func (l *Lexer) TokenizeToSlice() []Token {
 			if newCap > maxTokens {
 				newCap = maxTokens
 			}
-			newResult := make([]Token, len(result), newCap)
+			newResult := make([]types.Token, len(result), newCap)
 			copy(newResult, result)
 
 			// Return old slice to pool if it's a pooled size
@@ -263,7 +265,7 @@ func (l *Lexer) TokenizeToSlice() []Token {
 		result = append(result, tok)
 		tokenCount++
 
-		if tok.Type == EOF {
+		if tok.Type == types.EOF {
 			break
 		}
 
@@ -274,7 +276,7 @@ func (l *Lexer) TokenizeToSlice() []Token {
 	}
 
 	// Create final result and return slice to pool
-	finalResult := make([]Token, len(result))
+	finalResult := make([]types.Token, len(result))
 	copy(finalResult, result)
 	putTokenSlice(resultPtr)
 
@@ -311,13 +313,13 @@ func (l *Lexer) estimateTokenCount() int {
 }
 
 // NextToken returns the next token from the input
-func (l *Lexer) NextToken() Token {
+func (l *Lexer) NextToken() types.Token {
 	l.checkStuck("NextToken")
 	return l.lexToken()
 }
 
 // lexToken performs token lexing with state machine-aware logic
-func (l *Lexer) lexToken() Token {
+func (l *Lexer) lexToken() types.Token {
 	// Skip whitespace in most modes
 	mode := l.stateMachine.GetMode()
 	if mode == LanguageMode || mode == PatternMode {
@@ -433,21 +435,21 @@ func (l *Lexer) isFunctionDecorator() bool {
 	l.line = saveLine
 	l.column = saveColumn
 
-	// Check if it's a function decorator
-	return decoratorName != "" && stdlib.IsFunctionDecorator(decoratorName)
+	// Check if it's a function decorator using the decorator registry
+	return decoratorName != "" && decorators.IsFunctionDecorator(decoratorName)
 }
 
 // lexLanguageMode handles structural Devcmd syntax
-func (l *Lexer) lexLanguageMode(start int) Token {
+func (l *Lexer) lexLanguageMode(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 
 	// Fast path for ASCII single-character tokens (but skip context-sensitive ones)
 	if l.ch < 128 && l.ch != 0 && l.ch != '\n' && l.ch != '{' && l.ch != '}' {
-		if tokenType := singleCharTokens[l.ch]; tokenType != ILLEGAL {
+		if tokenType := singleCharTokens[l.ch]; tokenType != types.ILLEGAL {
 			value := singleCharStrings[l.ch] // Use pre-allocated string
-			var tok Token
-			if tokenType == AT {
-				tok = l.createTokenWithSemantic(AT, SemOperator, value, start, startLine, startColumn)
+			var tok types.Token
+			if tokenType == types.AT {
+				tok = l.createTokenWithSemantic(types.AT, types.SemOperator, value, start, startLine, startColumn)
 			} else {
 				tok = l.createSimpleToken(tokenType, value, start, startLine, startColumn)
 			}
@@ -460,8 +462,8 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 
 	switch l.ch {
 	case 0:
-		tok := l.createSimpleToken(EOF, "", start, startLine, startColumn)
-		l.updateStateMachine(EOF, "")
+		tok := l.createSimpleToken(types.EOF, "", start, startLine, startColumn)
+		l.updateStateMachine(types.EOF, "")
 		return tok
 	case '\n':
 		// Skip newlines - they're not needed in the parser/AST
@@ -469,43 +471,43 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		l.skipWhitespace()
 		return l.lexToken() // Get the next meaningful token
 	case '@':
-		tok := l.createTokenWithSemantic(AT, SemOperator, "@", start, startLine, startColumn)
+		tok := l.createTokenWithSemantic(types.AT, types.SemOperator, "@", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(AT, "@")
+		l.updateStateMachine(types.AT, "@")
 		return tok
 	case ':':
-		tok := l.createSimpleToken(COLON, ":", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.COLON, ":", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(COLON, ":")
+		l.updateStateMachine(types.COLON, ":")
 		return tok
 	case '=':
-		tok := l.createSimpleToken(EQUALS, "=", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.EQUALS, "=", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(EQUALS, "=")
+		l.updateStateMachine(types.EQUALS, "=")
 		return tok
 	case ',':
-		tok := l.createSimpleToken(COMMA, ",", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.COMMA, ",", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(COMMA, ",")
+		l.updateStateMachine(types.COMMA, ",")
 		return tok
 	case '(':
-		tok := l.createSimpleToken(LPAREN, "(", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.LPAREN, "(", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(LPAREN, "(")
+		l.updateStateMachine(types.LPAREN, "(")
 		return tok
 	case ')':
-		tok := l.createSimpleToken(RPAREN, ")", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.RPAREN, ")", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(RPAREN, ")")
+		l.updateStateMachine(types.RPAREN, ")")
 		return tok
 	case '{':
-		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
 
 		// Track if this is a structural brace
@@ -516,10 +518,10 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		l.readChar()
 		l.skipWhitespace() // Skip whitespace after opening brace
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(LBRACE, "{")
+		l.updateStateMachine(types.LBRACE, "{")
 		return tok
 	case '}':
-		tok := l.createSimpleToken(RBRACE, "}", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.RBRACE, "}", start, startLine, startColumn)
 		if l.braceLevel > 0 {
 			l.braceLevel--
 		}
@@ -531,21 +533,21 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(RBRACE, "}")
+		l.updateStateMachine(types.RBRACE, "}")
 		return tok
 	case '*':
 		// Always treat * as ASTERISK token for wildcard patterns
-		tok := l.createSimpleToken(ASTERISK, "*", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.ASTERISK, "*", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(ASTERISK, "*")
+		l.updateStateMachine(types.ASTERISK, "*")
 		return tok
 	case '"':
-		return l.lexString('"', DoubleQuoted, start)
+		return l.lexString('"', types.DoubleQuoted, start)
 	case '\'':
-		return l.lexString('\'', SingleQuoted, start)
+		return l.lexString('\'', types.SingleQuoted, start)
 	case '`':
-		return l.lexString('`', Backtick, start)
+		return l.lexString('`', types.Backtick, start)
 	case '#':
 		return l.lexComment(start)
 	case '/':
@@ -571,13 +573,13 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 }
 
 // lexPatternMode handles pattern-matching decorator blocks (@when, @try, etc.)
-func (l *Lexer) lexPatternMode(start int) Token {
+func (l *Lexer) lexPatternMode(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 
 	switch l.ch {
 	case 0:
-		tok := l.createSimpleToken(EOF, "", start, startLine, startColumn)
-		l.updateStateMachine(EOF, "")
+		tok := l.createSimpleToken(types.EOF, "", start, startLine, startColumn)
+		l.updateStateMachine(types.EOF, "")
 		return tok
 	case '\n':
 		// Skip newlines - they're not needed in the parser/AST
@@ -585,13 +587,13 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		l.skipWhitespace()
 		return l.lexToken() // Get the next meaningful token
 	case ':':
-		tok := l.createSimpleToken(COLON, ":", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.COLON, ":", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(COLON, ":")
+		l.updateStateMachine(types.COLON, ":")
 		return tok
 	case '}':
-		tok := l.createSimpleToken(RBRACE, "}", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.RBRACE, "}", start, startLine, startColumn)
 		if l.braceLevel > 0 {
 			l.braceLevel--
 		}
@@ -603,10 +605,10 @@ func (l *Lexer) lexPatternMode(start int) Token {
 
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(RBRACE, "}")
+		l.updateStateMachine(types.RBRACE, "}")
 		return tok
 	case '{':
-		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
 
 		// Track if this is a structural brace
@@ -617,39 +619,39 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		l.readChar()
 		l.skipWhitespace()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(LBRACE, "{")
+		l.updateStateMachine(types.LBRACE, "{")
 		return tok
 	case '@':
-		tok := l.createTokenWithSemantic(AT, SemOperator, "@", start, startLine, startColumn)
+		tok := l.createTokenWithSemantic(types.AT, types.SemOperator, "@", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(AT, "@")
+		l.updateStateMachine(types.AT, "@")
 		return tok
 	case '*':
 		// Always treat * as ASTERISK token for wildcard patterns
-		tok := l.createSimpleToken(ASTERISK, "*", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.ASTERISK, "*", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(ASTERISK, "*")
+		l.updateStateMachine(types.ASTERISK, "*")
 		return tok
 	case '(':
-		tok := l.createSimpleToken(LPAREN, "(", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.LPAREN, "(", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(LPAREN, "(")
+		l.updateStateMachine(types.LPAREN, "(")
 		return tok
 	case ')':
-		tok := l.createSimpleToken(RPAREN, ")", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.RPAREN, ")", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(RPAREN, ")")
+		l.updateStateMachine(types.RPAREN, ")")
 		return tok
 	case '"':
-		return l.lexString('"', DoubleQuoted, start)
+		return l.lexString('"', types.DoubleQuoted, start)
 	case '\'':
-		return l.lexString('\'', SingleQuoted, start)
+		return l.lexString('\'', types.SingleQuoted, start)
 	case '`':
-		return l.lexString('`', Backtick, start)
+		return l.lexString('`', types.Backtick, start)
 	default:
 		// In pattern mode, identifiers should be treated as pattern identifiers
 		if unicode.IsLetter(l.ch) || l.ch == '_' {
@@ -663,7 +665,7 @@ func (l *Lexer) lexPatternMode(start int) Token {
 }
 
 // lexPatternIdentifier lexes identifiers in pattern mode
-func (l *Lexer) lexPatternIdentifier(start int) Token {
+func (l *Lexer) lexPatternIdentifier(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 
 	// Read the full identifier
@@ -671,31 +673,31 @@ func (l *Lexer) lexPatternIdentifier(start int) Token {
 
 	value := l.input[start:l.position]
 
-	tok := Token{
-		Type:      IDENTIFIER,
+	tok := types.Token{
+		Type:      types.IDENTIFIER,
 		Value:     value,
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemPattern, // Mark as pattern semantic in pattern mode
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+		Semantic:  types.SemPattern, // Mark as pattern semantic in pattern mode
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
 	}
-	l.updateStateMachine(IDENTIFIER, value)
+	l.updateStateMachine(types.IDENTIFIER, value)
 	return tok
 }
 
 // lexCommandMode handles shell content capture with proper newline handling
-func (l *Lexer) lexCommandMode(start int) Token {
+func (l *Lexer) lexCommandMode(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 
 	switch l.ch {
 	case 0:
-		tok := l.createSimpleToken(EOF, "", start, startLine, startColumn)
-		l.updateStateMachine(EOF, "")
+		tok := l.createSimpleToken(types.EOF, "", start, startLine, startColumn)
+		l.updateStateMachine(types.EOF, "")
 		return tok
 	case '\n':
 		// Skip newlines - they're not needed in the parser/AST
@@ -705,12 +707,12 @@ func (l *Lexer) lexCommandMode(start int) Token {
 	case '}':
 		// Only recognize } as structural if it closes a structural Devcmd brace
 		if l.hasStructuralBraces() {
-			tok := l.createSimpleToken(RBRACE, "}", start, startLine, startColumn)
+			tok := l.createSimpleToken(types.RBRACE, "}", start, startLine, startColumn)
 			l.braceLevel--
 			l.popStructuralBrace()
 			l.readChar()
 			l.updateTokenEnd(&tok)
-			l.updateStateMachine(RBRACE, "}")
+			l.updateStateMachine(types.RBRACE, "}")
 			return tok
 		}
 		// Otherwise, treat as shell content
@@ -723,14 +725,14 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		}
 
 		// It's a block/pattern decorator, treat it as structural.
-		tok := l.createTokenWithSemantic(AT, SemOperator, "@", start, startLine, startColumn)
+		tok := l.createTokenWithSemantic(types.AT, types.SemOperator, "@", start, startLine, startColumn)
 		l.readChar()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(AT, "@")
+		l.updateStateMachine(types.AT, "@")
 		return tok
 	case '{':
 		// Handle opening brace in command mode
-		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
+		tok := l.createSimpleToken(types.LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
 
 		// Track if this is a structural brace
@@ -741,7 +743,7 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		l.readChar()
 		l.skipWhitespace()
 		l.updateTokenEnd(&tok)
-		l.updateStateMachine(LBRACE, "{")
+		l.updateStateMachine(types.LBRACE, "{")
 		return tok
 	default:
 		// All other content is handled as shell text
@@ -750,7 +752,7 @@ func (l *Lexer) lexCommandMode(start int) Token {
 }
 
 // updateStateMachine notifies the state machine about the current token
-func (l *Lexer) updateStateMachine(tokenType TokenType, value string) {
+func (l *Lexer) updateStateMachine(tokenType types.TokenType, value string) {
 	if _, err := l.stateMachine.HandleToken(tokenType, value); err != nil {
 		// In production, you might want to handle this error differently
 		// For debugging, log state machine errors
@@ -762,7 +764,7 @@ func (l *Lexer) updateStateMachine(tokenType TokenType, value string) {
 
 // lexShellText captures shell content as a single token
 // It handles POSIX quoting rules and line continuations structurally
-func (l *Lexer) lexShellText(start int) Token {
+func (l *Lexer) lexShellText(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 	startOffset := start
 
@@ -778,7 +780,7 @@ func (l *Lexer) lexShellText(start int) Token {
 		case 0:
 			// EOF - return what we have
 			tok := l.makeShellToken(start, startOffset, startLine, startColumn)
-			l.updateStateMachine(SHELL_TEXT, tok.Value)
+			l.updateStateMachine(types.SHELL_TEXT, tok.Value)
 			return tok
 
 		case '\n':
@@ -802,7 +804,7 @@ func (l *Lexer) lexShellText(start int) Token {
 
 			// Otherwise, newline ends shell text
 			tok := l.makeShellToken(start, startOffset, startLine, startColumn)
-			l.updateStateMachine(SHELL_TEXT, tok.Value)
+			l.updateStateMachine(types.SHELL_TEXT, tok.Value)
 			// Also handle the newline for state transitions (but don't generate NEWLINE token)
 			if _, err := l.stateMachine.handleNewline(); err != nil {
 				// Log error but continue
@@ -868,7 +870,7 @@ func (l *Lexer) lexShellText(start int) Token {
 				} else if len(l.structuralBraceStack) > 0 {
 					// This could close a structural brace, exit shell text
 					tok := l.makeShellToken(start, startOffset, startLine, startColumn)
-					l.updateStateMachine(SHELL_TEXT, tok.Value)
+					l.updateStateMachine(types.SHELL_TEXT, tok.Value)
 					return tok
 				} else {
 					// No braces to close, continue as shell text
@@ -892,7 +894,7 @@ func (l *Lexer) lexShellText(start int) Token {
 }
 
 // makeShellToken creates a shell text token from the captured range
-func (l *Lexer) makeShellToken(start, startOffset, startLine, startColumn int) Token {
+func (l *Lexer) makeShellToken(start, startOffset, startLine, startColumn int) types.Token {
 	// Get the raw text
 	rawText := l.input[start:l.position]
 
@@ -912,18 +914,18 @@ func (l *Lexer) makeShellToken(start, startOffset, startLine, startColumn int) T
 		return l.lexToken()
 	}
 
-	return Token{
-		Type:      SHELL_TEXT,
+	return types.Token{
+		Type:      types.SHELL_TEXT,
 		Value:     processedText,
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
 		Raw:       rawText, // Keep original for formatting tools
-		Semantic:  SemShellText,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: startOffset},
-			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+		Semantic:  types.SemShellText,
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: startOffset},
+			End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
 	}
 }
@@ -988,7 +990,7 @@ func (l *Lexer) processLineContinuations(text string) string {
 }
 
 // lexIdentifierOrKeyword lexes identifiers and keywords with optimized lookahead
-func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
+func (l *Lexer) lexIdentifierOrKeyword(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 
 	// Read the full identifier
@@ -996,43 +998,43 @@ func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
 
 	value := l.input[start:l.position]
 
-	var tokenType TokenType
-	var semantic SemanticTokenType
+	var tokenType types.TokenType
+	var semantic types.SemanticTokenType
 
 	// Check for boolean literals first
 	if value == "true" || value == "false" {
-		tok := Token{
-			Type:      BOOLEAN,
+		tok := types.Token{
+			Type:      types.BOOLEAN,
 			Value:     value,
 			Line:      startLine,
 			Column:    startColumn,
 			EndLine:   l.line,
 			EndColumn: l.column,
-			Semantic:  SemBoolean,
-			Span: SourceSpan{
-				Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-				End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+			Semantic:  types.SemBoolean,
+			Span: types.SourceSpan{
+				Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+				End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 			},
 		}
-		l.updateStateMachine(BOOLEAN, value)
+		l.updateStateMachine(types.BOOLEAN, value)
 		return tok
 	}
 
 	// Check for keywords
 	if keywordType, isKeyword := keywords[value]; isKeyword {
 		tokenType = keywordType
-		semantic = SemKeyword
-		// Special handling for pattern-matching decorators
-		if value == "when" || value == "try" {
-			// Track that we're entering a pattern-matching decorator
-			l.patternLevel++
-		}
+		semantic = types.SemKeyword
 	} else {
-		tokenType = IDENTIFIER
-		semantic = SemCommand // Default to command name
+		tokenType = types.IDENTIFIER
+		// Check if this is a pattern decorator for semantic highlighting
+		if decorators.IsPatternDecorator(value) {
+			semantic = types.SemKeyword // Pattern decorators are treated as keywords for highlighting
+		} else {
+			semantic = types.SemCommand // Default to command name
+		}
 	}
 
-	tok := Token{
+	tok := types.Token{
 		Type:      tokenType,
 		Value:     value,
 		Line:      startLine,
@@ -1040,9 +1042,9 @@ func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
 		EndLine:   l.line,
 		EndColumn: l.column,
 		Semantic:  semantic,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
 	}
 	l.updateStateMachine(tokenType, value)
@@ -1050,16 +1052,14 @@ func (l *Lexer) lexIdentifierOrKeyword(start int) Token {
 }
 
 // Keywords map - includes pattern-matching decorator keywords
-var keywords = map[string]TokenType{
-	"var":   VAR,
-	"stop":  STOP,
-	"watch": WATCH,
-	"when":  WHEN,
-	"try":   TRY,
+var keywords = map[string]types.TokenType{
+	"var":   types.VAR,
+	"stop":  types.STOP,
+	"watch": types.WATCH,
 }
 
 // lexNumberOrDuration lexes numbers and durations with rune-based scanning
-func (l *Lexer) lexNumberOrDuration(start int) Token {
+func (l *Lexer) lexNumberOrDuration(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 
 	// Handle negative numbers
@@ -1089,22 +1089,22 @@ func (l *Lexer) lexNumberOrDuration(start int) Token {
 
 	value := l.input[start:l.position]
 
-	tokenType := NUMBER
+	tokenType := types.NUMBER
 	if isDuration {
-		tokenType = DURATION
+		tokenType = types.DURATION
 	}
 
-	tok := Token{
+	tok := types.Token{
 		Type:      tokenType,
 		Value:     value,
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemNumber,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+		Semantic:  types.SemNumber,
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
 	}
 	l.updateStateMachine(tokenType, value)
@@ -1112,7 +1112,7 @@ func (l *Lexer) lexNumberOrDuration(start int) Token {
 }
 
 // lexString lexes string literals with rune-based scanning
-func (l *Lexer) lexString(quote rune, stringType StringType, start int) Token {
+func (l *Lexer) lexString(quote rune, stringType types.StringLiteralType, start int) types.Token {
 	startLine, startColumn := l.line, l.column
 	l.readChar() // consume opening quote
 
@@ -1120,7 +1120,7 @@ func (l *Lexer) lexString(quote rune, stringType StringType, start int) Token {
 	var hasEscapes bool
 
 	// For single-quoted strings, just find the next quote
-	if stringType == SingleQuoted {
+	if stringType == types.SingleQuoted {
 		valueStart := l.position
 		for l.ch != quote && l.ch != 0 {
 			l.readChar()
@@ -1162,8 +1162,8 @@ func (l *Lexer) lexString(quote rune, stringType StringType, start int) Token {
 		l.readChar() // consume closing quote
 	}
 
-	tok := Token{
-		Type:       STRING,
+	tok := types.Token{
+		Type:       types.STRING,
 		Value:      value,
 		Line:       startLine,
 		Column:     startColumn,
@@ -1171,41 +1171,41 @@ func (l *Lexer) lexString(quote rune, stringType StringType, start int) Token {
 		EndColumn:  l.column,
 		StringType: stringType,
 		Raw:        l.input[start:l.position],
-		Semantic:   SemString,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+		Semantic:   types.SemString,
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
 	}
-	l.updateStateMachine(STRING, value)
+	l.updateStateMachine(types.STRING, value)
 	return tok
 }
 
 // lexComment lexes single-line comments
-func (l *Lexer) lexComment(start int) Token {
+func (l *Lexer) lexComment(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 	for l.ch != '\n' && l.ch != 0 {
 		l.readChar()
 	}
-	tok := Token{
-		Type:      COMMENT,
+	tok := types.Token{
+		Type:      types.COMMENT,
 		Value:     l.input[start:l.position],
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemComment,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+		Semantic:  types.SemComment,
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
 	}
-	l.updateStateMachine(COMMENT, tok.Value)
+	l.updateStateMachine(types.COMMENT, tok.Value)
 	return tok
 }
 
 // lexMultilineComment lexes multi-line comments
-func (l *Lexer) lexMultilineComment(start int) Token {
+func (l *Lexer) lexMultilineComment(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 	l.readChar() // consume '/'
 	l.readChar() // consume '*'
@@ -1219,67 +1219,67 @@ func (l *Lexer) lexMultilineComment(start int) Token {
 		l.readChar()
 	}
 
-	tok := Token{
-		Type:      MULTILINE_COMMENT,
+	tok := types.Token{
+		Type:      types.MULTILINE_COMMENT,
 		Value:     l.input[start:l.position],
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemComment,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+		Semantic:  types.SemComment,
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
 	}
-	l.updateStateMachine(MULTILINE_COMMENT, tok.Value)
+	l.updateStateMachine(types.MULTILINE_COMMENT, tok.Value)
 	return tok
 }
 
 // lexSingleChar lexes single character tokens
-func (l *Lexer) lexSingleChar(start int) Token {
+func (l *Lexer) lexSingleChar(start int) types.Token {
 	startLine, startColumn := l.line, l.column
 	char := l.ch
 	l.readChar()
 
-	token := Token{
-		Type:      IDENTIFIER,
+	token := types.Token{
+		Type:      types.IDENTIFIER,
 		Value:     string(char),
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Semantic:  SemOperator,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
+		Semantic:  types.SemOperator,
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position},
 		},
 	}
-	l.updateStateMachine(IDENTIFIER, token.Value)
+	l.updateStateMachine(types.IDENTIFIER, token.Value)
 	return token
 }
 
 // Helper methods for creating tokens with proper position tracking
 
 // createSimpleToken creates a token with basic type and value
-func (l *Lexer) createSimpleToken(tokenType TokenType, value string, start, startLine, startColumn int) Token {
-	return Token{
+func (l *Lexer) createSimpleToken(tokenType types.TokenType, value string, start, startLine, startColumn int) types.Token {
+	return types.Token{
 		Type:      tokenType,
 		Value:     value,
 		Line:      startLine,
 		Column:    startColumn,
 		EndLine:   startLine,   // Will be updated by updateTokenEnd
 		EndColumn: startColumn, // Will be updated by updateTokenEnd
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: startLine, Column: startColumn, Offset: start}, // Will be updated
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: startLine, Column: startColumn, Offset: start}, // Will be updated
 		},
 	}
 }
 
 // createTokenWithSemantic creates a token with specific semantic type
-func (l *Lexer) createTokenWithSemantic(tokenType TokenType, semantic SemanticTokenType, value string, start, startLine, startColumn int) Token {
-	return Token{
+func (l *Lexer) createTokenWithSemantic(tokenType types.TokenType, semantic types.SemanticTokenType, value string, start, startLine, startColumn int) types.Token {
+	return types.Token{
 		Type:      tokenType,
 		Value:     value,
 		Line:      startLine,
@@ -1287,18 +1287,18 @@ func (l *Lexer) createTokenWithSemantic(tokenType TokenType, semantic SemanticTo
 		EndLine:   startLine,   // Will be updated by updateTokenEnd
 		EndColumn: startColumn, // Will be updated by updateTokenEnd
 		Semantic:  semantic,
-		Span: SourceSpan{
-			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
-			End:   SourcePosition{Line: startLine, Column: startColumn, Offset: start}, // Will be updated
+		Span: types.SourceSpan{
+			Start: types.SourcePosition{Line: startLine, Column: startColumn, Offset: start},
+			End:   types.SourcePosition{Line: startLine, Column: startColumn, Offset: start}, // Will be updated
 		},
 	}
 }
 
 // updateTokenEnd updates the end position of a token
-func (l *Lexer) updateTokenEnd(token *Token) {
+func (l *Lexer) updateTokenEnd(token *types.Token) {
 	token.EndLine = l.line
 	token.EndColumn = l.column
-	token.Span.End = SourcePosition{Line: l.line, Column: l.column, Offset: l.position}
+	token.Span.End = types.SourcePosition{Line: l.line, Column: l.column, Offset: l.position}
 }
 
 // Helper methods
@@ -1411,12 +1411,12 @@ func (l *Lexer) readDurationUnit() {
 	}
 }
 
-func (l *Lexer) handleEscape(stringType StringType) string {
+func (l *Lexer) handleEscape(stringType types.StringLiteralType) string {
 	switch stringType {
-	case SingleQuoted:
+	case types.SingleQuoted:
 		// In single-quoted strings, a backslash is a literal character.
 		return "\\" + string(l.ch)
-	case DoubleQuoted:
+	case types.DoubleQuoted:
 		switch l.ch {
 		case 'n':
 			return "\n"
@@ -1431,7 +1431,7 @@ func (l *Lexer) handleEscape(stringType StringType) string {
 		default:
 			return "\\" + string(l.ch)
 		}
-	case Backtick:
+	case types.Backtick:
 		switch l.ch {
 		case 'n':
 			return "\n"

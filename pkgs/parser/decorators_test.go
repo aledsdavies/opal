@@ -534,6 +534,82 @@ func TestNestedDecorators(t *testing.T) {
 	}
 }
 
+func TestNewDecoratorParameterTypes(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "timeout with positional duration parameter",
+			Input: "test: @timeout(30s) { npm test }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("timeout", Dur("30s")),
+						Text("npm test"),
+					),
+				),
+			),
+		},
+		{
+			Name:  "retry with positional parameters",
+			Input: "test: @retry(3, 1s) { npm test }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("retry", Num(3), Dur("1s")),
+						Text("npm test"),
+					),
+				),
+			),
+		},
+		{
+			Name:  "retry with single attempts parameter",
+			Input: "test: @retry(5) { npm test }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("retry", Num(5)),
+						Text("npm test"),
+					),
+				),
+			),
+		},
+		{
+			Name:  "parallel with concurrency parameter",
+			Input: "test: @parallel(2) { npm test }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("parallel", Num(2)),
+						Text("npm test"),
+					),
+				),
+			),
+		},
+		{
+			Name:  "parallel with concurrency and failOnFirstError",
+			Input: "test: @parallel(2, true) { npm test }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("parallel", Num(2), Bool(true)),
+						Text("npm test"),
+					),
+				),
+			),
+		},
+		{
+			Name:        "timeout missing required parameter",
+			Input:       "test: @timeout() { npm test }",
+			WantErr:     true,
+			ErrorSubstr: "@timeout requires exactly 1 parameter",
+		},
+		{
+			Name:        "retry with wrong parameter type",
+			Input:       "test: @retry(\"three\") { npm test }",
+			WantErr:     true,
+			ErrorSubstr: "@retry 'attempts' parameter must be of type number",
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
 func TestDecoratorVariations(t *testing.T) {
 	testCases := []TestCase{
 		{

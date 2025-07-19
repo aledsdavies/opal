@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aledsdavies/devcmd/pkgs/stdlib"
+	"github.com/aledsdavies/devcmd/pkgs/decorators"
 )
 
 // GeneratorError provides enhanced error reporting with source context
@@ -219,13 +219,21 @@ func (ec *ErrorCollector) Error() error {
 
 // Common error messages and helpers
 
-// GetSupportedDecoratorsString returns a formatted string of supported decorators using stdlib registry
+// GetSupportedDecoratorsString returns a formatted string of supported decorators using decorators registry
 func GetSupportedDecoratorsString() string {
-	allDecorators := stdlib.GetAllDecorators()
+	functions, blocks, patterns := decorators.ListAll()
 	var decoratorNames []string
-	for _, decorator := range allDecorators {
-		decoratorNames = append(decoratorNames, "@"+decorator.Name)
+	
+	for _, decorator := range functions {
+		decoratorNames = append(decoratorNames, "@"+decorator.Name())
 	}
+	for _, decorator := range blocks {
+		decoratorNames = append(decoratorNames, "@"+decorator.Name())
+	}
+	for _, decorator := range patterns {
+		decoratorNames = append(decoratorNames, "@"+decorator.Name())
+	}
+	
 	return strings.Join(decoratorNames, ", ")
 }
 

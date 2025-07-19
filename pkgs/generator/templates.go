@@ -12,6 +12,14 @@ import (
 )
 {{end}}`
 
+const globalVarsTemplate = `{{define "global-vars"}}
+// Build-time variables - can be set via ldflags
+var (
+	BinaryName string = "{{.BinaryName}}"
+	BuildTime  string = "unknown"
+)
+{{end}}`
+
 const processTypesTemplate = `{{define "process-types"}}{{if .HasProcessMgmt}}
 // ProcessInfo represents a managed background process
 type ProcessInfo struct {
@@ -567,6 +575,8 @@ func main() {
 const masterTemplate = `{{define "main"}}{{template "package" .}}
 
 {{template "imports" .}}
+
+{{template "global-vars" .}}
 {{template "process-types" .}}
 {{template "process-registry" .}}
 {{template "cli-struct" .}}
