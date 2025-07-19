@@ -96,7 +96,7 @@ func (p *Parser) parseCommandDecl() (*ast.CommandDecl, error) {
 	startPos := p.current()
 
 	// 1. Parse command type (watch, stop, or regular)
-	var cmdType ast.CommandType = ast.Command
+	cmdType := ast.Command
 	var typeToken *lexer.Token
 	if p.match(lexer.WATCH) {
 		cmdType = ast.WatchCommand
@@ -166,7 +166,7 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 		if p.match(lexer.LBRACE) {
 			// **SYNTAX SUGAR**: @decorator(args) { ... } becomes { @decorator(args) { ... } }
 			openBrace, _ := p.consume(lexer.LBRACE, "") // already checked
-			
+
 			// Parse content differently based on decorator type
 			switch d := decorator.(type) {
 			case *ast.BlockDecorator:
@@ -232,7 +232,7 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 	// Explicit block: { ... }
 	if p.match(lexer.LBRACE) {
 		openBrace, _ := p.consume(lexer.LBRACE, "") // already checked
-		contentItems, err := p.parseBlockContent() // Parse multiple content items
+		contentItems, err := p.parseBlockContent()  // Parse multiple content items
 		if err != nil {
 			return nil, err
 		}
@@ -310,7 +310,7 @@ func (p *Parser) parseCommandContent(inBlock bool) (ast.CommandContent, error) {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Handle different decorator types
 		switch d := decorator.(type) {
 		case *ast.BlockDecorator:
@@ -664,9 +664,10 @@ func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.Functio
 	argStart := start
 
 	for start < len(shellText) && parenCount > 0 {
-		if shellText[start] == '(' {
+		switch shellText[start] {
+		case '(':
 			parenCount++
-		} else if shellText[start] == ')' {
+		case ')':
 			parenCount--
 		}
 		start++
@@ -688,8 +689,8 @@ func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.Functio
 
 		// Handle quoted strings
 		if (strings.HasPrefix(trimmed, `"`) && strings.HasSuffix(trimmed, `"`)) ||
-		   (strings.HasPrefix(trimmed, `'`) && strings.HasSuffix(trimmed, `'`)) ||
-		   (strings.HasPrefix(trimmed, "`") && strings.HasSuffix(trimmed, "`")) {
+			(strings.HasPrefix(trimmed, `'`) && strings.HasSuffix(trimmed, `'`)) ||
+			(strings.HasPrefix(trimmed, "`") && strings.HasSuffix(trimmed, "`")) {
 			// String literal - remove quotes
 			unquoted := trimmed[1 : len(trimmed)-1]
 			args = append(args, &ast.StringLiteral{Value: unquoted})
@@ -754,48 +755,49 @@ func (p *Parser) parseExpression() (ast.Expression, error) {
 // **UPDATED**: This version is now robust and handles nested parentheses correctly,
 // ensuring it consumes the entire intended argument without overrunning.
 func (p *Parser) parseDecoratorArgument() (ast.Expression, error) {
-    startToken := p.current()
-    startOffset := startToken.Span.Start.Offset
+	startToken := p.current()
+	startOffset := startToken.Span.Start.Offset
 
-    // We need to find the end of the argument, which is either a comma or a closing parenthesis
-    // at the same parenthesis level.
-    parenDepth := 0
-    searchPos := p.pos
+	// We need to find the end of the argument, which is either a comma or a closing parenthesis
+	// at the same parenthesis level.
+	parenDepth := 0
+	searchPos := p.pos
 
-    for searchPos < len(p.tokens) {
-        tok := p.tokens[searchPos]
-        if (tok.Type == lexer.COMMA || tok.Type == lexer.RPAREN) && parenDepth == 0 {
-            break
-        }
-        if tok.Type == lexer.LPAREN {
-            parenDepth++
-        } else if tok.Type == lexer.RPAREN {
-            parenDepth--
-        }
-        searchPos++
-    }
+	for searchPos < len(p.tokens) {
+		tok := p.tokens[searchPos]
+		if (tok.Type == lexer.COMMA || tok.Type == lexer.RPAREN) && parenDepth == 0 {
+			break
+		}
+		switch tok.Type {
+		case lexer.LPAREN:
+			parenDepth++
+		case lexer.RPAREN:
+			parenDepth--
+		}
+		searchPos++
+	}
 
-    // The argument ends at the start of the terminator token, or the end of the last token if at EOF.
-    var endOffset int
-    if searchPos < len(p.tokens) {
-        endOffset = p.tokens[searchPos].Span.Start.Offset
-        // Trim trailing space
-        for endOffset > startOffset && strings.ContainsRune(" \t", rune(p.input[endOffset-1])) {
-            endOffset--
-        }
-    } else {
-        endOffset = p.tokens[len(p.tokens)-1].Span.End.Offset // EOF
-    }
+	// The argument ends at the start of the terminator token, or the end of the last token if at EOF.
+	var endOffset int
+	if searchPos < len(p.tokens) {
+		endOffset = p.tokens[searchPos].Span.Start.Offset
+		// Trim trailing space
+		for endOffset > startOffset && strings.ContainsRune(" \t", rune(p.input[endOffset-1])) {
+			endOffset--
+		}
+	} else {
+		endOffset = p.tokens[len(p.tokens)-1].Span.End.Offset // EOF
+	}
 
-    value := p.input[startOffset:endOffset]
+	value := p.input[startOffset:endOffset]
 
-    // Advance parser position past the consumed tokens for the argument.
-    p.pos = searchPos
+	// Advance parser position past the consumed tokens for the argument.
+	p.pos = searchPos
 
-    return &ast.Identifier{
-        Name:  value,
-        Token: lexer.Token{Value: value, Line: startToken.Line, Column: startToken.Column},
-    }, nil
+	return &ast.Identifier{
+		Name:  value,
+		Token: lexer.Token{Value: value, Line: startToken.Line, Column: startToken.Column},
+	}, nil
 }
 
 // --- Variable Parsing ---
@@ -1008,64 +1010,6 @@ func (p *Parser) parseDecorator() (ast.CommandContent, error) {
 
 // parsePatternDecorator removed - pattern decorators are now created directly in parsePatternContent
 
-func (p *Parser) parseFunctionDecorator() (*ast.FunctionDecorator, error) {
-	startPos := p.current()
-	atToken, _ := p.consume(lexer.AT, "expected '@'")
-
-	var nameToken lexer.Token
-	var err error
-
-	if p.current().Type == lexer.IDENTIFIER {
-		nameToken, err = p.consume(lexer.IDENTIFIER, "expected decorator name")
-	} else {
-		nameToken = p.current()
-		if !p.isValidDecoratorName(nameToken) {
-			return nil, fmt.Errorf("expected decorator name, got %s", nameToken.Type)
-		}
-		p.advance()
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	decoratorName := nameToken.Value
-	if nameToken.Type != lexer.IDENTIFIER {
-		decoratorName = strings.ToLower(nameToken.Value)
-	}
-
-	if !stdlib.IsFunctionDecorator(decoratorName) {
-		return nil, fmt.Errorf("@%s is not a function decorator", decoratorName)
-	}
-
-	var args []ast.Expression
-	var openParen, closeParen *lexer.Token
-	if p.match(lexer.LPAREN) {
-		open := p.current()
-		openParen = &open
-		p.advance() // consume '('
-		args, err = p.parseArgumentList()
-		if err != nil {
-			return nil, err
-		}
-		close, err := p.consume(lexer.RPAREN, "expected ')' after decorator arguments")
-		if err != nil {
-			return nil, err
-		}
-		closeParen = &close
-	}
-
-	return &ast.FunctionDecorator{
-		Name:       decoratorName,
-		Args:       args,
-		Pos:        ast.Position{Line: startPos.Line, Column: startPos.Column},
-		AtToken:    atToken,
-		NameToken:  nameToken,
-		OpenParen:  openParen,
-		CloseParen: closeParen,
-	}, nil
-}
-
 // isValidDecoratorName checks if a token can be used as a decorator name
 func (p *Parser) isValidDecoratorName(token lexer.Token) bool {
 	switch token.Type {
@@ -1125,63 +1069,6 @@ func (p *Parser) parsePatternBranchesInBlock() ([]ast.PatternBranch, error) {
 	return patterns, nil
 }
 
-// parsePatternBranches converts block content into pattern branches for pattern decorators
-func (p *Parser) parsePatternBranches(blockContent []ast.CommandContent) ([]ast.PatternBranch, error) {
-	var patterns []ast.PatternBranch
-	
-	for _, content := range blockContent {
-		// Each content item should be a shell content that represents "pattern: commands"
-		// We need to parse this to extract the pattern and commands
-		if shellContent, ok := content.(*ast.ShellContent); ok {
-			// Parse shell content that looks like "production: deploy.sh"
-			text := shellContent.String()
-			
-			// Find the first colon to split pattern from commands
-			colonIndex := strings.Index(text, ":")
-			if colonIndex == -1 {
-				return nil, fmt.Errorf("pattern branch missing colon: %s", text)
-			}
-			
-			patternText := strings.TrimSpace(text[:colonIndex])
-			commandText := strings.TrimSpace(text[colonIndex+1:])
-			
-			// Create pattern
-			var pattern ast.Pattern
-			if patternText == "*" {
-				pattern = &ast.WildcardPattern{
-					Pos: shellContent.Pos,
-				}
-			} else {
-				pattern = &ast.IdentifierPattern{
-					Name: patternText,
-					Pos:  shellContent.Pos,
-				}
-			}
-			
-			// Create commands
-			var commands []ast.CommandContent
-			if commandText != "" {
-				commands = []ast.CommandContent{
-					&ast.ShellContent{
-						Parts: []ast.ShellPart{
-							&ast.TextPart{Text: commandText},
-						},
-						Pos: shellContent.Pos,
-					},
-				}
-			}
-			
-			patterns = append(patterns, ast.PatternBranch{
-				Pattern:  pattern,
-				Commands: commands,
-				Pos:      shellContent.Pos,
-			})
-		}
-	}
-	
-	return patterns, nil
-}
-
 // --- Utility and Helper Methods ---
 
 func (p *Parser) advance() lexer.Token {
@@ -1191,7 +1078,7 @@ func (p *Parser) advance() lexer.Token {
 	return p.previous()
 }
 
-func (p *Parser) current() lexer.Token { return p.tokens[p.pos] }
+func (p *Parser) current() lexer.Token  { return p.tokens[p.pos] }
 func (p *Parser) previous() lexer.Token { return p.tokens[p.pos-1] }
 func (p *Parser) peek() lexer.Token     { return p.tokens[p.pos+1] }
 
@@ -1222,41 +1109,6 @@ func (p *Parser) skipWhitespaceAndComments() {
 	}
 }
 
-// isCommandTerminator is the context-aware function to check for end of command.
-func (p *Parser) isCommandTerminator(inBlock bool) bool {
-	if p.isAtEnd() {
-		return true
-	}
-	if inBlock {
-		// In a block, only a '}' terminates the command content.
-		return p.match(lexer.RBRACE)
-	}
-	// In a simple command, it ends at EOF or when we see structural tokens
-	return p.match(lexer.EOF) || p.match(lexer.IDENTIFIER, lexer.VAR, lexer.WATCH, lexer.STOP)
-}
-
-// isFunctionDecorator checks if the current position starts a function decorator.
-func (p *Parser) isFunctionDecorator() bool {
-	if p.current().Type != lexer.AT {
-		return false
-	}
-	if p.pos+1 < len(p.tokens) {
-		nextToken := p.tokens[p.pos+1]
-		var name string
-
-		if nextToken.Type == lexer.IDENTIFIER {
-			name = nextToken.Value
-		} else if nextToken.Type == lexer.VAR {
-			name = "var" // Handle @var() case
-		} else {
-			return false
-		}
-
-		return stdlib.IsFunctionDecorator(name)
-	}
-	return false
-}
-
 // isPatternDecorator checks if the current position starts a pattern decorator.
 func (p *Parser) isPatternDecorator() bool {
 	if p.current().Type != lexer.AT {
@@ -1266,13 +1118,14 @@ func (p *Parser) isPatternDecorator() bool {
 		nextToken := p.tokens[p.pos+1]
 		var name string
 
-		if nextToken.Type == lexer.IDENTIFIER {
+		switch nextToken.Type {
+		case lexer.IDENTIFIER:
 			name = nextToken.Value
-		} else if nextToken.Type == lexer.WHEN {
+		case lexer.WHEN:
 			name = "when"
-		} else if nextToken.Type == lexer.TRY {
+		case lexer.TRY:
 			name = "try"
-		} else {
+		default:
 			return false
 		}
 

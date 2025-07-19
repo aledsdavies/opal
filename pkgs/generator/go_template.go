@@ -284,7 +284,7 @@ func processCommandGroup(name string, commands []*ast.CommandDecl, definitions m
 					}
 				}
 			}
-			
+
 			templateCmd.Type = "parallel"
 			templateCmd.ParallelCommands = parallelCommands
 		} else {
@@ -345,91 +345,6 @@ func processCommandGroup(name string, commands []*ast.CommandDecl, definitions m
 	}
 
 	return templateCmd, nil
-}
-
-// analyzeCommandStructure analyzes a command and returns segments
-func analyzeCommandStructure(cmd *ast.CommandDecl, definitions map[string]string) ([]CommandSegment, error) {
-	// Analyze all content items in the command body
-	var allSegments []CommandSegment
-
-	for _, content := range cmd.Body.Content {
-		segments, err := analyzeContentStructure(content, definitions)
-		if err != nil {
-			return nil, err
-		}
-		allSegments = append(allSegments, segments...)
-	}
-
-	return allSegments, nil
-}
-
-// analyzeContentStructure analyzes command content structure
-func analyzeContentStructure(content ast.CommandContent, definitions map[string]string) ([]CommandSegment, error) {
-	switch c := content.(type) {
-	case *ast.ShellContent:
-		// Regular shell content - get individual commands
-		commands := buildShellContentString(c, definitions)
-		if len(commands) == 1 {
-			return []CommandSegment{{IsParallel: false, Command: commands[0]}}, nil
-		}
-		// Multiple commands - create separate segments for each
-		var segments []CommandSegment
-		for _, cmd := range commands {
-			segments = append(segments, CommandSegment{IsParallel: false, Command: cmd})
-		}
-		return segments, nil
-
-	case *ast.BlockDecorator:
-		if c.Name == "parallel" {
-			// This is a parallel block - extract individual commands
-			parallelCommands, err := extractParallelCommandsFromContent(c.Content, definitions)
-			if err != nil {
-				return nil, err
-			}
-			return []CommandSegment{{IsParallel: true, Commands: parallelCommands}}, nil
-		}
-		// Non-parallel decorated content
-		return analyzeContentStructureFromContent(c.Content, definitions)
-
-	case *ast.PatternContent:
-		// Pattern content is complex - for now, treat as sequential
-		shellCmd := buildPatternContentString(c, definitions)
-		return []CommandSegment{{IsParallel: false, Command: shellCmd}}, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported command content type")
-	}
-}
-
-// extractParallelCommands extracts individual commands from parallel content
-func extractParallelCommands(content ast.CommandContent, definitions map[string]string) ([]string, error) {
-	switch c := content.(type) {
-	case *ast.ShellContent:
-		// For parallel commands, we want each ShellContent to be treated as one command
-		// even if it contains semicolon-separated commands
-		commands := buildShellContentString(c, definitions)
-
-		// Key fix: Single command with semicolons should remain as one command
-		// Multiple newlines should become separate parallel commands
-		var result []string
-		for _, cmd := range commands {
-			if strings.TrimSpace(cmd) != "" {
-				result = append(result, cmd)
-			}
-		}
-		return result, nil
-
-	case *ast.BlockDecorator:
-		// Extract from nested content array
-		return extractParallelCommandsFromContent(c.Content, definitions)
-
-	default:
-		shellCmd := buildContentString(content, definitions)
-		if strings.TrimSpace(shellCmd) != "" {
-			return []string{shellCmd}, nil
-		}
-		return []string{}, nil
-	}
 }
 
 // extractShellCommands extracts individual shell commands from command content array
@@ -549,7 +464,7 @@ func buildDecoratedContentString(content *ast.BlockDecorator, definitions map[st
 	return strings.Join(parts, "\n")
 }
 
-// buildPatternContentString builds pattern content into a string  
+// buildPatternContentString builds pattern content into a string
 func buildPatternContentString(content *ast.PatternContent, definitions map[string]string) string {
 	// PatternContent has a single pattern with commands
 	var parts []string
@@ -557,23 +472,6 @@ func buildPatternContentString(content *ast.PatternContent, definitions map[stri
 		cmdStr := buildContentString(cmd, definitions)
 		if cmdStr != "" {
 			parts = append(parts, cmdStr)
-		}
-	}
-	return strings.Join(parts, "; ")
-}
-
-// buildPatternDecoratorString builds pattern decorator into a string
-func buildPatternDecoratorString(content *ast.PatternDecorator, definitions map[string]string) string {
-	// For now, just build all pattern branches sequentially
-	// TODO: Implement proper pattern matching logic
-	var parts []string
-	for _, pattern := range content.Patterns {
-		// Build all commands in this pattern branch
-		for _, cmd := range pattern.Commands {
-			cmdStr := buildContentString(cmd, definitions)
-			if cmdStr != "" {
-				parts = append(parts, cmdStr)
-			}
 		}
 	}
 	return strings.Join(parts, "; ")
@@ -901,31 +799,4 @@ func GenerateComponentGo(program *ast.Program, componentNames []string) (string,
 	return buf.String(), nil
 }
 
-
 // Helper functions for handling arrays of CommandContent in the new AST structure
-
-// extractParallelCommandsFromContent extracts parallel commands from an array of CommandContent
-func extractParallelCommandsFromContent(contentArray []ast.CommandContent, definitions map[string]string) ([]string, error) {
-	var allCommands []string
-	for _, content := range contentArray {
-		commands, err := extractParallelCommands(content, definitions)
-		if err != nil {
-			return nil, err
-		}
-		allCommands = append(allCommands, commands...)
-	}
-	return allCommands, nil
-}
-
-// analyzeContentStructureFromContent analyzes content structure from an array of CommandContent
-func analyzeContentStructureFromContent(contentArray []ast.CommandContent, definitions map[string]string) ([]CommandSegment, error) {
-	var allSegments []CommandSegment
-	for _, content := range contentArray {
-		segments, err := analyzeContentStructure(content, definitions)
-		if err != nil {
-			return nil, err
-		}
-		allSegments = append(allSegments, segments...)
-	}
-	return allSegments, nil
-}

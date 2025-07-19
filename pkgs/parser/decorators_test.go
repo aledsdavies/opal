@@ -269,7 +269,7 @@ func TestBlockDecorators(t *testing.T) {
 			),
 		},
 		{
-			Name:  "multiple commands in parallel block - each gets decorated",
+			Name: "multiple commands in parallel block - each gets decorated",
 			Input: `services: @parallel {
   npm run api
   npm run worker
@@ -281,7 +281,7 @@ func TestBlockDecorators(t *testing.T) {
 			),
 		},
 		{
-			Name:  "multiple commands in timeout block - each gets decorated",
+			Name: "multiple commands in timeout block - each gets decorated",
 			Input: `deploy: @timeout(5m) {
   npm run build
   npm test
@@ -511,7 +511,7 @@ func TestNestedDecorators(t *testing.T) {
 			),
 		},
 		{
-			Name:  "multiple commands with decorator - each gets decorated",
+			Name: "multiple commands with decorator - each gets decorated",
 			Input: `build: @timeout(2m) {
   echo "Starting build"
   npm run build
@@ -519,9 +519,9 @@ func TestNestedDecorators(t *testing.T) {
 }`,
 			Expected: Program(
 				CmdBlock("build",
-					BlockDecorator("timeout", Dur("2m"), 
+					BlockDecorator("timeout", Dur("2m"),
 						"echo \"Starting build\"",
-						"npm run build", 
+						"npm run build",
 						"echo \"Build complete\"",
 					),
 				),

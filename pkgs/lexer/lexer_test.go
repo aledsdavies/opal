@@ -82,32 +82,6 @@ func expectationsToComparableNoPos(expected []tokenExpectation) []map[string]int
 	return result
 }
 
-// Helper to convert tokens to comparable format with positions
-func tokensToComparable(tokens []Token) []map[string]interface{} {
-	result := make([]map[string]interface{}, len(tokens))
-	for i, tok := range tokens {
-		result[i] = map[string]interface{}{
-			"type":  tok.Type.String(),
-			"value": tok.Value,
-			"pos":   fmt.Sprintf("%d:%d", tok.Line, tok.Column),
-		}
-	}
-	return result
-}
-
-// Helper to convert expectations to comparable format with positions
-func expectationsToComparable(expected []tokenExpectation) []map[string]interface{} {
-	result := make([]map[string]interface{}, len(expected))
-	for i, exp := range expected {
-		result[i] = map[string]interface{}{
-			"type":  exp.Type.String(),
-			"value": exp.Value,
-			"pos":   "N/A", // Expected tokens don't have positions
-		}
-	}
-	return result
-}
-
 func TestCoreStructure(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -726,9 +700,10 @@ func TestPatternDecorators(t *testing.T) {
 						braceDepth = 1
 					} else if inPatternBlock {
 						// Track brace nesting
-						if tok.Type == LBRACE {
+						switch tok.Type {
+						case LBRACE:
 							braceDepth++
-						} else if tok.Type == RBRACE {
+						case RBRACE:
 							braceDepth--
 							if braceDepth == 0 {
 								inPatternBlock = false
@@ -925,10 +900,10 @@ build: echo hello`
 		column    int
 		value     string
 	}{
-		{VAR, 1, 1, "var"},               // 'var' starts at column 1
-		{IDENTIFIER, 1, 5, "PORT"},       // 'PORT' starts at column 5
-		{EQUALS, 1, 10, "="},             // '=' at column 10
-		{NUMBER, 1, 12, "8080"},          // '8080' starts at column 12
+		{VAR, 1, 1, "var"},         // 'var' starts at column 1
+		{IDENTIFIER, 1, 5, "PORT"}, // 'PORT' starts at column 5
+		{EQUALS, 1, 10, "="},       // '=' at column 10
+		{NUMBER, 1, 12, "8080"},    // '8080' starts at column 12
 		// NEWLINE token removed from position tests
 		{IDENTIFIER, 2, 1, "build"},      // 'build' starts at line 2, column 1
 		{COLON, 2, 6, ":"},               // ':' at column 6
@@ -1190,13 +1165,14 @@ func BenchmarkLexer(b *testing.B) {
 func generateLargeInput(lines int) string {
 	var sb strings.Builder
 	for i := 0; i < lines; i++ {
-		if i%4 == 0 {
+		switch i % 4 {
+		case 0:
 			fmt.Fprintf(&sb, "var VAR%d = \"value%d\"\n", i, i)
-		} else if i%4 == 1 {
+		case 1:
 			fmt.Fprintf(&sb, "cmd%d: echo hello %d\n", i, i)
-		} else if i%4 == 2 {
+		case 2:
 			fmt.Fprintf(&sb, "build%d: @timeout(30s) { npm run build:%d }\n", i, i)
-		} else {
+		default:
 			fmt.Fprintf(&sb, "test%d: @when(ENV) { prod: echo prod %d; dev: echo dev %d }\n", i, i, i)
 		}
 	}

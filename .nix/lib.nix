@@ -12,7 +12,8 @@ let
       builtins.readFile path
     else null;
 
-in rec {
+in
+rec {
   # Generate shell commands from devcmd/cli files - main library function
   mkDevCommands =
     {
@@ -46,10 +47,10 @@ in rec {
       autoDetectContent =
         let
           candidatePaths = [
-            ./commands.cli    # Primary default filename
-            ./commands        # Legacy filename
-            ./devcmd.cli      # Alternative naming
-            ./.devcmd         # Hidden file variant
+            ./commands.cli # Primary default filename
+            ./commands # Legacy filename
+            ./devcmd.cli # Alternative naming
+            ./.devcmd # Hidden file variant
           ];
 
           findExistingFile = paths:
@@ -257,7 +258,7 @@ in rec {
       vendorHash = null;
 
       # Environment variables using correct syntax
-      env.CGO_ENABLED = "0";  # Static binary for better caching
+      env.CGO_ENABLED = "0"; # Static binary for better caching
 
       # Build flags following CODE_GUIDELINES.md
       ldflags = [
@@ -265,7 +266,7 @@ in rec {
         "-w"
         "-X main.Version=${version}"
         "-X main.GeneratedBy=devcmd"
-        "-X main.BuildTime=1970-01-01T00:00:00Z"  # Deterministic for caching
+        "-X main.BuildTime=1970-01-01T00:00:00Z" # Deterministic for caching
       ];
 
       meta = {

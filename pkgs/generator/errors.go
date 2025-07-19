@@ -175,28 +175,6 @@ func (e *VariableError) Error() string {
 	return builder.String()
 }
 
-// Helper functions for creating errors with context
-
-// createValidationError creates a validation error with source context
-func createValidationError(message, cmdName string, cmdLine int, sourceLines []string) error {
-	var sourceText string
-	if cmdLine > 0 && cmdLine <= len(sourceLines) {
-		sourceText = strings.TrimSpace(sourceLines[cmdLine-1])
-	}
-
-	return NewValidationError(message, cmdName, cmdLine, sourceText)
-}
-
-// createDecoratorError creates a decorator error with suggestion
-func createDecoratorError(decoratorName, decoratorType, message, suggestion, cmdName string, cmdLine int, sourceLines []string) error {
-	var sourceText string
-	if cmdLine > 0 && cmdLine <= len(sourceLines) {
-		sourceText = strings.TrimSpace(sourceLines[cmdLine-1])
-	}
-
-	return NewDecoratorError(decoratorName, decoratorType, message, suggestion, cmdName, cmdLine, sourceText)
-}
-
 // ErrorCollector collects multiple errors during processing
 type ErrorCollector struct {
 	errors []error

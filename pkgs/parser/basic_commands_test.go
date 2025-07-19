@@ -427,7 +427,7 @@ format: {
 			CmdBlock("format",
 				Shell("echo \"📝 Formatting all code...\""),
 				Shell("echo \"Formatting Go code...\""),
-				BlockDecorator("parallel", 
+				BlockDecorator("parallel",
 					"if command -v gofumpt >/dev/null 2>&1; then gofumpt -w .; else go fmt ./...; fi",
 					"if command -v nixpkgs-fmt >/dev/null 2>&1; then find . -name '*.nix' -exec nixpkgs-fmt {} +; else echo \"⚠️  nixpkgs-fmt not available\"; fi",
 				),

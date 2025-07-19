@@ -318,10 +318,10 @@ func TestConcurrentRegistration(t *testing.T) {
 func TestDecoratorArguments(t *testing.T) {
 	// Register a decorator with complex arguments for testing
 	complexDecorator := &DecoratorSignature{
-		Name:        "complex",
-		Type:        BlockDecorator,
-		Semantic:    SemDecorator,
-		Description: "Complex decorator for testing",
+		Name:          "complex",
+		Type:          BlockDecorator,
+		Semantic:      SemDecorator,
+		Description:   "Complex decorator for testing",
 		RequiresBlock: true,
 		Args: []ArgumentSpec{
 			{Name: "required1", Type: StringArg, Optional: false},

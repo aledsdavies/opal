@@ -47,28 +47,28 @@ const (
 
 // Pre-computed token name lookup for fast debugging
 var tokenNames = [...]string{
-	EOF:               "EOF",
-	ILLEGAL:           "ILLEGAL",
-	VAR:               "VAR",
-	WATCH:             "WATCH",
-	STOP:              "STOP",
-	WHEN:              "WHEN",
-	TRY:               "TRY",
-	AT:                "AT",
-	COLON:             "COLON",
-	EQUALS:            "EQUALS",
-	COMMA:             "COMMA",
-	LPAREN:            "LPAREN",
-	RPAREN:            "RPAREN",
-	LBRACE:            "LBRACE",
-	RBRACE:            "RBRACE",
-	ASTERISK:          "ASTERISK",
-	IDENTIFIER:        "IDENTIFIER",
-	SHELL_TEXT:        "SHELL_TEXT",
-	NUMBER:            "NUMBER",
-	STRING:            "STRING",
-	DURATION:          "DURATION",
-	BOOLEAN:           "BOOLEAN",
+	EOF:        "EOF",
+	ILLEGAL:    "ILLEGAL",
+	VAR:        "VAR",
+	WATCH:      "WATCH",
+	STOP:       "STOP",
+	WHEN:       "WHEN",
+	TRY:        "TRY",
+	AT:         "AT",
+	COLON:      "COLON",
+	EQUALS:     "EQUALS",
+	COMMA:      "COMMA",
+	LPAREN:     "LPAREN",
+	RPAREN:     "RPAREN",
+	LBRACE:     "LBRACE",
+	RBRACE:     "RBRACE",
+	ASTERISK:   "ASTERISK",
+	IDENTIFIER: "IDENTIFIER",
+	SHELL_TEXT: "SHELL_TEXT",
+	NUMBER:     "NUMBER",
+	STRING:     "STRING",
+	DURATION:   "DURATION",
+	BOOLEAN:    "BOOLEAN",
 	// NEWLINE removed
 	COMMENT:           "COMMENT",
 	MULTILINE_COMMENT: "MULTILINE_COMMENT",
@@ -122,10 +122,10 @@ type SourcePosition struct {
 
 // ShellSegment represents a portion of shell text with precise positioning
 type ShellSegment struct {
-	Text     string     `json:"text"`      // The processed text
-	Span     SourceSpan `json:"span"`      // Original source location
-	RawText  string     `json:"raw_text"`  // Original raw text (with continuations)
-	Offset   int        `json:"offset"`    // Offset within processed shell text
+	Text    string     `json:"text"`     // The processed text
+	Span    SourceSpan `json:"span"`     // Original source location
+	RawText string     `json:"raw_text"` // Original raw text (with continuations)
+	Offset  int        `json:"offset"`   // Offset within processed shell text
 }
 
 // Token represents a single token with enhanced position information
@@ -235,8 +235,8 @@ func (t *Token) mapThroughTransformations(segment ShellSegment, localOffset int)
 
 	for rawPos < len(segment.RawText) && processedPos < localOffset {
 		if rawPos < len(segment.RawText)-1 &&
-		   segment.RawText[rawPos] == '\\' &&
-		   segment.RawText[rawPos+1] == '\n' {
+			segment.RawText[rawPos] == '\\' &&
+			segment.RawText[rawPos+1] == '\n' {
 			// Line continuation: \\ + \n becomes space in processed text
 			rawPos += 2 // Skip \\ and \n
 			line++
@@ -472,11 +472,11 @@ func GetPatternType(token Token) PatternType {
 type PatternType int
 
 const (
-	UnknownPattern PatternType = iota
-	WildcardPattern  // *
-	WhenPattern      // production, development, test, etc.
-	TryPattern       // main, error, finally
-	CustomPattern    // user-defined patterns
+	UnknownPattern  PatternType = iota
+	WildcardPattern             // *
+	WhenPattern                 // production, development, test, etc.
+	TryPattern                  // main, error, finally
+	CustomPattern               // user-defined patterns
 )
 
 func (pt PatternType) String() string {
@@ -502,7 +502,8 @@ func ValidatePatternSequence(tokens []Token, decoratorType string) []PatternErro
 	hasWildcard := false
 
 	for _, token := range tokens {
-		if token.Type == ASTERISK {
+		switch token.Type {
+		case ASTERISK:
 			if hasWildcard {
 				errors = append(errors, PatternError{
 					Message: "multiple wildcard patterns not allowed",
@@ -511,7 +512,7 @@ func ValidatePatternSequence(tokens []Token, decoratorType string) []PatternErro
 				})
 			}
 			hasWildcard = true
-		} else if token.Type == IDENTIFIER {
+		case IDENTIFIER:
 			if existing, exists := patterns[token.Value]; exists {
 				errors = append(errors, PatternError{
 					Message: fmt.Sprintf("duplicate pattern '%s'", token.Value),
@@ -540,10 +541,10 @@ func ValidatePatternSequence(tokens []Token, decoratorType string) []PatternErro
 
 // PatternError represents a pattern validation error
 type PatternError struct {
-	Message string  `json:"message"`
-	Token   Token   `json:"token"`
-	Code    string  `json:"code"`
-	Related *Token  `json:"related,omitempty"`
+	Message string `json:"message"`
+	Token   Token  `json:"token"`
+	Code    string `json:"code"`
+	Related *Token `json:"related,omitempty"`
 }
 
 func (pe PatternError) Error() string {

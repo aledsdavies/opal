@@ -37,16 +37,16 @@ func (lm LexerMode) String() string {
 
 // Lexer tokenizes Devcmd source code with rune-based parsing
 type Lexer struct {
-	input        string // Source text
-	position     int    // Current position in input (byte offset)
-	readPos      int    // Current reading position in input (byte offset)
-	ch           rune   // Current rune under examination
-	line         int    // Current line number
-	column       int    // Current column number
+	input        string        // Source text
+	position     int           // Current position in input (byte offset)
+	readPos      int           // Current reading position in input (byte offset)
+	ch           rune          // Current rune under examination
+	line         int           // Current line number
+	column       int           // Current column number
 	stateMachine *StateMachine // State machine for parsing context
 	braceLevel   int           // Track brace nesting for command mode
 	patternLevel int           // Track pattern-matching decorator nesting
-	
+
 	// Structural brace tracking - only track braces that are part of Devcmd structure
 	structuralBraceStack []int // positions of structural { braces
 
@@ -68,8 +68,8 @@ func New(input string) *Lexer {
 		braceLevel:           0,
 		patternLevel:         0,
 		structuralBraceStack: make([]int, 0, 8), // Pre-allocate small capacity
-		maxStuckAttempts:     3,  // Allow 3 attempts before panicking
-		lastPosition:         -1, // Start with -1 so first token is always progress
+		maxStuckAttempts:     3,                 // Allow 3 attempts before panicking
+		lastPosition:         -1,                // Start with -1 so first token is always progress
 	}
 	l.readChar()
 	return l
@@ -85,19 +85,19 @@ func NewWithDebug(input string) *Lexer {
 // checkStuck detects infinite loops in lexing
 func (l *Lexer) checkStuck(context string) {
 	if l.position == l.lastPosition &&
-	   l.line == l.lastLine &&
-	   l.column == l.lastColumn {
+		l.line == l.lastLine &&
+		l.column == l.lastColumn {
 		l.stuckCounter++
 		if l.stuckCounter >= l.maxStuckAttempts {
 			// Fatal log with detailed context
 			panic(fmt.Sprintf(
 				"LEXER STUCK: Infinite loop detected in %s\n"+
-				"Position: %d, Line: %d, Column: %d\n"+
-				"Current char: %q (U+%04X)\n"+
-				"State: %s, Mode: %s\n"+
-				"Brace level: %d, Pattern level: %d\n"+
-				"Input around position: %s\n"+
-				"Context stack: %+v",
+					"Position: %d, Line: %d, Column: %d\n"+
+					"Current char: %q (U+%04X)\n"+
+					"State: %s, Mode: %s\n"+
+					"Brace level: %d, Pattern level: %d\n"+
+					"Input around position: %s\n"+
+					"Context stack: %+v",
 				context,
 				l.position, l.line, l.column,
 				l.ch, l.ch,
@@ -174,9 +174,9 @@ func (l *Lexer) TokenizeToSlice() []Token {
 		if tokenCount > maxTokens {
 			panic(fmt.Sprintf(
 				"LEXER ERROR: Token count (%d) exceeds reasonable limit (%d) for input size %d\n"+
-				"Last token: %+v\n"+
-				"Position: %d\n"+
-				"Context: %s",
+					"Last token: %+v\n"+
+					"Position: %d\n"+
+					"Context: %s",
 				tokenCount, maxTokens, len(l.input),
 				tok,
 				l.position,
@@ -368,12 +368,12 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 	case '{':
 		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
-		
+
 		// Track if this is a structural brace
 		if l.isStructuralContext() {
 			l.pushStructuralBrace()
 		}
-		
+
 		l.readChar()
 		l.skipWhitespace() // Skip whitespace after opening brace
 		l.updateTokenEnd(&tok)
@@ -384,12 +384,12 @@ func (l *Lexer) lexLanguageMode(start int) Token {
 		if l.braceLevel > 0 {
 			l.braceLevel--
 		}
-		
+
 		// Pop structural brace if this closes one
 		if l.hasStructuralBraces() {
 			l.popStructuralBrace()
 		}
-		
+
 		l.readChar()
 		l.updateTokenEnd(&tok)
 		l.updateStateMachine(RBRACE, "}")
@@ -456,12 +456,12 @@ func (l *Lexer) lexPatternMode(start int) Token {
 		if l.braceLevel > 0 {
 			l.braceLevel--
 		}
-		
+
 		// Pop structural brace if this closes one
 		if l.hasStructuralBraces() {
 			l.popStructuralBrace()
 		}
-		
+
 		l.readChar()
 		l.updateTokenEnd(&tok)
 		l.updateStateMachine(RBRACE, "}")
@@ -469,12 +469,12 @@ func (l *Lexer) lexPatternMode(start int) Token {
 	case '{':
 		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
-		
+
 		// Track if this is a structural brace
 		if l.isStructuralContext() {
 			l.pushStructuralBrace()
 		}
-		
+
 		l.readChar()
 		l.skipWhitespace()
 		l.updateTokenEnd(&tok)
@@ -593,12 +593,12 @@ func (l *Lexer) lexCommandMode(start int) Token {
 		// Handle opening brace in command mode
 		tok := l.createSimpleToken(LBRACE, "{", start, startLine, startColumn)
 		l.braceLevel++
-		
+
 		// Track if this is a structural brace
 		if l.isStructuralContext() {
 			l.pushStructuralBrace()
 		}
-		
+
 		l.readChar()
 		l.skipWhitespace()
 		l.updateTokenEnd(&tok)
@@ -629,7 +629,7 @@ func (l *Lexer) lexShellText(start int) Token {
 
 	var inSingleQuotes, inDoubleQuotes, inBackticks bool
 	var prevWasBackslash bool
-	
+
 	// Track shell-level brace nesting separate from structural braces
 	// This handles things like find -exec cmd {} +
 	shellBraceLevel := 0
@@ -662,7 +662,6 @@ func (l *Lexer) lexShellText(start int) Token {
 			}
 
 			// Otherwise, newline ends shell text
-			prevWasBackslash = false
 			tok := l.makeShellToken(start, startOffset, startLine, startColumn)
 			l.updateStateMachine(SHELL_TEXT, tok.Value)
 			// Also handle the newline for state transitions (but don't generate NEWLINE token)
@@ -729,7 +728,6 @@ func (l *Lexer) lexShellText(start int) Token {
 					l.readChar()
 				} else if len(l.structuralBraceStack) > 0 {
 					// This could close a structural brace, exit shell text
-					prevWasBackslash = false
 					tok := l.makeShellToken(start, startOffset, startLine, startColumn)
 					l.updateStateMachine(SHELL_TEXT, tok.Value)
 					return tok
@@ -782,7 +780,7 @@ func (l *Lexer) makeShellToken(start, startOffset, startLine, startColumn int) T
 		Column:    startColumn,
 		EndLine:   l.line,
 		EndColumn: l.column,
-		Raw:       rawText,      // Keep original for formatting tools
+		Raw:       rawText, // Keep original for formatting tools
 		Semantic:  SemShellText,
 		Span: SourceSpan{
 			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: startOffset},
@@ -1073,10 +1071,7 @@ func (l *Lexer) lexMultilineComment(start int) Token {
 	l.readChar() // consume '/'
 	l.readChar() // consume '*'
 
-	for {
-		if l.ch == 0 {
-			break
-		}
+	for l.ch != 0 {
 		if l.ch == '*' && l.peekChar() == '/' {
 			l.readChar()
 			l.readChar()
@@ -1134,7 +1129,7 @@ func (l *Lexer) createSimpleToken(tokenType TokenType, value string, start, star
 		Value:     value,
 		Line:      startLine,
 		Column:    startColumn,
-		EndLine:   startLine, // Will be updated by updateTokenEnd
+		EndLine:   startLine,   // Will be updated by updateTokenEnd
 		EndColumn: startColumn, // Will be updated by updateTokenEnd
 		Span: SourceSpan{
 			Start: SourcePosition{Line: startLine, Column: startColumn, Offset: start},
@@ -1150,7 +1145,7 @@ func (l *Lexer) createTokenWithSemantic(tokenType TokenType, semantic SemanticTo
 		Value:     value,
 		Line:      startLine,
 		Column:    startColumn,
-		EndLine:   startLine, // Will be updated by updateTokenEnd
+		EndLine:   startLine,   // Will be updated by updateTokenEnd
 		EndColumn: startColumn, // Will be updated by updateTokenEnd
 		Semantic:  semantic,
 		Span: SourceSpan{
@@ -1206,19 +1201,6 @@ func (l *Lexer) peekChar() rune {
 		return 0
 	}
 	r, _ := utf8.DecodeRuneInString(l.input[l.readPos:])
-	return r
-}
-
-func (l *Lexer) peekCharAt(n int) rune {
-	pos := l.readPos
-	for i := 0; i < n && pos < len(l.input); i++ {
-		_, size := utf8.DecodeRuneInString(l.input[pos:])
-		pos += size
-	}
-	if pos >= len(l.input) {
-		return 0
-	}
-	r, _ := utf8.DecodeRuneInString(l.input[pos:])
 	return r
 }
 

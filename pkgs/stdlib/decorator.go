@@ -42,20 +42,20 @@ const (
 
 // PatternSpec defines valid patterns for pattern-matching decorators
 type PatternSpec struct {
-	AllowedPatterns []string // Specific allowed patterns (nil means any identifier)
-	AllowWildcard   bool     // Whether * wildcard is allowed
+	AllowedPatterns  []string // Specific allowed patterns (nil means any identifier)
+	AllowWildcard    bool     // Whether * wildcard is allowed
 	RequiredPatterns []string // Patterns that must be present
 }
 
 // DecoratorSignature defines the expected signature for a decorator
 type DecoratorSignature struct {
-	Name        string
-	Type        DecoratorType
-	Semantic    SemanticType
-	Description string
-	Args        []ArgumentSpec
-	RequiresBlock bool // Only for BlockDecorator - whether it requires explicit {}
-	PatternSpec *PatternSpec // Only for PatternDecorator - defines valid patterns
+	Name          string
+	Type          DecoratorType
+	Semantic      SemanticType
+	Description   string
+	Args          []ArgumentSpec
+	RequiresBlock bool         // Only for BlockDecorator - whether it requires explicit {}
+	PatternSpec   *PatternSpec // Only for PatternDecorator - defines valid patterns
 }
 
 // ArgumentSpec defines an argument specification
@@ -163,7 +163,7 @@ func (r *DecoratorRegistry) registerStandardDecorators() {
 		Args:          []ArgumentSpec{}, // No arguments
 		PatternSpec: &PatternSpec{
 			AllowedPatterns:  []string{"main", "error", "finally"}, // Only these patterns allowed
-			AllowWildcard:    false,                                 // No wildcard
+			AllowWildcard:    false,                                // No wildcard
 			RequiredPatterns: []string{"main"},                     // main is required
 		},
 	})

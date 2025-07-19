@@ -7,8 +7,8 @@ import (
 
 func TestStateMachineTransitions(t *testing.T) {
 	tests := []struct {
-		name        string
-		tokens      []struct {
+		name   string
+		tokens []struct {
 			typ   TokenType
 			value string
 		}
@@ -488,7 +488,9 @@ func TestDebugMode(t *testing.T) {
 	sm.SetDebug(true)
 
 	// This should print debug output
-	sm.Transition(StateAfterColon)
+	if err := sm.Transition(StateAfterColon); err != nil {
+		t.Errorf("Transition failed: %v", err)
+	}
 
 	// Just verify it doesn't panic
 }
@@ -502,16 +504,16 @@ func TestEmptyPatternBranch(t *testing.T) {
 		typ   TokenType
 		value string
 	}{
-		{IDENTIFIER, "deploy"},   // Missing command declaration
-		{COLON, ":"},            // Command colon
-		{AT, "@"},               // Now @ is valid (StateAfterColon)
+		{IDENTIFIER, "deploy"}, // Missing command declaration
+		{COLON, ":"},           // Command colon
+		{AT, "@"},              // Now @ is valid (StateAfterColon)
 		{IDENTIFIER, "when"},
 		{LPAREN, "("},
 		{IDENTIFIER, "ENV"},
 		{RPAREN, ")"},
-		{LBRACE, "{"},           // Enter pattern block
+		{LBRACE, "{"}, // Enter pattern block
 		{IDENTIFIER, "prod"},
-		{COLON, ":"},            // Empty branch
+		{COLON, ":"}, // Empty branch
 		{IDENTIFIER, "dev"},
 		{COLON, ":"},
 		{SHELL_TEXT, "echo dev"},

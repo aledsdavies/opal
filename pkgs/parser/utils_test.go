@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
-	"github.com/google/go-cmp/cmp"
 	"github.com/aledsdavies/devcmd/pkgs/stdlib"
+	"github.com/google/go-cmp/cmp"
 )
 
 // init registers any test-specific decorators not in stdlib
@@ -62,7 +62,7 @@ func registerTestOnlyDecorators() {
 		Description:   "Watches files for changes and executes commands",
 		RequiresBlock: true,
 		Args: []stdlib.ArgumentSpec{
-			{Name: "pattern", Type: stdlib.ExpressionArg, Optional: true},        // Can be @var() expression
+			{Name: "pattern", Type: stdlib.ExpressionArg, Optional: true}, // Can be @var() expression
 			{Name: "interval", Type: stdlib.DurationArg, Optional: true, Default: "1s"},
 			{Name: "recursive", Type: stdlib.BooleanArg, Optional: true, Default: "true"},
 		},
@@ -192,7 +192,7 @@ type ExpectedExpression struct {
 	Type  string
 	Value string
 	// For function decorators
-	Name string                `json:"name,omitempty"`
+	Name string               `json:"name,omitempty"`
 	Args []ExpectedExpression `json:"args,omitempty"`
 }
 
@@ -603,7 +603,7 @@ func BlockDecorator(name string, args ...interface{}) ExpectedCommandContent {
 	// Split args into decorator args and content
 	var decoratorArgs []ExpectedExpression
 	var content []ExpectedCommandContent
-	
+
 	for _, arg := range args {
 		switch v := arg.(type) {
 		case ExpectedExpression:
@@ -623,7 +623,7 @@ func BlockDecorator(name string, args ...interface{}) ExpectedCommandContent {
 			}
 		}
 	}
-	
+
 	return ExpectedBlockDecorator{
 		Name:    name,
 		Args:    decoratorArgs,
@@ -853,7 +853,7 @@ func toShellParts(items ...interface{}) []ExpectedShellPart {
 				parts = append(parts, Text(fmt.Sprintf("ERROR: '%s' is not a function decorator and cannot be used inline in shell content", v.Name)))
 			} else {
 				parts = append(parts, ExpectedShellPart{
-					Type: "function_decorator",
+					Type:              "function_decorator",
 					FunctionDecorator: &v,
 				})
 			}

@@ -33,7 +33,7 @@ type TokenRange struct {
 // Preserves concrete syntax for LSP, Tree-sitter, and formatting tools
 type Program struct {
 	Variables []VariableDecl
-	VarGroups []VarGroup    // Grouped variable declarations: var ( ... )
+	VarGroups []VarGroup // Grouped variable declarations: var ( ... )
 	Commands  []CommandDecl
 	Pos       Position
 	Tokens    TokenRange
@@ -107,9 +107,9 @@ type VarGroup struct {
 	Tokens    TokenRange
 
 	// Concrete syntax tokens for precise formatting
-	VarToken   lexer.Token  // The "var" keyword
-	OpenParen  lexer.Token  // The "(" token
-	CloseParen lexer.Token  // The ")" token
+	VarToken   lexer.Token // The "var" keyword
+	OpenParen  lexer.Token // The "(" token
+	CloseParen lexer.Token // The ")" token
 }
 
 func (g *VarGroup) String() string {
@@ -169,10 +169,10 @@ const (
 
 // StringLiteral represents string values
 type StringLiteral struct {
-	Value  string
-	Raw    string
-	Pos    Position
-	Tokens TokenRange
+	Value       string
+	Raw         string
+	Pos         Position
+	Tokens      TokenRange
 	StringToken lexer.Token
 }
 
@@ -333,11 +333,11 @@ func (i *Identifier) GetType() ExpressionType {
 
 // CommandDecl represents command definitions with concrete syntax preservation
 type CommandDecl struct {
-	Name       string
-	Type       CommandType
-	Body       CommandBody
-	Pos        Position
-	Tokens     TokenRange
+	Name   string
+	Type   CommandType
+	Body   CommandBody
+	Pos    Position
+	Tokens TokenRange
 
 	// Concrete syntax tokens for precise formatting and LSP
 	TypeToken  *lexer.Token // The watch/stop keyword (nil for regular commands)
@@ -389,7 +389,7 @@ func (c *CommandDecl) SemanticTokens() []lexer.Token {
 type CommandType int
 
 const (
-	Command      CommandType = iota
+	Command CommandType = iota
 	WatchCommand
 	StopCommand
 )
@@ -586,27 +586,27 @@ func (d *BlockDecorator) TokenRange() TokenRange {
 
 func (d *BlockDecorator) SemanticTokens() []lexer.Token {
 	var tokens []lexer.Token
-	
+
 	// Add @ token
 	atToken := d.AtToken
 	atToken.Semantic = lexer.SemOperator
 	tokens = append(tokens, atToken)
-	
+
 	// Add name token
 	nameToken := d.NameToken
 	nameToken.Semantic = lexer.SemKeyword
 	tokens = append(tokens, nameToken)
-	
+
 	// Add argument tokens
 	for _, arg := range d.Args {
 		tokens = append(tokens, arg.SemanticTokens()...)
 	}
-	
+
 	// Add content tokens
 	for _, content := range d.Content {
 		tokens = append(tokens, content.SemanticTokens()...)
 	}
-	
+
 	return tokens
 }
 
@@ -617,9 +617,9 @@ func (d *BlockDecorator) IsCommandContent() bool {
 // PatternDecorator represents pattern decorators like @when, @try
 // This handles cases like: @when(MODE) { production: deploy.sh; staging: deploy-staging.sh }
 type PatternDecorator struct {
-	Name     string            // Decorator name: "when", "try"
-	Args     []Expression      // Arguments within parentheses (e.g., variable for @when)
-	Patterns []PatternBranch   // Pattern branches inside the decorator block
+	Name     string          // Decorator name: "when", "try"
+	Args     []Expression    // Arguments within parentheses (e.g., variable for @when)
+	Patterns []PatternBranch // Pattern branches inside the decorator block
 	Pos      Position
 	Tokens   TokenRange
 
@@ -659,27 +659,27 @@ func (d *PatternDecorator) TokenRange() TokenRange {
 
 func (d *PatternDecorator) SemanticTokens() []lexer.Token {
 	var tokens []lexer.Token
-	
+
 	// Add @ token
 	atToken := d.AtToken
 	atToken.Semantic = lexer.SemOperator
 	tokens = append(tokens, atToken)
-	
+
 	// Add name token
 	nameToken := d.NameToken
 	nameToken.Semantic = lexer.SemKeyword
 	tokens = append(tokens, nameToken)
-	
+
 	// Add argument tokens
 	for _, arg := range d.Args {
 		tokens = append(tokens, arg.SemanticTokens()...)
 	}
-	
+
 	// Add pattern tokens
 	for _, pattern := range d.Patterns {
 		tokens = append(tokens, pattern.SemanticTokens()...)
 	}
-	
+
 	return tokens
 }
 
@@ -690,8 +690,8 @@ func (d *PatternDecorator) IsCommandContent() bool {
 // PatternContent represents a simple pattern with commands
 // Simplified to just Pattern and Commands
 type PatternContent struct {
-	Pattern  string            // The pattern string (e.g., "production", "main", "*")
-	Commands []CommandContent  // The commands to execute for this pattern
+	Pattern  string           // The pattern string (e.g., "production", "main", "*")
+	Commands []CommandContent // The commands to execute for this pattern
 	Pos      Position
 	Tokens   TokenRange
 }
@@ -728,8 +728,8 @@ func (p *PatternContent) IsCommandContent() bool {
 // Examples: "production: deploy.sh", "main: npm start", "*: default.sh"
 // Supports multiple commands per pattern when using newlines
 type PatternBranch struct {
-	Pattern  Pattern           // The pattern identifier or wildcard
-	Commands []CommandContent  // The commands to execute for this pattern (supports multiple)
+	Pattern  Pattern          // The pattern identifier or wildcard
+	Commands []CommandContent // The commands to execute for this pattern (supports multiple)
 	Pos      Position
 	Tokens   TokenRange
 
@@ -867,16 +867,16 @@ func (w *WildcardPattern) GetPatternType() PatternType {
 // FunctionDecorator represents inline decorators like @var(NAME) or @sh(command)
 // These appear WITHIN shell content and return values
 type FunctionDecorator struct {
-	Name  string
-	Args  []Expression
-	Pos   Position
+	Name   string
+	Args   []Expression
+	Pos    Position
 	Tokens TokenRange
 
 	// Concrete syntax tokens for precise formatting and LSP
-	AtToken     lexer.Token  // The "@" symbol
-	NameToken   lexer.Token  // The decorator name token
-	OpenParen   *lexer.Token // The "(" token (nil if no args)
-	CloseParen  *lexer.Token // The ")" token (nil if no args)
+	AtToken    lexer.Token  // The "@" symbol
+	NameToken  lexer.Token  // The decorator name token
+	OpenParen  *lexer.Token // The "(" token (nil if no args)
+	CloseParen *lexer.Token // The ")" token (nil if no args)
 }
 
 func (f *FunctionDecorator) String() string {
@@ -1324,7 +1324,8 @@ func ValidatePatternSequence(tokens []lexer.Token, decoratorType string) []lexer
 	hasWildcard := false
 
 	for _, token := range tokens {
-		if token.Type == lexer.ASTERISK {
+		switch token.Type {
+		case lexer.ASTERISK:
 			if hasWildcard {
 				errors = append(errors, lexer.PatternError{
 					Message: "multiple wildcard patterns not allowed",
@@ -1333,7 +1334,7 @@ func ValidatePatternSequence(tokens []lexer.Token, decoratorType string) []lexer
 				})
 			}
 			hasWildcard = true
-		} else if token.Type == lexer.IDENTIFIER {
+		case lexer.IDENTIFIER:
 			if existing, exists := patterns[token.Value]; exists {
 				errors = append(errors, lexer.PatternError{
 					Message: fmt.Sprintf("duplicate pattern '%s'", token.Value),

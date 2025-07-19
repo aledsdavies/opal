@@ -38,7 +38,7 @@ func assertGeneratedCode(t *testing.T, name string, input string, validate func(
 	if strings.Contains(name, "Parallel") {
 		t.Logf("DEBUG %s: Program has %d commands", name, len(program.Commands))
 		for i, cmd := range program.Commands {
-			t.Logf("DEBUG %s: Command %d: name=%s, type=%v, body content count=%d", 
+			t.Logf("DEBUG %s: Command %d: name=%s, type=%v, body content count=%d",
 				name, i, cmd.Name, cmd.Type, len(cmd.Body.Content))
 			for j, content := range cmd.Body.Content {
 				t.Logf("DEBUG %s: Content %d: type=%T", name, j, content)
@@ -379,8 +379,8 @@ build: echo "Building @var(APP)"; go build -o @var(APP) .`,
 				// Check that variables were expanded (no @var left)
 				if tt.notWant != "" && strings.Contains(code, tt.notWant) {
 					return TestResult{
-						Success:      false,
-						ErrorMessage: "Found unexpanded variable",
+						Success:         false,
+						ErrorMessage:    "Found unexpanded variable",
 						ExpectedPattern: tt.notWant,
 					}
 				}
@@ -415,8 +415,8 @@ func TestCommandGeneration(t *testing.T) {
 			description: "Commands with dashes should be camelCased in function names",
 		},
 		{
-			name: "Semicolon-separated commands in single line",
-			input: `deploy: echo "Deploying..."; kubectl apply -f k8s/`,
+			name:        "Semicolon-separated commands in single line",
+			input:       `deploy: echo "Deploying..."; kubectl apply -f k8s/`,
 			expectFunc:  "func (c *CLI) runDeploy(args []string)",
 			expectShell: `exec.Command("sh", "-c", "echo \"Deploying...\"; kubectl apply -f k8s/")`,
 			description: "Semicolon-separated commands on one line = one ShellContent = one exec",
@@ -458,9 +458,9 @@ func TestCommandGeneration(t *testing.T) {
 // Watch/Stop command tests
 func TestWatchStopCommands(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		expect []string
+		name        string
+		input       string
+		expect      []string
 		description string
 	}{
 		{
@@ -504,10 +504,10 @@ stop server: pkill node`,
 // Parallel decorator tests
 func TestParallelDecorator(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		expect    []string
-		forbidden []string
+		name        string
+		input       string
+		expect      []string
+		forbidden   []string
 		description string
 	}{
 		{
@@ -806,8 +806,8 @@ deploy: {
 		// Verify no unexpanded variables remain
 		if strings.Contains(code, "@var(") {
 			return TestResult{
-				Success:      false,
-				ErrorMessage: "Found unexpanded variable",
+				Success:         false,
+				ErrorMessage:    "Found unexpanded variable",
 				ExpectedPattern: "@var(",
 			}
 		}
@@ -855,7 +855,11 @@ stop dev: pkill -f "go run"`
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Write generated code
 	mainFile := filepath.Join(tmpDir, "main.go")
@@ -919,7 +923,7 @@ func TestShellContentBoundaries(t *testing.T) {
 			description: "Each line in block = separate ShellContent = separate exec",
 		},
 		{
-			name: "Semicolons keep commands together",
+			name:  "Semicolons keep commands together",
 			input: `deploy: echo "Step 1"; echo "Step 2"; echo "Step 3"`,
 			expectCmds: []string{
 				`exec.Command("sh", "-c", "echo \"Step 1\"; echo \"Step 2\"; echo \"Step 3\"")`,

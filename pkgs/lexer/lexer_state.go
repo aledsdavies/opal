@@ -331,7 +331,8 @@ func (sm *StateMachine) handleRBrace() (LexerState, error) {
 
 	// Determine the state to return to based on the context we're closing
 	if targetContext != nil {
-		if targetContext.Type == ContextPatternBlock {
+		switch targetContext.Type {
+		case ContextPatternBlock:
 			// Closing a pattern block - check if we're returning to top level or staying in pattern
 			if sm.braceLevel == 0 {
 				return StateTopLevel, sm.Transition(StateTopLevel)
@@ -339,7 +340,7 @@ func (sm *StateMachine) handleRBrace() (LexerState, error) {
 				// Still nested in pattern
 				return StatePatternBlock, sm.Transition(StatePatternBlock)
 			}
-		} else if targetContext.Type == ContextBlock {
+		case ContextBlock:
 			// Check if we're nested in a pattern context
 			if sm.IsInPatternContext() && sm.braceLevel > 0 {
 				return StatePatternBlock, sm.Transition(StatePatternBlock)
@@ -441,17 +442,6 @@ func (sm *StateMachine) handleIdentifier(value string) (LexerState, error) {
 	default:
 		return sm.current, nil
 	}
-}
-
-// isPatternIdentifier checks if an identifier could be a pattern in the current context
-func (sm *StateMachine) isPatternIdentifier(value string) bool {
-	// Common pattern identifiers
-	patterns := map[string]bool{
-		"main": true, "error": true, "finally": true,
-		"prod": true, "dev": true, "production": true, "development": true,
-		"staging": true, "test": true,
-	}
-	return patterns[value]
 }
 
 func (sm *StateMachine) handleShellText() (LexerState, error) {
