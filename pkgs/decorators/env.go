@@ -140,6 +140,15 @@ func (e *EnvDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	}
 }
 
+// ImportRequirements returns the dependencies needed for code generation
+func (e *EnvDecorator) ImportRequirements() ImportRequirement {
+	return ImportRequirement{
+		StandardLibrary: []string{"os"}, // Env decorator needs os package
+		ThirdParty:      []string{},
+		GoModules:       map[string]string{},
+	}
+}
+
 // init registers the env decorator
 func init() {
 	RegisterFunction(&EnvDecorator{})

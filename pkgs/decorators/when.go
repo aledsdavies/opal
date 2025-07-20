@@ -146,6 +146,15 @@ case %q:`, patternStr)
 	return code, nil
 }
 
+// ImportRequirements returns the dependencies needed for code generation
+func (w *WhenDecorator) ImportRequirements() ImportRequirement {
+	return ImportRequirement{
+		StandardLibrary: []string{"os"}, // When decorator may need os for environment variables
+		ThirdParty:      []string{},
+		GoModules:       map[string]string{},
+	}
+}
+
 // init registers the when decorator
 func init() {
 	RegisterPattern(&WhenDecorator{})

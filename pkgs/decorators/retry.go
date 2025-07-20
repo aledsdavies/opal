@@ -175,6 +175,15 @@ func (r *RetryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParam
 	return builder.String(), nil
 }
 
+// ImportRequirements returns the dependencies needed for code generation
+func (r *RetryDecorator) ImportRequirements() ImportRequirement {
+	return ImportRequirement{
+		StandardLibrary: []string{"time", "fmt"}, // Retry needs time for delays and fmt for errors
+		ThirdParty:      []string{},
+		GoModules:       map[string]string{},
+	}
+}
+
 // init registers the retry decorator
 func init() {
 	RegisterBlock(&RetryDecorator{})

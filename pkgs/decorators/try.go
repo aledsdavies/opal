@@ -211,6 +211,15 @@ func (t *TryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	return builder.String(), nil
 }
 
+// ImportRequirements returns the dependencies needed for code generation
+func (t *TryDecorator) ImportRequirements() ImportRequirement {
+	return ImportRequirement{
+		StandardLibrary: []string{"fmt"}, // Try decorator needs fmt for error handling
+		ThirdParty:      []string{},
+		GoModules:       map[string]string{},
+	}
+}
+
 // init registers the try decorator
 func init() {
 	RegisterPattern(&TryDecorator{})

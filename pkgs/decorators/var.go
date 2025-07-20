@@ -103,6 +103,15 @@ func (v *VarDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	return "", fmt.Errorf("variable '%s' not defined", varName)
 }
 
+// ImportRequirements returns the dependencies needed for code generation
+func (v *VarDecorator) ImportRequirements() ImportRequirement {
+	return ImportRequirement{
+		StandardLibrary: []string{}, // No additional imports needed
+		ThirdParty:      []string{},
+		GoModules:       map[string]string{},
+	}
+}
+
 // init registers the var decorator
 func init() {
 	RegisterFunction(&VarDecorator{})

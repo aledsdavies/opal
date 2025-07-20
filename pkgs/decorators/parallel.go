@@ -229,6 +229,15 @@ func (p *ParallelDecorator) Generate(ctx *ExecutionContext, params []ast.NamedPa
 	return builder.String(), nil
 }
 
+// ImportRequirements returns the dependencies needed for code generation
+func (p *ParallelDecorator) ImportRequirements() ImportRequirement {
+	return ImportRequirement{
+		StandardLibrary: []string{"context", "sync", "fmt", "strings"}, // Parallel needs sync, context, etc.
+		ThirdParty:      []string{},
+		GoModules:       map[string]string{},
+	}
+}
+
 // init registers the parallel decorator
 func init() {
 	RegisterBlock(&ParallelDecorator{})

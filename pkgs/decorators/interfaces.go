@@ -13,6 +13,13 @@ type ParameterSchema struct {
 	Description string               // Human-readable description
 }
 
+// ImportRequirement describes dependencies needed for code generation
+type ImportRequirement struct {
+	StandardLibrary []string          // Standard library imports (e.g., "time", "context", "sync")
+	ThirdParty      []string          // Third-party imports (e.g., "github.com/pkg/errors")
+	GoModules       map[string]string // Module dependencies for go.mod (module -> version)
+}
+
 // Decorator is a union interface for all decorator types
 // Used for registry and common operations
 type Decorator interface {
@@ -20,6 +27,9 @@ type Decorator interface {
 	Description() string
 	Validate(ctx *ExecutionContext, params []ast.NamedParameter) error
 	ParameterSchema() []ParameterSchema
+	
+	// ImportRequirements returns the dependencies needed for code generation
+	ImportRequirements() ImportRequirement
 }
 
 // FunctionDecorator represents decorators that transform input arguments to output strings

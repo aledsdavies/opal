@@ -181,6 +181,15 @@ func (t *TimeoutDecorator) Generate(ctx *ExecutionContext, params []ast.NamedPar
 	return builder.String(), nil
 }
 
+// ImportRequirements returns the dependencies needed for code generation
+func (t *TimeoutDecorator) ImportRequirements() ImportRequirement {
+	return ImportRequirement{
+		StandardLibrary: []string{"time", "context", "fmt"}, // Timeout needs time and context packages
+		ThirdParty:      []string{},
+		GoModules:       map[string]string{},
+	}
+}
+
 // init registers the timeout decorator
 func init() {
 	RegisterBlock(&TimeoutDecorator{})
