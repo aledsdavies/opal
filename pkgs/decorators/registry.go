@@ -74,7 +74,7 @@ func (r *Registry) GetPattern(name string) (PatternDecorator, bool) {
 func (r *Registry) GetAny(name string) (Decorator, DecoratorType, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	if decorator, exists := r.functionDecorators[name]; exists {
 		return decorator, FunctionType, true
 	}
@@ -84,7 +84,7 @@ func (r *Registry) GetAny(name string) (Decorator, DecoratorType, bool) {
 	if decorator, exists := r.patternDecorators[name]; exists {
 		return decorator, PatternType, true
 	}
-	
+
 	return nil, FunctionType, false
 }
 
@@ -92,11 +92,11 @@ func (r *Registry) GetAny(name string) (Decorator, DecoratorType, bool) {
 func (r *Registry) ListAll() ([]FunctionDecorator, []BlockDecorator, []PatternDecorator) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var functions []FunctionDecorator
 	var blocks []BlockDecorator
 	var patterns []PatternDecorator
-	
+
 	for _, decorator := range r.functionDecorators {
 		functions = append(functions, decorator)
 	}
@@ -106,7 +106,7 @@ func (r *Registry) ListAll() ([]FunctionDecorator, []BlockDecorator, []PatternDe
 	for _, decorator := range r.patternDecorators {
 		patterns = append(patterns, decorator)
 	}
-	
+
 	return functions, blocks, patterns
 }
 

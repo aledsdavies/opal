@@ -34,7 +34,7 @@ func Parse(reader io.Reader) (*ast.Program, error) {
 		return nil, fmt.Errorf("failed to read input: %w", err)
 	}
 	input := string(data)
-	
+
 	lex := lexer.New(strings.NewReader(input))
 	p := &Parser{
 		input:  input, // Store the raw input
@@ -446,7 +446,7 @@ func (p *Parser) parsePatternBranch() (*ast.PatternBranch, error) {
 	if p.match(types.IDENTIFIER) {
 		token := p.current()
 		p.advance()
-		
+
 		// Check if this is the "default" wildcard pattern
 		if token.Value == "default" {
 			pattern = &ast.WildcardPattern{
@@ -713,13 +713,13 @@ func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.Functio
 	// Step 2: Get parameter schema and parse simple arguments
 	paramSchema := decorator.ParameterSchema()
 	var params []ast.NamedParameter
-	
+
 	if strings.TrimSpace(argText) != "" {
 		trimmed := strings.TrimSpace(argText)
-		
+
 		// For inline decorators, we'll use simple parsing (no named parameters for now)
 		var value ast.Expression
-		
+
 		// Handle quoted strings
 		if (strings.HasPrefix(trimmed, `"`) && strings.HasSuffix(trimmed, `"`)) ||
 			(strings.HasPrefix(trimmed, `'`) && strings.HasSuffix(trimmed, `'`)) ||
@@ -731,7 +731,7 @@ func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.Functio
 			// Identifier
 			value = &ast.Identifier{Name: trimmed}
 		}
-		
+
 		// Use first parameter name from schema if available
 		var paramName string
 		if len(paramSchema) > 0 {
@@ -739,7 +739,7 @@ func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.Functio
 		} else {
 			paramName = "arg0"
 		}
-		
+
 		params = append(params, ast.NamedParameter{
 			Name:  paramName,
 			Value: value,
@@ -772,86 +772,6 @@ func isDigit(ch rune) bool {
 }
 
 // --- Expression and Literal Parsing ---
-
-// parseExpression parses any valid expression (literals, identifiers, function decorators).
-// This is used for parsing decorator arguments, where an identifier can be complex.
-func (p *Parser) parseExpression() (ast.Expression, error) {
-	switch p.current().Type {
-	case types.STRING:
-		tok := p.current()
-		p.advance()
-		return &ast.StringLiteral{Value: tok.Value, Raw: tok.Raw, StringToken: tok}, nil
-	case types.NUMBER:
-		tok := p.current()
-		p.advance()
-		return &ast.NumberLiteral{Value: tok.Value, Token: tok}, nil
-	case types.DURATION:
-		tok := p.current()
-		p.advance()
-		return &ast.DurationLiteral{Value: tok.Value, Token: tok}, nil
-	case types.BOOLEAN:
-		tok := p.current()
-		p.advance()
-		return &ast.BooleanLiteral{Value: tok.Value == "true", Token: tok}, nil
-	case types.IDENTIFIER:
-		// For decorator arguments, an "identifier" can be a complex value.
-		// This function consumes tokens until a separator is found.
-		return p.parseDecoratorArgument()
-	case types.AT:
-		// **SPEC COMPLIANCE**: REJECT function decorators in decorator arguments
-		return nil, fmt.Errorf("function decorators (@var, @env, etc.) are not allowed as decorator arguments. Use direct variable names instead (e.g., @timeout(DURATION) not @timeout(@var(DURATION)))")
-	}
-	return nil, fmt.Errorf("unexpected token %s, expected an expression (literal or identifier)", p.current().Type)
-}
-
-// parseDecoratorArgument handles complex decorator arguments.
-// **UPDATED**: This version is now robust and handles nested parentheses correctly,
-// ensuring it consumes the entire intended argument without overrunning.
-func (p *Parser) parseDecoratorArgument() (ast.Expression, error) {
-	startToken := p.current()
-	startOffset := startToken.Span.Start.Offset
-
-	// We need to find the end of the argument, which is either a comma or a closing parenthesis
-	// at the same parenthesis level.
-	parenDepth := 0
-	searchPos := p.pos
-
-	for searchPos < len(p.tokens) {
-		tok := p.tokens[searchPos]
-		if (tok.Type == types.COMMA || tok.Type == types.RPAREN) && parenDepth == 0 {
-			break
-		}
-		switch tok.Type {
-		case types.LPAREN:
-			parenDepth++
-		case types.RPAREN:
-			parenDepth--
-		}
-		searchPos++
-	}
-
-	// The argument ends at the start of the terminator token, or the end of the last token if at EOF.
-	var endOffset int
-	if searchPos < len(p.tokens) {
-		endOffset = p.tokens[searchPos].Span.Start.Offset
-		// Trim trailing space
-		for endOffset > startOffset && strings.ContainsRune(" \t", rune(p.input[endOffset-1])) {
-			endOffset--
-		}
-	} else {
-		endOffset = p.tokens[len(p.tokens)-1].Span.End.Offset // EOF
-	}
-
-	value := p.input[startOffset:endOffset]
-
-	// Advance parser position past the consumed tokens for the argument.
-	p.pos = searchPos
-
-	return &ast.Identifier{
-		Name:  value,
-		Token: types.Token{Value: value, Line: startToken.Line, Column: startToken.Column},
-	}, nil
-}
 
 // --- Variable Parsing ---
 
@@ -1090,7 +1010,7 @@ func (p *Parser) parseParameterList(paramSchema []decorators.ParameterSchema) ([
 			return nil, err
 		}
 		params = append(params, param)
-		
+
 		if !p.match(types.COMMA) {
 			break
 		}
@@ -1102,7 +1022,7 @@ func (p *Parser) parseParameterList(paramSchema []decorators.ParameterSchema) ([
 // parseParameter parses a single parameter (either named or positional) using the schema
 func (p *Parser) parseParameter(paramSchema []decorators.ParameterSchema, positionalIndex *int) (ast.NamedParameter, error) {
 	startPos := p.current()
-	
+
 	// Check if this is a named parameter (identifier = value)
 	if p.current().Type == types.IDENTIFIER && p.peek().Type == types.EQUALS {
 		// Named parameter
@@ -1114,12 +1034,12 @@ func (p *Parser) parseParameter(paramSchema []decorators.ParameterSchema, positi
 		if err != nil {
 			return ast.NamedParameter{}, err
 		}
-		
+
 		value, err := p.parseValue()
 		if err != nil {
 			return ast.NamedParameter{}, err
 		}
-		
+
 		return ast.NamedParameter{
 			Name:        nameToken.Value,
 			Value:       value,
@@ -1133,7 +1053,7 @@ func (p *Parser) parseParameter(paramSchema []decorators.ParameterSchema, positi
 		if err != nil {
 			return ast.NamedParameter{}, err
 		}
-		
+
 		// Get parameter name from schema at current position
 		var paramName string
 		if *positionalIndex < len(paramSchema) {
@@ -1142,7 +1062,7 @@ func (p *Parser) parseParameter(paramSchema []decorators.ParameterSchema, positi
 			paramName = fmt.Sprintf("arg%d", *positionalIndex)
 		}
 		*positionalIndex++
-		
+
 		return ast.NamedParameter{
 			Name:  paramName,
 			Value: value,
@@ -1192,27 +1112,6 @@ func (p *Parser) isValidDecoratorName(token types.Token) bool {
 	default:
 		return false
 	}
-}
-
-// parseArgumentList parses a comma-separated list of expressions.
-func (p *Parser) parseArgumentList() ([]ast.Expression, error) {
-	var args []ast.Expression
-	if p.match(types.RPAREN) {
-		return args, nil // No arguments
-	}
-
-	for {
-		arg, err := p.parseExpression()
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, arg)
-		if !p.match(types.COMMA) {
-			break
-		}
-		p.advance() // consume ','
-	}
-	return args, nil
 }
 
 // parsePatternBranchesInBlock parses pattern branches directly from the token stream
@@ -1340,7 +1239,7 @@ func (p *Parser) isPatternDecorator() bool {
 	}
 	if p.pos+1 < len(p.tokens) {
 		nextToken := p.tokens[p.pos+1]
-		
+
 		if nextToken.Type == types.IDENTIFIER {
 			// Use the decorator registry to check for pattern decorators
 			return decorators.IsPatternDecorator(nextToken.Value)

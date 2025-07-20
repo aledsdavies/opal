@@ -37,7 +37,7 @@ func (v *VarDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParamet
 	if len(params) != 1 {
 		return fmt.Errorf("@var requires exactly 1 parameter (variable identifier), got %d", len(params))
 	}
-	
+
 	// Get the variable name parameter
 	nameParam := ast.FindParameter(params, "name")
 	if nameParam == nil && len(params) > 0 {
@@ -47,12 +47,12 @@ func (v *VarDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParamet
 	if nameParam == nil {
 		return fmt.Errorf("@var requires 'name' parameter")
 	}
-	
+
 	// Parameter must be an identifier (variable name)
 	if _, ok := nameParam.Value.(*ast.Identifier); !ok {
 		return fmt.Errorf("@var 'name' parameter must be an identifier (variable name), got %T", nameParam.Value)
 	}
-	
+
 	return nil
 }
 
@@ -61,7 +61,7 @@ func (v *VarDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (
 	if err := v.Validate(ctx, params); err != nil {
 		return "", err
 	}
-	
+
 	// Get the variable name
 	var varName string
 	nameParam := ast.FindParameter(params, "name")
@@ -71,12 +71,12 @@ func (v *VarDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (
 	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
 		varName = ident.Name
 	}
-	
+
 	// Look up the variable in the execution context
 	if value, exists := ctx.GetVariable(varName); exists {
 		return value, nil
 	}
-	
+
 	return "", fmt.Errorf("variable '%s' not defined", varName)
 }
 
@@ -85,7 +85,7 @@ func (v *VarDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	if err := v.Validate(ctx, params); err != nil {
 		return "", err
 	}
-	
+
 	// Get the variable name
 	var varName string
 	nameParam := ast.FindParameter(params, "name")
@@ -95,12 +95,12 @@ func (v *VarDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
 		varName = ident.Name
 	}
-	
+
 	// Look up the variable value and return it as a string literal
 	if value, exists := ctx.GetVariable(varName); exists {
 		return fmt.Sprintf("%q", value), nil
 	}
-	
+
 	return "", fmt.Errorf("variable '%s' not defined", varName)
 }
 
@@ -109,7 +109,7 @@ func (v *VarDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) 
 	if err := v.Validate(ctx, params); err != nil {
 		return nil, err
 	}
-	
+
 	// Get the variable name
 	var varName string
 	nameParam := ast.FindParameter(params, "name")
@@ -119,7 +119,7 @@ func (v *VarDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) 
 	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
 		varName = ident.Name
 	}
-	
+
 	// Look up the variable in the execution context
 	var description string
 	if value, exists := ctx.GetVariable(varName); exists {
@@ -127,7 +127,7 @@ func (v *VarDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) 
 	} else {
 		description = fmt.Sprintf("Variable resolution: ${%s} → <undefined>", varName)
 	}
-	
+
 	return plan.Decorator("var").
 		WithType("function").
 		WithParameter("name", varName).

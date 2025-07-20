@@ -42,11 +42,11 @@ func (t *TryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, p
 
 	// Find pattern branches
 	var mainBranch, errorBranch, finallyBranch *ast.PatternBranch
-	
+
 	for i := range patterns {
 		pattern := &patterns[i]
 		patternStr := t.patternToString(pattern.Pattern)
-		
+
 		switch patternStr {
 		case "main":
 			mainBranch = pattern
@@ -99,7 +99,7 @@ func (t *TryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, p
 func (t *TryDecorator) executeCommands(ctx *ExecutionContext, commands []ast.CommandContent) error {
 	for i, cmd := range commands {
 		fmt.Printf("  Executing command %d: %+v\n", i, cmd)
-		
+
 		// Simulate some main commands failing for testing
 		if shellCmd, ok := cmd.(*ast.ShellContent); ok {
 			cmdText := shellCmd.String()
@@ -129,11 +129,11 @@ func (t *TryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 
 	// Find pattern branches for code generation
 	var mainBranch, errorBranch, finallyBranch *ast.PatternBranch
-	
+
 	for i := range patterns {
 		pattern := &patterns[i]
 		patternStr := t.patternToString(pattern.Pattern)
-		
+
 		switch patternStr {
 		case "main":
 			mainBranch = pattern
@@ -220,11 +220,11 @@ func (t *TryDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, 
 
 	// Find pattern branches
 	var mainBranch, errorBranch, finallyBranch *ast.PatternBranch
-	
+
 	for i := range patterns {
 		pattern := &patterns[i]
 		patternStr := t.patternToString(pattern.Pattern)
-		
+
 		switch patternStr {
 		case "main":
 			mainBranch = pattern

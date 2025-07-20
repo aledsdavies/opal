@@ -28,7 +28,7 @@ type Decorator interface {
 	Description() string
 	Validate(ctx *ExecutionContext, params []ast.NamedParameter) error
 	ParameterSchema() []ParameterSchema
-	
+
 	// ImportRequirements returns the dependencies needed for code generation
 	ImportRequirements() ImportRequirement
 }
@@ -44,7 +44,7 @@ type FunctionDecorator interface {
 	// Generate produces Go code for the decorator in compiled mode
 	Generate(ctx *ExecutionContext, params []ast.NamedParameter) (string, error)
 
-	// Plan creates a plan element describing what this decorator would do in dry run mode  
+	// Plan creates a plan element describing what this decorator would do in dry run mode
 	Plan(ctx *ExecutionContext, params []ast.NamedParameter) (plan.PlanElement, error)
 }
 

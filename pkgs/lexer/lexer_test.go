@@ -1,10 +1,11 @@
 package lexer
 
 import (
-	"github.com/aledsdavies/devcmd/pkgs/types"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/aledsdavies/devcmd/pkgs/types"
 
 	"github.com/google/go-cmp/cmp"
 )
@@ -387,7 +388,7 @@ world"`,
 			},
 		},
 		{
-			name: "continuation in backtick string (processed)",
+			name:  "continuation in backtick string (processed)",
 			input: "build: echo `hello \\\nworld`",
 			expected: []tokenExpectation{
 				{types.IDENTIFIER, "build"},
@@ -1304,7 +1305,7 @@ func TestBlockDecoratorShellContent(t *testing.T) {
 			},
 		},
 		{
-			name:  "nested parallel decorator inside command block",
+			name: "nested parallel decorator inside command block",
 			input: `format: {
     @parallel {
         echo test
@@ -1368,10 +1369,10 @@ format: {
 
 func TestWatchStopMultipleCommands(t *testing.T) {
 	input := "watch server: npm start\nstop server: pkill node"
-	
+
 	expected := []tokenExpectation{
 		{types.WATCH, "watch"},
-		{types.IDENTIFIER, "server"}, 
+		{types.IDENTIFIER, "server"},
 		{types.COLON, ":"},
 		{types.SHELL_TEXT, "npm start"},
 		{types.STOP, "stop"},
@@ -1380,6 +1381,6 @@ func TestWatchStopMultipleCommands(t *testing.T) {
 		{types.SHELL_TEXT, "pkill node"},
 		{types.EOF, ""},
 	}
-	
+
 	assertTokens(t, "watch and stop commands on separate lines", input, expected)
 }

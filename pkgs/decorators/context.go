@@ -2,6 +2,7 @@ package decorators
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
@@ -10,12 +11,12 @@ import (
 // ExecutionContext provides execution context for decorators and implements context.Context
 type ExecutionContext struct {
 	context.Context
-	
+
 	// Core data
 	Program   *ast.Program
 	Variables map[string]string // Resolved variable values
 	Env       map[string]string // Environment variables
-	
+
 	// Execution state
 	WorkingDir string
 	Debug      bool
@@ -27,7 +28,7 @@ func NewExecutionContext(parent context.Context, program *ast.Program) *Executio
 	if parent == nil {
 		parent = context.Background()
 	}
-	
+
 	return &ExecutionContext{
 		Context:   parent,
 		Program:   program,
@@ -74,4 +75,52 @@ func (c *ExecutionContext) GetEnv(name string) (string, bool) {
 // SetEnv sets an environment variable
 func (c *ExecutionContext) SetEnv(name, value string) {
 	c.Env[name] = value
+}
+
+// InitializeVariables processes and sets all variables from the program
+func (c *ExecutionContext) InitializeVariables() error {
+	if c.Program == nil {
+		return nil
+	}
+
+	// Process individual variables
+	for _, variable := range c.Program.Variables {
+		value, err := c.resolveVariableValue(variable.Value)
+		if err != nil {
+			return fmt.Errorf("failed to resolve variable %s: %w", variable.Name, err)
+		}
+		c.SetVariable(variable.Name, value)
+	}
+
+	// Process variable groups
+	for _, group := range c.Program.VarGroups {
+		for _, variable := range group.Variables {
+			value, err := c.resolveVariableValue(variable.Value)
+			if err != nil {
+				return fmt.Errorf("failed to resolve variable %s: %w", variable.Name, err)
+			}
+			c.SetVariable(variable.Name, value)
+		}
+	}
+
+	return nil
+}
+
+// resolveVariableValue converts an AST expression to its string value
+func (c *ExecutionContext) resolveVariableValue(expr ast.Expression) (string, error) {
+	switch v := expr.(type) {
+	case *ast.StringLiteral:
+		return v.Value, nil
+	case *ast.NumberLiteral:
+		return v.Value, nil
+	case *ast.BooleanLiteral:
+		if v.Value {
+			return "true", nil
+		}
+		return "false", nil
+	case *ast.DurationLiteral:
+		return v.Value, nil
+	default:
+		return "", fmt.Errorf("unsupported expression type: %T", expr)
+	}
 }

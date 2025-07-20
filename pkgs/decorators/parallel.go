@@ -90,7 +90,7 @@ func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamet
 		// Check if context is cancelled
 		select {
 		case <-execCtx.Done():
-			break
+			return execCtx.Err()
 		default:
 		}
 

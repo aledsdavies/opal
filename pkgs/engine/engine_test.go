@@ -54,6 +54,47 @@ build: echo "Building on port $PORT"`
 	}
 }
 
+func TestEngineVariableResolutionWithDecorators(t *testing.T) {
+	// This test reproduces the issue where @var() decorators can't find variables
+	input := `var PORT = "3000"
+serve: echo "Server starting on port @var(PORT)"`
+
+	program, err := parser.Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Failed to parse program: %v", err)
+	}
+
+	// Create execution context and engine
+	ctx := decorators.NewExecutionContext(context.Background(), program)
+	engine := New(InterpreterMode, ctx)
+
+	// Execute the program - this should not fail
+	result, err := engine.Execute(program)
+	if err != nil {
+		t.Fatalf("Failed to execute program with variable resolution: %v", err)
+	}
+
+	// Verify result type
+	execResult, ok := result.(*ExecutionResult)
+	if !ok {
+		t.Fatalf("Expected ExecutionResult, got %T", result)
+	}
+
+	// Check that the variable was properly resolved
+	if len(execResult.Variables) != 1 {
+		t.Errorf("Expected 1 variable, got %d", len(execResult.Variables))
+	}
+
+	if execResult.Variables["PORT"] != "3000" {
+		t.Errorf("Expected PORT=3000, got %s", execResult.Variables["PORT"])
+	}
+
+	// The command should have been executed successfully
+	if len(execResult.Commands) != 1 {
+		t.Errorf("Expected 1 command, got %d", len(execResult.Commands))
+	}
+}
+
 func TestEngineGeneratorMode(t *testing.T) {
 	// Parse a simple program
 	input := `var PORT = 8080
@@ -82,7 +123,7 @@ build: echo "Building on port $PORT"`
 
 	// Check generated code contains expected elements
 	code := genResult.String()
-	
+
 	if !strings.Contains(code, "package main") {
 		t.Error("Generated code should contain package declaration")
 	}
@@ -158,7 +199,7 @@ func TestExecutionResultSummary(t *testing.T) {
 	}
 
 	summary := result.Summary()
-	
+
 	if !strings.Contains(summary, "PORT = 8080") {
 		t.Error("Summary should contain PORT variable")
 	}

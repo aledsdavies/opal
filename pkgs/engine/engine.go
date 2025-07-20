@@ -122,12 +122,12 @@ func (e *Engine) generateProgram(program *ast.Program) (*GenerationResult, error
 	// Generate package declaration and imports
 	result.Code.WriteString("package main\n\n")
 	result.Code.WriteString("import (\n")
-	
+
 	// Standard library imports
 	for pkg := range result.StandardImports {
 		result.Code.WriteString(fmt.Sprintf("\t\"%s\"\n", pkg))
 	}
-	
+
 	// Third-party imports (if any)
 	if len(result.ThirdPartyImports) > 0 {
 		result.Code.WriteString("\n")
@@ -135,7 +135,7 @@ func (e *Engine) generateProgram(program *ast.Program) (*GenerationResult, error
 			result.Code.WriteString(fmt.Sprintf("\t\"%s\"\n", pkg))
 		}
 	}
-	
+
 	result.Code.WriteString(")\n\n")
 
 	// Generate main function
@@ -185,7 +185,7 @@ func (e *Engine) executeCommand(cmd *ast.CommandDecl) (*CommandResult, error) {
 // generateCommand generates Go code for a single command
 func (e *Engine) generateCommand(cmd *ast.CommandDecl, result *GenerationResult) error {
 	result.Code.WriteString(fmt.Sprintf("\t// Command: %s\n", cmd.Name))
-	result.Code.WriteString(fmt.Sprintf("\tfunc() {\n"))
+	result.Code.WriteString("\tfunc() {\n")
 
 	// Generate command content
 	for _, content := range cmd.Body.Content {
@@ -234,49 +234,49 @@ func (e *Engine) generateCommandContent(content ast.CommandContent, result *Gene
 func (e *Engine) executeShellContent(shell *ast.ShellContent, result *CommandResult) error {
 	// Build the final command by processing each part
 	var cmdBuilder strings.Builder
-	
+
 	for _, part := range shell.Parts {
 		switch p := part.(type) {
 		case *ast.TextPart:
 			// Plain text - use as-is
 			cmdBuilder.WriteString(p.Text)
-			
+
 		case *ast.FunctionDecorator:
 			// Function decorator - execute using registry
 			decorator, err := decorators.GetFunction(p.Name)
 			if err != nil {
 				return fmt.Errorf("function decorator %s not found: %w", p.Name, err)
 			}
-			
+
 			value, err := decorator.Run(e.ctx, p.Args)
 			if err != nil {
 				return fmt.Errorf("failed to execute function decorator %s: %w", p.Name, err)
 			}
-			
+
 			cmdBuilder.WriteString(value)
-			
+
 		default:
 			return fmt.Errorf("unsupported shell part type: %T", part)
 		}
 	}
-	
+
 	expandedCmd := cmdBuilder.String()
-	
+
 	if e.ctx.Debug {
 		result.Output = append(result.Output, fmt.Sprintf("Executing: %s", expandedCmd))
 	}
-	
+
 	if e.ctx.DryRun {
 		result.Output = append(result.Output, fmt.Sprintf("Would execute: %s", expandedCmd))
 		return nil
 	}
-	
+
 	// Execute the shell command
 	execCmd := exec.Command("sh", "-c", expandedCmd)
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr
 	execCmd.Stdin = os.Stdin
-	
+
 	if err := execCmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			// Don't exit immediately, let the caller handle the error
@@ -284,8 +284,8 @@ func (e *Engine) executeShellContent(shell *ast.ShellContent, result *CommandRes
 		}
 		return fmt.Errorf("command failed: %w", err)
 	}
-	
-	result.Output = append(result.Output, fmt.Sprintf("Command completed successfully"))
+
+	result.Output = append(result.Output, "Command completed successfully")
 	return nil
 }
 
@@ -293,32 +293,32 @@ func (e *Engine) executeShellContent(shell *ast.ShellContent, result *CommandRes
 func (e *Engine) generateShellContent(shell *ast.ShellContent, result *GenerationResult) error {
 	// Build the final command by processing each part
 	var cmdBuilder strings.Builder
-	
+
 	for _, part := range shell.Parts {
 		switch p := part.(type) {
 		case *ast.TextPart:
 			// Plain text - use as-is
 			cmdBuilder.WriteString(p.Text)
-			
+
 		case *ast.FunctionDecorator:
 			// Function decorator - generate code using registry
 			decorator, err := decorators.GetFunction(p.Name)
 			if err != nil {
 				return fmt.Errorf("function decorator %s not found: %w", p.Name, err)
 			}
-			
+
 			code, err := decorator.Generate(e.ctx, p.Args)
 			if err != nil {
 				return fmt.Errorf("failed to generate code for function decorator %s: %w", p.Name, err)
 			}
-			
+
 			cmdBuilder.WriteString(code)
-			
+
 		default:
 			return fmt.Errorf("unsupported shell part type: %T", part)
 		}
 	}
-	
+
 	expandedCmd := cmdBuilder.String()
 	result.Code.WriteString(fmt.Sprintf("\t\t// Shell: %s\n", expandedCmd))
 	result.Code.WriteString(fmt.Sprintf("\t\tfmt.Printf(\"Executing: %s\\n\")\n", expandedCmd))
@@ -443,13 +443,13 @@ func (e *Engine) processVarGroups(groups []ast.VarGroup, result *ExecutionResult
 func (e *Engine) generateVariables(variables []ast.VariableDecl, result *GenerationResult) error {
 	for _, variable := range variables {
 		result.Code.WriteString(fmt.Sprintf("\t// Variable: %s\n", variable.Name))
-		
+
 		// Resolve the variable value to get the proper string representation
 		value, err := e.resolveVariableValue(variable.Value)
 		if err != nil {
 			return fmt.Errorf("failed to resolve variable %s: %w", variable.Name, err)
 		}
-		
+
 		result.Code.WriteString(fmt.Sprintf("\t%s := %q\n", variable.Name, value))
 	}
 	result.Code.WriteString("\n")
@@ -608,4 +608,3 @@ func (e *Engine) addDecoratorImports(decoratorType, name string, result *Generat
 
 	return nil
 }
-

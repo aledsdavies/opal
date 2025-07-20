@@ -20,11 +20,11 @@ type CommandResult struct {
 
 // GenerationResult represents the result of generating Go code
 type GenerationResult struct {
-	Code            strings.Builder   // Generated Go code
-	GoMod           strings.Builder   // Generated go.mod file
-	StandardImports map[string]bool   // Standard library imports
-	ThirdPartyImports map[string]bool // Third-party imports
-	GoModules       map[string]string // Module dependencies (module -> version)
+	Code              strings.Builder   // Generated Go code
+	GoMod             strings.Builder   // Generated go.mod file
+	StandardImports   map[string]bool   // Standard library imports
+	ThirdPartyImports map[string]bool   // Third-party imports
+	GoModules         map[string]string // Module dependencies (module -> version)
 }
 
 // String returns the generated code as a string
@@ -71,13 +71,13 @@ func (g *GenerationResult) HasGoModule(module string) bool {
 // Summary returns a summary of execution results
 func (e *ExecutionResult) Summary() string {
 	var summary strings.Builder
-	
+
 	summary.WriteString("Execution Summary:\n")
 	summary.WriteString("Variables:\n")
 	for name, value := range e.Variables {
 		summary.WriteString("  " + name + " = " + value + "\n")
 	}
-	
+
 	summary.WriteString("Commands:\n")
 	for _, cmd := range e.Commands {
 		summary.WriteString("  " + cmd.Name + ": " + cmd.Status)
@@ -86,7 +86,7 @@ func (e *ExecutionResult) Summary() string {
 		}
 		summary.WriteString("\n")
 	}
-	
+
 	return summary.String()
 }
 

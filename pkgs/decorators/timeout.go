@@ -203,7 +203,7 @@ func (t *TimeoutDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParamet
 	}
 
 	description := fmt.Sprintf("Execute %d commands with %s timeout (cancel if exceeded)", len(content), durationStr)
-	
+
 	return plan.Decorator("timeout").
 		WithType("block").
 		WithTimeout(timeout).

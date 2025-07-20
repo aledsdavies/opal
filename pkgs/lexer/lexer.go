@@ -3,7 +3,6 @@ package lexer
 import (
 	"io"
 	"strings"
-	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -19,7 +18,7 @@ var (
 	isIdentStart      [128]bool
 	isIdentPart       [128]bool
 	singleCharTokens  [128]types.TokenType // Fast lookup for single-char tokens
-	singleCharStrings [128]string    // Pre-allocated single-char strings
+	singleCharStrings [128]string          // Pre-allocated single-char strings
 )
 
 func init() {
@@ -30,8 +29,8 @@ func init() {
 		isDigit[i] = '0' <= ch && ch <= '9'
 		isIdentStart[i] = isLetter[i] || ch == '_'
 		isIdentPart[i] = isIdentStart[i] || isDigit[i] || ch == '-'
-		singleCharTokens[i] = types.ILLEGAL     // Default to ILLEGAL for non-single-char tokens
-		singleCharStrings[i] = string(ch) // Pre-allocate single char strings
+		singleCharTokens[i] = types.ILLEGAL // Default to ILLEGAL for non-single-char tokens
+		singleCharStrings[i] = string(ch)   // Pre-allocate single char strings
 	}
 
 	// Initialize single character token mappings
@@ -44,55 +43,6 @@ func init() {
 	singleCharTokens['{'] = types.LBRACE
 	singleCharTokens['}'] = types.RBRACE
 	singleCharTokens['*'] = types.ASTERISK
-}
-
-// Object pools for memory optimization
-var (
-	// Pool for token slices with different capacity tiers
-	smallSlicePool = sync.Pool{
-		New: func() interface{} {
-			slice := make([]types.Token, 0, 16)
-			return &slice
-		},
-	}
-	mediumSlicePool = sync.Pool{
-		New: func() interface{} {
-			slice := make([]types.Token, 0, 64)
-			return &slice
-		},
-	}
-	largeSlicePool = sync.Pool{
-		New: func() interface{} {
-			slice := make([]types.Token, 0, 256)
-			return &slice
-		},
-	}
-)
-
-// getTokenSlice returns a token slice from the appropriate pool
-func getTokenSlice(estimatedSize int) *[]types.Token {
-	if estimatedSize <= 16 {
-		return smallSlicePool.Get().(*[]types.Token)
-	} else if estimatedSize <= 64 {
-		return mediumSlicePool.Get().(*[]types.Token)
-	} else {
-		return largeSlicePool.Get().(*[]types.Token)
-	}
-}
-
-// putTokenSlice returns a token slice to the appropriate pool
-func putTokenSlice(slice *[]types.Token) {
-	*slice = (*slice)[:0] // Reset length but keep capacity
-
-	cap := cap(*slice)
-	if cap <= 16 {
-		smallSlicePool.Put(slice)
-	} else if cap <= 64 {
-		mediumSlicePool.Put(slice)
-	} else if cap <= 256 {
-		largeSlicePool.Put(slice)
-	}
-	// For larger slices, let GC handle them
 }
 
 // LexerMode represents the lexer's parsing modes
@@ -119,7 +69,7 @@ type Lexer struct {
 	// Context tracking
 	braceLevel int   // Track brace nesting
 	braceStack []int // Stack of brace positions for structural tracking
-	
+
 	// Decorator context tracking
 	currentDecorator   string    // Track current decorator name for mode switching
 	previousMode       LexerMode // Track previous mode for returns from CommandMode
@@ -139,11 +89,11 @@ func New(reader io.Reader) *Lexer {
 		// Handle error by creating empty lexer
 		data = []byte{}
 	}
-	
+
 	l := &Lexer{
 		input:      string(data),
 		line:       1,
-		column:     0, // Will be incremented to 1 by initial readChar()
+		column:     0,            // Will be incremented to 1 by initial readChar()
 		mode:       LanguageMode, // Start in LanguageMode
 		braceStack: make([]int, 0, 8),
 	}
@@ -151,11 +101,10 @@ func New(reader io.Reader) *Lexer {
 	return l
 }
 
-
 // readChar reads the next character and advances position
 func (l *Lexer) readChar() {
 	l.position = l.readPos
-	
+
 	if l.readPos >= len(l.input) {
 		l.ch = 0 // EOF
 	} else {
@@ -437,15 +386,15 @@ func (l *Lexer) lexCommandMode() types.Token {
 func (l *Lexer) lexDecorator(start, startLine, startColumn int) types.Token {
 	// Skip @ character
 	l.readChar()
-	
+
 	// Skip whitespace after @
 	l.skipWhitespace()
-	
+
 	// Read decorator identifier using fast ASCII lookups
-	if !((l.ch < 128 && isIdentStart[l.ch]) || (l.ch >= 128 && (unicode.IsLetter(l.ch) || l.ch == '_'))) {
+	if (l.ch >= 128 || !isIdentStart[l.ch]) && (l.ch < 128 || (!unicode.IsLetter(l.ch) && l.ch != '_')) {
 		return l.createToken(types.ILLEGAL, "@", start, startLine, startColumn)
 	}
-	
+
 	// Return AT token, let next token be the identifier
 	return l.createToken(types.AT, "@", start, startLine, startColumn)
 }
@@ -458,11 +407,11 @@ func (l *Lexer) lexDecoratorInCommand(start, startLine, startColumn int) types.T
 	savedCh := l.ch
 	savedLine := l.line
 	savedColumn := l.column
-	
+
 	// Skip @
 	l.readChar()
 	l.skipWhitespace()
-	
+
 	// Check if followed by identifier using fast ASCII lookups
 	if (l.ch < 128 && isIdentStart[l.ch]) || (l.ch >= 128 && (unicode.IsLetter(l.ch) || l.ch == '_')) {
 		// Read the identifier to check if it's a decorator
@@ -477,7 +426,7 @@ func (l *Lexer) lexDecoratorInCommand(start, startLine, startColumn int) types.T
 			}
 		}
 		identifier := l.input[identStart:l.position]
-		
+
 		// Check if it's a registered decorator
 		if decorators.IsDecorator(identifier) {
 			// Check decorator type from registry - only block/pattern decorators need LanguageMode
@@ -485,7 +434,7 @@ func (l *Lexer) lexDecoratorInCommand(start, startLine, startColumn int) types.T
 			if decorators.IsBlockDecorator(identifier) || decorators.IsPatternDecorator(identifier) {
 				// Switch to LanguageMode for decorator parsing
 				l.mode = LanguageMode
-				
+
 				// Advance past @ character (don't restore position)
 				l.position = savedPos
 				l.readPos = savedReadPos
@@ -493,19 +442,19 @@ func (l *Lexer) lexDecoratorInCommand(start, startLine, startColumn int) types.T
 				l.line = savedLine
 				l.column = savedColumn
 				l.readChar() // Skip the @ character
-				
+
 				return l.createToken(types.AT, "@", start, startLine, startColumn)
 			}
 		}
 	}
-	
+
 	// Restore position - this is shell text starting with @
 	l.position = savedPos
 	l.readPos = savedReadPos
 	l.ch = savedCh
 	l.line = savedLine
 	l.column = savedColumn
-	
+
 	return l.lexShellText(start, startLine, startColumn)
 }
 
@@ -576,13 +525,9 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 	var shellBraceLevel int // Track ${...} parameter expansion braces
 	var parenLevel int      // Track $(...) command substitution
 	var anyBraceLevel int   // Track any {...} constructs in shell context
-	
-	for {
-		// Stop at EOF
-		if l.ch == 0 {
-			break
-		}
-		
+
+	for l.ch != 0 {
+
 		// Stop at newline (unless line continuation or inside quotes)
 		if l.ch == '\n' {
 			// Check for line continuation (backslash before newline)
@@ -601,25 +546,25 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 				}
 				continue
 			}
-			
+
 			// If inside single quotes, include the newline literally
 			if inSingleQuote {
 				result.WriteRune(l.ch)
 				l.readChar()
 				continue
 			}
-			
+
 			// If inside double quotes or backticks without line continuation, include newline
 			if inDoubleQuote || inBacktick {
 				result.WriteRune(l.ch)
 				l.readChar()
 				continue
 			}
-			
+
 			// Not in quotes and no line continuation - end of shell text
 			break
 		}
-		
+
 		// Stop at closing brace (block boundary) - unless inside quotes or shell constructs
 		if l.ch == '}' && !inSingleQuote && !inDoubleQuote && !inBacktick {
 			if shellBraceLevel > 0 {
@@ -633,7 +578,7 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 				break
 			}
 		}
-		
+
 		// Stop at @ if it starts a block/pattern decorator - unless inside quotes
 		if l.ch == '@' && !inSingleQuote && !inDoubleQuote && !inBacktick {
 			// Look ahead to see if this is @identifier for a block/pattern decorator
@@ -644,7 +589,7 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 					savedPos := l.position
 					savedReadPos := l.readPos
 					savedCh := l.ch
-					
+
 					// Skip @ and read identifier
 					l.readChar()
 					identStart := l.position
@@ -658,12 +603,12 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 						}
 					}
 					identifier := l.input[identStart:l.position]
-					
+
 					// Restore position
 					l.position = savedPos
 					l.readPos = savedReadPos
 					l.ch = savedCh
-					
+
 					// Only break for block/pattern decorators
 					if decorators.IsBlockDecorator(identifier) || decorators.IsPatternDecorator(identifier) {
 						break
@@ -671,7 +616,7 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 				}
 			}
 		}
-		
+
 		// Track various shell constructs BEFORE adding character
 		if !inSingleQuote && !inDoubleQuote && !inBacktick {
 			// Track shell parameter expansion ${...}
@@ -699,10 +644,10 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 				}
 			}
 		}
-		
+
 		// Add character to result
 		result.WriteRune(l.ch)
-		
+
 		// Track quote state AFTER adding character
 		if l.ch == '\'' && !inDoubleQuote && !inBacktick {
 			inSingleQuote = !inSingleQuote
@@ -711,15 +656,15 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 		} else if l.ch == '`' && !inSingleQuote && !inDoubleQuote {
 			inBacktick = !inBacktick
 		}
-		
+
 		l.readChar()
 	}
-	
+
 	text := strings.TrimSpace(result.String())
 	if text == "" {
 		return l.createToken(types.ILLEGAL, "", start, startLine, startColumn)
 	}
-	
+
 	return l.createToken(types.SHELL_TEXT, text, start, startLine, startColumn)
 }
 
@@ -736,14 +681,14 @@ func (l *Lexer) lexIdentifierOrKeyword(start, startLine, startColumn int) types.
 			break
 		}
 	}
-	
+
 	value := l.input[start:l.position]
-	
+
 	// Track decorator names for mode switching
 	if decorators.IsDecorator(value) {
 		l.currentDecorator = value
 	}
-	
+
 	// Check for keywords
 	switch value {
 	case "var":
@@ -764,7 +709,7 @@ func (l *Lexer) lexString(quote rune, start, startLine, startColumn int) types.T
 	// Skip opening quote
 	l.readChar()
 	contentStart := l.position
-	
+
 	for l.ch != quote && l.ch != 0 {
 		if l.ch == '\\' {
 			// Handle escape sequences
@@ -776,28 +721,28 @@ func (l *Lexer) lexString(quote rune, start, startLine, startColumn int) types.T
 			l.readChar()
 		}
 	}
-	
+
 	if l.ch == 0 {
 		// Unterminated string
 		return l.createToken(types.ILLEGAL, "unterminated string", start, startLine, startColumn)
 	}
-	
+
 	// Extract content without quotes
 	value := l.input[contentStart:l.position]
 	l.readChar() // Skip closing quote
-	
+
 	return l.createToken(types.STRING, value, start, startLine, startColumn)
 }
 
 // lexNumber handles number literals (using fast ASCII lookups)
 func (l *Lexer) lexNumber(start, startLine, startColumn int) types.Token {
 	hasDecimal := false
-	
+
 	// Handle negative sign if present
 	if l.ch == '-' {
 		l.readChar()
 	}
-	
+
 	for {
 		// Fast path for ASCII digits
 		if l.ch < 128 && isDigit[l.ch] {
@@ -812,7 +757,7 @@ func (l *Lexer) lexNumber(start, startLine, startColumn int) types.Token {
 			break
 		}
 	}
-	
+
 	// Check for duration suffix using fast ASCII lookups
 	if (l.ch < 128 && isLetter[l.ch]) || (l.ch >= 128 && unicode.IsLetter(l.ch)) {
 		durStart := l.position
@@ -826,7 +771,7 @@ func (l *Lexer) lexNumber(start, startLine, startColumn int) types.Token {
 			}
 		}
 		suffix := l.input[durStart:l.position]
-		
+
 		// Valid duration suffixes
 		switch suffix {
 		case "ns", "us", "ms", "s", "m", "h":
@@ -839,7 +784,7 @@ func (l *Lexer) lexNumber(start, startLine, startColumn int) types.Token {
 			l.ch, _ = utf8.DecodeRuneInString(l.input[durStart:])
 		}
 	}
-	
+
 	value := l.input[start:l.position]
 	return l.createToken(types.NUMBER, value, start, startLine, startColumn)
 }
@@ -850,7 +795,7 @@ func (l *Lexer) lexComment(start, startLine, startColumn int) types.Token {
 	for l.ch != '\n' && l.ch != 0 {
 		l.readChar()
 	}
-	
+
 	value := l.input[start:l.position]
 	return l.createToken(types.COMMENT, value, start, startLine, startColumn)
 }
@@ -860,23 +805,23 @@ func (l *Lexer) lexMultilineComment(start, startLine, startColumn int) types.Tok
 	// Skip /*
 	l.readChar() // Skip /
 	l.readChar() // Skip *
-	
+
 	// Read until */
 	for {
 		if l.ch == 0 {
 			// Unterminated comment
 			return l.createToken(types.ILLEGAL, "unterminated comment", start, startLine, startColumn)
 		}
-		
+
 		if l.ch == '*' && l.peekChar() == '/' {
 			l.readChar() // Skip *
 			l.readChar() // Skip /
 			break
 		}
-		
+
 		l.readChar()
 	}
-	
+
 	value := l.input[start:l.position]
 	return l.createToken(types.MULTILINE_COMMENT, value, start, startLine, startColumn)
 }

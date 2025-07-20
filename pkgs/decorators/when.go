@@ -38,12 +38,12 @@ func (w *WhenDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParame
 	if len(params) != 1 {
 		return fmt.Errorf("@when requires exactly 1 parameter (variable name), got %d", len(params))
 	}
-	
+
 	// Validate the required variable parameter
 	if err := ValidateRequiredParameter(params, "variable", ast.StringType, "when"); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -52,7 +52,7 @@ func (w *WhenDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, 
 	if err := w.Validate(ctx, params); err != nil {
 		return err
 	}
-	
+
 	// Get the variable name to match against
 	varName := ast.GetStringParam(params, "variable", "")
 	if varName == "" && len(params) > 0 {
@@ -61,22 +61,22 @@ func (w *WhenDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, 
 			varName = varLiteral.Value
 		}
 	}
-	
+
 	// Get the variable value (for now, check environment variables)
 	// TODO: This should use the execution context to get variable values
 	value := os.Getenv(varName)
-	
+
 	// Find matching pattern branch
 	for _, pattern := range patterns {
 		if w.matchesPattern(value, pattern.Pattern) {
 			patternStr := w.patternToString(pattern.Pattern)
-			fmt.Printf("Pattern '%s' matched value '%s', would execute %d commands\n", 
+			fmt.Printf("Pattern '%s' matched value '%s', would execute %d commands\n",
 				patternStr, value, len(pattern.Commands))
 			// TODO: Execute the commands in the matching pattern
 			return nil
 		}
 	}
-	
+
 	fmt.Printf("No pattern matched value '%s'\n", value)
 	return nil
 }
@@ -110,7 +110,7 @@ func (w *WhenDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParame
 	if err := w.Validate(ctx, params); err != nil {
 		return "", err
 	}
-	
+
 	// Get the variable name
 	varName := ast.GetStringParam(params, "variable", "")
 	if varName == "" && len(params) > 0 {
@@ -119,13 +119,13 @@ func (w *WhenDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParame
 			varName = varLiteral.Value
 		}
 	}
-	
+
 	// Generate Go code for pattern matching
 	code := fmt.Sprintf(`
 // Pattern matching for variable: %s
 value := os.Getenv(%q)
 switch value {`, varName, varName)
-	
+
 	// Add cases for each pattern
 	for _, pattern := range patterns {
 		patternStr := w.patternToString(pattern.Pattern)
@@ -140,10 +140,10 @@ case %q:`, patternStr)
 	// Execute commands for pattern: %s
 	// TODO: Generate command execution code`, patternStr)
 	}
-	
+
 	code += `
 }`
-	
+
 	return code, nil
 }
 
@@ -152,7 +152,7 @@ func (w *WhenDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter,
 	if err := w.Validate(ctx, params); err != nil {
 		return nil, err
 	}
-	
+
 	// Get the variable name to match against
 	varName := ast.GetStringParam(params, "variable", "")
 	if varName == "" && len(params) > 0 {
@@ -161,7 +161,7 @@ func (w *WhenDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter,
 			varName = varLiteral.Value
 		}
 	}
-	
+
 	// Get current value from context or environment
 	currentValue := ""
 	if value, exists := ctx.GetVariable(varName); exists {
@@ -169,11 +169,11 @@ func (w *WhenDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter,
 	} else {
 		currentValue = os.Getenv(varName)
 	}
-	
+
 	// Find matching pattern
 	selectedPattern := "default"
 	var selectedCommands []ast.CommandContent
-	
+
 	for _, pattern := range patterns {
 		patternStr := w.patternToString(pattern.Pattern)
 		if patternStr == currentValue {
@@ -184,10 +184,10 @@ func (w *WhenDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter,
 			selectedCommands = pattern.Commands
 		}
 	}
-	
-	description := fmt.Sprintf("Evaluate %s = %q → execute '%s' branch (%d commands)", 
+
+	description := fmt.Sprintf("Evaluate %s = %q → execute '%s' branch (%d commands)",
 		varName, currentValue, selectedPattern, len(selectedCommands))
-	
+
 	return plan.Decorator("when").
 		WithType("pattern").
 		WithParameter("variable", varName).

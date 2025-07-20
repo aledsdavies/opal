@@ -8,6 +8,7 @@ import (
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/aledsdavies/devcmd/pkgs/decorators"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -22,85 +23,202 @@ func init() {
 type ConfirmDecorator struct{}
 
 func (c *ConfirmDecorator) Name() string { return "confirm" }
-func (c *ConfirmDecorator) Description() string { return "Prompts for user confirmation before executing commands" }
+func (c *ConfirmDecorator) Description() string {
+	return "Prompts for user confirmation before executing commands"
+}
+
 func (c *ConfirmDecorator) ParameterSchema() []decorators.ParameterSchema {
 	return []decorators.ParameterSchema{
 		{Name: "message", Type: ast.StringType, Required: false, Description: "Confirmation message"},
 	}
 }
-func (c *ConfirmDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error { return nil }
-func (c *ConfirmDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error { return nil }
-func (c *ConfirmDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) { return "// confirm", nil }
 
-// DebounceDecorator - test implementation  
+func (c *ConfirmDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error {
+	return nil
+}
+
+func (c *ConfirmDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
+	return nil
+}
+
+func (c *ConfirmDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
+	return "// confirm", nil
+}
+
+func (c *ConfirmDecorator) ImportRequirements() decorators.ImportRequirement {
+	return decorators.ImportRequirement{}
+}
+
+func (c *ConfirmDecorator) Plan(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	return plan.Command("confirm"), nil
+}
+
+// DebounceDecorator - test implementation
 type DebounceDecorator struct{}
 
 func (d *DebounceDecorator) Name() string { return "debounce" }
-func (d *DebounceDecorator) Description() string { return "Debounces command execution with specified delay" }
+func (d *DebounceDecorator) Description() string {
+	return "Debounces command execution with specified delay"
+}
+
 func (d *DebounceDecorator) ParameterSchema() []decorators.ParameterSchema {
 	return []decorators.ParameterSchema{
 		{Name: "delay", Type: ast.DurationType, Required: true, Description: "Debounce delay"},
 	}
 }
-func (d *DebounceDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error { return nil }
-func (d *DebounceDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error { return nil }
-func (d *DebounceDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) { return "// debounce", nil }
+
+func (d *DebounceDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error {
+	return nil
+}
+
+func (d *DebounceDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
+	return nil
+}
+
+func (d *DebounceDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
+	return "// debounce", nil
+}
+
+func (d *DebounceDecorator) ImportRequirements() decorators.ImportRequirement {
+	return decorators.ImportRequirement{}
+}
+
+func (d *DebounceDecorator) Plan(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	return plan.Command("debounce"), nil
+}
 
 // CwdDecorator - test implementation
 type CwdDecorator struct{}
 
-func (c *CwdDecorator) Name() string { return "cwd" }
+func (c *CwdDecorator) Name() string        { return "cwd" }
 func (c *CwdDecorator) Description() string { return "Changes working directory for command execution" }
 func (c *CwdDecorator) ParameterSchema() []decorators.ParameterSchema {
 	return []decorators.ParameterSchema{
 		{Name: "directory", Type: ast.StringType, Required: true, Description: "Working directory"},
 	}
 }
-func (c *CwdDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error { return nil }
-func (c *CwdDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error { return nil }
-func (c *CwdDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) { return "// cwd", nil }
+
+func (c *CwdDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error {
+	return nil
+}
+
+func (c *CwdDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
+	return nil
+}
+
+func (c *CwdDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
+	return "// cwd", nil
+}
+
+func (c *CwdDecorator) ImportRequirements() decorators.ImportRequirement {
+	return decorators.ImportRequirement{}
+}
+
+func (c *CwdDecorator) Plan(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	return plan.Command("cwd"), nil
+}
 
 // WatchFilesDecorator - test implementation
 type WatchFilesDecorator struct{}
 
 func (w *WatchFilesDecorator) Name() string { return "watch-files" }
-func (w *WatchFilesDecorator) Description() string { return "Watches files for changes and executes commands" }
+func (w *WatchFilesDecorator) Description() string {
+	return "Watches files for changes and executes commands"
+}
+
 func (w *WatchFilesDecorator) ParameterSchema() []decorators.ParameterSchema {
 	return []decorators.ParameterSchema{
 		{Name: "pattern", Type: ast.StringType, Required: true, Description: "File pattern to watch"},
 	}
 }
-func (w *WatchFilesDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error { return nil }
-func (w *WatchFilesDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error { return nil }
-func (w *WatchFilesDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) { return "// watch-files", nil }
+
+func (w *WatchFilesDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error {
+	return nil
+}
+
+func (w *WatchFilesDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
+	return nil
+}
+
+func (w *WatchFilesDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
+	return "// watch-files", nil
+}
+
+func (w *WatchFilesDecorator) ImportRequirements() decorators.ImportRequirement {
+	return decorators.ImportRequirement{}
+}
+
+func (w *WatchFilesDecorator) Plan(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	return plan.Command("watch-files"), nil
+}
 
 // OffsetDecorator - test implementation
 type OffsetDecorator struct{}
 
 func (o *OffsetDecorator) Name() string { return "offset" }
-func (o *OffsetDecorator) Description() string { return "Test decorator - applies numeric offset to command execution" }
+func (o *OffsetDecorator) Description() string {
+	return "Test decorator - applies numeric offset to command execution"
+}
+
 func (o *OffsetDecorator) ParameterSchema() []decorators.ParameterSchema {
 	return []decorators.ParameterSchema{
 		{Name: "value", Type: ast.NumberType, Required: true, Description: "Offset value"},
 	}
 }
-func (o *OffsetDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error { return nil }
-func (o *OffsetDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error { return nil }
-func (o *OffsetDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) { return "// offset", nil }
+
+func (o *OffsetDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error {
+	return nil
+}
+
+func (o *OffsetDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
+	return nil
+}
+
+func (o *OffsetDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
+	return "// offset", nil
+}
+
+func (o *OffsetDecorator) ImportRequirements() decorators.ImportRequirement {
+	return decorators.ImportRequirement{}
+}
+
+func (o *OffsetDecorator) Plan(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	return plan.Command("offset"), nil
+}
 
 // FactorDecorator - test implementation
 type FactorDecorator struct{}
 
 func (f *FactorDecorator) Name() string { return "factor" }
-func (f *FactorDecorator) Description() string { return "Test decorator - applies scaling factor to command execution" }
+func (f *FactorDecorator) Description() string {
+	return "Test decorator - applies scaling factor to command execution"
+}
+
 func (f *FactorDecorator) ParameterSchema() []decorators.ParameterSchema {
 	return []decorators.ParameterSchema{
 		{Name: "multiplier", Type: ast.NumberType, Required: true, Description: "Scaling factor"},
 	}
 }
-func (f *FactorDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error { return nil }
-func (f *FactorDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error { return nil }
-func (f *FactorDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) { return "// factor", nil }
+
+func (f *FactorDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error {
+	return nil
+}
+
+func (f *FactorDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
+	return nil
+}
+
+func (f *FactorDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
+	return "// factor", nil
+}
+
+func (f *FactorDecorator) ImportRequirements() decorators.ImportRequirement {
+	return decorators.ImportRequirement{}
+}
+
+func (f *FactorDecorator) Plan(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	return plan.Command("factor"), nil
+}
 
 // registerTestOnlyDecorators registers decorators that are only used for testing
 func registerTestOnlyDecorators() {
@@ -111,7 +229,7 @@ func registerTestOnlyDecorators() {
 	decorators.RegisterBlock(&WatchFilesDecorator{})
 	decorators.RegisterBlock(&OffsetDecorator{})
 	decorators.RegisterBlock(&FactorDecorator{})
-	
+
 	// Note: @try is already registered in the main decorators package
 	// Note: @when is already registered in the main decorators package
 }
@@ -953,19 +1071,19 @@ func namedParameterToComparable(param ast.NamedParameter) interface{} {
 	result := map[string]interface{}{
 		"Name": param.Name,
 	}
-	
+
 	// Add the value using the existing expression logic
 	if param.Value != nil {
 		result["Value"] = expressionToComparable(param.Value)
 	}
-	
+
 	return result
 }
 
 // Helper function to convert expected decorator arguments to NamedParameter format using registry
 func expectedArgsToNamedParams(decoratorName string, args []ExpectedExpression) []interface{} {
 	result := make([]interface{}, len(args))
-	
+
 	// Look up the decorator in the registry to get parameter names
 	// Try function, block, and pattern decorators
 	var schema []decorators.ParameterSchema
@@ -978,7 +1096,7 @@ func expectedArgsToNamedParams(decoratorName string, args []ExpectedExpression) 
 	} else {
 		panic(fmt.Sprintf("Decorator %s not found in registry - all decorators used in tests must be registered", decoratorName))
 	}
-	
+
 	for i, arg := range args {
 		// Map positional arguments to parameter names from schema
 		if i >= len(schema) {
@@ -993,7 +1111,7 @@ func expectedArgsToNamedParams(decoratorName string, args []ExpectedExpression) 
 			},
 		}
 	}
-	
+
 	return result
 }
 

@@ -155,13 +155,13 @@ func (g *VarGroup) SemanticTokens() []types.Token {
 // NamedParameter represents a named parameter in decorator arguments
 // Supports both named syntax (name = value) and positional (resolved by parser)
 type NamedParameter struct {
-	Name  string     // Parameter name (e.g., "concurrency", "failOnFirstError")
-	Value Expression // Parameter value
-	Pos   Position
+	Name   string     // Parameter name (e.g., "concurrency", "failOnFirstError")
+	Value  Expression // Parameter value
+	Pos    Position
 	Tokens TokenRange
-	
+
 	// Concrete syntax tokens for LSP support
-	NameToken  *types.Token // The parameter name token (nil for positional args)
+	NameToken   *types.Token // The parameter name token (nil for positional args)
 	EqualsToken *types.Token // The "=" token (nil for positional args)
 }
 
@@ -723,9 +723,9 @@ func (d *BlockDecorator) IsCommandContent() bool {
 // PatternDecorator represents pattern decorators like @when, @try
 // This handles cases like: @when(MODE) { production: deploy.sh; staging: deploy-staging.sh }
 type PatternDecorator struct {
-	Name     string          // Decorator name: "when", "try"
+	Name     string           // Decorator name: "when", "try"
 	Args     []NamedParameter // Arguments within parentheses (e.g., variable for @when)
-	Patterns []PatternBranch // Pattern branches inside the decorator block
+	Patterns []PatternBranch  // Pattern branches inside the decorator block
 	Pos      Position
 	Tokens   TokenRange
 
@@ -1401,4 +1401,3 @@ func GetPatternDecoratorsByName(node Node, decoratorName string) []*PatternDecor
 
 	return patterns
 }
-

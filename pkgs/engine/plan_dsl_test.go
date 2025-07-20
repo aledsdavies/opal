@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,15 +27,15 @@ func TestPlanDSL_BasicStructure(t *testing.T) {
 				if len(ep.Steps) != 2 {
 					t.Errorf("Expected 2 steps, got %d", len(ep.Steps))
 				}
-				
+
 				if ep.Steps[0].Type != plan.StepShell {
 					t.Errorf("Expected first step to be shell, got %s", ep.Steps[0].Type)
 				}
-				
+
 				if ep.Steps[0].Command != "echo hello" {
 					t.Errorf("Expected first command to be 'echo hello', got %s", ep.Steps[0].Command)
 				}
-				
+
 				if ep.Summary.ShellCommands != 2 {
 					t.Errorf("Expected 2 shell commands in summary, got %d", ep.Summary.ShellCommands)
 				}
@@ -53,24 +54,24 @@ func TestPlanDSL_BasicStructure(t *testing.T) {
 				if len(ep.Steps) != 1 {
 					t.Errorf("Expected 1 step, got %d", len(ep.Steps))
 				}
-				
+
 				step := ep.Steps[0]
 				if step.Type != plan.StepTimeout {
 					t.Errorf("Expected timeout step, got %s", step.Type)
 				}
-				
+
 				if step.Decorator == nil {
 					t.Fatal("Expected decorator info to be set")
 				}
-				
+
 				if step.Decorator.Name != "timeout" {
 					t.Errorf("Expected decorator name 'timeout', got %s", step.Decorator.Name)
 				}
-				
+
 				if step.Decorator.Type != "block" {
 					t.Errorf("Expected decorator type 'block', got %s", step.Decorator.Type)
 				}
-				
+
 				duration, exists := step.Decorator.Parameters["duration"]
 				if !exists {
 					t.Error("Expected duration parameter to exist")
@@ -78,15 +79,15 @@ func TestPlanDSL_BasicStructure(t *testing.T) {
 				if duration != "30s" {
 					t.Errorf("Expected duration '30s', got %v", duration)
 				}
-				
+
 				if step.Timing == nil {
 					t.Fatal("Expected timing info to be set")
 				}
-				
+
 				if step.Timing.Timeout == nil || *step.Timing.Timeout != 30*time.Second {
 					t.Errorf("Expected timeout of 30s, got %v", step.Timing.Timeout)
 				}
-				
+
 				if len(ep.Summary.DecoratorsUsed) != 1 || ep.Summary.DecoratorsUsed[0] != "timeout" {
 					t.Errorf("Expected decorators used to contain 'timeout', got %v", ep.Summary.DecoratorsUsed)
 				}
@@ -109,16 +110,16 @@ func TestPlanDSL_BasicStructure(t *testing.T) {
 				if len(ep.Steps) != 1 {
 					t.Errorf("Expected 1 step, got %d", len(ep.Steps))
 				}
-				
+
 				step := ep.Steps[0]
 				if step.Type != plan.StepParallel {
 					t.Errorf("Expected parallel step, got %s", step.Type)
 				}
-				
+
 				if len(step.Children) != 2 {
 					t.Errorf("Expected 2 children, got %d", len(step.Children))
 				}
-				
+
 				// Validate first child
 				child1 := step.Children[0]
 				if child1.Type != plan.StepShell {
@@ -127,7 +128,7 @@ func TestPlanDSL_BasicStructure(t *testing.T) {
 				if child1.Command != "npm run build" {
 					t.Errorf("Expected first child command 'npm run build', got %s", child1.Command)
 				}
-				
+
 				// Validate second child
 				child2 := step.Children[1]
 				if child2.Type != plan.StepShell {
@@ -136,7 +137,7 @@ func TestPlanDSL_BasicStructure(t *testing.T) {
 				if child2.Command != "npm run test" {
 					t.Errorf("Expected second child command 'npm run test', got %s", child2.Command)
 				}
-				
+
 				// Validate timing
 				if step.Timing == nil {
 					t.Fatal("Expected timing info to be set")
@@ -144,7 +145,7 @@ func TestPlanDSL_BasicStructure(t *testing.T) {
 				if step.Timing.ConcurrencyLimit != 3 {
 					t.Errorf("Expected concurrency limit 3, got %d", step.Timing.ConcurrencyLimit)
 				}
-				
+
 				// Validate summary
 				if ep.Summary.ParallelSections != 1 {
 					t.Errorf("Expected 1 parallel section, got %d", ep.Summary.ParallelSections)
@@ -162,7 +163,7 @@ func TestPlanDSL_BasicStructure(t *testing.T) {
 			for _, element := range tt.elements {
 				planBuilder.Add(element)
 			}
-			
+
 			executionPlan := planBuilder.Build()
 			tt.validate(t, executionPlan)
 		})
@@ -197,49 +198,49 @@ func TestPlanDSL_TreeVisualization(t *testing.T) {
 
 	// Test the string representation contains proper structure
 	output := executionPlan.String()
-	
+
 	// Should contain step information
-	if !contains(output, "[shell] Initialize: echo 'Starting'") {
+	if !containsStr(output, "[shell] Initialize: echo 'Starting'") {
 		t.Error("Expected first shell command in output")
 	}
-	
-	if !contains(output, "[timeout] Deploy with timeout") {
+
+	if !containsStr(output, "[timeout] Deploy with timeout") {
 		t.Error("Expected timeout decorator in output")
 	}
-	
-	if !contains(output, "🔧 @timeout(duration=5m)") {
+
+	if !containsStr(output, "🔧 @timeout(duration=5m)") {
 		t.Error("Expected timeout decorator info with emoji")
 	}
-	
-	if !contains(output, "⏱️  timeout=5m0s") {
+
+	if !containsStr(output, "⏱️  timeout=5m0s") {
 		t.Error("Expected timing information with emoji")
 	}
-	
-	if !contains(output, "[parallel] Build in parallel") {
+
+	if !containsStr(output, "[parallel] Build in parallel") {
 		t.Error("Expected parallel decorator in output")
 	}
-	
-	if !contains(output, "[shell] Build frontend: npm run build") {
+
+	if !containsStr(output, "[shell] Build frontend: npm run build") {
 		t.Error("Expected nested build command")
 	}
-	
-	if !contains(output, "[shell] Run tests: npm run test") {
+
+	if !containsStr(output, "[shell] Run tests: npm run test") {
 		t.Error("Expected nested test command")
 	}
-	
+
 	// Test summary information (recursive counting includes all nested steps)
 	if executionPlan.Summary.TotalSteps != 7 {
 		t.Errorf("Expected 7 total steps, got %d", executionPlan.Summary.TotalSteps)
 	}
-	
+
 	if executionPlan.Summary.ShellCommands != 5 {
 		t.Errorf("Expected 5 shell commands, got %d", executionPlan.Summary.ShellCommands)
 	}
-	
+
 	if executionPlan.Summary.ParallelSections != 1 {
 		t.Errorf("Expected 1 parallel section, got %d", executionPlan.Summary.ParallelSections)
 	}
-	
+
 	expectedDecorators := []string{"timeout", "parallel"}
 	if len(executionPlan.Summary.DecoratorsUsed) != len(expectedDecorators) {
 		t.Errorf("Expected %d decorators, got %d", len(expectedDecorators), len(executionPlan.Summary.DecoratorsUsed))
@@ -253,7 +254,7 @@ func TestPlanDSL_DecoratorIntegration(t *testing.T) {
 			{Name: "USER", Value: &ast.StringLiteral{Value: "admin"}},
 		},
 	}
-	
+
 	ctx := decorators.NewExecutionContext(context.Background(), program)
 	ctx.SetVariable("USER", "admin")
 
@@ -274,25 +275,25 @@ func TestPlanDSL_DecoratorIntegration(t *testing.T) {
 			},
 			validateElement: func(t *testing.T, element plan.PlanElement) {
 				step := element.Build()
-				
+
 				if step.Decorator == nil {
 					t.Fatal("Expected decorator info")
 				}
-				
+
 				if step.Decorator.Name != "var" {
 					t.Errorf("Expected decorator name 'var', got %s", step.Decorator.Name)
 				}
-				
+
 				if step.Decorator.Type != "function" {
 					t.Errorf("Expected decorator type 'function', got %s", step.Decorator.Type)
 				}
-				
+
 				name, exists := step.Decorator.Parameters["name"]
 				if !exists || name != "USER" {
 					t.Errorf("Expected name parameter 'USER', got %v", name)
 				}
-				
-				if !contains(step.Description, "Variable resolution: ${USER}") {
+
+				if !containsStr(step.Description, "Variable resolution: ${USER}") {
 					t.Errorf("Expected variable resolution in description, got %s", step.Description)
 				}
 			},
@@ -309,33 +310,33 @@ func TestPlanDSL_DecoratorIntegration(t *testing.T) {
 			},
 			validateElement: func(t *testing.T, element plan.PlanElement) {
 				step := element.Build()
-				
+
 				if step.Type != plan.StepTimeout {
 					t.Errorf("Expected timeout step type, got %s", step.Type)
 				}
-				
+
 				if step.Decorator == nil {
 					t.Fatal("Expected decorator info")
 				}
-				
+
 				if step.Decorator.Name != "timeout" {
 					t.Errorf("Expected decorator name 'timeout', got %s", step.Decorator.Name)
 				}
-				
+
 				duration, exists := step.Decorator.Parameters["duration"]
 				if !exists || duration != "30s" {
 					t.Errorf("Expected duration parameter '30s', got %v", duration)
 				}
-				
+
 				if step.Timing == nil {
 					t.Fatal("Expected timing info")
 				}
-				
+
 				if step.Timing.Timeout == nil || *step.Timing.Timeout != 30*time.Second {
 					t.Errorf("Expected timeout of 30s, got %v", step.Timing.Timeout)
 				}
-				
-				if !contains(step.Description, "Execute 1 commands with 30s timeout") {
+
+				if !containsStr(step.Description, "Execute 1 commands with 30s timeout") {
 					t.Errorf("Expected timeout description, got %s", step.Description)
 				}
 			},
@@ -420,15 +421,6 @@ func TestPlanDSL_ConditionalElements(t *testing.T) {
 }
 
 // Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsAt(s, substr)))
-}
-
-func containsAt(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+func containsStr(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

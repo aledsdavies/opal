@@ -65,8 +65,8 @@ start: echo "Starting @var(ENV) server on @var(HOST):@var(PORT)"`,
 			expectErr:  false,
 		},
 		{
-			name: "empty program",
-			input: ``,
+			name:       "empty program",
+			input:      ``,
 			mode:       InterpreterMode,
 			expectVars: map[string]string{},
 			expectCmds: 0,
@@ -94,14 +94,14 @@ var HOST = "localhost"`,
 			engine := New(tt.mode, ctx)
 
 			result, err := engine.Execute(program)
-			
+
 			if tt.expectErr {
 				if err == nil {
 					t.Errorf("Expected error, but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -159,51 +159,51 @@ var HOST = "localhost"`,
 // TestExecutionEngine_VariableTypes tests different variable types
 func TestExecutionEngine_VariableTypes(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		varName string
+		name          string
+		input         string
+		varName       string
 		expectedValue string
 	}{
 		{
-			name:   "string variable",
-			input:  `var NAME = "devcmd"`,
-			varName: "NAME",
+			name:          "string variable",
+			input:         `var NAME = "devcmd"`,
+			varName:       "NAME",
 			expectedValue: "devcmd",
 		},
 		{
-			name:   "number variable",
-			input:  `var PORT = 8080`,
-			varName: "PORT",
+			name:          "number variable",
+			input:         `var PORT = 8080`,
+			varName:       "PORT",
 			expectedValue: "8080",
 		},
 		{
-			name:   "boolean variable true",
-			input:  `var DEBUG = true`,
-			varName: "DEBUG",
+			name:          "boolean variable true",
+			input:         `var DEBUG = true`,
+			varName:       "DEBUG",
 			expectedValue: "true",
 		},
 		{
-			name:   "boolean variable false",
-			input:  `var PRODUCTION = false`,
-			varName: "PRODUCTION",
+			name:          "boolean variable false",
+			input:         `var PRODUCTION = false`,
+			varName:       "PRODUCTION",
 			expectedValue: "false",
 		},
 		{
-			name:   "duration variable",
-			input:  `var TIMEOUT = 30s`,
-			varName: "TIMEOUT",
+			name:          "duration variable",
+			input:         `var TIMEOUT = 30s`,
+			varName:       "TIMEOUT",
 			expectedValue: "30s",
 		},
 		{
-			name:   "string with spaces",
-			input:  `var MESSAGE = "Hello World"`,
-			varName: "MESSAGE",
+			name:          "string with spaces",
+			input:         `var MESSAGE = "Hello World"`,
+			varName:       "MESSAGE",
 			expectedValue: "Hello World",
 		},
 		{
-			name:   "string with special characters",
-			input:  `var URL = "https://api.example.com/v1"`,
-			varName: "URL",
+			name:          "string with special characters",
+			input:         `var URL = "https://api.example.com/v1"`,
+			varName:       "URL",
 			expectedValue: "https://api.example.com/v1",
 		},
 	}
@@ -245,23 +245,23 @@ func TestExecutionEngine_ErrorHandling(t *testing.T) {
 		expectError string
 	}{
 		{
-			name:  "undefined variable reference",
-			input: `test: echo "Value: @var(UNDEFINED)"`,
+			name:        "undefined variable reference",
+			input:       `test: echo "Value: @var(UNDEFINED)"`,
 			expectError: "variable 'UNDEFINED' not defined",
 		},
 		{
-			name:  "undefined decorator",
-			input: `test: @nonexistent() { echo "test" }`,
+			name:        "undefined decorator",
+			input:       `test: @nonexistent() { echo "test" }`,
 			expectError: "command failed with exit code", // Shell execution fails with syntax error
 		},
 		{
-			name:  "invalid variable type in @var",
-			input: `test: echo "@var(123)"`, // Should be identifier, not number
+			name:        "invalid variable type in @var",
+			input:       `test: echo "@var(123)"`,     // Should be identifier, not number
 			expectError: "variable '123' not defined", // Parser treats 123 as variable name
 		},
 		{
-			name:  "empty command body",
-			input: `test:`,
+			name:        "empty command body",
+			input:       `test:`,
 			expectError: "", // Empty command body is actually valid, just has no content
 		},
 	}
@@ -272,7 +272,7 @@ func TestExecutionEngine_ErrorHandling(t *testing.T) {
 			if tt.expectError == "" {
 				return
 			}
-			
+
 			program, err := parser.Parse(strings.NewReader(tt.input))
 			if err != nil {
 				// Some errors should be caught at parse time
@@ -312,7 +312,7 @@ test: echo "Port: @var(PORT)"`
 		ctx := decorators.NewExecutionContext(context.Background(), program)
 		ctx.Debug = true
 		ctx.DryRun = true // Use dry run to avoid actual execution
-		
+
 		engine := New(InterpreterMode, ctx)
 
 		result, err := engine.Execute(program)
@@ -350,7 +350,7 @@ test: echo "Port: @var(PORT)"`
 
 		ctx := decorators.NewExecutionContext(context.Background(), program)
 		ctx.WorkingDir = "/tmp"
-		
+
 		engine := New(InterpreterMode, ctx)
 
 		// Should not error
@@ -410,7 +410,7 @@ serve: echo "Serving on @var(HOST):@var(PORT)"`
 	// Both modes should process the same variables
 	expectedVars := map[string]string{
 		"PORT":  "8080",
-		"HOST":  "localhost", 
+		"HOST":  "localhost",
 		"ENV":   "development",
 		"DEBUG": "true",
 	}
@@ -556,7 +556,7 @@ test: echo "Port: @var(PORT)"`
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := decorators.NewExecutionContext(context.Background(), program)
-			
+
 			var engine *Engine
 			if tt.goVersion == "" {
 				engine = New(GeneratorMode, ctx)

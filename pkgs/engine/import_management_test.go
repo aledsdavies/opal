@@ -18,27 +18,27 @@ func TestImportManagement_BasicDecorators(t *testing.T) {
 		expectedModules map[string]string
 	}{
 		{
-			name: "function decorators", 
+			name: "function decorators",
 			input: `var USER = "admin"
 test: echo "@var(USER) lives in @env(HOME)"`,
 			expectedImports: []string{"context", "fmt", "os"},
 			expectedModules: map[string]string{},
 		},
 		{
-			name: "timeout decorator",
-			input: `test: @timeout(30s) { echo "hello" }`,
+			name:            "timeout decorator",
+			input:           `test: @timeout(30s) { echo "hello" }`,
 			expectedImports: []string{"context", "fmt", "os", "time"},
 			expectedModules: map[string]string{},
 		},
 		{
-			name: "parallel decorator",
-			input: `test: @parallel(concurrency=2) { echo "task1"; echo "task2" }`,
+			name:            "parallel decorator",
+			input:           `test: @parallel(concurrency=2) { echo "task1"; echo "task2" }`,
 			expectedImports: []string{"context", "fmt", "os", "sync", "strings"},
 			expectedModules: map[string]string{},
 		},
 		{
-			name: "retry decorator",
-			input: `test: @retry(attempts=3, delay=1s) { echo "might fail" }`,
+			name:            "retry decorator",
+			input:           `test: @retry(attempts=3, delay=1s) { echo "might fail" }`,
 			expectedImports: []string{"context", "fmt", "os", "time"},
 			expectedModules: map[string]string{},
 		},
@@ -148,9 +148,9 @@ test: echo "Simple test with @var(USER)"`
 
 	// All decorators are used, so we should have all their imports
 	expectedImports := []string{
-		"context", "fmt", "os",    // base + var/env
-		"time",                    // timeout + retry  
-		"sync", "strings",         // parallel
+		"context", "fmt", "os", // base + var/env
+		"time",            // timeout + retry
+		"sync", "strings", // parallel
 	}
 
 	for _, expectedImport := range expectedImports {
@@ -194,14 +194,14 @@ test3: @timeout(30s) { echo "third" }`
 	}
 
 	code := genResult.String()
-	
+
 	// Count occurrences of import declarations - should only appear once each
 	timeImportCount := strings.Count(code, `"time"`)
 	if timeImportCount != 1 {
 		t.Errorf("Expected 'time' import to appear exactly once, got %d", timeImportCount)
 	}
 
-	contextImportCount := strings.Count(code, `"context"`)  
+	contextImportCount := strings.Count(code, `"context"`)
 	if contextImportCount != 1 {
 		t.Errorf("Expected 'context' import to appear exactly once, got %d", contextImportCount)
 	}
@@ -247,7 +247,7 @@ func TestImportManagement_EmptyProgram(t *testing.T) {
 func TestImportManagement_ThirdPartyModules(t *testing.T) {
 	// This test would be for future decorators that require third-party deps
 	// For now, just test the structure is in place
-	
+
 	program, err := parser.Parse(strings.NewReader(`test: echo "hello"`))
 	if err != nil {
 		t.Fatalf("Failed to parse program: %v", err)
@@ -289,7 +289,7 @@ func TestImportManagement_CustomGoVersion(t *testing.T) {
 	}
 
 	versions := []string{"1.21", "1.22", "1.23", "1.24"}
-	
+
 	for _, version := range versions {
 		t.Run("go_version_"+version, func(t *testing.T) {
 			ctx := decorators.NewExecutionContext(context.Background(), program)

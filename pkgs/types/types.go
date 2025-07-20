@@ -70,28 +70,28 @@ const (
 
 // Pre-computed token name lookup for fast debugging
 var tokenNames = [...]string{
-	EOF:        "EOF",
-	ILLEGAL:    "ILLEGAL",
-	VAR:        "VAR",
-	WATCH:      "WATCH",
-	STOP:       "STOP",
-	WHEN:       "WHEN",
-	TRY:        "TRY",
-	AT:         "AT",
-	COLON:      "COLON",
-	EQUALS:     "EQUALS",
-	COMMA:      "COMMA",
-	LPAREN:     "LPAREN",
-	RPAREN:     "RPAREN",
-	LBRACE:     "LBRACE",
-	RBRACE:     "RBRACE",
-	ASTERISK:   "ASTERISK",
-	IDENTIFIER: "IDENTIFIER",
-	SHELL_TEXT: "SHELL_TEXT",
-	NUMBER:     "NUMBER",
-	STRING:     "STRING",
-	DURATION:   "DURATION",
-	BOOLEAN:    "BOOLEAN",
+	EOF:               "EOF",
+	ILLEGAL:           "ILLEGAL",
+	VAR:               "VAR",
+	WATCH:             "WATCH",
+	STOP:              "STOP",
+	WHEN:              "WHEN",
+	TRY:               "TRY",
+	AT:                "AT",
+	COLON:             "COLON",
+	EQUALS:            "EQUALS",
+	COMMA:             "COMMA",
+	LPAREN:            "LPAREN",
+	RPAREN:            "RPAREN",
+	LBRACE:            "LBRACE",
+	RBRACE:            "RBRACE",
+	ASTERISK:          "ASTERISK",
+	IDENTIFIER:        "IDENTIFIER",
+	SHELL_TEXT:        "SHELL_TEXT",
+	NUMBER:            "NUMBER",
+	STRING:            "STRING",
+	DURATION:          "DURATION",
+	BOOLEAN:           "BOOLEAN",
 	COMMENT:           "COMMENT",
 	MULTILINE_COMMENT: "MULTILINE_COMMENT",
 }
@@ -156,7 +156,7 @@ type Token struct {
 	StringType StringLiteralType
 
 	// Enhanced positioning for shell content
-	Span          SourceSpan `json:"span"`
+	Span SourceSpan `json:"span"`
 }
 
 // Position returns a formatted position string for error reporting

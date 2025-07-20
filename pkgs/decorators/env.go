@@ -48,7 +48,7 @@ func (e *EnvDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParamet
 	if len(params) > 2 {
 		return fmt.Errorf("@env accepts at most 2 parameters (key, default), got %d", len(params))
 	}
-	
+
 	// Check for required 'key' parameter
 	keyParam := ast.FindParameter(params, "key")
 	if keyParam == nil && len(params) > 0 {
@@ -58,12 +58,12 @@ func (e *EnvDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParamet
 	if keyParam == nil {
 		return fmt.Errorf("@env requires 'key' parameter")
 	}
-	
+
 	// Key parameter must be a string literal
 	if _, ok := keyParam.Value.(*ast.StringLiteral); !ok {
 		return fmt.Errorf("@env 'key' parameter must be a string literal (environment variable key)")
 	}
-	
+
 	// Check optional 'default' parameter
 	defaultParam := ast.FindParameter(params, "default")
 	if defaultParam == nil && len(params) > 1 {
@@ -75,7 +75,7 @@ func (e *EnvDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParamet
 			return fmt.Errorf("@env 'default' parameter must be a string literal (default value)")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -84,7 +84,7 @@ func (e *EnvDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (
 	if err := e.Validate(ctx, params); err != nil {
 		return "", err
 	}
-	
+
 	// Get the environment variable key using helper
 	key := ast.GetStringParam(params, "key", "")
 	if key == "" && len(params) > 0 {
@@ -93,15 +93,15 @@ func (e *EnvDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (
 			key = keyLiteral.Value
 		}
 	}
-	
+
 	// Get the environment variable value
 	value := os.Getenv(key)
-	
+
 	// If not found and default provided, use default
 	if value == "" {
 		value = ast.GetStringParam(params, "default", "")
 	}
-	
+
 	return value, nil
 }
 
@@ -110,7 +110,7 @@ func (e *EnvDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	if err := e.Validate(ctx, params); err != nil {
 		return "", err
 	}
-	
+
 	// Get the environment variable key using helper
 	key := ast.GetStringParam(params, "key", "")
 	if key == "" && len(params) > 0 {
@@ -119,10 +119,10 @@ func (e *EnvDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 			key = keyLiteral.Value
 		}
 	}
-	
+
 	// Get default value if provided
 	defaultValue := ast.GetStringParam(params, "default", "")
-	
+
 	// Generate Go code based on whether default is provided
 	if defaultValue == "" {
 		// No default value
@@ -136,7 +136,7 @@ func (e *EnvDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 		builder.WriteString("\t}\n")
 		builder.WriteString(fmt.Sprintf("\treturn %q\n", defaultValue))
 		builder.WriteString("}()")
-		
+
 		return builder.String(), nil
 	}
 }
@@ -146,12 +146,12 @@ func (e *EnvDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) 
 	if err := e.Validate(ctx, params); err != nil {
 		return nil, err
 	}
-	
+
 	// Get the environment variable name
 	var envName string
 	var defaultValue string
-	
-	nameParam := ast.FindParameter(params, "name") 
+
+	nameParam := ast.FindParameter(params, "name")
 	if nameParam == nil && len(params) > 0 {
 		nameParam = &params[0]
 	}
@@ -162,14 +162,14 @@ func (e *EnvDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) 
 			envName = ident.Name
 		}
 	}
-	
+
 	defaultParam := ast.FindParameter(params, "default")
 	if defaultParam != nil {
 		if str, ok := defaultParam.Value.(*ast.StringLiteral); ok {
 			defaultValue = str.Value
 		}
 	}
-	
+
 	// Get the actual environment value (in dry run, we still check the env)
 	var description string
 	actualValue := os.Getenv(envName)
@@ -180,15 +180,15 @@ func (e *EnvDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) 
 	} else {
 		description = fmt.Sprintf("Environment variable: $%s → <unset>", envName)
 	}
-	
+
 	decorator := plan.Decorator("env").
 		WithType("function").
 		WithParameter("name", envName)
-	
+
 	if defaultValue != "" {
 		decorator.WithParameter("default", defaultValue)
 	}
-	
+
 	return decorator.WithDescription(description), nil
 }
 

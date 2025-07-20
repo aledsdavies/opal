@@ -21,13 +21,13 @@ type CommandElement struct {
 
 // DecoratorElement represents a decorator that wraps other elements
 type DecoratorElement struct {
-	name        string
+	name          string
 	decoratorType string
-	parameters  map[string]interface{}
-	description string
-	timing      *TimingInfo
-	children    []PlanElement
-	imports     []string
+	parameters    map[string]interface{}
+	description   string
+	timing        *TimingInfo
+	children      []PlanElement
+	imports       []string
 }
 
 // ChildElement represents a collection of nested elements
@@ -108,7 +108,7 @@ func (ce *CommandElement) Build() ExecutionStep {
 	if description == "" {
 		description = "Execute: " + ce.command
 	}
-	
+
 	return ExecutionStep{
 		Type:        StepShell,
 		Description: description,
@@ -209,18 +209,18 @@ func (de *DecoratorElement) Build() ExecutionStep {
 	default:
 		stepType = StepSequence
 	}
-	
+
 	description := de.description
 	if description == "" {
 		description = "Apply @" + de.name + " decorator"
 	}
-	
+
 	// Build children
 	children := make([]ExecutionStep, len(de.children))
 	for i, child := range de.children {
 		children[i] = child.Build()
 	}
-	
+
 	return ExecutionStep{
 		Type:        stepType,
 		Description: description,
@@ -260,13 +260,13 @@ func (ce *ChildElement) Build() ExecutionStep {
 	if description == "" {
 		description = "Execute nested commands"
 	}
-	
+
 	// Build all child elements
 	children := make([]ExecutionStep, len(ce.elements))
 	for i, element := range ce.elements {
 		children[i] = element.Build()
 	}
-	
+
 	return ExecutionStep{
 		Type:        StepSequence,
 		Description: description,
@@ -314,7 +314,7 @@ func (ce *ConditionalElement) Build() ExecutionStep {
 	for i, child := range ce.children {
 		children[i] = child.Build()
 	}
-	
+
 	return ExecutionStep{
 		Type:        StepConditional,
 		Description: "Conditional execution based on " + ce.variable,
@@ -369,13 +369,13 @@ func (pe *ParallelElement) Build() ExecutionStep {
 	if description == "" {
 		description = "Execute in parallel"
 	}
-	
+
 	// Build children
 	children := make([]ExecutionStep, len(pe.children))
 	for i, child := range pe.children {
 		children[i] = child.Build()
 	}
-	
+
 	return ExecutionStep{
 		Type:        StepParallel,
 		Description: description,
@@ -417,13 +417,13 @@ func (se *SequenceElement) Build() ExecutionStep {
 	if description == "" {
 		description = "Execute in sequence"
 	}
-	
+
 	// Build children
 	children := make([]ExecutionStep, len(se.children))
 	for i, child := range se.children {
 		children[i] = child.Build()
 	}
-	
+
 	return ExecutionStep{
 		Type:        StepSequence,
 		Description: description,

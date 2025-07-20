@@ -5,10 +5,10 @@ pkgs.buildGoModule rec {
   pname = "devcmd";
   inherit version;
 
-  src = lib.cleanSource ./..;
+  src = ./..;
 
   proxyVendor = true;
-  vendorHash = "sha256-LJ94yAZyfmdf1RF+yV2dUSO/m5yIfMW5qArQfnoUS6g=";
+  vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
   subPackages = [ "cmd/devcmd" ];
 

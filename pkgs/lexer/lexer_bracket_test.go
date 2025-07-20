@@ -2,6 +2,7 @@ package lexer
 
 import (
 	"testing"
+
 	"github.com/aledsdavies/devcmd/pkgs/types"
 )
 
@@ -112,7 +113,7 @@ func TestShellBracketStructures(t *testing.T) {
 			},
 		},
 		{
-			name:  "block command with shell brackets inside",
+			name: "block command with shell brackets inside",
 			input: `test: {
     echo ${VAR:-default}
     find . -exec ls {} +
@@ -128,7 +129,7 @@ func TestShellBracketStructures(t *testing.T) {
 			},
 		},
 		{
-			name:  "decorator with shell brackets in block",
+			name: "decorator with shell brackets in block",
 			input: `test: @timeout(30s) {
     rsync -av ${SRC}/ ${DEST}/
 }`,

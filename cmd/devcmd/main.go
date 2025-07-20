@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
-	"github.com/aledsdavies/devcmd/pkgs/generator"
+	"github.com/aledsdavies/devcmd/pkgs/decorators"
+	"github.com/aledsdavies/devcmd/pkgs/engine"
+	"github.com/aledsdavies/devcmd/pkgs/errors"
 	"github.com/aledsdavies/devcmd/pkgs/parser"
 	"github.com/spf13/cobra"
 )
@@ -31,8 +35,82 @@ var (
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
+		formatAndPrintError(err)
 		os.Exit(1)
 	}
+}
+
+// formatAndPrintError formats and prints errors in a user-friendly way
+func formatAndPrintError(err error) {
+	if devErr, ok := err.(*errors.DevCmdError); ok {
+		// Handle structured DevCmd errors
+		switch devErr.GetType() {
+		case errors.ErrCommandNotFound:
+			fmt.Fprintf(os.Stderr, "❌ %s\n", devErr.Message)
+			if commands, exists := devErr.GetContext("available_commands"); exists {
+				if cmdList, ok := commands.([]string); ok && len(cmdList) > 0 {
+					fmt.Fprintf(os.Stderr, "💡 Available commands: %v\n", cmdList)
+				}
+			}
+		case errors.ErrNoCommandsDefined:
+			fmt.Fprintf(os.Stderr, "❌ %s\n", devErr.Message)
+			fmt.Fprintf(os.Stderr, "💡 Create a commands.cli file or pipe command definitions to stdin\n")
+		case errors.ErrCommandExecution:
+			fmt.Fprintf(os.Stderr, "❌ %s\n", devErr.Message)
+			if details, exists := devErr.GetContext("error_details"); exists {
+				fmt.Fprintf(os.Stderr, "   Details: %v\n", details)
+			}
+		case errors.ErrVariableNotFound:
+			fmt.Fprintf(os.Stderr, "❌ %s\n", devErr.Message)
+			if varName, exists := devErr.GetContext("variable"); exists {
+				fmt.Fprintf(os.Stderr, "💡 Make sure the variable '%s' is defined before using it\n", varName)
+			}
+		case errors.ErrInputRead:
+			fmt.Fprintf(os.Stderr, "❌ %s\n", devErr.Message)
+			if devErr.Cause != nil {
+				fmt.Fprintf(os.Stderr, "   Cause: %v\n", devErr.Cause)
+			}
+		case errors.ErrFileParse:
+			fmt.Fprintf(os.Stderr, "❌ %s\n", devErr.Message)
+			if devErr.Cause != nil {
+				fmt.Fprintf(os.Stderr, "   Parse error: %v\n", devErr.Cause)
+			}
+		default:
+			// Generic structured error
+			fmt.Fprintf(os.Stderr, "❌ %s\n", devErr.Message)
+			if devErr.Cause != nil {
+				fmt.Fprintf(os.Stderr, "   Cause: %v\n", devErr.Cause)
+			}
+		}
+	} else {
+		// Handle regular errors
+		fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
+	}
+}
+
+// getInputReader returns a reader for the command definitions, supporting both files and stdin
+func getInputReader() (io.Reader, func() error, error) {
+	// Check if stdin has data (is being piped to)
+	stat, err := os.Stdin.Stat()
+	if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+		// Data is being piped to stdin
+		return os.Stdin, func() error { return nil }, nil
+	}
+
+	// Fall back to reading from file
+	file, err := os.Open(commandsFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error opening file %s: %w", commandsFile, err)
+	}
+
+	closeFunc := func() error {
+		if closeErr := file.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close file: %v\n", closeErr)
+		}
+		return nil
+	}
+
+	return file, closeFunc, nil
 }
 
 var rootCmd = &cobra.Command{
@@ -41,8 +119,10 @@ var rootCmd = &cobra.Command{
 	Long: `devcmd generates standalone Go CLI executables from simple command definition files.
 It reads .cli files containing command definitions and outputs Go source code or compiled binaries.
 By default, it looks for commands.cli in the current directory.`,
-	Args: cobra.NoArgs,
-	RunE: generateCommand,
+	Args:          cobra.NoArgs,
+	RunE:          generateCommand,
+	SilenceUsage:  true, // Don't show usage on execution errors
+	SilenceErrors: true, // Don't let Cobra print errors, we'll handle them
 }
 
 var buildCmd = &cobra.Command{
@@ -51,8 +131,9 @@ var buildCmd = &cobra.Command{
 	Long: `Build a compiled Go CLI binary from command definitions.
 This generates the Go source code and compiles it into an executable binary.
 By default, it looks for commands.cli in the current directory.`,
-	Args: cobra.NoArgs,
-	RunE: buildCommand,
+	Args:         cobra.NoArgs,
+	RunE:         buildCommand,
+	SilenceUsage: true, // Don't show usage on execution errors
 }
 
 var runCmd = &cobra.Command{
@@ -61,8 +142,9 @@ var runCmd = &cobra.Command{
 	Long: `Execute a command directly from the CLI file without compilation.
 This interprets and runs the command immediately, useful for development and testing.
 By default, it looks for commands.cli in the current directory.`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runCommand,
+	Args:         cobra.MinimumNArgs(1),
+	RunE:         runCommand,
+	SilenceUsage: true, // Don't show usage on execution errors
 }
 
 var versionCmd = &cobra.Command{
@@ -93,53 +175,83 @@ func init() {
 }
 
 func generateCommand(cmd *cobra.Command, args []string) error {
-	// Read command file
-	content, err := os.ReadFile(commandsFile)
+	// Get input reader (file or stdin)
+	reader, closeFunc, err := getInputReader()
 	if err != nil {
-		return fmt.Errorf("error reading file %s: %w", commandsFile, err)
+		return err
 	}
+	defer func() {
+		if closeErr := closeFunc(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close input: %v\n", closeErr)
+		}
+	}()
 
 	// Parse the command definitions
-	program, err := parser.Parse(string(content))
+	program, err := parser.Parse(reader)
 	if err != nil {
 		return fmt.Errorf("error parsing commands: %w", err)
 	}
 
-	// Generate Go output
-	output, err := generateGo(program, templateFile, binaryName)
+	// Generate Go output using the engine
+	ctx := decorators.NewExecutionContext(context.Background(), program)
+	ctx.Debug = debug
+
+	eng := engine.New(engine.GeneratorMode, ctx)
+	result, err := eng.Execute(program)
 	if err != nil {
 		return fmt.Errorf("error generating Go output: %w", err)
 	}
 
+	genResult, ok := result.(*engine.GenerationResult)
+	if !ok {
+		return fmt.Errorf("expected GenerationResult, got %T", result)
+	}
+
 	// Output the result
-	fmt.Print(output)
+	fmt.Print(genResult.String())
 	return nil
 }
 
 func buildCommand(cmd *cobra.Command, args []string) error {
-	// Read and parse command file
-	content, err := os.ReadFile(commandsFile)
+	// Get input reader (file or stdin)
+	reader, closeFunc, err := getInputReader()
 	if err != nil {
-		return fmt.Errorf("error reading file %s: %w", commandsFile, err)
+		return err
 	}
+	defer func() {
+		if closeErr := closeFunc(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close input: %v\n", closeErr)
+		}
+	}()
 
-	program, err := parser.Parse(string(content))
+	program, err := parser.Parse(reader)
 	if err != nil {
 		return fmt.Errorf("error parsing commands: %w", err)
 	}
 
-	// Generate Go source code
-	goSource, err := generateGo(program, templateFile, binaryName)
+	// Generate Go source code using the engine
+	ctx := decorators.NewExecutionContext(context.Background(), program)
+	ctx.Debug = debug
+
+	eng := engine.New(engine.GeneratorMode, ctx)
+	result, err := eng.Execute(program)
 	if err != nil {
 		return fmt.Errorf("error generating Go source: %w", err)
 	}
+
+	genResult, ok := result.(*engine.GenerationResult)
+	if !ok {
+		return fmt.Errorf("expected GenerationResult, got %T", result)
+	}
+
+	goSource := genResult.String()
 
 	// Determine output path
 	outputPath := output
 	if outputPath == "" {
 		outputPath = "./" + binaryName
 	}
-	
+
 	// Make output path absolute
 	if !filepath.IsAbs(outputPath) {
 		wd, err := os.Getwd()
@@ -154,11 +266,15 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("error creating temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to remove temp directory: %v\n", removeErr)
+		}
+	}()
 
 	// Write Go source to temp directory
 	mainGoPath := filepath.Join(tempDir, "main.go")
-	if err := os.WriteFile(mainGoPath, []byte(goSource), 0644); err != nil {
+	if err := os.WriteFile(mainGoPath, []byte(goSource), 0o644); err != nil {
 		return fmt.Errorf("error writing Go source: %w", err)
 	}
 
@@ -166,7 +282,7 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 	moduleName := strings.ReplaceAll(binaryName, "-", "_")
 	goModContent := fmt.Sprintf("module %s\n\ngo 1.21\n", moduleName)
 	goModPath := filepath.Join(tempDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		return fmt.Errorf("error writing go.mod: %w", err)
 	}
 
@@ -193,17 +309,21 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 
 func runCommand(cmd *cobra.Command, args []string) error {
 	commandName := args[0]
-	commandArgs := args[1:]
 
-	// Read and parse command file
-	content, err := os.ReadFile(commandsFile)
+	// Get input reader (file or stdin)
+	reader, closeFunc, err := getInputReader()
 	if err != nil {
-		return fmt.Errorf("error reading file %s: %w", commandsFile, err)
+		return errors.NewInputError("Failed to read command definitions", err)
 	}
+	defer func() {
+		if closeErr := closeFunc(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close input: %v\n", closeErr)
+		}
+	}()
 
-	program, err := parser.Parse(string(content))
+	program, err := parser.Parse(reader)
 	if err != nil {
-		return fmt.Errorf("error parsing commands: %w", err)
+		return errors.NewParseError("Failed to parse command definitions", err)
 	}
 
 	// Find the command to execute
@@ -221,93 +341,35 @@ func runCommand(cmd *cobra.Command, args []string) error {
 		for _, command := range program.Commands {
 			availableCommands = append(availableCommands, command.Name)
 		}
-		return fmt.Errorf("command '%s' not found. Available commands: %v", commandName, availableCommands)
-	}
-
-	// Create variable definitions map for expansion
-	definitions := createDefinitionMapFromProgram(program)
-
-	// Execute the command
-	return executeCommand(targetCommand, definitions, commandArgs)
-}
-
-// createDefinitionMapFromProgram creates a map of variable definitions
-func createDefinitionMapFromProgram(program *ast.Program) map[string]string {
-	definitions := make(map[string]string)
-	
-	// Add individual variables
-	for _, varDecl := range program.Variables {
-		definitions[varDecl.Name] = getVariableValue(varDecl.Value)
-	}
-	
-	// Add variables from groups
-	for _, varGroup := range program.VarGroups {
-		for _, varDecl := range varGroup.Variables {
-			definitions[varDecl.Name] = getVariableValue(varDecl.Value)
+		if len(availableCommands) == 0 {
+			return errors.New(errors.ErrNoCommandsDefined, fmt.Sprintf("Command '%s' not found: no commands are defined in the file", commandName)).
+				WithContext("command", commandName)
 		}
-	}
-	
-	return definitions
-}
-
-// getVariableValue extracts the string value from a variable
-func getVariableValue(value ast.Expression) string {
-	return value.String()
-}
-
-// executeCommand executes a single command with variable expansion
-func executeCommand(command *ast.CommandDecl, definitions map[string]string, args []string) error {
-	if len(command.Body.Content) == 0 {
-		return fmt.Errorf("command '%s' has no body", command.Name)
+		return errors.NewCommandNotFoundError(commandName, availableCommands)
 	}
 
-	// Execute each content item in the command body
-	for _, content := range command.Body.Content {
-		if shellContent, ok := content.(*ast.ShellContent); ok {
-			// Convert shell content to string and expand variables
-			shellCommand := shellContent.String()
-			expandedCmd := expandVariables(shellCommand, definitions)
-			
-			if debug {
-				fmt.Fprintf(os.Stderr, "Executing: %s\n", expandedCmd)
-			}
-			
-			// Execute the shell command
-			execCmd := exec.Command("sh", "-c", expandedCmd)
-			execCmd.Stdout = os.Stdout
-			execCmd.Stderr = os.Stderr
-			execCmd.Stdin = os.Stdin
-			
-			if err := execCmd.Run(); err != nil {
-				if exitError, ok := err.(*exec.ExitError); ok {
-					os.Exit(exitError.ExitCode())
-				}
-				return fmt.Errorf("command failed: %w", err)
-			}
-		}
+	// Use the engine to process variables first, then execute the specific command
+	ctx := decorators.NewExecutionContext(context.Background(), program)
+	ctx.Debug = debug
+
+	// Initialize variables in the execution context
+	if err := ctx.InitializeVariables(); err != nil {
+		return errors.Wrap(errors.ErrVariableInitialization, "Failed to initialize variables", err)
 	}
-	
+
+	eng := engine.New(engine.InterpreterMode, ctx)
+
+	// Now execute the specific command with variables available
+	cmdResult, err := eng.ExecuteCommand(targetCommand)
+	if err != nil {
+		return errors.NewCommandExecutionError(commandName, err)
+	}
+
+	if cmdResult.Status == "failed" {
+		return errors.New(errors.ErrCommandExecution, fmt.Sprintf("Command '%s' failed: %s", commandName, cmdResult.Error)).
+			WithContext("command", commandName).
+			WithContext("error_details", cmdResult.Error)
+	}
+
 	return nil
-}
-
-// expandVariables expands @var(NAME) patterns in a string
-func expandVariables(input string, definitions map[string]string) string {
-	result := input
-	for name, value := range definitions {
-		pattern := "@var(" + name + ")"
-		result = strings.ReplaceAll(result, pattern, value)
-	}
-	return result
-}
-
-// generateGo generates Go CLI output
-func generateGo(program *ast.Program, templateFile string, binaryName string) (string, error) {
-	if templateFile != "" {
-		templateContent, err := os.ReadFile(templateFile)
-		if err != nil {
-			return "", fmt.Errorf("error reading template file: %w", err)
-		}
-		return generator.GenerateGoWithTemplate(program, string(templateContent))
-	}
-	return generator.GenerateGoWithBinaryName(program, binaryName)
 }

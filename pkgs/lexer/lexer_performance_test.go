@@ -1,12 +1,13 @@
 package lexer
 
 import (
-	"github.com/aledsdavies/devcmd/pkgs/types"
 	"fmt"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aledsdavies/devcmd/pkgs/types"
 )
 
 // Real-world Devcmd examples based on the ACTUAL language specification

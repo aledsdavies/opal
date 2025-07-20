@@ -27,6 +27,7 @@ rec {
     , postProcess ? (text: text)   # Function to transform generated shell code
     , templateFile ? null          # Custom Go template file path
     , extraShellHook ? ""          # Additional shell hook content
+    , binaryName ? "dev"           # Binary name for the generated CLI
     , debug ? false               # Enable debug output
     }:
 

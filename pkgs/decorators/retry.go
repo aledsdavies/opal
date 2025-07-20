@@ -84,7 +84,7 @@ func (r *RetryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter,
 		// TODO: Execute commands using execution engine
 		// For now, simulate execution
 		execErr := r.executeCommands(ctx, content, attempt)
-		
+
 		if execErr == nil {
 			fmt.Printf("Commands succeeded on attempt %d\n", attempt)
 			return nil // Success!
@@ -107,7 +107,7 @@ func (r *RetryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter,
 func (r *RetryDecorator) executeCommands(ctx *ExecutionContext, content []ast.CommandContent, attempt int) error {
 	for i, cmd := range content {
 		fmt.Printf("  Executing command %d: %+v\n", i, cmd)
-		
+
 		// Simulate some commands failing on first attempts
 		if attempt == 1 && i == 0 {
 			return fmt.Errorf("simulated failure for command %d", i)
@@ -183,8 +183,8 @@ func (r *RetryDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter
 	}
 
 	// Parse parameters with defaults
-	maxAttempts := 3              // Default: 3 attempts
-	delayStr := "1s"             // Default: 1 second delay
+	maxAttempts := 3 // Default: 3 attempts
+	delayStr := "1s" // Default: 1 second delay
 
 	maxAttempts = ast.GetIntParam(params, "attempts", maxAttempts)
 	if delayParam := ast.FindParameter(params, "delay"); delayParam != nil {
