@@ -115,8 +115,6 @@ func (t *TryDecorator) patternToString(pattern ast.Pattern) string {
 	switch p := pattern.(type) {
 	case *ast.IdentifierPattern:
 		return p.Name
-	case *ast.WildcardPattern:
-		return "*"
 	default:
 		return "unknown"
 	}

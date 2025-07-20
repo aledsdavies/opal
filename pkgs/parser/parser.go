@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -24,10 +25,17 @@ type Parser struct {
 	errors []string
 }
 
-// Parse tokenizes and parses the input string into a complete AST.
+// Parse tokenizes and parses the input from an io.Reader into a complete AST.
 // It returns the Program node and any errors encountered.
-func Parse(input string) (*ast.Program, error) {
-	lex := lexer.New(input)
+func Parse(reader io.Reader) (*ast.Program, error) {
+	// Read the input to store for error reporting
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read input: %w", err)
+	}
+	input := string(data)
+	
+	lex := lexer.New(strings.NewReader(input))
 	p := &Parser{
 		input:  input, // Store the raw input
 		tokens: lex.TokenizeToSlice(),
@@ -435,23 +443,25 @@ func (p *Parser) parsePatternBranch() (*ast.PatternBranch, error) {
 
 	// Parse pattern (identifier or wildcard)
 	var pattern ast.Pattern
-	if p.match(types.ASTERISK) {
+	if p.match(types.IDENTIFIER) {
 		token := p.current()
 		p.advance()
-		pattern = &ast.WildcardPattern{
-			Pos:   ast.Position{Line: token.Line, Column: token.Column},
-			Token: token,
-		}
-	} else if p.match(types.IDENTIFIER) {
-		token := p.current()
-		p.advance()
-		pattern = &ast.IdentifierPattern{
-			Name:  token.Value,
-			Pos:   ast.Position{Line: token.Line, Column: token.Column},
-			Token: token,
+		
+		// Check if this is the "default" wildcard pattern
+		if token.Value == "default" {
+			pattern = &ast.WildcardPattern{
+				Pos:   ast.Position{Line: token.Line, Column: token.Column},
+				Token: token,
+			}
+		} else {
+			pattern = &ast.IdentifierPattern{
+				Name:  token.Value,
+				Pos:   ast.Position{Line: token.Line, Column: token.Column},
+				Token: token,
+			}
 		}
 	} else {
-		return nil, fmt.Errorf("expected pattern identifier or '*', got %s", p.current().Type)
+		return nil, fmt.Errorf("expected pattern identifier, got %s", p.current().Type)
 	}
 
 	// Parse colon

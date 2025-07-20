@@ -188,6 +188,12 @@ func IsPatternDecorator(name string) bool {
 	return exists
 }
 
+// IsDecorator checks if a name is any type of decorator
+func IsDecorator(name string) bool {
+	_, _, exists := globalRegistry.GetAny(name)
+	return exists
+}
+
 // GetFunctionDecorator is an alias for GetFunction but returns only the decorator (for compatibility)
 func GetFunctionDecorator(name string) (FunctionDecorator, bool) {
 	return globalRegistry.GetFunction(name)

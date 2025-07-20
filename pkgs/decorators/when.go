@@ -98,7 +98,7 @@ func (w *WhenDecorator) patternToString(pattern ast.Pattern) string {
 	case *ast.IdentifierPattern:
 		return p.Name
 	case *ast.WildcardPattern:
-		return "*"
+		return "default"
 	default:
 		return "unknown"
 	}

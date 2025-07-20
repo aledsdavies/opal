@@ -549,7 +549,7 @@ func Branch(pattern interface{}, commands ...interface{}) ExpectedPatternBranch 
 
 	switch p := pattern.(type) {
 	case string:
-		if p == "*" {
+		if p == "default" {
 			patternObj = ExpectedWildcardPattern{}
 		} else {
 			patternObj = ExpectedIdentifierPattern{Name: p}
@@ -1253,7 +1253,7 @@ func expectedCommandContentArrayToComparable(contents []ExpectedCommandContent) 
 
 func RunTestCase(t *testing.T, tc TestCase) {
 	t.Run(tc.Name, func(t *testing.T) {
-		program, err := Parse(tc.Input)
+		program, err := Parse(strings.NewReader(tc.Input))
 
 		if tc.WantErr {
 			if err == nil {

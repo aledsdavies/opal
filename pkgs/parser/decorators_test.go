@@ -307,14 +307,14 @@ func TestPatternDecorators(t *testing.T) {
 			Input: `deploy: @when(ENV) {
   production: kubectl apply -f k8s/prod/
   staging: kubectl apply -f k8s/staging/
-  *: echo "Unknown environment"
+  default: echo "Unknown environment"
 }`,
 			Expected: Program(
 				Cmd("deploy",
 					PatternDecoratorWithBranches("when", Id("ENV"),
 						Branch("production", Shell("kubectl apply -f k8s/prod/")),
 						Branch("staging", Shell("kubectl apply -f k8s/staging/")),
-						Branch("*", Shell("echo \"Unknown environment\"")),
+						Branch("default", Shell("echo \"Unknown environment\"")),
 					),
 				),
 			),

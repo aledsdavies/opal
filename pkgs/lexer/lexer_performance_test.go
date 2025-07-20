@@ -237,7 +237,7 @@ process-files: {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				lexer := New(scenario.input)
+				lexer := New(strings.NewReader(scenario.input))
 				tokenCount := 0
 				for {
 					token := lexer.NextToken()
@@ -467,7 +467,7 @@ build: echo "Debug: @var(DEBUG), Production: @var(PRODUCTION)"`,
 
 			// Performance contract: spec-compliant examples should lex quickly
 			start := time.Now()
-			lexer := New(test.input)
+			lexer := New(strings.NewReader(test.input))
 			tokenCount := 0
 
 			for {
@@ -525,7 +525,7 @@ ci: @try {
 }`
 
 	start := time.Now()
-	lexer := New(input)
+	lexer := New(strings.NewReader(input))
 	tokenCount := 0
 	decoratorCount := 0
 
@@ -597,7 +597,7 @@ safe-deploy: @try {
 
 	var totalTokens int
 	for i := 0; i < iterations; i++ {
-		lexer := New(input)
+		lexer := New(strings.NewReader(input))
 		tokenCount := 0
 
 		for {
@@ -637,7 +637,7 @@ func BenchmarkSpecCompliantMemory(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lexer := New(input)
+		lexer := New(strings.NewReader(input))
 		for {
 			token := lexer.NextToken()
 			if token.Type == types.EOF {
@@ -674,7 +674,7 @@ config: @when(PRODUCTION) {
 }`
 
 	start := time.Now()
-	lexer := New(input)
+	lexer := New(strings.NewReader(input))
 	tokenCount := 0
 	booleanCount := 0
 

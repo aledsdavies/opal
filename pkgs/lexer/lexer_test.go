@@ -19,7 +19,7 @@ type tokenExpectation struct {
 func assertTokens(t *testing.T, name string, input string, expected []tokenExpectation) {
 	t.Helper()
 
-	lexer := New(input)
+	lexer := New(strings.NewReader(input))
 	tokens := lexer.TokenizeToSlice()
 
 	// Convert tokens to comparable format (excluding positions)
@@ -365,13 +365,34 @@ world`,
 			},
 		},
 		{
-			name: "continuation in quoted string",
+			name: "continuation in single quoted string (preserved)",
 			input: `build: echo 'hello \
 world'`,
 			expected: []tokenExpectation{
 				{types.IDENTIFIER, "build"},
 				{types.COLON, ":"},
-				{types.SHELL_TEXT, "echo 'hello \\\nworld'"}, // Preserved in quotes
+				{types.SHELL_TEXT, "echo 'hello \\\nworld'"}, // Preserved in single quotes
+				{types.EOF, ""},
+			},
+		},
+		{
+			name: "continuation in double quoted string (processed)",
+			input: `build: echo "hello \
+world"`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "build"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, `echo "hello world"`}, // Processed in double quotes
+				{types.EOF, ""},
+			},
+		},
+		{
+			name: "continuation in backtick string (processed)",
+			input: "build: echo `hello \\\nworld`",
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "build"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, "echo `hello world`"}, // Should be processed in backticks
 				{types.EOF, ""},
 			},
 		},
@@ -395,7 +416,7 @@ func TestPatternDecorators(t *testing.T) {
 			input: `deploy: @when(ENV) {
   prod: echo production
   dev: echo development
-  *: echo default
+  default: echo default
 }`,
 			expected: []tokenExpectation{
 				{types.IDENTIFIER, "deploy"},
@@ -412,7 +433,7 @@ func TestPatternDecorators(t *testing.T) {
 				{types.IDENTIFIER, "dev"},
 				{types.COLON, ":"},
 				{types.SHELL_TEXT, "echo development"},
-				{types.ASTERISK, "*"},
+				{types.IDENTIFIER, "default"},
 				{types.COLON, ":"},
 				{types.SHELL_TEXT, "echo default"},
 				{types.RBRACE, "}"},
@@ -424,7 +445,7 @@ func TestPatternDecorators(t *testing.T) {
 			input: `deploy: @when(ENV) {
   prod: { npm run build && npm run deploy }
   dev: npm run dev-deploy
-  *: { echo "Unknown env: $ENV"; exit 1 }
+  default: { echo "Unknown env: $ENV"; exit 1 }
 }`,
 			expected: []tokenExpectation{
 				{types.IDENTIFIER, "deploy"},
@@ -443,7 +464,7 @@ func TestPatternDecorators(t *testing.T) {
 				{types.IDENTIFIER, "dev"},
 				{types.COLON, ":"},
 				{types.SHELL_TEXT, "npm run dev-deploy"},
-				{types.ASTERISK, "*"},
+				{types.IDENTIFIER, "default"},
 				{types.COLON, ":"},
 				{types.LBRACE, "{"},
 				{types.SHELL_TEXT, "echo \"Unknown env: $ENV\"; exit 1"},
@@ -526,7 +547,7 @@ func TestPatternDecorators(t *testing.T) {
     npm run build:test
     npm run lint
   }
-  *: npm run build
+  default: npm run build
 }`,
 			expected: []tokenExpectation{
 				{types.IDENTIFIER, "build"},
@@ -565,7 +586,7 @@ func TestPatternDecorators(t *testing.T) {
 				{types.SHELL_TEXT, "npm run build:test"},
 				{types.SHELL_TEXT, "npm run lint"},
 				{types.RBRACE, "}"},
-				{types.ASTERISK, "*"},
+				{types.IDENTIFIER, "default"},
 				{types.COLON, ":"},
 				{types.SHELL_TEXT, "npm run build"},
 				{types.RBRACE, "}"},
@@ -583,7 +604,7 @@ func TestPatternDecorators(t *testing.T) {
     npm run build:dev
     npm start
   }
-  *: echo "Unknown environment"
+  default: echo "Unknown environment"
 }`,
 			expected: []tokenExpectation{
 				{types.IDENTIFIER, "server"},
@@ -606,7 +627,7 @@ func TestPatternDecorators(t *testing.T) {
 				{types.SHELL_TEXT, "npm run build:dev"},
 				{types.SHELL_TEXT, "npm start"},
 				{types.RBRACE, "}"},
-				{types.ASTERISK, "*"},
+				{types.IDENTIFIER, "default"},
 				{types.COLON, ":"},
 				{types.SHELL_TEXT, "echo \"Unknown environment\""},
 				{types.RBRACE, "}"},
@@ -688,7 +709,7 @@ func TestPatternDecorators(t *testing.T) {
 			// NEWLINE tokens no longer exist - validation not needed
 			// Only check tests that actually have pattern decorators
 			if strings.Contains(tt.input, "@when") || strings.Contains(tt.input, "@try") {
-				lexer := New(tt.input)
+				lexer := New(strings.NewReader(tt.input))
 				tokens := lexer.TokenizeToSlice()
 
 				inPatternBlock := false
@@ -772,7 +793,7 @@ func TestEdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use modified assertTokens that handles position edge cases
-			lexer := New(tt.input)
+			lexer := New(strings.NewReader(tt.input))
 			tokens := lexer.TokenizeToSlice()
 
 			// Check token count
@@ -938,7 +959,7 @@ func TestTokenPositions(t *testing.T) {
 	input := `var PORT = 8080
 build: echo hello`
 
-	lexer := New(input)
+	lexer := New(strings.NewReader(input))
 	tokens := lexer.TokenizeToSlice()
 
 	// Expected positions (1-based indexing)
@@ -1203,7 +1224,7 @@ func BenchmarkLexer(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lexer := New(input)
+		lexer := New(strings.NewReader(input))
 		tokens := lexer.TokenizeToSlice()
 		_ = tokens
 	}
@@ -1343,4 +1364,22 @@ format: {
 	}
 
 	assertTokens(t, "Real world format command", input, expected)
+}
+
+func TestWatchStopMultipleCommands(t *testing.T) {
+	input := "watch server: npm start\nstop server: pkill node"
+	
+	expected := []tokenExpectation{
+		{types.WATCH, "watch"},
+		{types.IDENTIFIER, "server"}, 
+		{types.COLON, ":"},
+		{types.SHELL_TEXT, "npm start"},
+		{types.STOP, "stop"},
+		{types.IDENTIFIER, "server"},
+		{types.COLON, ":"},
+		{types.SHELL_TEXT, "pkill node"},
+		{types.EOF, ""},
+	}
+	
+	assertTokens(t, "watch and stop commands on separate lines", input, expected)
 }
