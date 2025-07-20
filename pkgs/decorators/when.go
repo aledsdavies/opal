@@ -3,6 +3,8 @@ package decorators
 import (
 	"fmt"
 	"os"
+	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
@@ -10,6 +12,48 @@ import (
 
 // WhenDecorator implements the @when decorator for conditional execution based on patterns
 type WhenDecorator struct{}
+
+// Template for when execution code generation
+const whenExecutionTemplate = `func() error {
+	// Pattern matching for variable: {{.VariableName}}
+	value := os.Getenv({{printf "%q" .VariableName}})
+	switch value {
+	{{range $pattern := .Patterns}}
+	{{if $pattern.IsDefault}}
+	default:
+	{{else}}
+	case {{printf "%q" $pattern.Name}}:
+	{{end}}
+		// Execute commands for pattern: {{$pattern.Name}}
+		if err := func() error {
+			{{range $i, $cmd := $pattern.Commands}}
+			if err := func() error {
+				{{executeCommand $cmd}}
+			}(); err != nil {
+				return err
+			}
+			{{end}}
+			return nil
+		}(); err != nil {
+			return err
+		}
+	{{end}}
+	}
+	return nil
+}()`
+
+// WhenPatternData holds data for a single pattern branch
+type WhenPatternData struct {
+	Name      string
+	IsDefault bool
+	Commands  []ast.CommandContent
+}
+
+// WhenTemplateData holds data for template execution
+type WhenTemplateData struct {
+	VariableName string
+	Patterns     []WhenPatternData
+}
 
 // Name returns the decorator name
 func (w *WhenDecorator) Name() string {
@@ -120,31 +164,40 @@ func (w *WhenDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParame
 		}
 	}
 
-	// Generate Go code for pattern matching
-	code := fmt.Sprintf(`
-// Pattern matching for variable: %s
-value := os.Getenv(%q)
-switch value {`, varName, varName)
-
-	// Add cases for each pattern
+	// Convert patterns to template data
+	var patternData []WhenPatternData
 	for _, pattern := range patterns {
 		patternStr := w.patternToString(pattern.Pattern)
+		isDefault := false
 		if _, ok := pattern.Pattern.(*ast.WildcardPattern); ok {
-			code += `
-default:`
-		} else {
-			code += fmt.Sprintf(`
-case %q:`, patternStr)
+			isDefault = true
 		}
-		code += fmt.Sprintf(`
-	// Execute commands for pattern: %s
-	// TODO: Generate command execution code`, patternStr)
+		
+		patternData = append(patternData, WhenPatternData{
+			Name:      patternStr,
+			IsDefault: isDefault,
+			Commands:  pattern.Commands,
+		})
 	}
 
-	code += `
-}`
+	// Prepare template data
+	templateData := WhenTemplateData{
+		VariableName: varName,
+		Patterns:     patternData,
+	}
 
-	return code, nil
+	// Parse and execute template with context functions
+	tmpl, err := template.New("when").Funcs(ctx.GetTemplateFunctions()).Parse(whenExecutionTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse when template: %w", err)
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute when template: %w", err)
+	}
+
+	return result.String(), nil
 }
 
 // Plan creates a plan element describing what this decorator would do in dry run mode

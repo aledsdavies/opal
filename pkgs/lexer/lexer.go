@@ -74,6 +74,7 @@ type Lexer struct {
 	currentDecorator   string    // Track current decorator name for mode switching
 	previousMode       LexerMode // Track previous mode for returns from CommandMode
 	inPatternDecorator bool      // Track if we're inside a pattern decorator block
+	decoratorStack     []string  // Stack of decorator names to track nesting
 
 	// Position tracking for error reporting
 	lastPosition int
@@ -91,11 +92,12 @@ func New(reader io.Reader) *Lexer {
 	}
 
 	l := &Lexer{
-		input:      string(data),
-		line:       1,
-		column:     0,            // Will be incremented to 1 by initial readChar()
-		mode:       LanguageMode, // Start in LanguageMode
-		braceStack: make([]int, 0, 8),
+		input:          string(data),
+		line:           1,
+		column:         0,            // Will be incremented to 1 by initial readChar()
+		mode:           LanguageMode, // Start in LanguageMode
+		braceStack:     make([]int, 0, 8),
+		decoratorStack: make([]string, 0, 8),
 	}
 	l.readChar()
 	return l
@@ -333,13 +335,19 @@ func (l *Lexer) lexCommandMode() types.Token {
 		// Newlines end shell content in command mode (unless line continuation)
 		l.readChar()
 		// Return to appropriate mode based on context
-		if l.inPatternDecorator && l.previousMode == PatternMode && l.braceLevel == 1 {
-			// Return to PatternMode for pattern decorators
-			l.mode = PatternMode
-			l.previousMode = LanguageMode // Reset previous mode
+		if l.inPatternDecorator && l.previousMode == PatternMode {
+			// Check if we should return to PatternMode
+			// For nested patterns (braceLevel > 1), we always return to PatternMode
+			// For top-level patterns (braceLevel == 1), we also return to PatternMode
+			if l.braceLevel >= 1 {
+				l.mode = PatternMode
+			}
 		} else if l.braceLevel == 0 {
 			// Return to LanguageMode for simple commands without braces
 			l.mode = LanguageMode
+		} else {
+			// We're inside braces but not in a pattern decorator - stay in CommandMode
+			// This ensures we don't accidentally switch modes
 		}
 		return l.NextToken()
 
@@ -359,9 +367,9 @@ func (l *Lexer) lexCommandMode() types.Token {
 			} else {
 				l.mode = LanguageMode
 			}
-		} else if l.inPatternDecorator {
-			// If we're still inside nested braces in a pattern decorator, return to PatternMode
-			l.mode = PatternMode
+		} else {
+			// We're still inside nested braces - return to CommandMode
+			l.mode = CommandMode
 		}
 		return l.createToken(types.RBRACE, "}", start, startLine, startColumn)
 
@@ -481,11 +489,16 @@ func (l *Lexer) lexPatternMode() types.Token {
 		if len(l.braceStack) > 0 {
 			l.braceStack = l.braceStack[:len(l.braceStack)-1]
 		}
-		// Return to LanguageMode when exiting pattern blocks
+		// Return to appropriate mode when exiting pattern blocks
 		if l.braceLevel <= 0 {
 			l.mode = LanguageMode
 			l.currentDecorator = "" // Clear decorator context
 			l.inPatternDecorator = false
+		} else {
+			// We're still inside outer braces, return to CommandMode
+			l.mode = CommandMode
+			l.inPatternDecorator = false
+			l.currentDecorator = ""
 		}
 		return l.createToken(types.RBRACE, "}", start, startLine, startColumn)
 

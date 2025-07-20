@@ -1384,3 +1384,138 @@ func TestWatchStopMultipleCommands(t *testing.T) {
 
 	assertTokens(t, "watch and stop commands on separate lines", input, expected)
 }
+
+// TestSpecialCharacters tests lexing of commands with special characters
+// This test uses the same inputs as the failing error handling test to diagnose the issue
+func TestSpecialCharacters(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []tokenExpectation
+	}{
+		{
+			name:  "valid command without special chars",
+			input: `valid: echo "This works"`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "valid"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, `echo "This works"`},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "command with special characters",
+			input: `special-chars: echo "Special: !#\$%^&*()"`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "special-chars"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, `echo "Special: !#\$%^&*()"`},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "unicode command",
+			input: `unicode: echo "Hello 世界"`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "unicode"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, `echo "Hello 世界"`},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "special chars in single quotes",
+			input: `single-quote: echo 'Special: !#$%^&*()'`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "single-quote"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, `echo 'Special: !#$%^&*()'`},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "mixed quotes with special chars",
+			input: `mixed: echo "Before" && echo 'Special: !@#$%' && echo "After"`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "mixed"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, `echo "Before" && echo 'Special: !@#$%' && echo "After"`},
+				{types.EOF, ""},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.name, tt.input, tt.expected)
+		})
+	}
+}
+
+func TestNamedParameters(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []tokenExpectation
+	}{
+		{
+			name:  "retry with named parameter",
+			input: `test: @retry(attempts=3) { echo "task" }`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "test"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "retry"},
+				{types.LPAREN, "("},
+				{types.IDENTIFIER, "attempts"},
+				{types.EQUALS, "="},
+				{types.NUMBER, "3"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, `echo "task"`},
+				{types.RBRACE, "}"},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "complex nested decorators with named parameters",
+			input: `test: @retry(attempts=3) {
+		@when(ENV) {
+			development: echo "Dev environment"
+		}
+		echo "Always execute"
+	}`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "test"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "retry"},
+				{types.LPAREN, "("},
+				{types.IDENTIFIER, "attempts"},
+				{types.EQUALS, "="},
+				{types.NUMBER, "3"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "when"},
+				{types.LPAREN, "("},
+				{types.IDENTIFIER, "ENV"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.IDENTIFIER, "development"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, "echo \"Dev environment\""},
+				{types.RBRACE, "}"},
+				{types.SHELL_TEXT, "echo \"Always execute\""},
+				{types.RBRACE, "}"},
+				{types.EOF, ""},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.name, tt.input, tt.expected)
+		})
+	}
+}

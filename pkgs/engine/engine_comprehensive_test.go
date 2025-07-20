@@ -412,7 +412,15 @@ serve: echo "Serving on @var(HOST):@var(PORT)"`
 		"PORT":  "8080",
 		"HOST":  "localhost",
 		"ENV":   "development",
-		"DEBUG": "true",
+		"DEBUG": "true", // All declared variables should be in interpreter
+	}
+
+	// Only used variables should be in generated code
+	expectedUsedVars := map[string]string{
+		"PORT": "8080",
+		"HOST": "localhost",
+		"ENV":  "development",
+		// DEBUG is not used, so should not be generated
 	}
 
 	// Check interpreter variables
@@ -424,13 +432,18 @@ serve: echo "Serving on @var(HOST):@var(PORT)"`
 		}
 	}
 
-	// Check generator code contains variable declarations
+	// Check generator code contains variable declarations (only used variables)
 	code := genResult.String()
-	for name, expectedValue := range expectedVars {
+	for name, expectedValue := range expectedUsedVars {
 		expectedDecl := name + " := \"" + expectedValue + "\""
 		if !strings.Contains(code, expectedDecl) {
 			t.Errorf("Generated code missing variable declaration: %s", expectedDecl)
 		}
+	}
+
+	// Verify that unused variables are NOT in the generated code
+	if strings.Contains(code, "DEBUG := \"true\"") {
+		t.Error("Generated code should not contain unused variable DEBUG")
 	}
 
 	// Both modes should process the same number of commands

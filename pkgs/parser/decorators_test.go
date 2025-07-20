@@ -393,6 +393,82 @@ func TestPatternDecorators(t *testing.T) {
 	}
 }
 
+func TestNamedParameterSupport(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name:  "retry with positional parameter",
+			Input: "test: @retry(3) { echo \"task\" }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("retry", Num(3)),
+						Text("echo \"task\""),
+					),
+				),
+			),
+		},
+		{
+			Name:  "retry with named parameter",
+			Input: "test: @retry(attempts=3) { echo \"task\" }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("retry", Named("attempts", Num(3))),
+						Text("echo \"task\""),
+					),
+				),
+			),
+		},
+		{
+			Name:  "retry with mixed parameters",
+			Input: "test: @retry(3, delay=1s) { echo \"task\" }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("retry", Num(3), Named("delay", Duration("1s"))),
+						Text("echo \"task\""),
+					),
+				),
+			),
+		},
+		{
+			Name:  "timeout with named parameter",
+			Input: "test: @timeout(duration=30s) { echo \"task\" }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("timeout", Named("duration", Duration("30s"))),
+						Text("echo \"task\""),
+					),
+				),
+			),
+		},
+		{
+			Name:  "parallel with named parameters",
+			Input: "test: @parallel(concurrency=2, failOnFirstError=true) { echo \"task1\"; echo \"task2\" }",
+			Expected: Program(
+				CmdBlock("test",
+					DecoratedShell(Decorator("parallel", Named("concurrency", Num(2)), Named("failOnFirstError", Bool(true))),
+						Text("echo \"task1\"; echo \"task2\""),
+					),
+				),
+			),
+		},
+		{
+			Name:  "when with string parameter",
+			Input: "test: @when(\"ENV\") { production: echo \"prod\"; default: echo \"dev\" }",
+			Expected: Program(
+				Cmd("test",
+					PatternDecoratorWithBranches("when", Str("ENV"),
+						Branch("production", Shell("echo \"prod\"")),
+						Branch("default", Shell("echo \"dev\"")),
+					),
+				),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
 func TestShellSubstitution(t *testing.T) {
 	testCases := []TestCase{
 		{

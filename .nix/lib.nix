@@ -108,7 +108,7 @@ rec {
         }
         ''
           echo "Parsing commands with devcmd..."
-          ${parserBin}/bin/devcmd ${parserArgs} -binary "${binaryName}" ${commandsSrc} > $out || {
+          ${parserBin}/bin/devcmd ${parserArgs} --binary "${binaryName}" --file ${commandsSrc} > $out || {
             echo "# Error parsing commands" > $out
             echo 'echo "Error: Failed to parse commands"' >> $out
           }
@@ -241,7 +241,7 @@ rec {
         mkdir -p "$GOCACHE" "$out"
 
         echo "Generating Go CLI from commands.cli..."
-        ${devcmdBin}/bin/devcmd ${templateArgs} -binary "${binaryName}" ${commandsSrc} > "$out/main.go"
+        ${devcmdBin}/bin/devcmd ${templateArgs} --binary "${binaryName}" --file ${commandsSrc} > "$out/main.go"
 
         cat > "$out/go.mod" <<EOF
         module ${name}

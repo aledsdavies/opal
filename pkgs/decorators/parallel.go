@@ -3,8 +3,10 @@ package decorators
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
@@ -12,6 +14,74 @@ import (
 
 // ParallelDecorator implements the @parallel decorator for concurrent command execution
 type ParallelDecorator struct{}
+
+// Template for parallel execution code generation
+const parallelExecutionTemplate = `func() error {
+	{{if .FailOnFirstError}}ctx, cancel := context.WithCancel(context.Background())
+	defer cancel(){{end}}
+
+	semaphore := make(chan struct{}, {{.Concurrency}})
+	var wg sync.WaitGroup
+	errChan := make(chan error, {{.CommandCount}})
+
+	{{range $i, $cmd := .Commands}}
+	// Command {{$i}}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		
+		// Acquire semaphore
+		semaphore <- struct{}{}
+		defer func() { <-semaphore }()
+
+		{{if $.FailOnFirstError}}// Check cancellation
+		select {
+		case <-ctx.Done():
+			errChan <- ctx.Err()
+			return
+		default:
+		}{{end}}
+
+		// Execute command using template function
+		if err := func() error {
+			{{executeCommand $cmd}}
+		}(); err != nil {
+			errChan <- err
+			return
+		}
+		errChan <- nil
+	}()
+	{{end}}
+
+	// Wait for completion
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+
+	// Collect errors
+	var errors []string
+	for err := range errChan {
+		if err != nil {
+			errors = append(errors, err.Error())
+			{{if .FailOnFirstError}}cancel() // Cancel remaining tasks
+			break{{end}}
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("parallel execution failed: %s", strings.Join(errors, "; "))
+	}
+	return nil
+}()`
+
+// TemplateData holds data for template execution
+type ParallelTemplateData struct {
+	Concurrency      int
+	FailOnFirstError bool
+	CommandCount     int
+	Commands         []ast.CommandContent
+}
 
 // Name returns the decorator name
 func (p *ParallelDecorator) Name() string {
@@ -54,6 +124,89 @@ func (p *ParallelDecorator) Validate(ctx *ExecutionContext, params []ast.NamedPa
 
 	if err := ValidateOptionalParameter(params, "failOnFirstError", ast.BooleanType, "parallel"); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// executeCommandContent executes different types of command content in interpreter mode
+func (p *ParallelDecorator) executeCommandContent(ctx *ExecutionContext, content ast.CommandContent) error {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		return p.executeShellContent(ctx, c)
+	case *ast.BlockDecorator:
+		// For nested decorators, we'd need access to the decorator registry
+		return fmt.Errorf("nested block decorators not yet supported in parallel execution")
+	case *ast.PatternDecorator:
+		return fmt.Errorf("nested pattern decorators not yet supported in parallel execution")
+	case *ast.FunctionDecorator:
+		return fmt.Errorf("nested function decorators not yet supported in parallel execution")
+	default:
+		return fmt.Errorf("unsupported command content type: %T", content)
+	}
+}
+
+// executeShellContent executes shell commands by processing each part
+func (p *ParallelDecorator) executeShellContent(ctx *ExecutionContext, shell *ast.ShellContent) error {
+	// Build the final command by processing each part
+	var cmdBuilder strings.Builder
+	for _, part := range shell.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			cmdBuilder.WriteString(p.Text)
+		case *ast.FunctionDecorator:
+			// Handle @var() and @env() decorators
+			if p.Name == "var" && len(p.Args) > 0 {
+				if varName, ok := p.Args[0].Value.(*ast.StringLiteral); ok {
+					if value, exists := ctx.GetVariable(varName.Value); exists {
+						cmdBuilder.WriteString(value)
+					} else {
+						return fmt.Errorf("undefined variable: %s", varName.Value)
+					}
+				}
+			} else if p.Name == "env" && len(p.Args) > 0 {
+				if envName, ok := p.Args[0].Value.(*ast.StringLiteral); ok {
+					if value, exists := ctx.GetEnv(envName.Value); exists {
+						cmdBuilder.WriteString(value)
+					} else {
+						return fmt.Errorf("undefined environment variable: %s", envName.Value)
+					}
+				}
+			} else {
+				// For other function decorators, just add their string representation
+				cmdBuilder.WriteString(p.String())
+			}
+		default:
+			// Fallback for other types
+			cmdBuilder.WriteString(fmt.Sprintf("%v", part))
+		}
+	}
+
+	cmdStr := strings.TrimSpace(cmdBuilder.String())
+	if cmdStr == "" {
+		return nil // Empty command, nothing to execute
+	}
+
+	// Execute the shell command with context for cancellation
+	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+	if ctx.WorkingDir != "" {
+		cmd.Dir = ctx.WorkingDir
+	}
+
+	// Set up environment variables
+	for key, value := range ctx.Env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	// Execute and capture output
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("command failed: %s (output: %s)", err, string(output))
+	}
+
+	// Print output for visibility (like a shell would)
+	if len(output) > 0 {
+		fmt.Print(string(output))
 	}
 
 	return nil
@@ -110,13 +263,9 @@ func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamet
 			default:
 			}
 
-			// TODO: Execute the command using the execution engine
-			// For now, just print what would be executed
-			fmt.Printf("Executing in parallel (concurrency=%d): Command %d: %+v\n", concurrency, commandIndex, command)
-
-			// Simulate potential error for testing
-			// if some condition { errChan <- fmt.Errorf("command %d failed", commandIndex) }
-			errChan <- nil
+			// Execute the actual command content
+			err := p.executeCommandContent(execCtx, command)
+			errChan <- err
 		}(i, cmd)
 	}
 
@@ -145,7 +294,8 @@ func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamet
 	return nil
 }
 
-// Generate produces Go code for the decorator in compiled mode
+
+// Generate produces Go code for the decorator in compiled mode using templates
 func (p *ParallelDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
 	if err := p.Validate(ctx, params); err != nil {
 		return "", err
@@ -158,76 +308,26 @@ func (p *ParallelDecorator) Generate(ctx *ExecutionContext, params []ast.NamedPa
 	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
 	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
 
-	var builder strings.Builder
-	builder.WriteString("func() error {\n")
-
-	// Generate context setup if failOnFirstError is enabled
-	if failOnFirstError {
-		builder.WriteString("\tctx, cancel := context.WithCancel(context.Background())\n")
-		builder.WriteString("\tdefer cancel()\n")
+	// Prepare template data
+	templateData := ParallelTemplateData{
+		Concurrency:      concurrency,
+		FailOnFirstError: failOnFirstError,
+		CommandCount:     len(content),
+		Commands:         content, // Pass raw AST content
 	}
 
-	builder.WriteString(fmt.Sprintf("\tsemaphore := make(chan struct{}, %d)\n", concurrency))
-	builder.WriteString("\tvar wg sync.WaitGroup\n")
-	builder.WriteString(fmt.Sprintf("\terrChan := make(chan error, %d)\n", len(content)))
-	builder.WriteString("\n")
-
-	// Generate concurrent execution for each command
-	for i, cmd := range content {
-		builder.WriteString("\twg.Add(1)\n")
-		builder.WriteString("\tgo func() {\n")
-		builder.WriteString("\t\tdefer wg.Done()\n")
-		builder.WriteString("\n")
-		builder.WriteString("\t\t// Acquire semaphore\n")
-		builder.WriteString("\t\tsemaphore <- struct{}{}\n")
-		builder.WriteString("\t\tdefer func() { <-semaphore }()\n")
-		builder.WriteString("\n")
-
-		if failOnFirstError {
-			builder.WriteString("\t\t// Check cancellation\n")
-			builder.WriteString("\t\tselect {\n")
-			builder.WriteString("\t\tcase <-ctx.Done():\n")
-			builder.WriteString("\t\t\terrChan <- ctx.Err()\n")
-			builder.WriteString("\t\t\treturn\n")
-			builder.WriteString("\t\tdefault:\n")
-			builder.WriteString("\t\t}\n")
-			builder.WriteString("\n")
-		}
-
-		builder.WriteString(fmt.Sprintf("\t\t// Execute command %d: %+v\n", i, cmd))
-		builder.WriteString("\t\t// TODO: Generate actual command execution code\n")
-		builder.WriteString("\t\terrChan <- nil\n")
-		builder.WriteString("\t}()\n")
-		builder.WriteString("\n")
+	// Parse and execute template with context functions
+	tmpl, err := template.New("parallel").Funcs(ctx.GetTemplateFunctions()).Parse(parallelExecutionTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse parallel template: %w", err)
 	}
 
-	builder.WriteString("\tgo func() {\n")
-	builder.WriteString("\t\twg.Wait()\n")
-	builder.WriteString("\t\tclose(errChan)\n")
-	builder.WriteString("\t}()\n")
-	builder.WriteString("\n")
-
-	builder.WriteString("\tvar errors []string\n")
-	builder.WriteString("\tfor err := range errChan {\n")
-	builder.WriteString("\t\tif err != nil {\n")
-	builder.WriteString("\t\t\terrors = append(errors, err.Error())\n")
-
-	if failOnFirstError {
-		builder.WriteString("\t\t\tcancel() // Cancel remaining tasks\n")
-		builder.WriteString("\t\t\tbreak\n")
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute parallel template: %w", err)
 	}
 
-	builder.WriteString("\t\t}\n")
-	builder.WriteString("\t}\n")
-	builder.WriteString("\n")
-
-	builder.WriteString("\tif len(errors) > 0 {\n")
-	builder.WriteString("\t\treturn fmt.Errorf(\"parallel execution failed: %s\", strings.Join(errors, \"; \"))\n")
-	builder.WriteString("\t}\n")
-	builder.WriteString("\treturn nil\n")
-	builder.WriteString("}()")
-
-	return builder.String(), nil
+	return result.String(), nil
 }
 
 // Plan creates a plan element describing what this decorator would do in dry run mode

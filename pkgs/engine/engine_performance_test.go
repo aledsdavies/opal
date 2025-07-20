@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -511,3 +513,324 @@ complex_workflow: @timeout(duration=30s) {
 	t.Logf("Performance test passed: average execution time %v (baseline: %v)",
 		averageTime, maxExecutionTime)
 }
+
+// BenchmarkCodeGeneration measures time to generate Go code only
+func BenchmarkCodeGeneration(b *testing.B) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "simple_command",
+			input: `var PORT = 8080
+build: echo "Building on port @var(PORT)"`,
+		},
+		{
+			name: "parallel_decorator",
+			input: `test: @parallel {
+	echo "Task 1";
+	echo "Task 2";
+	echo "Task 3"
+}`,
+		},
+		{
+			name: "nested_decorators",
+			input: `test: @parallel {
+	echo "Task 1";
+	@retry(attempts=2) { echo "Task 2" };
+	echo "Task 3"
+}`,
+		},
+		{
+			name: "complex_nested",
+			input: `test: @parallel {
+	echo "Task 1";
+	@retry(attempts=2) {
+		@when(ENV) {
+			production: echo "Prod task"
+			default: echo "Default task"
+		};
+		echo "After condition"
+	};
+	@try {
+		main: echo "Try block"
+		error: echo "Catch block"
+	};
+	echo "Task 4"
+}`,
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			// Parse once outside the benchmark
+			program, err := parser.Parse(strings.NewReader(tt.input))
+			if err != nil {
+				b.Fatalf("Failed to parse program: %v", err)
+			}
+
+			// Benchmark code generation only
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				ctx := decorators.NewExecutionContext(context.Background(), program)
+				engine := New(GeneratorMode, ctx)
+				
+				_, err := engine.Execute(program)
+				if err != nil {
+					b.Fatalf("Failed to generate code: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkCodeCompilation measures time to compile generated Go code
+func BenchmarkCodeCompilation(b *testing.B) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "simple_command",
+			input: `var PORT = 8080
+build: echo "Building on port @var(PORT)"`,
+		},
+		{
+			name: "parallel_decorator",
+			input: `test: @parallel {
+	echo "Task 1";
+	echo "Task 2";
+	echo "Task 3"
+}`,
+		},
+		{
+			name: "nested_decorators",
+			input: `test: @parallel {
+	echo "Task 1";
+	@retry(attempts=2) { echo "Task 2" };
+	echo "Task 3"
+}`,
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			// Generate code once outside the benchmark
+			program, err := parser.Parse(strings.NewReader(tt.input))
+			if err != nil {
+				b.Fatalf("Failed to parse program: %v", err)
+			}
+
+			ctx := decorators.NewExecutionContext(context.Background(), program)
+			engine := New(GeneratorMode, ctx)
+			
+			result, err := engine.Execute(program)
+			if err != nil {
+				b.Fatalf("Failed to generate code: %v", err)
+			}
+
+			genResult, ok := result.(*GenerationResult)
+			if !ok {
+				b.Fatalf("Expected GenerationResult, got %T", result)
+			}
+
+			// Benchmark compilation
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				tempDir := b.TempDir()
+				
+				// Write files
+				mainFile := filepath.Join(tempDir, "main.go")
+				if err := writeToFile(mainFile, genResult.Code.String()); err != nil {
+					b.Fatalf("Failed to write main.go: %v", err)
+				}
+
+				goModFile := filepath.Join(tempDir, "go.mod")
+				if err := writeToFile(goModFile, genResult.GoMod.String()); err != nil {
+					b.Fatalf("Failed to write go.mod: %v", err)
+				}
+
+				// Compile
+				cmd := exec.Command("go", "build", ".")
+				cmd.Dir = tempDir
+				if err := cmd.Run(); err != nil {
+					b.Fatalf("Failed to compile: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkExecutionStartup measures time from compilation to first execution
+func BenchmarkExecutionStartup(b *testing.B) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "simple_command",
+			input: `build: echo "Hello World"`,
+		},
+		{
+			name: "parallel_decorator",
+			input: `test: @parallel {
+	echo "Task 1";
+	echo "Task 2"
+}`,
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			// Generate and compile once outside the benchmark
+			program, err := parser.Parse(strings.NewReader(tt.input))
+			if err != nil {
+				b.Fatalf("Failed to parse program: %v", err)
+			}
+
+			ctx := decorators.NewExecutionContext(context.Background(), program)
+			engine := New(GeneratorMode, ctx)
+			
+			result, err := engine.Execute(program)
+			if err != nil {
+				b.Fatalf("Failed to generate code: %v", err)
+			}
+
+			genResult, ok := result.(*GenerationResult)
+			if !ok {
+				b.Fatalf("Expected GenerationResult, got %T", result)
+			}
+
+			tempDir := b.TempDir()
+			
+			// Write files
+			mainFile := filepath.Join(tempDir, "main.go")
+			if err := writeToFile(mainFile, genResult.Code.String()); err != nil {
+				b.Fatalf("Failed to write main.go: %v", err)
+			}
+
+			goModFile := filepath.Join(tempDir, "go.mod")
+			if err := writeToFile(goModFile, genResult.GoMod.String()); err != nil {
+				b.Fatalf("Failed to write go.mod: %v", err)
+			}
+
+			// Compile
+			cmd := exec.Command("go", "build", "-o", "test-binary", ".")
+			cmd.Dir = tempDir
+			if err := cmd.Run(); err != nil {
+				b.Fatalf("Failed to compile: %v", err)
+			}
+
+			binaryPath := filepath.Join(tempDir, "test-binary")
+
+			// Benchmark execution startup time
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				cmd := exec.Command(binaryPath, "--help")
+				if err := cmd.Run(); err != nil {
+					b.Fatalf("Failed to execute: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkFullPipeline measures the complete generation -> compilation -> execution pipeline
+func BenchmarkFullPipeline(b *testing.B) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "simple_command",
+			input: `build: echo "Hello World"`,
+		},
+		{
+			name: "parallel_decorator",
+			input: `test: @parallel {
+	echo "Task 1";
+	echo "Task 2"
+}`,
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				// Measure complete pipeline
+				pipelineStart := time.Now()
+
+				// 1. Parse
+				parseStart := time.Now()
+				program, err := parser.Parse(strings.NewReader(tt.input))
+				if err != nil {
+					b.Fatalf("Failed to parse program: %v", err)
+				}
+				parseTime := time.Since(parseStart)
+
+				// 2. Generate
+				genStart := time.Now()
+				ctx := decorators.NewExecutionContext(context.Background(), program)
+				engine := New(GeneratorMode, ctx)
+				
+				result, err := engine.Execute(program)
+				if err != nil {
+					b.Fatalf("Failed to generate code: %v", err)
+				}
+				genTime := time.Since(genStart)
+
+				genResult, ok := result.(*GenerationResult)
+				if !ok {
+					b.Fatalf("Expected GenerationResult, got %T", result)
+				}
+
+				// 3. Write files
+				writeStart := time.Now()
+				tempDir := b.TempDir()
+				
+				mainFile := filepath.Join(tempDir, "main.go")
+				if err := writeToFile(mainFile, genResult.Code.String()); err != nil {
+					b.Fatalf("Failed to write main.go: %v", err)
+				}
+
+				goModFile := filepath.Join(tempDir, "go.mod")
+				if err := writeToFile(goModFile, genResult.GoMod.String()); err != nil {
+					b.Fatalf("Failed to write go.mod: %v", err)
+				}
+				writeTime := time.Since(writeStart)
+
+				// 4. Compile
+				compileStart := time.Now()
+				cmd := exec.Command("go", "build", "-o", "test-binary", ".")
+				cmd.Dir = tempDir
+				if err := cmd.Run(); err != nil {
+					b.Fatalf("Failed to compile: %v", err)
+				}
+				compileTime := time.Since(compileStart)
+
+				// 5. Execute
+				execStart := time.Now()
+				binaryPath := filepath.Join(tempDir, "test-binary")
+				cmd = exec.Command(binaryPath, "--help")
+				if err := cmd.Run(); err != nil {
+					b.Fatalf("Failed to execute: %v", err)
+				}
+				execTime := time.Since(execStart)
+
+				totalTime := time.Since(pipelineStart)
+
+				// Report timing breakdown (only on first iteration to avoid noise)
+				if i == 0 {
+					b.Logf("Pipeline breakdown for %s:", tt.name)
+					b.Logf("  Parse:     %v (%.1f%%)", parseTime, float64(parseTime)/float64(totalTime)*100)
+					b.Logf("  Generate:  %v (%.1f%%)", genTime, float64(genTime)/float64(totalTime)*100)
+					b.Logf("  Write:     %v (%.1f%%)", writeTime, float64(writeTime)/float64(totalTime)*100)
+					b.Logf("  Compile:   %v (%.1f%%)", compileTime, float64(compileTime)/float64(totalTime)*100)
+					b.Logf("  Execute:   %v (%.1f%%)", execTime, float64(execTime)/float64(totalTime)*100)
+					b.Logf("  Total:     %v", totalTime)
+				}
+			}
+		})
+	}
+}
+

@@ -70,6 +70,7 @@ rec {
       name = "simple-command";
       cli = devcmdLib.mkDevCLI {
         name = "simple-test";
+        binaryName = "simple-test";
         commandsContent = ''
           build: echo "Building project..."
           test: echo "Running tests..."
@@ -89,6 +90,7 @@ rec {
       name = "posix-syntax";
       cli = devcmdLib.mkDevCLI {
         name = "posix-test";
+        binaryName = "posix-test";
         commandsContent = ''
           check-deps: (which go && echo "Go found") || (echo "Go missing" && exit 1)
           validate: test -f go.mod && echo "Go module found" || echo "No go.mod"
@@ -115,6 +117,7 @@ rec {
       name = "variable-expansion";
       cli = devcmdLib.mkDevCLI {
         name = "variables-test";
+        binaryName = "variables-test";
         commandsContent = ''
           var SRC = "./src"
           var PORT = "8080"
@@ -142,6 +145,7 @@ rec {
       name = "process-management";
       cli = devcmdLib.mkDevCLI {
         name = "process-test";
+        binaryName = "process-test";
         commandsContent = ''
           watch demo: python3 -m http.server 9999
           stop demo: pkill -f "python3 -m http.server 9999"
@@ -170,6 +174,7 @@ rec {
       name = "block-commands";
       cli = devcmdLib.mkDevCLI {
         name = "block-test";
+        binaryName = "block-test";
         commandsContent = ''
           setup: {
             echo "Step 1: Initialize";
@@ -215,6 +220,7 @@ rec {
       name = "error-handling";
       cli = devcmdLib.mkDevCLI {
         name = "error-test";
+        binaryName = "error-test";
         commandsContent = ''
           valid: echo "This works";
           special-chars: echo "Special: !#\$%^&*()";
@@ -236,6 +242,7 @@ rec {
       name = "performance";
       cli = devcmdLib.mkDevCLI {
         name = "large-test";
+        binaryName = "large-test";
         commandsContent = lib.concatStringsSep "\n" (
           lib.genList (i: "cmd${toString i}: echo 'Command ${toString i}';") 20
         );
@@ -261,6 +268,7 @@ rec {
       name = "web-development";
       cli = devcmdLib.mkDevCLI {
         name = "webdev";
+        binaryName = "webdev";
         commandsContent = ''
           var NODE_ENV = "development"
           var PORT = "3000"
@@ -307,6 +315,7 @@ rec {
       name = "go-project";
       cli = devcmdLib.mkDevCLI {
         name = "goproj";
+        binaryName = "goproj";
         commandsContent = ''
           var MODULE = "github.com/example/myapp"
           var BINARY = "myapp"
@@ -358,6 +367,7 @@ rec {
       name = "shell-substitution";
       cli = devcmdLib.mkDevCLI {
         name = "shell-test";
+        binaryName = "shell-test";
         commandsContent = ''
           var LOG_DIR = "/tmp/logs"
           var APP_NAME = "myapp"

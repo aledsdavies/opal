@@ -234,11 +234,16 @@ func TestImportManagement_EmptyProgram(t *testing.T) {
 		t.Fatalf("Expected GenerationResult, got %T", result)
 	}
 
-	// Even with no decorators, base imports should be present
-	baseImports := []string{"context", "fmt", "os"}
-	for _, baseImport := range baseImports {
-		if !genResult.HasStandardImport(baseImport) {
-			t.Errorf("Expected base import %q even in empty program", baseImport)
+	// Only fmt should be present for programs without commands
+	if !genResult.HasStandardImport("fmt") {
+		t.Errorf("Expected base import %q even in empty program", "fmt")
+	}
+
+	// context and os should NOT be present when there are no commands
+	unnecessaryImports := []string{"context", "os"}
+	for _, unnecessaryImport := range unnecessaryImports {
+		if genResult.HasStandardImport(unnecessaryImport) {
+			t.Errorf("Did not expect import %q in program without commands", unnecessaryImport)
 		}
 	}
 }

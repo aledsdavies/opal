@@ -3,6 +3,7 @@ package decorators
 import (
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
@@ -11,6 +12,56 @@ import (
 
 // RetryDecorator implements the @retry decorator for retrying failed command execution
 type RetryDecorator struct{}
+
+// Template for retry execution code generation
+const retryExecutionTemplate = `return func() error {
+	maxAttempts := {{.MaxAttempts}}
+	delay, err := time.ParseDuration({{printf "%q" .Delay}})
+	if err != nil {
+		return fmt.Errorf("invalid retry delay '{{.Delay}}': %w", err)
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		fmt.Printf("Retry attempt %d/%d\n", attempt, maxAttempts)
+
+		// Execute commands
+		execErr := func() error {
+			{{range $i, $cmd := .Commands}}
+			// Execute command {{$i}}
+			if err := func() error {
+				{{executeCommand $cmd}}
+			}(); err != nil {
+				return err
+			}
+			{{end}}
+			return nil
+		}()
+
+		if execErr == nil {
+			fmt.Printf("Commands succeeded on attempt %d\n", attempt)
+			return nil
+		}
+
+		lastErr = execErr
+		fmt.Printf("Attempt %d failed: %v\n", attempt, execErr)
+
+		// Don't delay after the last attempt
+		if attempt < maxAttempts {
+			fmt.Printf("Waiting %s before next attempt...\n", delay)
+			time.Sleep(delay)
+		}
+	}
+
+	return fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr)
+}()`
+
+// RetryTemplateData holds data for template execution
+type RetryTemplateData struct {
+	MaxAttempts int
+	Delay       string
+	Commands    []ast.CommandContent
+}
 
 // Name returns the decorator name
 func (r *RetryDecorator) Name() string {
@@ -116,7 +167,7 @@ func (r *RetryDecorator) executeCommands(ctx *ExecutionContext, content []ast.Co
 	return nil
 }
 
-// Generate produces Go code for the decorator in compiled mode
+// Generate produces Go code for the decorator in compiled mode using templates
 func (r *RetryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
 	if err := r.Validate(ctx, params); err != nil {
 		return "", err
@@ -131,49 +182,25 @@ func (r *RetryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParam
 		}
 	}
 
-	var builder strings.Builder
-	builder.WriteString("func() error {\n")
-	builder.WriteString(fmt.Sprintf("\tmaxAttempts := %d\n", maxAttempts))
-	builder.WriteString(fmt.Sprintf("\tdelay, err := time.ParseDuration(%q)\n", defaultDelay))
-	builder.WriteString("\tif err != nil {\n")
-	builder.WriteString(fmt.Sprintf("\t\treturn fmt.Errorf(\"invalid retry delay '%s': %%w\", err)\n", defaultDelay))
-	builder.WriteString("\t}\n")
-	builder.WriteString("\n")
-	builder.WriteString("\tvar lastErr error\n")
-	builder.WriteString("\tfor attempt := 1; attempt <= maxAttempts; attempt++ {\n")
-	builder.WriteString("\t\tfmt.Printf(\"Retry attempt %d/%d\\n\", attempt, maxAttempts)\n")
-	builder.WriteString("\n")
-
-	// Generate command execution with error handling
-	builder.WriteString("\t\t// Execute commands\n")
-	builder.WriteString("\t\texecErr := func() error {\n")
-	for i, cmd := range content {
-		builder.WriteString(fmt.Sprintf("\t\t\t// Execute command %d: %+v\n", i, cmd))
-		builder.WriteString("\t\t\t// TODO: Generate actual command execution code\n")
-		builder.WriteString("\t\t\t// if err := executeCommand(...); err != nil { return err }\n")
+	// Prepare template data
+	templateData := RetryTemplateData{
+		MaxAttempts: maxAttempts,
+		Delay:       defaultDelay,
+		Commands:    content,
 	}
-	builder.WriteString("\t\t\treturn nil\n")
-	builder.WriteString("\t\t}()\n")
-	builder.WriteString("\n")
-	builder.WriteString("\t\tif execErr == nil {\n")
-	builder.WriteString("\t\t\tfmt.Printf(\"Commands succeeded on attempt %d\\n\", attempt)\n")
-	builder.WriteString("\t\t\treturn nil\n")
-	builder.WriteString("\t\t}\n")
-	builder.WriteString("\n")
-	builder.WriteString("\t\tlastErr = execErr\n")
-	builder.WriteString("\t\tfmt.Printf(\"Attempt %d failed: %v\\n\", attempt, execErr)\n")
-	builder.WriteString("\n")
-	builder.WriteString("\t\t// Don't delay after the last attempt\n")
-	builder.WriteString("\t\tif attempt < maxAttempts {\n")
-	builder.WriteString("\t\t\tfmt.Printf(\"Waiting %s before next attempt...\\n\", delay)\n")
-	builder.WriteString("\t\t\ttime.Sleep(delay)\n")
-	builder.WriteString("\t\t}\n")
-	builder.WriteString("\t}\n")
-	builder.WriteString("\n")
-	builder.WriteString(fmt.Sprintf("\treturn fmt.Errorf(\"all %d retry attempts failed, last error: %%w\", lastErr)\n", maxAttempts))
-	builder.WriteString("}()")
 
-	return builder.String(), nil
+	// Parse and execute template with context functions
+	tmpl, err := template.New("retry").Funcs(ctx.GetTemplateFunctions()).Parse(retryExecutionTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse retry template: %w", err)
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute retry template: %w", err)
+	}
+
+	return result.String(), nil
 }
 
 // Plan creates a plan element describing what this decorator would do in dry run mode

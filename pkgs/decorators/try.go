@@ -3,6 +3,7 @@ package decorators
 import (
 	"fmt"
 	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
@@ -10,6 +11,71 @@ import (
 
 // TryDecorator implements the @try decorator for error handling with pattern matching
 type TryDecorator struct{}
+
+// Template for try execution code generation
+const tryExecutionTemplate = `return func() error {
+	var mainErr error
+
+	// Execute main block
+	mainErr = func() error {
+		{{range $i, $cmd := .MainCommands}}
+		if err := func() error {
+			{{executeCommand $cmd}}
+		}(); err != nil {
+			return err
+		}
+		{{end}}
+		return nil
+	}()
+
+	{{if .HasErrorBranch}}
+	// Execute error block if main failed
+	if mainErr != nil {
+		errorErr := func() error {
+			{{range $i, $cmd := .ErrorCommands}}
+			if err := func() error {
+				{{executeCommand $cmd}}
+			}(); err != nil {
+				return err
+			}
+			{{end}}
+			return nil
+		}()
+		if errorErr != nil {
+			fmt.Printf("Error handler also failed: %v\n", errorErr)
+		}
+	}
+	{{end}}
+
+	{{if .HasFinallyBranch}}
+	// Always execute finally block
+	finallyErr := func() error {
+		{{range $i, $cmd := .FinallyCommands}}
+		if err := func() error {
+			{{executeCommand $cmd}}
+		}(); err != nil {
+			return err
+		}
+		{{end}}
+		return nil
+	}()
+	if finallyErr != nil {
+		fmt.Printf("Finally block failed: %v\n", finallyErr)
+	}
+	{{end}}
+
+	// Return the original main error
+	return mainErr
+}()`
+
+// TryTemplateData holds data for template execution
+type TryTemplateData struct {
+	MainCommands      []ast.CommandContent
+	ErrorCommands     []ast.CommandContent
+	FinallyCommands   []ast.CommandContent
+	HasErrorBranch    bool
+	HasFinallyBranch  bool
+}
 
 // Name returns the decorator name
 func (t *TryDecorator) Name() string {
@@ -152,64 +218,33 @@ func (t *TryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 		return "", fmt.Errorf("@try requires at least one of 'error' or 'finally' patterns")
 	}
 
-	var builder strings.Builder
-	builder.WriteString("func() error {\n")
-	builder.WriteString("\tvar mainErr error\n")
-	builder.WriteString("\n")
-
-	// Generate main block execution
-	builder.WriteString("\t// Execute main block\n")
-	builder.WriteString("\tmainErr = func() error {\n")
-	for i, cmd := range mainBranch.Commands {
-		builder.WriteString(fmt.Sprintf("\t\t// Execute main command %d: %+v\n", i, cmd))
-		builder.WriteString("\t\t// TODO: Generate actual command execution code\n")
-		builder.WriteString("\t\t// if err := executeCommand(...); err != nil { return err }\n")
+	// Prepare template data
+	templateData := TryTemplateData{
+		MainCommands:     mainBranch.Commands,
+		HasErrorBranch:   errorBranch != nil,
+		HasFinallyBranch: finallyBranch != nil,
 	}
-	builder.WriteString("\t\treturn nil\n")
-	builder.WriteString("\t}()\n")
-	builder.WriteString("\n")
 
-	// Generate error block execution if it exists
 	if errorBranch != nil {
-		builder.WriteString("\t// Execute error block if main failed\n")
-		builder.WriteString("\tif mainErr != nil {\n")
-		builder.WriteString("\t\terrorErr := func() error {\n")
-		for i, cmd := range errorBranch.Commands {
-			builder.WriteString(fmt.Sprintf("\t\t\t// Execute error command %d: %+v\n", i, cmd))
-			builder.WriteString("\t\t\t// TODO: Generate actual command execution code\n")
-			builder.WriteString("\t\t\t// if err := executeCommand(...); err != nil { return err }\n")
-		}
-		builder.WriteString("\t\t\treturn nil\n")
-		builder.WriteString("\t\t}()\n")
-		builder.WriteString("\t\tif errorErr != nil {\n")
-		builder.WriteString("\t\t\tfmt.Printf(\"Error handler also failed: %v\\n\", errorErr)\n")
-		builder.WriteString("\t\t}\n")
-		builder.WriteString("\t}\n")
-		builder.WriteString("\n")
+		templateData.ErrorCommands = errorBranch.Commands
 	}
 
-	// Generate finally block execution if it exists
 	if finallyBranch != nil {
-		builder.WriteString("\t// Always execute finally block\n")
-		builder.WriteString("\tfinallyErr := func() error {\n")
-		for i, cmd := range finallyBranch.Commands {
-			builder.WriteString(fmt.Sprintf("\t\t// Execute finally command %d: %+v\n", i, cmd))
-			builder.WriteString("\t\t// TODO: Generate actual command execution code\n")
-			builder.WriteString("\t\t// if err := executeCommand(...); err != nil { return err }\n")
-		}
-		builder.WriteString("\t\treturn nil\n")
-		builder.WriteString("\t}()\n")
-		builder.WriteString("\tif finallyErr != nil {\n")
-		builder.WriteString("\t\tfmt.Printf(\"Finally block failed: %v\\n\", finallyErr)\n")
-		builder.WriteString("\t}\n")
-		builder.WriteString("\n")
+		templateData.FinallyCommands = finallyBranch.Commands
 	}
 
-	builder.WriteString("\t// Return the original main error\n")
-	builder.WriteString("\treturn mainErr\n")
-	builder.WriteString("}()")
+	// Parse and execute template with context functions
+	tmpl, err := template.New("try").Funcs(ctx.GetTemplateFunctions()).Parse(tryExecutionTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse try template: %w", err)
+	}
 
-	return builder.String(), nil
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute try template: %w", err)
+	}
+
+	return result.String(), nil
 }
 
 // Plan creates a plan element describing what this decorator would do in dry run mode

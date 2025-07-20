@@ -3,6 +3,7 @@ package decorators
 import (
 	"context"
 	"fmt"
+	"text/template"
 	"time"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
@@ -21,6 +22,9 @@ type ExecutionContext struct {
 	WorkingDir string
 	Debug      bool
 	DryRun     bool
+
+	// Template functions for code generation (populated by engine)
+	templateFunctions template.FuncMap
 }
 
 // NewExecutionContext creates a new execution context
@@ -30,12 +34,13 @@ func NewExecutionContext(parent context.Context, program *ast.Program) *Executio
 	}
 
 	return &ExecutionContext{
-		Context:   parent,
-		Program:   program,
-		Variables: make(map[string]string),
-		Env:       make(map[string]string),
-		Debug:     false,
-		DryRun:    false,
+		Context:           parent,
+		Program:           program,
+		Variables:         make(map[string]string),
+		Env:               make(map[string]string),
+		Debug:             false,
+		DryRun:            false,
+		templateFunctions: make(template.FuncMap),
 	}
 }
 
@@ -104,6 +109,16 @@ func (c *ExecutionContext) InitializeVariables() error {
 	}
 
 	return nil
+}
+
+// GetTemplateFunctions returns the template function map for code generation
+func (c *ExecutionContext) GetTemplateFunctions() template.FuncMap {
+	return c.templateFunctions
+}
+
+// SetTemplateFunctions sets the template function map (used by engine)
+func (c *ExecutionContext) SetTemplateFunctions(funcs template.FuncMap) {
+	c.templateFunctions = funcs
 }
 
 // resolveVariableValue converts an AST expression to its string value

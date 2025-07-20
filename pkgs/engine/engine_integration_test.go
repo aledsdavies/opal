@@ -146,8 +146,9 @@ clean: {
 					t.Error("Generated code should contain package declaration")
 				}
 
-				if !strings.Contains(code, "GO_VERSION") {
-					t.Error("Generated code should reference GO_VERSION variable")
+				// GO_VERSION is declared but not used in any commands, so it should NOT be in generated code
+				if strings.Contains(code, "GO_VERSION") {
+					t.Error("Generated code should not contain unused GO_VERSION variable")
 				}
 
 				if !strings.Contains(code, "BINARY_NAME") {
@@ -443,9 +444,9 @@ func TestExecutionEngine_LargeConfigurationHandling(t *testing.T) {
 			t.Error("Generated code should contain package declaration")
 		}
 
-		// Should contain references to variables and commands
-		if !strings.Contains(code, "VAR") {
-			t.Error("Generated code should reference variables")
+		// Variables are declared but not used in commands, so they should NOT be in generated code
+		if strings.Contains(code, "VAR") {
+			t.Error("Generated code should not contain unused variables")
 		}
 
 		if !strings.Contains(code, "cmd") {

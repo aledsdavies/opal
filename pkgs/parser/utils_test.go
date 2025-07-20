@@ -447,6 +447,20 @@ func DurationExpr(value string) ExpectedExpression {
 	return Dur(value)
 }
 
+func Duration(value string) ExpectedExpression {
+	return Dur(value)
+}
+
+// Named creates a named parameter expression for decorators
+func Named(name string, value ExpectedExpression) ExpectedExpression {
+	return ExpectedExpression{
+		Type:  "named",
+		Value: name + "=" + value.Value,
+		Name:  name,
+		Args:  []ExpectedExpression{value},
+	}
+}
+
 func BooleanExpr(value bool) ExpectedExpression {
 	return Bool(value)
 }

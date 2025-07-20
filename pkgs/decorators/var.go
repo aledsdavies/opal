@@ -96,9 +96,9 @@ func (v *VarDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 		varName = ident.Name
 	}
 
-	// Look up the variable value and return it as a string literal
-	if value, exists := ctx.GetVariable(varName); exists {
-		return fmt.Sprintf("%q", value), nil
+	// Return the variable name to reference the generated variable
+	if _, exists := ctx.GetVariable(varName); exists {
+		return varName, nil
 	}
 
 	return "", fmt.Errorf("variable '%s' not defined", varName)
