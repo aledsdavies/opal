@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
 // TimeoutDecorator implements the @timeout decorator for command execution with time limits
@@ -179,6 +180,35 @@ func (t *TimeoutDecorator) Generate(ctx *ExecutionContext, params []ast.NamedPar
 	builder.WriteString("}()")
 
 	return builder.String(), nil
+}
+
+// Plan creates a plan element describing what this decorator would do in dry run mode
+func (t *TimeoutDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	if err := t.Validate(ctx, params); err != nil {
+		return nil, err
+	}
+
+	// Get the timeout duration
+	var durationStr string
+	var timeout time.Duration
+	durationParam := ast.FindParameter(params, "duration")
+	if durationParam == nil && len(params) > 0 {
+		durationParam = &params[0]
+	}
+	if durLit, ok := durationParam.Value.(*ast.DurationLiteral); ok {
+		durationStr = durLit.Value
+		if d, err := time.ParseDuration(durationStr); err == nil {
+			timeout = d
+		}
+	}
+
+	description := fmt.Sprintf("Execute %d commands with %s timeout (cancel if exceeded)", len(content), durationStr)
+	
+	return plan.Decorator("timeout").
+		WithType("block").
+		WithTimeout(timeout).
+		WithParameter("duration", durationStr).
+		WithDescription(description), nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

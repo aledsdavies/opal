@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
 // ParallelDecorator implements the @parallel decorator for concurrent command execution
@@ -227,6 +228,43 @@ func (p *ParallelDecorator) Generate(ctx *ExecutionContext, params []ast.NamedPa
 	builder.WriteString("}()")
 
 	return builder.String(), nil
+}
+
+// Plan creates a plan element describing what this decorator would do in dry run mode
+func (p *ParallelDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	if err := p.Validate(ctx, params); err != nil {
+		return nil, err
+	}
+
+	// Parse parameters with defaults
+	concurrency := len(content) // Default: no limit (run all at once)
+	failOnFirstError := false   // Default: continue on errors
+
+	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
+	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
+
+	description := fmt.Sprintf("Execute %d commands concurrently", len(content))
+	if concurrency < len(content) {
+		description += fmt.Sprintf(" (max %d at a time)", concurrency)
+	}
+	if failOnFirstError {
+		description += ", stop on first error"
+	} else {
+		description += ", continue on errors"
+	}
+
+	element := plan.Decorator("parallel").
+		WithType("block").
+		WithDescription(description)
+
+	if concurrency < len(content) {
+		element = element.WithParameter("concurrency", fmt.Sprintf("%d", concurrency))
+	}
+	if failOnFirstError {
+		element = element.WithParameter("failOnFirstError", "true")
+	}
+
+	return element, nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
 // TryDecorator implements the @try decorator for error handling with pattern matching
@@ -209,6 +210,45 @@ func (t *TryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	builder.WriteString("}()")
 
 	return builder.String(), nil
+}
+
+// Plan creates a plan element describing what this decorator would do in dry run mode
+func (t *TryDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (plan.PlanElement, error) {
+	if err := t.Validate(ctx, params); err != nil {
+		return nil, err
+	}
+
+	// Find pattern branches
+	var mainBranch, errorBranch, finallyBranch *ast.PatternBranch
+	
+	for i := range patterns {
+		pattern := &patterns[i]
+		patternStr := t.patternToString(pattern.Pattern)
+		
+		switch patternStr {
+		case "main":
+			mainBranch = pattern
+		case "error":
+			errorBranch = pattern
+		case "finally":
+			finallyBranch = pattern
+		}
+	}
+
+	description := "Try-catch execution: "
+	if mainBranch != nil {
+		description += fmt.Sprintf("execute main (%d commands)", len(mainBranch.Commands))
+	}
+	if errorBranch != nil {
+		description += fmt.Sprintf(", on error execute fallback (%d commands)", len(errorBranch.Commands))
+	}
+	if finallyBranch != nil {
+		description += fmt.Sprintf(", always execute finally (%d commands)", len(finallyBranch.Commands))
+	}
+
+	return plan.Decorator("try").
+		WithType("pattern").
+		WithDescription(description), nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

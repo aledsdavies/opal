@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
 // EnvDecorator implements the @env decorator for environment variable access
@@ -138,6 +139,57 @@ func (e *EnvDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 		
 		return builder.String(), nil
 	}
+}
+
+// Plan describes what this decorator would do in dry run mode
+func (e *EnvDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) (plan.PlanElement, error) {
+	if err := e.Validate(ctx, params); err != nil {
+		return nil, err
+	}
+	
+	// Get the environment variable name
+	var envName string
+	var defaultValue string
+	
+	nameParam := ast.FindParameter(params, "name") 
+	if nameParam == nil && len(params) > 0 {
+		nameParam = &params[0]
+	}
+	if nameParam != nil {
+		if str, ok := nameParam.Value.(*ast.StringLiteral); ok {
+			envName = str.Value
+		} else if ident, ok := nameParam.Value.(*ast.Identifier); ok {
+			envName = ident.Name
+		}
+	}
+	
+	defaultParam := ast.FindParameter(params, "default")
+	if defaultParam != nil {
+		if str, ok := defaultParam.Value.(*ast.StringLiteral); ok {
+			defaultValue = str.Value
+		}
+	}
+	
+	// Get the actual environment value (in dry run, we still check the env)
+	var description string
+	actualValue := os.Getenv(envName)
+	if actualValue != "" {
+		description = fmt.Sprintf("Environment variable: $%s → %q", envName, actualValue)
+	} else if defaultValue != "" {
+		description = fmt.Sprintf("Environment variable: $%s → %q (default)", envName, defaultValue)
+	} else {
+		description = fmt.Sprintf("Environment variable: $%s → <unset>", envName)
+	}
+	
+	decorator := plan.Decorator("env").
+		WithType("function").
+		WithParameter("name", envName)
+	
+	if defaultValue != "" {
+		decorator.WithParameter("default", defaultValue)
+	}
+	
+	return decorator.WithDescription(description), nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

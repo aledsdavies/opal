@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
 // VarDecorator implements the @var decorator for variable references
@@ -101,6 +102,36 @@ func (v *VarDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	}
 	
 	return "", fmt.Errorf("variable '%s' not defined", varName)
+}
+
+// Plan creates a plan element describing what this decorator would do in dry run mode
+func (v *VarDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) (plan.PlanElement, error) {
+	if err := v.Validate(ctx, params); err != nil {
+		return nil, err
+	}
+	
+	// Get the variable name
+	var varName string
+	nameParam := ast.FindParameter(params, "name")
+	if nameParam == nil && len(params) > 0 {
+		nameParam = &params[0]
+	}
+	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
+		varName = ident.Name
+	}
+	
+	// Look up the variable in the execution context
+	var description string
+	if value, exists := ctx.GetVariable(varName); exists {
+		description = fmt.Sprintf("Variable resolution: ${%s} → %q", varName, value)
+	} else {
+		description = fmt.Sprintf("Variable resolution: ${%s} → <undefined>", varName)
+	}
+	
+	return plan.Decorator("var").
+		WithType("function").
+		WithParameter("name", varName).
+		WithDescription(description), nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

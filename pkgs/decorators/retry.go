@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
 // RetryDecorator implements the @retry decorator for retrying failed command execution
@@ -173,6 +174,40 @@ func (r *RetryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParam
 	builder.WriteString("}()")
 
 	return builder.String(), nil
+}
+
+// Plan creates a plan element describing what this decorator would do in dry run mode
+func (r *RetryDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
+	if err := r.Validate(ctx, params); err != nil {
+		return nil, err
+	}
+
+	// Parse parameters with defaults
+	maxAttempts := 3              // Default: 3 attempts
+	delayStr := "1s"             // Default: 1 second delay
+
+	maxAttempts = ast.GetIntParam(params, "attempts", maxAttempts)
+	if delayParam := ast.FindParameter(params, "delay"); delayParam != nil {
+		if durLit, ok := delayParam.Value.(*ast.DurationLiteral); ok {
+			delayStr = durLit.Value
+		}
+	}
+
+	description := fmt.Sprintf("Execute %d commands with up to %d attempts", len(content), maxAttempts)
+	if delayStr != "" && delayStr != "0s" {
+		description += fmt.Sprintf(", %s delay between retries", delayStr)
+	}
+
+	element := plan.Decorator("retry").
+		WithType("block").
+		WithParameter("attempts", fmt.Sprintf("%d", maxAttempts)).
+		WithDescription(description)
+
+	if delayStr != "" && delayStr != "0s" {
+		element = element.WithParameter("delay", delayStr)
+	}
+
+	return element, nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

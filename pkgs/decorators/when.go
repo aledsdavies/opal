@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
 // WhenDecorator implements the @when decorator for conditional execution based on patterns
@@ -144,6 +145,53 @@ case %q:`, patternStr)
 }`
 	
 	return code, nil
+}
+
+// Plan creates a plan element describing what this decorator would do in dry run mode
+func (w *WhenDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (plan.PlanElement, error) {
+	if err := w.Validate(ctx, params); err != nil {
+		return nil, err
+	}
+	
+	// Get the variable name to match against
+	varName := ast.GetStringParam(params, "variable", "")
+	if varName == "" && len(params) > 0 {
+		// Fallback to positional if no named parameter
+		if varLiteral, ok := params[0].Value.(*ast.StringLiteral); ok {
+			varName = varLiteral.Value
+		}
+	}
+	
+	// Get current value from context or environment
+	currentValue := ""
+	if value, exists := ctx.GetVariable(varName); exists {
+		currentValue = value
+	} else {
+		currentValue = os.Getenv(varName)
+	}
+	
+	// Find matching pattern
+	selectedPattern := "default"
+	var selectedCommands []ast.CommandContent
+	
+	for _, pattern := range patterns {
+		patternStr := w.patternToString(pattern.Pattern)
+		if patternStr == currentValue {
+			selectedPattern = patternStr
+			break
+		}
+		if patternStr == "default" {
+			selectedCommands = pattern.Commands
+		}
+	}
+	
+	description := fmt.Sprintf("Evaluate %s = %q → execute '%s' branch (%d commands)", 
+		varName, currentValue, selectedPattern, len(selectedCommands))
+	
+	return plan.Decorator("when").
+		WithType("pattern").
+		WithParameter("variable", varName).
+		WithDescription(description), nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

@@ -2,6 +2,7 @@ package decorators
 
 import (
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 	"github.com/aledsdavies/devcmd/pkgs/types"
 )
 
@@ -42,6 +43,9 @@ type FunctionDecorator interface {
 
 	// Generate produces Go code for the decorator in compiled mode
 	Generate(ctx *ExecutionContext, params []ast.NamedParameter) (string, error)
+
+	// Plan creates a plan element describing what this decorator would do in dry run mode  
+	Plan(ctx *ExecutionContext, params []ast.NamedParameter) (plan.PlanElement, error)
 }
 
 // BlockDecorator represents decorators that modify command execution behavior
@@ -54,6 +58,9 @@ type BlockDecorator interface {
 
 	// Generate produces Go code for the decorator in compiled mode
 	Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error)
+
+	// Plan creates a plan element describing what this decorator would do in dry run mode with the given content
+	Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error)
 }
 
 // PatternDecorator represents decorators that handle pattern matching
@@ -66,6 +73,9 @@ type PatternDecorator interface {
 
 	// Generate produces Go code for the decorator in compiled mode
 	Generate(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (string, error)
+
+	// Plan creates a plan element describing what this decorator would do in dry run mode with the given patterns
+	Plan(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (plan.PlanElement, error)
 }
 
 // DecoratorType represents the type of decorator
