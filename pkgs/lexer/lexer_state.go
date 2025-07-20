@@ -265,10 +265,51 @@ func (sm *StateMachine) handleLBrace() (LexerState, error) {
 		})
 		return StateCommandContent, sm.Transition(StateCommandContent)
 
+	case StateDecorator:
+		// Decorator with no arguments: "@parallel {"
+		// Transition to StateAfterDecorator first, then handle the brace logic
+		if err := sm.Transition(StateAfterDecorator); err != nil {
+			return sm.current, err
+		}
+		// Now handle the brace as if we were in StateAfterDecorator
+		ctx := sm.CurrentContext()
+		if ctx != nil && ctx.Type == ContextDecorator {
+			// Pop the decorator context since we're done with it
+			_, err := sm.PopContext()
+			if err != nil {
+				return sm.current, err
+			}
+			
+			if ctx.IsPattern {
+				// Pattern decorator block: "@when(VAR) {"
+				sm.PushContext(Context{
+					Type:       ContextPatternBlock,
+					State:      sm.current,
+					BraceLevel: sm.braceLevel,
+					IsPattern:  true,
+				})
+				return StatePatternBlock, sm.Transition(StatePatternBlock)
+			} else {
+				// Regular decorator block: "@parallel {"
+				sm.PushContext(Context{
+					Type:       ContextBlock,
+					State:      sm.current,
+					BraceLevel: sm.braceLevel,
+				})
+				return StateCommandContent, sm.Transition(StateCommandContent)
+			}
+		}
+
 	case StateAfterDecorator:
 		// Decorator block
 		ctx := sm.CurrentContext()
 		if ctx != nil && ctx.Type == ContextDecorator {
+			// Pop the decorator context since we're done with it
+			_, err := sm.PopContext()
+			if err != nil {
+				return sm.current, err
+			}
+			
 			if ctx.IsPattern {
 				// Pattern decorator block: "@when(VAR) {"
 				sm.PushContext(Context{
@@ -387,12 +428,7 @@ func (sm *StateMachine) handleIdentifier(value string) (LexerState, error) {
 			ctx.Decorator = value
 			ctx.IsPattern = decorators.IsPatternDecorator(value)
 		}
-		// Check if this is a decorator without args
-		if value == "try" || value == "parallel" {
-			// These decorators have no args, go straight to AfterDecorator
-			return StateAfterDecorator, sm.Transition(StateAfterDecorator)
-		}
-		// Stay in decorator state - expect args
+		// Stay in decorator state - let parser handle argument validation
 		return sm.current, nil
 
 	case StateAfterDecorator:
@@ -550,7 +586,7 @@ func generateTransitionMap() map[LexerState]map[LexerState]bool {
 		{StateDecorator, []LexerState{
 			StateDecorator,      // self-loop (parsing name)
 			StateDecoratorArgs,  // saw '('
-			StateAfterDecorator, // no args (like @try, @parallel)
+			StateAfterDecorator, // decorators without parentheses
 		}},
 		{StateDecoratorArgs, []LexerState{
 			StateDecoratorArgs,  // self-loop

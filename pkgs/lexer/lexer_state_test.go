@@ -280,6 +280,32 @@ func TestStateMachineTransitions(t *testing.T) {
 				StateCommandContent, // echo test
 			},
 		},
+		{
+			name: "simple command with parallel decorator block - bug reproduction",
+			tokens: []struct {
+				typ   types.TokenType
+				value string
+			}{
+				{types.IDENTIFIER, "services"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "parallel"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "server; client"},
+				{types.RBRACE, "}"},
+				{types.EOF, ""},
+			},
+			wantStates: []LexerState{
+				StateTopLevel,       // services
+				StateAfterColon,     // :
+				StateDecorator,      // @
+				StateDecorator,      // parallel (stays in StateDecorator)
+				StateCommandContent, // { (transitions to CommandContent via handleLBrace)
+				StateCommandContent, // server; client
+				StateTopLevel,       // } (returns to TopLevel for simple command)
+				StateTopLevel,       // EOF
+			},
+		},
 	}
 
 	for _, tt := range tests {

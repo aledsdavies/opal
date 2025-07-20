@@ -1227,6 +1227,90 @@ func generateLargeInput(lines int) string {
 	return sb.String()
 }
 
+// TestBlockDecoratorShellContent tests that shell content inside block decorators is properly lexed as SHELL_TEXT
+func TestBlockDecoratorShellContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []tokenExpectation
+	}{
+		{
+			name:  "parallel decorator with simple shell content",
+			input: `services: @parallel { server; client }`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "services"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "parallel"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "server; client"},
+				{types.RBRACE, "}"},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "timeout decorator with shell content",
+			input: `build: @timeout(30s) { npm run build }`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "build"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "timeout"},
+				{types.LPAREN, "("},
+				{types.DURATION, "30s"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "npm run build"},
+				{types.RBRACE, "}"},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "retry decorator with complex shell content",
+			input: `test: @retry(3) { npm test && echo "success" }`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "test"},
+				{types.COLON, ":"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "retry"},
+				{types.LPAREN, "("},
+				{types.NUMBER, "3"},
+				{types.RPAREN, ")"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "npm test && echo \"success\""},
+				{types.RBRACE, "}"},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "nested parallel decorator inside command block",
+			input: `format: {
+    @parallel {
+        echo test
+    }
+}`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "format"},
+				{types.COLON, ":"},
+				{types.LBRACE, "{"},
+				{types.AT, "@"},
+				{types.IDENTIFIER, "parallel"},
+				{types.LBRACE, "{"},
+				{types.SHELL_TEXT, "echo test"},
+				{types.RBRACE, "}"},
+				{types.RBRACE, "}"},
+				{types.EOF, ""},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.name, tt.input, tt.expected)
+		})
+	}
+}
+
 // TestRealWorldFormatCommand tests lexing of the failing format command from commands.cli
 func TestRealWorldFormatCommand(t *testing.T) {
 	input := `# Format all code

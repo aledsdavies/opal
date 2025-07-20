@@ -322,7 +322,7 @@ func (l *Lexer) NextToken() types.Token {
 func (l *Lexer) lexToken() types.Token {
 	// Skip whitespace in most modes
 	mode := l.stateMachine.GetMode()
-	if mode == LanguageMode || mode == PatternMode {
+	if mode == LanguageMode || mode == PatternMode || mode == CommandMode {
 		l.skipWhitespace()
 	}
 
@@ -348,9 +348,18 @@ func (l *Lexer) lexToken() types.Token {
 
 // shouldLexShellContent determines if we should lex shell content based on state
 func (l *Lexer) shouldLexShellContent(state LexerState) bool {
-	// Don't lex shell content if we're at structural tokens
+	// Don't lex shell content if we're at EOF or certain structural tokens
 	switch l.ch {
-	case 0, '\n', '{', '}':
+	case 0:
+		return false
+	case '\n':
+		// Newlines can be part of shell content in command mode
+		if state == StateCommandContent {
+			return true
+		}
+		return false
+	case '{', '}':
+		// Braces are structural - don't lex as shell content
 		return false
 	case ':':
 		// Colon is structural in pattern mode
@@ -365,12 +374,15 @@ func (l *Lexer) shouldLexShellContent(state LexerState) bool {
 		}
 		// In other modes, continue to check state
 	case '@':
-		// Special handling for @ - check if it's followed by a function decorator
-		if l.stateMachine.GetMode() == CommandMode || state == StateAfterColon || state == StateAfterPatternColon {
-			// Look ahead to see if this is a function decorator
-			if l.isFunctionDecorator() {
-				return true // Treat as shell content
+		// Special handling for @ - check if it's followed by any registered decorator
+		if l.stateMachine.GetMode() == CommandMode || state == StateAfterColon || state == StateAfterPatternColon || state == StateCommandContent {
+			// Look ahead to see if this is a registered decorator
+			if l.isRegisteredDecorator() {
+				// It's a real decorator - don't treat as shell content, let normal lexing handle it
+				return false
 			}
+			// It's @ followed by non-decorator (like email, SSH) - treat as shell content
+			return true
 		}
 		return false
 	}
@@ -437,6 +449,55 @@ func (l *Lexer) isFunctionDecorator() bool {
 
 	// Check if it's a function decorator using the decorator registry
 	return decoratorName != "" && decorators.IsFunctionDecorator(decoratorName)
+}
+
+// isRegisteredDecorator looks ahead to determine if @ is followed by any registered decorator
+func (l *Lexer) isRegisteredDecorator() bool {
+	if l.ch != '@' {
+		return false
+	}
+
+	// Save current state
+	savePos := l.position
+	saveReadPos := l.readPos
+	saveCh := l.ch
+	saveLine := l.line
+	saveColumn := l.column
+
+	// Move past @
+	l.readChar()
+
+	// Skip any whitespace (though there shouldn't be any)
+	for unicode.IsSpace(l.ch) && l.ch != '\n' && l.ch != 0 {
+		l.readChar()
+	}
+
+	// Read identifier if present
+	var decoratorName string
+	if unicode.IsLetter(l.ch) || l.ch == '_' {
+		identStart := l.position
+		for (unicode.IsLetter(l.ch) || unicode.IsDigit(l.ch) || l.ch == '_' || l.ch == '-') && l.ch != 0 {
+			l.readChar()
+		}
+		decoratorName = l.input[identStart:l.position]
+	}
+
+	// Restore state
+	l.position = savePos
+	l.readPos = saveReadPos
+	l.ch = saveCh
+	l.line = saveLine
+	l.column = saveColumn
+
+	// Check if it's a block or pattern decorator (function decorators should remain as shell text)
+	if decoratorName == "" {
+		return false
+	}
+	
+	// Only block and pattern decorators should be lexed as structural tokens
+	// Function decorators should remain as part of shell text
+	isBlockOrPattern := decorators.IsBlockDecorator(decoratorName) || decorators.IsPatternDecorator(decoratorName)
+	return isBlockOrPattern
 }
 
 // lexLanguageMode handles structural Devcmd syntax
@@ -869,7 +930,28 @@ func (l *Lexer) lexShellText(start int) types.Token {
 					l.readChar()
 				} else if len(l.structuralBraceStack) > 0 {
 					// This could close a structural brace, exit shell text
-					tok := l.makeShellToken(start, startOffset, startLine, startColumn)
+					// Create token ending before the current '}' character
+					rawText := l.input[start:l.position]
+					processedText := l.processLineContinuations(rawText)
+					processedText = strings.TrimSpace(processedText)
+					
+					if processedText == "" {
+						// If we haven't moved forward, we need to consume at least one character
+						// to avoid infinite loops
+						if l.position == start && l.ch != 0 {
+							l.readChar()
+						}
+						return l.lexToken()
+					}
+					
+					tok := types.Token{
+						Type:      types.SHELL_TEXT,
+						Value:     processedText,
+						Line:      startLine,
+						Column:    startColumn,
+						EndLine:   l.line,
+						EndColumn: l.column,
+					}
 					l.updateStateMachine(types.SHELL_TEXT, tok.Value)
 					return tok
 				} else {
@@ -881,6 +963,7 @@ func (l *Lexer) lexShellText(start int) types.Token {
 				prevWasBackslash = false
 				l.readChar()
 			}
+
 
 		default:
 			// Any other character resets line continuation and continues as shell content
@@ -1551,6 +1634,9 @@ func (l *Lexer) isStructuralContext() bool {
 		return true
 	case StateAfterDecorator:
 		// After @parallel, @timeout, etc., a { is structural
+		return true
+	case StateDecorator:
+		// Decorator without parentheses: @parallel { - the { is structural
 		return true
 	case StateAfterPatternColon:
 		// After pattern:, a { is structural
