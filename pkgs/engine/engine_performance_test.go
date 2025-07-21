@@ -574,7 +574,7 @@ build: echo "Building on port @var(PORT)"`,
 			for i := 0; i < b.N; i++ {
 				ctx := decorators.NewExecutionContext(context.Background(), program)
 				engine := New(GeneratorMode, ctx)
-				
+
 				_, err := engine.Execute(program)
 				if err != nil {
 					b.Fatalf("Failed to generate code: %v", err)
@@ -623,7 +623,7 @@ build: echo "Building on port @var(PORT)"`,
 
 			ctx := decorators.NewExecutionContext(context.Background(), program)
 			engine := New(GeneratorMode, ctx)
-			
+
 			result, err := engine.Execute(program)
 			if err != nil {
 				b.Fatalf("Failed to generate code: %v", err)
@@ -638,7 +638,7 @@ build: echo "Building on port @var(PORT)"`,
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				tempDir := b.TempDir()
-				
+
 				// Write files
 				mainFile := filepath.Join(tempDir, "main.go")
 				if err := writeToFile(mainFile, genResult.Code.String()); err != nil {
@@ -668,7 +668,7 @@ func BenchmarkExecutionStartup(b *testing.B) {
 		input string
 	}{
 		{
-			name: "simple_command",
+			name:  "simple_command",
 			input: `build: echo "Hello World"`,
 		},
 		{
@@ -690,7 +690,7 @@ func BenchmarkExecutionStartup(b *testing.B) {
 
 			ctx := decorators.NewExecutionContext(context.Background(), program)
 			engine := New(GeneratorMode, ctx)
-			
+
 			result, err := engine.Execute(program)
 			if err != nil {
 				b.Fatalf("Failed to generate code: %v", err)
@@ -702,7 +702,7 @@ func BenchmarkExecutionStartup(b *testing.B) {
 			}
 
 			tempDir := b.TempDir()
-			
+
 			// Write files
 			mainFile := filepath.Join(tempDir, "main.go")
 			if err := writeToFile(mainFile, genResult.Code.String()); err != nil {
@@ -742,7 +742,7 @@ func BenchmarkFullPipeline(b *testing.B) {
 		input string
 	}{
 		{
-			name: "simple_command",
+			name:  "simple_command",
 			input: `build: echo "Hello World"`,
 		},
 		{
@@ -772,7 +772,7 @@ func BenchmarkFullPipeline(b *testing.B) {
 				genStart := time.Now()
 				ctx := decorators.NewExecutionContext(context.Background(), program)
 				engine := New(GeneratorMode, ctx)
-				
+
 				result, err := engine.Execute(program)
 				if err != nil {
 					b.Fatalf("Failed to generate code: %v", err)
@@ -787,7 +787,7 @@ func BenchmarkFullPipeline(b *testing.B) {
 				// 3. Write files
 				writeStart := time.Now()
 				tempDir := b.TempDir()
-				
+
 				mainFile := filepath.Join(tempDir, "main.go")
 				if err := writeToFile(mainFile, genResult.Code.String()); err != nil {
 					b.Fatalf("Failed to write main.go: %v", err)
@@ -833,4 +833,3 @@ func BenchmarkFullPipeline(b *testing.B) {
 		})
 	}
 }
-

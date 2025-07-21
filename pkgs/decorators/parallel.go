@@ -3,7 +3,6 @@ package decorators
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"sync"
 	"text/template"
@@ -131,85 +130,8 @@ func (p *ParallelDecorator) Validate(ctx *ExecutionContext, params []ast.NamedPa
 
 // executeCommandContent executes different types of command content in interpreter mode
 func (p *ParallelDecorator) executeCommandContent(ctx *ExecutionContext, content ast.CommandContent) error {
-	switch c := content.(type) {
-	case *ast.ShellContent:
-		return p.executeShellContent(ctx, c)
-	case *ast.BlockDecorator:
-		// For nested decorators, we'd need access to the decorator registry
-		return fmt.Errorf("nested block decorators not yet supported in parallel execution")
-	case *ast.PatternDecorator:
-		return fmt.Errorf("nested pattern decorators not yet supported in parallel execution")
-	case *ast.FunctionDecorator:
-		return fmt.Errorf("nested function decorators not yet supported in parallel execution")
-	default:
-		return fmt.Errorf("unsupported command content type: %T", content)
-	}
-}
-
-// executeShellContent executes shell commands by processing each part
-func (p *ParallelDecorator) executeShellContent(ctx *ExecutionContext, shell *ast.ShellContent) error {
-	// Build the final command by processing each part
-	var cmdBuilder strings.Builder
-	for _, part := range shell.Parts {
-		switch p := part.(type) {
-		case *ast.TextPart:
-			cmdBuilder.WriteString(p.Text)
-		case *ast.FunctionDecorator:
-			// Handle @var() and @env() decorators
-			if p.Name == "var" && len(p.Args) > 0 {
-				if varName, ok := p.Args[0].Value.(*ast.StringLiteral); ok {
-					if value, exists := ctx.GetVariable(varName.Value); exists {
-						cmdBuilder.WriteString(value)
-					} else {
-						return fmt.Errorf("undefined variable: %s", varName.Value)
-					}
-				}
-			} else if p.Name == "env" && len(p.Args) > 0 {
-				if envName, ok := p.Args[0].Value.(*ast.StringLiteral); ok {
-					if value, exists := ctx.GetEnv(envName.Value); exists {
-						cmdBuilder.WriteString(value)
-					} else {
-						return fmt.Errorf("undefined environment variable: %s", envName.Value)
-					}
-				}
-			} else {
-				// For other function decorators, just add their string representation
-				cmdBuilder.WriteString(p.String())
-			}
-		default:
-			// Fallback for other types
-			cmdBuilder.WriteString(fmt.Sprintf("%v", part))
-		}
-	}
-
-	cmdStr := strings.TrimSpace(cmdBuilder.String())
-	if cmdStr == "" {
-		return nil // Empty command, nothing to execute
-	}
-
-	// Execute the shell command with context for cancellation
-	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-	if ctx.WorkingDir != "" {
-		cmd.Dir = ctx.WorkingDir
-	}
-
-	// Set up environment variables
-	for key, value := range ctx.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
-	}
-
-	// Execute and capture output
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("command failed: %s (output: %s)", err, string(output))
-	}
-
-	// Print output for visibility (like a shell would)
-	if len(output) > 0 {
-		fmt.Print(string(output))
-	}
-
-	return nil
+	// Use the engine's content executor for full decorator support
+	return ctx.ExecuteCommandContent(content)
 }
 
 // Run executes the decorator at runtime with concurrent command execution
@@ -293,7 +215,6 @@ func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamet
 
 	return nil
 }
-
 
 // Generate produces Go code for the decorator in compiled mode using templates
 func (p *ParallelDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {

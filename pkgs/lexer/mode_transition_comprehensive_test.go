@@ -17,7 +17,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 		expected    []tokenExpectation
 	}{
 		{
-			name: "Scenario 1: Simple pattern with mixed syntax",
+			name:        "Scenario 1: Simple pattern with mixed syntax",
 			description: "Pattern decorator with both simple (dev:) and block (prod: {}) syntax",
 			input: `deploy: @when(ENV) {
   prod: { npm run build && npm run deploy }
@@ -54,7 +54,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "Scenario 2: Nested decorators in pattern branches",
+			name:        "Scenario 2: Nested decorators in pattern branches",
 			description: "Pattern decorator containing block decorators in different branches",
 			input: `deploy: @when(ENV) {
   prod: @timeout(60s) { deploy prod }
@@ -96,7 +96,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "Scenario 3: Deep nesting from specification",
+			name:        "Scenario 3: Deep nesting from specification",
 			description: "From docs: @timeout containing @retry with multiple commands",
 			input: `deploy: @timeout(5m) {
     echo "Starting deployment"
@@ -143,7 +143,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "Scenario 4: Complex parallel nesting from specification",
+			name:        "Scenario 4: Complex parallel nesting from specification",
 			description: "From docs: @parallel containing multiple @timeout decorators",
 			input: `release: @parallel {
     @timeout(2m) {
@@ -202,7 +202,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "Scenario 5: Pattern decorator with nested decorators in multi-line blocks",
+			name:        "Scenario 5: Pattern decorator with nested decorators in multi-line blocks",
 			description: "From docs: @when with @timeout in multi-line pattern branches",
 			input: `dev: @when(MODE) {
     production: @timeout(BUILD_TIMEOUT) {
@@ -252,7 +252,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 				{types.SHELL_TEXT, "echo \"Starting development server...\""},
 				{types.SHELL_TEXT, "NODE_ENV=@env(\"NODE_ENV\") webpack serve --mode @var(WEBPACK_MODE) --hot"},
 				{types.RBRACE, "}"},
-				// Default branch simple syntax  
+				// Default branch simple syntax
 				{types.IDENTIFIER, "default"},
 				{types.COLON, ":"},
 				{types.SHELL_TEXT, "echo \"Unknown mode\""},
@@ -261,7 +261,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "Scenario 6: Try pattern with nested decorators",
+			name:        "Scenario 6: Try pattern with nested decorators",
 			description: "From docs: @try with @timeout and @retry in different branches",
 			input: `build: @try {
     main: @timeout(BUILD_TIMEOUT) {
@@ -325,7 +325,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "Scenario 7: The original failing case - shell after pattern",
+			name:        "Scenario 7: The original failing case - shell after pattern",
 			description: "The case that was failing - shell content after exiting pattern decorator",
 			input: `test: @retry(attempts=3) {
 		@when(ENV) {
@@ -360,7 +360,7 @@ func TestModeTransitionScenarios(t *testing.T) {
 			},
 		},
 		{
-			name: "Scenario 8: Performance test case - deeply nested",
+			name:        "Scenario 8: Performance test case - deeply nested",
 			description: "From performance tests: deeply nested decorators",
 			input: `complex1: @retry(attempts=RETRIES, delay=1s) {
 	@timeout(duration=TIMEOUT) {
@@ -461,7 +461,7 @@ func TestModeTransitionEdgeCases(t *testing.T) {
 		t.Run(edge.name, func(t *testing.T) {
 			t.Logf("Description: %s", edge.description)
 			t.Logf("Input:\n%s", edge.input)
-			
+
 			if edge.shouldFail {
 				t.Logf("Expected to fail with current implementation")
 			}

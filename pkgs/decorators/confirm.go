@@ -82,17 +82,17 @@ func (c *ConfirmDecorator) ImportRequirements() ImportRequirement {
 func isCI() bool {
 	// Check common CI environment variables
 	ciVars := []string{
-		"CI",                    // Most CI systems
+		"CI",                     // Most CI systems
 		"CONTINUOUS_INTEGRATION", // Legacy/alternate
-		"GITHUB_ACTIONS",        // GitHub Actions
-		"TRAVIS",               // Travis CI
-		"CIRCLECI",             // Circle CI
-		"JENKINS_URL",          // Jenkins
-		"GITLAB_CI",            // GitLab CI
-		"BUILDKITE",            // Buildkite
-		"BUILD_NUMBER",         // Generic build systems
+		"GITHUB_ACTIONS",         // GitHub Actions
+		"TRAVIS",                 // Travis CI
+		"CIRCLECI",               // Circle CI
+		"JENKINS_URL",            // Jenkins
+		"GITLAB_CI",              // GitLab CI
+		"BUILDKITE",              // Buildkite
+		"BUILD_NUMBER",           // Generic build systems
 	}
-	
+
 	for _, envVar := range ciVars {
 		if os.Getenv(envVar) != "" {
 			return true
@@ -135,7 +135,7 @@ func (c *ConfirmDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamete
 	}
 
 	response = strings.TrimSpace(response)
-	
+
 	// Handle empty response (use default)
 	if response == "" {
 		if !defaultYes && abortOnNo {
@@ -188,7 +188,7 @@ func (c *ConfirmDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParamet
 
 	// Context-aware planning: check current environment
 	var description string
-	
+
 	if skipInCI && isCI() {
 		// We're in CI and should skip confirmation
 		description = fmt.Sprintf("🤖 CI Environment Detected - Auto-confirming: %s", message)

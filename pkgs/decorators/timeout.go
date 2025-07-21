@@ -83,10 +83,8 @@ func (t *TimeoutDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamete
 			}
 		}()
 
-		// TODO: Execute commands using execution engine
-		// For now, simulate execution
-		fmt.Printf("Executing with timeout %s: %d commands\n", timeout, len(content))
-		for i, cmd := range content {
+		// Execute commands using the unified execution engine
+		for _, cmd := range content {
 			// Check for cancellation before each command
 			select {
 			case <-timeoutCtx.Done():
@@ -95,9 +93,11 @@ func (t *TimeoutDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamete
 			default:
 			}
 
-			fmt.Printf("  Command %d: %+v\n", i, cmd)
-			// Simulate some work
-			time.Sleep(10 * time.Millisecond)
+			// Execute the command using the engine's content executor
+			if err := timeoutCtx.ExecuteCommandContent(cmd); err != nil {
+				done <- err
+				return
+			}
 		}
 		done <- nil
 	}()

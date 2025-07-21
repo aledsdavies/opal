@@ -451,7 +451,7 @@ func TestNamedParameterSupport(t *testing.T) {
 			),
 		},
 		{
-			Name:  "when with string parameter",
+			Name: "when with string parameter",
 			Input: `test: @when("ENV") { 
   production: echo "prod"
   default: echo "dev"
@@ -830,6 +830,16 @@ func TestNestedPatternDecorators(t *testing.T) {
 				}
 			}`,
 			// This should parse correctly since lexer handles it properly
+			Expected: Program(
+				CmdBlock("test",
+					BlockDecorator("retry", Named("attempts", Num(2)),
+						PatternDecoratorWithBranches("when", Str("ENV"),
+							Branch("production", Shell("echo \"prod task\"")),
+							Branch("default", Shell("echo \"default task\"")),
+						),
+					),
+				),
+			),
 		},
 	}
 
@@ -837,5 +847,3 @@ func TestNestedPatternDecorators(t *testing.T) {
 		RunTestCase(t, tc)
 	}
 }
-
-

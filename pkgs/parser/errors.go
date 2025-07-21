@@ -9,11 +9,11 @@ import (
 
 // ParseError represents a parsing error with location and context information
 type ParseError struct {
-	Type     ErrorType
-	Message  string
-	Token    types.Token
-	Input    string
-	Context  string
+	Type    ErrorType
+	Message string
+	Token   types.Token
+	Input   string
+	Context string
 }
 
 // ErrorType represents different categories of parsing errors
@@ -65,7 +65,7 @@ func (e ParseError) createCodeSnippet() string {
 	}
 
 	lineContent := lines[e.Token.Line-1]
-	
+
 	// Create the snippet in Rust/Clang style
 	var snippet strings.Builder
 	// Location pointer like " --> src/file.rs:5:13"
@@ -79,7 +79,7 @@ func (e ParseError) createCodeSnippet() string {
 	if e.Token.Column > 0 && e.Token.Column <= len(lineContent)+1 {
 		snippet.WriteString(strings.Repeat(" ", e.Token.Column-1) + "^")
 	}
-	
+
 	return snippet.String()
 }
 
@@ -99,7 +99,7 @@ func (p *Parser) NewSyntaxError(message string) error {
 func (p *Parser) NewTypeError(paramName string, expectedType types.ExpressionType, gotToken types.Token) error {
 	message := fmt.Sprintf("parameter '%s' expects %s, got %s",
 		paramName, expectedType.String(), gotToken.Type.String())
-	
+
 	return ParseError{
 		Type:    ErrorType_,
 		Message: message,
@@ -111,7 +111,7 @@ func (p *Parser) NewTypeError(paramName string, expectedType types.ExpressionTyp
 // NewUnexpectedTokenError creates an error for unexpected tokens
 func (p *Parser) NewUnexpectedTokenError(expected string, got types.Token) error {
 	message := fmt.Sprintf("expected %s, got %s", expected, got.Type.String())
-	
+
 	return ParseError{
 		Type:    ErrorUnexpected,
 		Message: message,
@@ -123,7 +123,7 @@ func (p *Parser) NewUnexpectedTokenError(expected string, got types.Token) error
 // NewMissingTokenError creates an error for missing expected tokens
 func (p *Parser) NewMissingTokenError(expected string) error {
 	message := fmt.Sprintf("expected %s", expected)
-	
+
 	return ParseError{
 		Type:    ErrorMissing,
 		Message: message,

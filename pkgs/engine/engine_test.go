@@ -424,7 +424,7 @@ func TestParallelDecoratorGenerator(t *testing.T) {
 
 	// Check generated code contains expected elements
 	code := genResult.String()
-	
+
 	// Print the generated code for inspection
 	t.Logf("Generated code:\n%s", code)
 
@@ -474,7 +474,7 @@ func TestParallelDecoratorGeneratedCodeCompiles(t *testing.T) {
 
 	// Create temporary directory for test
 	tempDir := t.TempDir()
-	
+
 	// Write generated main.go
 	mainFile := filepath.Join(tempDir, "main.go")
 	if err := writeToFile(mainFile, genResult.Code.String()); err != nil {
@@ -540,7 +540,7 @@ func TestNestedDecoratorGeneratedCodeCompiles(t *testing.T) {
 
 	// Create temporary directory for test
 	tempDir := t.TempDir()
-	
+
 	// Write generated main.go
 	mainFile := filepath.Join(tempDir, "main.go")
 	if err := writeToFile(mainFile, genResult.Code.String()); err != nil {
@@ -575,11 +575,11 @@ func TestNestedDecoratorGeneratedCodeCompiles(t *testing.T) {
 	// Check that output contains our expected tasks
 	outputStr := string(output)
 	t.Logf("Execution output:\n%s", outputStr)
-	
+
 	if !strings.Contains(outputStr, "Task 1") {
 		t.Errorf("Expected output to contain 'Task 1', got: %s", outputStr)
 	}
-	
+
 	if !strings.Contains(outputStr, "Task 2") {
 		t.Errorf("Expected output to contain 'Task 2', got: %s", outputStr)
 	}
@@ -633,7 +633,7 @@ func TestComplexNestedDecorators(t *testing.T) {
 	if !strings.Contains(code, "sync.WaitGroup") {
 		t.Error("Should contain parallel execution")
 	}
-	
+
 	if !strings.Contains(code, "maxAttempts") {
 		t.Error("Should contain retry logic")
 	}
@@ -760,11 +760,11 @@ func TestParallelWithNestedDecorators(t *testing.T) {
 	if !strings.Contains(code, "Task 1") {
 		t.Error("Should contain Task 1")
 	}
-	
+
 	if !strings.Contains(code, "Task 2") {
-		t.Error("Should contain Task 2") 
+		t.Error("Should contain Task 2")
 	}
-	
+
 	if !strings.Contains(code, "Task 3") {
 		t.Error("Should contain Task 3")
 	}

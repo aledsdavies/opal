@@ -17,8 +17,8 @@ func TestPatternDecoratorEdgeCases(t *testing.T) {
 		failing  bool // Mark which tests are currently failing
 	}{
 		{
-			name:    "FAILING: complex nested decorators - mode transition issue",
-			input:   `test: @retry(attempts=3) {
+			name: "FAILING: complex nested decorators - mode transition issue",
+			input: `test: @retry(attempts=3) {
 		@when(ENV) {
 			development: echo "Dev environment"
 		}
@@ -52,7 +52,7 @@ func TestPatternDecoratorEdgeCases(t *testing.T) {
 			failing: true,
 		},
 		{
-			name:  "WORKING: simple when pattern",
+			name: "WORKING: simple when pattern",
 			input: `deploy: @when(ENV) {
   prod: echo production
   dev: echo development
@@ -78,8 +78,8 @@ func TestPatternDecoratorEdgeCases(t *testing.T) {
 			failing: false,
 		},
 		{
-			name:    "TEST CASE: simple shell after pattern - isolated",
-			input:   `test: {
+			name: "TEST CASE: simple shell after pattern - isolated",
+			input: `test: {
 		@when(ENV) {
 			dev: echo hello  
 		}
@@ -112,7 +112,7 @@ func TestPatternDecoratorEdgeCases(t *testing.T) {
 			if tt.failing {
 				t.Logf("This test is marked as failing - running to document current behavior")
 			}
-			
+
 			lexer := New(strings.NewReader(tt.input))
 			tokens := lexer.TokenizeToSlice()
 
@@ -163,15 +163,15 @@ func TestModeTransitionIssues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Logf("Description: %s", tt.description)
 			t.Logf("Input:\n%s", tt.input)
-			
+
 			lexer := New(strings.NewReader(tt.input))
 			tokens := lexer.TokenizeToSlice()
-			
+
 			t.Logf("Actual tokens:")
 			for i, tok := range tokens {
 				t.Logf("  [%d] %s: %q (line %d, col %d)", i, tok.Type, tok.Value, tok.Line, tok.Column)
 			}
-			
+
 			// Look for the problematic "echo after" token
 			foundShellText := false
 			for _, tok := range tokens {
@@ -184,7 +184,7 @@ func TestModeTransitionIssues(t *testing.T) {
 					}
 				}
 			}
-			
+
 			if !foundShellText {
 				t.Logf("❌ Did not find expected shell text token")
 			}

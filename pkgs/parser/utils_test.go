@@ -422,9 +422,9 @@ func Duration(value string) ExpectedExpression {
 // Named creates a named parameter expression for decorators
 func Named(name string, value ExpectedExpression) ExpectedExpression {
 	return ExpectedExpression{
-		Type:  value.Type,    // Use the actual underlying type
-		Value: value.Value,   // Use the actual underlying value
-		Name:  name,          // Preserve the parameter name
+		Type:  value.Type,  // Use the actual underlying type
+		Value: value.Value, // Use the actual underlying value
+		Name:  name,        // Preserve the parameter name
 		Args:  []ExpectedExpression{value},
 	}
 }
@@ -1081,7 +1081,7 @@ func expectedArgsToNamedParams(decoratorName string, args []ExpectedExpression) 
 
 	for i, arg := range args {
 		var paramName string
-		
+
 		// If the argument already has a name (from Named() helper), use it
 		if arg.Name != "" {
 			paramName = arg.Name
@@ -1092,7 +1092,7 @@ func expectedArgsToNamedParams(decoratorName string, args []ExpectedExpression) 
 			}
 			paramName = schema[i].Name
 		}
-		
+
 		result[i] = map[string]interface{}{
 			"Name": paramName,
 			"Value": map[string]interface{}{

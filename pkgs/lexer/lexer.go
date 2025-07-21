@@ -67,7 +67,7 @@ type Lexer struct {
 	mode LexerMode
 
 	// Minimal context tracking
-	braceLevel int // Track brace nesting for mode transitions
+	braceLevel        int // Track brace nesting for mode transitions
 	patternBraceLevel int // Track the brace level where we entered pattern decorator
 
 	// Position tracking for error reporting
@@ -99,12 +99,12 @@ func New(reader io.Reader) *Lexer {
 func (l *Lexer) isAfterPatternDecorator() bool {
 	// Look back through recent input to find any pattern decorator using the registry
 	pos := l.position - 1
-	
+
 	// Skip backwards through whitespace and closing paren to find the decorator
 	for pos >= 0 && (l.input[pos] == ' ' || l.input[pos] == '\t' || l.input[pos] == ')') {
 		pos--
 	}
-	
+
 	// Look back to find @ symbol and extract decorator name
 	if pos >= 4 {
 		// Find the @ symbol by scanning backwards
@@ -115,12 +115,12 @@ func (l *Lexer) isAfterPatternDecorator() bool {
 				break
 			}
 		}
-		
+
 		if atPos >= 0 {
 			// Extract potential decorator name after @
 			nameStart := atPos + 1
 			nameEnd := nameStart
-			
+
 			// Find end of identifier (decorator name)
 			for nameEnd < len(l.input) && nameEnd <= pos+1 {
 				ch := l.input[nameEnd]
@@ -129,7 +129,7 @@ func (l *Lexer) isAfterPatternDecorator() bool {
 				}
 				nameEnd++
 			}
-			
+
 			if nameEnd > nameStart {
 				decoratorName := l.input[nameStart:nameEnd]
 				// Use decorator registry to check if this is a pattern decorator

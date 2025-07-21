@@ -751,8 +751,24 @@ func (e *Engine) setupTemplateFunctions() {
 		"executeCommand": e.generateCommandCode,
 		"shellContext":   e.generateShellContextCode,
 	}
-	
+
 	e.ctx.SetTemplateFunctions(funcMap)
+
+	// Set up content executor for nested command execution in decorators
+	e.ctx.SetContentExecutor(e.createContentExecutor())
+}
+
+// createContentExecutor creates a content executor function for decorators
+func (e *Engine) createContentExecutor() func(ast.CommandContent) error {
+	return func(content ast.CommandContent) error {
+		// Create a dummy command result for the execution
+		// In interpreter mode, we don't really use this result in decorators
+		result := &CommandResult{
+			Name:   "nested_content",
+			Status: "success",
+		}
+		return e.executeCommandContent(content, result)
+	}
 }
 
 // generateCommandCode generates Go code for any command content type
@@ -793,7 +809,7 @@ return nil`
 // generateShellParts generates code for shell content parts
 func (e *Engine) generateShellParts(parts []ast.ShellPart) string {
 	var result strings.Builder
-	
+
 	for _, part := range parts {
 		switch p := part.(type) {
 		case *ast.TextPart:
@@ -807,7 +823,7 @@ func (e *Engine) generateShellParts(parts []ast.ShellPart) string {
 			}
 		}
 	}
-	
+
 	return result.String()
 }
 

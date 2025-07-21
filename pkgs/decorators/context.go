@@ -25,6 +25,9 @@ type ExecutionContext struct {
 
 	// Template functions for code generation (populated by engine)
 	templateFunctions template.FuncMap
+
+	// Command content executor for nested command execution (populated by engine)
+	contentExecutor func(ast.CommandContent) error
 }
 
 // NewExecutionContext creates a new execution context
@@ -119,6 +122,19 @@ func (c *ExecutionContext) GetTemplateFunctions() template.FuncMap {
 // SetTemplateFunctions sets the template function map (used by engine)
 func (c *ExecutionContext) SetTemplateFunctions(funcs template.FuncMap) {
 	c.templateFunctions = funcs
+}
+
+// ExecuteCommandContent executes command content using the engine's executor (used by decorators)
+func (c *ExecutionContext) ExecuteCommandContent(content ast.CommandContent) error {
+	if c.contentExecutor == nil {
+		return fmt.Errorf("command content executor not available (engine not properly initialized)")
+	}
+	return c.contentExecutor(content)
+}
+
+// SetContentExecutor sets the command content executor (used by engine)
+func (c *ExecutionContext) SetContentExecutor(executor func(ast.CommandContent) error) {
+	c.contentExecutor = executor
 }
 
 // resolveVariableValue converts an AST expression to its string value

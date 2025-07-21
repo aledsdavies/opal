@@ -1118,7 +1118,7 @@ func (p *Parser) parseParameterValue(schema *decorators.ParameterSchema, paramNa
 	if schema != nil {
 		return p.parseValueWithTypeCheck(schema.Type, paramName)
 	}
-	
+
 	// Fallback to general value parsing if no schema
 	return p.parseValue()
 }
@@ -1126,7 +1126,7 @@ func (p *Parser) parseParameterValue(schema *decorators.ParameterSchema, paramNa
 // parseValueWithTypeCheck parses a value and validates it against the expected type
 func (p *Parser) parseValueWithTypeCheck(expectedType types.ExpressionType, paramName string) (ast.Expression, error) {
 	currentToken := p.current()
-	
+
 	switch currentToken.Type {
 	case types.STRING:
 		if expectedType != types.StringType {
@@ -1135,7 +1135,7 @@ func (p *Parser) parseValueWithTypeCheck(expectedType types.ExpressionType, para
 		tok := p.current()
 		p.advance()
 		return &ast.StringLiteral{Value: tok.Value, Raw: tok.Raw, StringToken: tok}, nil
-		
+
 	case types.NUMBER:
 		if expectedType != types.NumberType {
 			return nil, p.NewTypeError(paramName, expectedType, p.current())
@@ -1143,7 +1143,7 @@ func (p *Parser) parseValueWithTypeCheck(expectedType types.ExpressionType, para
 		tok := p.current()
 		p.advance()
 		return &ast.NumberLiteral{Value: tok.Value, Token: tok}, nil
-		
+
 	case types.DURATION:
 		if expectedType != types.DurationType {
 			return nil, p.NewTypeError(paramName, expectedType, p.current())
@@ -1151,7 +1151,7 @@ func (p *Parser) parseValueWithTypeCheck(expectedType types.ExpressionType, para
 		tok := p.current()
 		p.advance()
 		return &ast.DurationLiteral{Value: tok.Value, Token: tok}, nil
-		
+
 	case types.BOOLEAN:
 		if expectedType != types.BooleanType {
 			return nil, p.NewTypeError(paramName, expectedType, p.current())
@@ -1160,13 +1160,13 @@ func (p *Parser) parseValueWithTypeCheck(expectedType types.ExpressionType, para
 		p.advance()
 		boolValue := tok.Value == "true"
 		return &ast.BooleanLiteral{Value: boolValue, Raw: tok.Value, Token: tok}, nil
-		
+
 	case types.IDENTIFIER:
 		// Identifiers are valid for any type - they reference variables
 		tok := p.current()
 		p.advance()
 		return &ast.Identifier{Name: tok.Value, Token: tok}, nil
-		
+
 	default:
 		return nil, p.NewTypeError(paramName, expectedType, p.current())
 	}

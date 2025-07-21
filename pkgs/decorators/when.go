@@ -113,15 +113,22 @@ func (w *WhenDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, 
 	// Find matching pattern branch
 	for _, pattern := range patterns {
 		if w.matchesPattern(value, pattern.Pattern) {
-			patternStr := w.patternToString(pattern.Pattern)
-			fmt.Printf("Pattern '%s' matched value '%s', would execute %d commands\n",
-				patternStr, value, len(pattern.Commands))
-			// TODO: Execute the commands in the matching pattern
-			return nil
+			// Execute the commands in the matching pattern using unified execution engine
+			return w.executeCommands(ctx, pattern.Commands)
 		}
 	}
 
-	fmt.Printf("No pattern matched value '%s'\n", value)
+	// No pattern matched - this is not an error, just no action needed
+	return nil
+}
+
+// executeCommands executes commands using the unified execution engine
+func (w *WhenDecorator) executeCommands(ctx *ExecutionContext, commands []ast.CommandContent) error {
+	for _, cmd := range commands {
+		if err := ctx.ExecuteCommandContent(cmd); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -172,7 +179,7 @@ func (w *WhenDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParame
 		if _, ok := pattern.Pattern.(*ast.WildcardPattern); ok {
 			isDefault = true
 		}
-		
+
 		patternData = append(patternData, WhenPatternData{
 			Name:      patternStr,
 			IsDefault: isDefault,

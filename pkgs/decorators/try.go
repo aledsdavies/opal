@@ -70,11 +70,11 @@ const tryExecutionTemplate = `return func() error {
 
 // TryTemplateData holds data for template execution
 type TryTemplateData struct {
-	MainCommands      []ast.CommandContent
-	ErrorCommands     []ast.CommandContent
-	FinallyCommands   []ast.CommandContent
-	HasErrorBranch    bool
-	HasFinallyBranch  bool
+	MainCommands     []ast.CommandContent
+	ErrorCommands    []ast.CommandContent
+	FinallyCommands  []ast.CommandContent
+	HasErrorBranch   bool
+	HasFinallyBranch bool
 }
 
 // Name returns the decorator name
@@ -136,42 +136,29 @@ func (t *TryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, p
 	var mainErr error
 
 	// Execute main block
-	fmt.Printf("Executing 'main' pattern with %d commands\n", len(mainBranch.Commands))
 	mainErr = t.executeCommands(ctx, mainBranch.Commands)
 
 	// Execute error block if main failed and error pattern exists
 	if mainErr != nil && errorBranch != nil {
-		fmt.Printf("Main execution failed (%v), executing 'error' pattern with %d commands\n", mainErr, len(errorBranch.Commands))
-		if errorErr := t.executeCommands(ctx, errorBranch.Commands); errorErr != nil {
-			// If error handler also fails, we still want to run finally
-			fmt.Printf("Error handler also failed: %v\n", errorErr)
-		}
+		// If error handler also fails, we still want to run finally
+		t.executeCommands(ctx, errorBranch.Commands)
 	}
 
 	// Always execute finally block if it exists
 	if finallyBranch != nil {
-		fmt.Printf("Executing 'finally' pattern with %d commands\n", len(finallyBranch.Commands))
-		if finallyErr := t.executeCommands(ctx, finallyBranch.Commands); finallyErr != nil {
-			// Finally block errors are logged but don't override main error
-			fmt.Printf("Finally block failed: %v\n", finallyErr)
-		}
+		// Finally block errors don't override main error
+		t.executeCommands(ctx, finallyBranch.Commands)
 	}
 
 	// Return the original main error (if any)
 	return mainErr
 }
 
-// executeCommands simulates command execution (TODO: replace with actual execution engine)
+// executeCommands executes commands using the unified execution engine
 func (t *TryDecorator) executeCommands(ctx *ExecutionContext, commands []ast.CommandContent) error {
-	for i, cmd := range commands {
-		fmt.Printf("  Executing command %d: %+v\n", i, cmd)
-
-		// Simulate some main commands failing for testing
-		if shellCmd, ok := cmd.(*ast.ShellContent); ok {
-			cmdText := shellCmd.String()
-			if strings.Contains(cmdText, "fail") {
-				return fmt.Errorf("command failed: %s", cmdText)
-			}
+	for _, cmd := range commands {
+		if err := ctx.ExecuteCommandContent(cmd); err != nil {
+			return err
 		}
 	}
 	return nil

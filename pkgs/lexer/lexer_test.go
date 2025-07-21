@@ -1478,7 +1478,7 @@ func TestNamedParameters(t *testing.T) {
 			},
 		},
 		{
-			name:  "complex nested decorators with named parameters",
+			name: "complex nested decorators with named parameters",
 			input: `test: @retry(attempts=3) {
 		@when(ENV) {
 			development: echo "Dev environment"

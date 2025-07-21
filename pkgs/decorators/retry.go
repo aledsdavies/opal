@@ -130,23 +130,17 @@ func (r *RetryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter,
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		fmt.Printf("Retry attempt %d/%d\n", attempt, maxAttempts)
-
-		// TODO: Execute commands using execution engine
-		// For now, simulate execution
-		execErr := r.executeCommands(ctx, content, attempt)
+		// Execute commands using the unified execution engine
+		execErr := r.executeCommands(ctx, content)
 
 		if execErr == nil {
-			fmt.Printf("Commands succeeded on attempt %d\n", attempt)
 			return nil // Success!
 		}
 
 		lastErr = execErr
-		fmt.Printf("Attempt %d failed: %v\n", attempt, execErr)
 
 		// Don't delay after the last attempt
 		if attempt < maxAttempts {
-			fmt.Printf("Waiting %s before next attempt...\n", delay)
 			time.Sleep(delay)
 		}
 	}
@@ -154,14 +148,11 @@ func (r *RetryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter,
 	return fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr)
 }
 
-// executeCommands simulates command execution (TODO: replace with actual execution engine)
-func (r *RetryDecorator) executeCommands(ctx *ExecutionContext, content []ast.CommandContent, attempt int) error {
-	for i, cmd := range content {
-		fmt.Printf("  Executing command %d: %+v\n", i, cmd)
-
-		// Simulate some commands failing on first attempts
-		if attempt == 1 && i == 0 {
-			return fmt.Errorf("simulated failure for command %d", i)
+// executeCommands executes commands using the unified execution engine
+func (r *RetryDecorator) executeCommands(ctx *ExecutionContext, content []ast.CommandContent) error {
+	for _, cmd := range content {
+		if err := ctx.ExecuteCommandContent(cmd); err != nil {
+			return err
 		}
 	}
 	return nil
