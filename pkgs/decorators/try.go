@@ -133,21 +133,19 @@ func (t *TryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, p
 		return fmt.Errorf("@try requires at least one of 'error' or 'finally' patterns")
 	}
 
-	var mainErr error
-
 	// Execute main block
-	mainErr = t.executeCommands(ctx, mainBranch.Commands)
+	mainErr := t.executeCommands(ctx, mainBranch.Commands)
 
 	// Execute error block if main failed and error pattern exists
 	if mainErr != nil && errorBranch != nil {
 		// If error handler also fails, we still want to run finally
-		t.executeCommands(ctx, errorBranch.Commands)
+		_ = t.executeCommands(ctx, errorBranch.Commands)
 	}
 
 	// Always execute finally block if it exists
 	if finallyBranch != nil {
 		// Finally block errors don't override main error
-		t.executeCommands(ctx, finallyBranch.Commands)
+		_ = t.executeCommands(ctx, finallyBranch.Commands)
 	}
 
 	// Return the original main error (if any)

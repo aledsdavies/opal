@@ -124,7 +124,7 @@ func (l *Lexer) isAfterPatternDecorator() bool {
 			// Find end of identifier (decorator name)
 			for nameEnd < len(l.input) && nameEnd <= pos+1 {
 				ch := l.input[nameEnd]
-				if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_') {
+				if ch >= 128 || (!isLetter[ch] && !isDigit[ch]) {
 					break
 				}
 				nameEnd++
