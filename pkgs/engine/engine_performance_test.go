@@ -544,18 +544,18 @@ build: echo "Building on port @var(PORT)"`,
 		{
 			name: "complex_nested",
 			input: `test: @parallel {
-	echo "Task 1";
+	echo "Task 1"
 	@retry(attempts=2) {
-		@when(ENV) {
+		@when("ENV") {
 			production: echo "Prod task"
 			default: echo "Default task"
-		};
+		}
 		echo "After condition"
-	};
+	}
 	@try {
 		main: echo "Try block"
 		error: echo "Catch block"
-	};
+	}
 	echo "Task 4"
 }`,
 		},

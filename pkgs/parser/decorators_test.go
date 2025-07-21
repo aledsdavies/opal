@@ -452,7 +452,10 @@ func TestNamedParameterSupport(t *testing.T) {
 		},
 		{
 			Name:  "when with string parameter",
-			Input: "test: @when(\"ENV\") { production: echo \"prod\"; default: echo \"dev\" }",
+			Input: `test: @when("ENV") { 
+  production: echo "prod"
+  default: echo "dev"
+}`,
 			Expected: Program(
 				Cmd("test",
 					PatternDecoratorWithBranches("when", Str("ENV"),
@@ -677,7 +680,7 @@ func TestNewDecoratorParameterTypes(t *testing.T) {
 			Name:        "retry with wrong parameter type",
 			Input:       "test: @retry(\"three\") { npm test }",
 			WantErr:     true,
-			ErrorSubstr: "@retry 'attempts' parameter must be of type number",
+			ErrorSubstr: "parameter 'attempts' expects number, got STRING",
 		},
 	}
 
@@ -767,10 +770,10 @@ func TestDecoratorVariations(t *testing.T) {
 		},
 		{
 			Name:  "decorator with boolean argument",
-			Input: "deploy: @confirm(true) { ./deploy.sh }",
+			Input: "deploy: @confirm(defaultYes=true) { ./deploy.sh }",
 			Expected: Program(
 				CmdBlock("deploy",
-					DecoratedShell(Decorator("confirm", Bool(true)),
+					DecoratedShell(Decorator("confirm", Named("defaultYes", Bool(true))),
 						Text("./deploy.sh"),
 					),
 				),
@@ -815,3 +818,24 @@ func TestDecoratorVariations(t *testing.T) {
 		RunTestCase(t, tc)
 	}
 }
+
+func TestNestedPatternDecorators(t *testing.T) {
+	testCases := []TestCase{
+		{
+			Name: "pattern decorator inside block decorator",
+			Input: `test: @retry(attempts=2) {
+				@when("ENV") {
+					production: echo "prod task"
+					default: echo "default task"
+				}
+			}`,
+			// This should parse correctly since lexer handles it properly
+		},
+	}
+
+	for _, tc := range testCases {
+		RunTestCase(t, tc)
+	}
+}
+
+

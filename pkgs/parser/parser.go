@@ -92,7 +92,7 @@ func (p *Parser) parseProgram() *ast.Program {
 				program.Commands = append(program.Commands, *cmd)
 			}
 		default:
-			p.addError(fmt.Errorf("unexpected token %s, expected a top-level declaration (var, command)", p.current().Type))
+			p.addError(p.NewSyntaxError(fmt.Sprintf("unexpected token %s at top level, expected 'var' or command declaration", p.current().Type.String())))
 			p.synchronize()
 		}
 	}
@@ -337,7 +337,7 @@ func (p *Parser) parseCommandContent(inBlock bool) (ast.CommandContent, error) {
 				}
 				d.Content = contentItems
 			} else {
-				return nil, fmt.Errorf("expected '{' after block decorator @%s", d.Name)
+				return nil, p.NewMissingTokenError("'{' after block decorator @" + d.Name)
 			}
 			return d, nil
 		case *ast.PatternDecorator:
@@ -373,7 +373,7 @@ func (p *Parser) parsePatternContent() (*ast.PatternDecorator, error) {
 	// Step 1: Check if decorator exists in registry and is a pattern decorator
 	decorator, decoratorType, err := decorators.GetAny(decoratorName)
 	if err != nil || decoratorType != decorators.PatternType {
-		return nil, fmt.Errorf("unknown pattern decorator @%s", decoratorName)
+		return nil, p.NewInvalidError("unknown pattern decorator @" + decoratorName)
 	}
 
 	// Step 2: Get parameter schema
@@ -382,6 +382,7 @@ func (p *Parser) parsePatternContent() (*ast.PatternDecorator, error) {
 	// Parse arguments if present
 	var params []ast.NamedParameter
 	if p.match(types.LPAREN) {
+		p.advance() // consume '('
 		params, err = p.parseParameterList(paramSchema)
 		if err != nil {
 			return nil, err
@@ -461,7 +462,7 @@ func (p *Parser) parsePatternBranch() (*ast.PatternBranch, error) {
 			}
 		}
 	} else {
-		return nil, fmt.Errorf("expected pattern identifier, got %s", p.current().Type)
+		return nil, p.NewSyntaxError(fmt.Sprintf("expected pattern identifier, got %s", p.current().Type.String()))
 	}
 
 	// Parse colon
@@ -919,7 +920,7 @@ func (p *Parser) parseDecorator() (ast.CommandContent, error) {
 		// Handle special cases where keywords appear as decorator names
 		nameToken = p.current()
 		if !p.isValidDecoratorName(nameToken) {
-			return nil, fmt.Errorf("expected decorator name, got %s", nameToken.Type)
+			return nil, p.NewSyntaxError(fmt.Sprintf("expected decorator name after '@', got %s", nameToken.Type.String()))
 		}
 		p.advance()
 	}
@@ -936,7 +937,7 @@ func (p *Parser) parseDecorator() (ast.CommandContent, error) {
 	// Step 1: Check if decorator exists in registry
 	decorator, decoratorType, err := decorators.GetAny(decoratorName)
 	if err != nil {
-		return nil, fmt.Errorf("unknown decorator @%s", decoratorName)
+		return nil, p.NewInvalidError("unknown decorator @" + decoratorName)
 	}
 
 	// Step 2: Get parameter schema from decorator
@@ -991,7 +992,7 @@ func (p *Parser) parseDecorator() (ast.CommandContent, error) {
 			NameToken: nameToken,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown decorator type for @%s", decoratorName)
+		return nil, p.NewInvalidError("unknown decorator type for @" + decoratorName)
 	}
 }
 
@@ -1035,7 +1036,16 @@ func (p *Parser) parseParameter(paramSchema []decorators.ParameterSchema, positi
 			return ast.NamedParameter{}, err
 		}
 
-		value, err := p.parseValue()
+		// Find the parameter schema for this named parameter
+		var foundSchema *decorators.ParameterSchema
+		for i := range paramSchema {
+			if paramSchema[i].Name == nameToken.Value {
+				foundSchema = &paramSchema[i]
+				break
+			}
+		}
+
+		value, err := p.parseParameterValue(foundSchema, nameToken.Value)
 		if err != nil {
 			return ast.NamedParameter{}, err
 		}
@@ -1049,17 +1059,18 @@ func (p *Parser) parseParameter(paramSchema []decorators.ParameterSchema, positi
 		}, nil
 	} else {
 		// Positional parameter
-		value, err := p.parseValue()
-		if err != nil {
-			return ast.NamedParameter{}, err
-		}
-
-		// Get parameter name from schema at current position
+		var foundSchema *decorators.ParameterSchema
 		var paramName string
 		if *positionalIndex < len(paramSchema) {
+			foundSchema = &paramSchema[*positionalIndex]
 			paramName = paramSchema[*positionalIndex].Name
 		} else {
 			paramName = fmt.Sprintf("arg%d", *positionalIndex)
+		}
+
+		value, err := p.parseParameterValue(foundSchema, paramName)
+		if err != nil {
+			return ast.NamedParameter{}, err
 		}
 		*positionalIndex++
 
@@ -1097,9 +1108,72 @@ func (p *Parser) parseValue() (ast.Expression, error) {
 		p.advance()
 		return &ast.Identifier{Name: tok.Value, Token: tok}, nil
 	default:
-		return nil, fmt.Errorf("expected value (string, number, duration, boolean, or identifier), got %s", p.current().Type)
+		return nil, p.NewSyntaxError(fmt.Sprintf("unexpected token %s, expected a value", p.current().Type.String()))
 	}
 }
+
+// parseParameterValue parses a parameter value with type checking and enhanced error messages
+func (p *Parser) parseParameterValue(schema *decorators.ParameterSchema, paramName string) (ast.Expression, error) {
+	// If we have schema information, validate the type
+	if schema != nil {
+		return p.parseValueWithTypeCheck(schema.Type, paramName)
+	}
+	
+	// Fallback to general value parsing if no schema
+	return p.parseValue()
+}
+
+// parseValueWithTypeCheck parses a value and validates it against the expected type
+func (p *Parser) parseValueWithTypeCheck(expectedType types.ExpressionType, paramName string) (ast.Expression, error) {
+	currentToken := p.current()
+	
+	switch currentToken.Type {
+	case types.STRING:
+		if expectedType != types.StringType {
+			return nil, p.NewTypeError(paramName, expectedType, p.current())
+		}
+		tok := p.current()
+		p.advance()
+		return &ast.StringLiteral{Value: tok.Value, Raw: tok.Raw, StringToken: tok}, nil
+		
+	case types.NUMBER:
+		if expectedType != types.NumberType {
+			return nil, p.NewTypeError(paramName, expectedType, p.current())
+		}
+		tok := p.current()
+		p.advance()
+		return &ast.NumberLiteral{Value: tok.Value, Token: tok}, nil
+		
+	case types.DURATION:
+		if expectedType != types.DurationType {
+			return nil, p.NewTypeError(paramName, expectedType, p.current())
+		}
+		tok := p.current()
+		p.advance()
+		return &ast.DurationLiteral{Value: tok.Value, Token: tok}, nil
+		
+	case types.BOOLEAN:
+		if expectedType != types.BooleanType {
+			return nil, p.NewTypeError(paramName, expectedType, p.current())
+		}
+		tok := p.current()
+		p.advance()
+		boolValue := tok.Value == "true"
+		return &ast.BooleanLiteral{Value: boolValue, Raw: tok.Value, Token: tok}, nil
+		
+	case types.IDENTIFIER:
+		// Identifiers are valid for any type - they reference variables
+		tok := p.current()
+		p.advance()
+		return &ast.Identifier{Name: tok.Value, Token: tok}, nil
+		
+	default:
+		return nil, p.NewTypeError(paramName, expectedType, p.current())
+	}
+}
+
+// Legacy error functions - these are now implemented in errors.go
+// Kept for any remaining compatibility needs
 
 // isValidDecoratorName checks if a token can be used as a decorator name
 func (p *Parser) isValidDecoratorName(token types.Token) bool {

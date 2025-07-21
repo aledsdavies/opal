@@ -19,39 +19,8 @@ func init() {
 
 // Test-only decorator implementations
 
-// ConfirmDecorator - test implementation
-type ConfirmDecorator struct{}
-
-func (c *ConfirmDecorator) Name() string { return "confirm" }
-func (c *ConfirmDecorator) Description() string {
-	return "Prompts for user confirmation before executing commands"
-}
-
-func (c *ConfirmDecorator) ParameterSchema() []decorators.ParameterSchema {
-	return []decorators.ParameterSchema{
-		{Name: "message", Type: ast.StringType, Required: false, Description: "Confirmation message"},
-	}
-}
-
-func (c *ConfirmDecorator) Validate(ctx *decorators.ExecutionContext, params []ast.NamedParameter) error {
-	return nil
-}
-
-func (c *ConfirmDecorator) Run(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
-	return nil
-}
-
-func (c *ConfirmDecorator) Generate(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
-	return "// confirm", nil
-}
-
-func (c *ConfirmDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{}
-}
-
-func (c *ConfirmDecorator) Plan(ctx *decorators.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
-	return plan.Command("confirm"), nil
-}
+// ConfirmDecorator is now implemented in the real decorators package
+// Test removed since we have a real implementation
 
 // DebounceDecorator - test implementation
 type DebounceDecorator struct{}
@@ -223,7 +192,6 @@ func (f *FactorDecorator) Plan(ctx *decorators.ExecutionContext, params []ast.Na
 // registerTestOnlyDecorators registers decorators that are only used for testing
 func registerTestOnlyDecorators() {
 	// Register test decorators with the new decorator registry
-	decorators.RegisterBlock(&ConfirmDecorator{})
 	decorators.RegisterBlock(&DebounceDecorator{})
 	decorators.RegisterBlock(&CwdDecorator{})
 	decorators.RegisterBlock(&WatchFilesDecorator{})
@@ -454,9 +422,9 @@ func Duration(value string) ExpectedExpression {
 // Named creates a named parameter expression for decorators
 func Named(name string, value ExpectedExpression) ExpectedExpression {
 	return ExpectedExpression{
-		Type:  "named",
-		Value: name + "=" + value.Value,
-		Name:  name,
+		Type:  value.Type,    // Use the actual underlying type
+		Value: value.Value,   // Use the actual underlying value
+		Name:  name,          // Preserve the parameter name
 		Args:  []ExpectedExpression{value},
 	}
 }
@@ -1112,11 +1080,19 @@ func expectedArgsToNamedParams(decoratorName string, args []ExpectedExpression) 
 	}
 
 	for i, arg := range args {
-		// Map positional arguments to parameter names from schema
-		if i >= len(schema) {
-			panic(fmt.Sprintf("Decorator %s expects at most %d parameters, but test provided %d parameters", decoratorName, len(schema), len(args)))
+		var paramName string
+		
+		// If the argument already has a name (from Named() helper), use it
+		if arg.Name != "" {
+			paramName = arg.Name
+		} else {
+			// Map positional arguments to parameter names from schema
+			if i >= len(schema) {
+				panic(fmt.Sprintf("Decorator %s expects at most %d parameters, but test provided %d parameters", decoratorName, len(schema), len(args)))
+			}
+			paramName = schema[i].Name
 		}
-		paramName := schema[i].Name
+		
 		result[i] = map[string]interface{}{
 			"Name": paramName,
 			"Value": map[string]interface{}{

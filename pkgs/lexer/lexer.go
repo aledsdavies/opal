@@ -54,7 +54,7 @@ const (
 	PatternMode                   // Pattern decorator parsing (@when, @try blocks)
 )
 
-// Lexer follows the specification's two-mode system
+// Lexer implements the three-mode system with simple context-free transitions
 type Lexer struct {
 	input    string // Complete input (read once from Reader)
 	position int    // Current position in input (byte offset)
@@ -63,18 +63,12 @@ type Lexer struct {
 	line     int    // Current line number
 	column   int    // Current column number
 
-	// Two-mode system
+	// Simple three-mode system
 	mode LexerMode
 
-	// Context tracking
-	braceLevel int   // Track brace nesting
-	braceStack []int // Stack of brace positions for structural tracking
-
-	// Decorator context tracking
-	currentDecorator   string    // Track current decorator name for mode switching
-	previousMode       LexerMode // Track previous mode for returns from CommandMode
-	inPatternDecorator bool      // Track if we're inside a pattern decorator block
-	decoratorStack     []string  // Stack of decorator names to track nesting
+	// Minimal context tracking
+	braceLevel int // Track brace nesting for mode transitions
+	patternBraceLevel int // Track the brace level where we entered pattern decorator
 
 	// Position tracking for error reporting
 	lastPosition int
@@ -92,15 +86,72 @@ func New(reader io.Reader) *Lexer {
 	}
 
 	l := &Lexer{
-		input:          string(data),
-		line:           1,
-		column:         0,            // Will be incremented to 1 by initial readChar()
-		mode:           LanguageMode, // Start in LanguageMode
-		braceStack:     make([]int, 0, 8),
-		decoratorStack: make([]string, 0, 8),
+		input:  string(data),
+		line:   1,
+		column: 0,            // Will be incremented to 1 by initial readChar()
+		mode:   LanguageMode, // Start in LanguageMode
 	}
 	l.readChar()
 	return l
+}
+
+// isAfterPatternDecorator checks if we just parsed a pattern decorator by looking back
+func (l *Lexer) isAfterPatternDecorator() bool {
+	// Look back through recent input to find any pattern decorator using the registry
+	pos := l.position - 1
+	
+	// Skip backwards through whitespace and closing paren to find the decorator
+	for pos >= 0 && (l.input[pos] == ' ' || l.input[pos] == '\t' || l.input[pos] == ')') {
+		pos--
+	}
+	
+	// Look back to find @ symbol and extract decorator name
+	if pos >= 4 {
+		// Find the @ symbol by scanning backwards
+		atPos := -1
+		for i := pos; i >= max(0, pos-20); i-- {
+			if l.input[i] == '@' {
+				atPos = i
+				break
+			}
+		}
+		
+		if atPos >= 0 {
+			// Extract potential decorator name after @
+			nameStart := atPos + 1
+			nameEnd := nameStart
+			
+			// Find end of identifier (decorator name)
+			for nameEnd < len(l.input) && nameEnd <= pos+1 {
+				ch := l.input[nameEnd]
+				if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_') {
+					break
+				}
+				nameEnd++
+			}
+			
+			if nameEnd > nameStart {
+				decoratorName := l.input[nameStart:nameEnd]
+				// Use decorator registry to check if this is a pattern decorator
+				return decorators.IsPatternDecorator(decoratorName)
+			}
+		}
+	}
+	return false
+}
+
+// isInPatternContext determines if we're currently inside a pattern decorator context
+func (l *Lexer) isInPatternContext() bool {
+	// Simple check: are we at or below the brace level where we entered pattern mode?
+	return l.patternBraceLevel > 0 && l.braceLevel >= l.patternBraceLevel
+}
+
+// max helper function
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // readChar reads the next character and advances position
@@ -244,11 +295,10 @@ func (l *Lexer) lexLanguageMode() types.Token {
 	case '{':
 		l.readChar()
 		l.braceLevel++
-		l.braceStack = append(l.braceStack, start)
-		// Transition to appropriate mode for block content
-		if decorators.IsPatternDecorator(l.currentDecorator) {
+		// Simple rule: { after pattern decorator → PatternMode, otherwise → CommandMode
+		if l.isAfterPatternDecorator() {
 			l.mode = PatternMode
-			l.inPatternDecorator = true
+			l.patternBraceLevel = l.braceLevel // Remember where we entered pattern mode
 		} else {
 			l.mode = CommandMode
 		}
@@ -257,13 +307,12 @@ func (l *Lexer) lexLanguageMode() types.Token {
 	case '}':
 		l.readChar()
 		l.braceLevel--
-		if len(l.braceStack) > 0 {
-			l.braceStack = l.braceStack[:len(l.braceStack)-1]
-		}
-		// Stay in LanguageMode or transition based on context
+		// Simple rule: completely exited all braces → LanguageMode
 		if l.braceLevel <= 0 {
 			l.mode = LanguageMode
+			l.patternBraceLevel = 0 // Clear pattern context
 		}
+		// Otherwise stay in current mode - parent context will handle mode transitions
 		return l.createToken(types.RBRACE, "}", start, startLine, startColumn)
 
 	case '*':
@@ -334,50 +383,37 @@ func (l *Lexer) lexCommandMode() types.Token {
 	case '\n':
 		// Newlines end shell content in command mode (unless line continuation)
 		l.readChar()
-		// Return to appropriate mode based on context
-		if l.inPatternDecorator && l.previousMode == PatternMode {
-			// Check if we should return to PatternMode
-			// For nested patterns (braceLevel > 1), we always return to PatternMode
-			// For top-level patterns (braceLevel == 1), we also return to PatternMode
-			if l.braceLevel >= 1 {
-				l.mode = PatternMode
-			}
-		} else if l.braceLevel == 0 {
-			// Return to LanguageMode for simple commands without braces
+		// Simple rule: determine next mode based on context
+		if l.braceLevel == 0 {
 			l.mode = LanguageMode
-		} else {
-			// We're inside braces but not in a pattern decorator - stay in CommandMode
-			// This ensures we don't accidentally switch modes
+		} else if l.isInPatternContext() && l.braceLevel == l.patternBraceLevel {
+			// Only return to PatternMode if we're at the exact pattern brace level
+			// (not inside nested blocks within the pattern)
+			l.mode = PatternMode
 		}
+		// Otherwise stay in CommandMode for regular braced blocks or nested blocks within patterns
 		return l.NextToken()
 
 	case '}':
 		// Closing brace - exit command mode
 		l.readChar()
 		l.braceLevel--
-		if len(l.braceStack) > 0 {
-			l.braceStack = l.braceStack[:len(l.braceStack)-1]
-		}
-		// Return to appropriate mode when exiting blocks
+		// Simple rule: determine next mode based on context
 		if l.braceLevel <= 0 {
-			if l.inPatternDecorator {
-				l.mode = LanguageMode
-				l.inPatternDecorator = false
-				l.currentDecorator = ""
-			} else {
-				l.mode = LanguageMode
-			}
-		} else {
-			// We're still inside nested braces - return to CommandMode
-			l.mode = CommandMode
+			l.mode = LanguageMode
+			l.patternBraceLevel = 0 // Clear pattern context
+		} else if l.isInPatternContext() && l.braceLevel == l.patternBraceLevel {
+			// Only return to PatternMode if we're back to the exact pattern brace level
+			// (exiting a pattern branch block, not a nested block within the pattern)
+			l.mode = PatternMode
 		}
+		// Otherwise stay in CommandMode for nested command blocks
 		return l.createToken(types.RBRACE, "}", start, startLine, startColumn)
 
 	case '{':
 		// Opening brace in command mode - start new block
 		l.readChar()
 		l.braceLevel++
-		l.braceStack = append(l.braceStack, start)
 		return l.createToken(types.LBRACE, "{", start, startLine, startColumn)
 
 	case '@':
@@ -486,35 +522,29 @@ func (l *Lexer) lexPatternMode() types.Token {
 		// Closing brace - exit pattern mode
 		l.readChar()
 		l.braceLevel--
-		if len(l.braceStack) > 0 {
-			l.braceStack = l.braceStack[:len(l.braceStack)-1]
-		}
-		// Return to appropriate mode when exiting pattern blocks
+		// Simple rule: completely exited → LanguageMode, otherwise determine by context
 		if l.braceLevel <= 0 {
 			l.mode = LanguageMode
-			l.currentDecorator = "" // Clear decorator context
-			l.inPatternDecorator = false
+			l.patternBraceLevel = 0 // Clear pattern context
+		} else if l.isInPatternContext() {
+			// Still inside a pattern decorator, return to PatternMode for more pattern branches
+			l.mode = PatternMode
 		} else {
-			// We're still inside outer braces, return to CommandMode
+			// Regular block context, return to CommandMode
 			l.mode = CommandMode
-			l.inPatternDecorator = false
-			l.currentDecorator = ""
 		}
 		return l.createToken(types.RBRACE, "}", start, startLine, startColumn)
 
 	case ':':
 		l.readChar()
 		// After colon in pattern mode, switch to CommandMode for shell content
-		l.previousMode = PatternMode
 		l.mode = CommandMode
 		return l.createToken(types.COLON, ":", start, startLine, startColumn)
 
 	case '{':
 		l.readChar()
 		l.braceLevel++
-		l.braceStack = append(l.braceStack, start)
 		// Transition to CommandMode for block content inside patterns
-		l.previousMode = PatternMode
 		l.mode = CommandMode
 		return l.createToken(types.LBRACE, "{", start, startLine, startColumn)
 
@@ -697,10 +727,7 @@ func (l *Lexer) lexIdentifierOrKeyword(start, startLine, startColumn int) types.
 
 	value := l.input[start:l.position]
 
-	// Track decorator names for mode switching
-	if decorators.IsDecorator(value) {
-		l.currentDecorator = value
-	}
+	// No need to track decorator names with simplified approach
 
 	// Check for keywords
 	switch value {

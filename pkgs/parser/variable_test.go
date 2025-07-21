@@ -215,13 +215,13 @@ func TestVariableDecoratorArgumentRestrictions(t *testing.T) {
 			Input: `var TIMEOUT = 30s
 test: @timeout(@var(TIMEOUT)) { npm test }`,
 			WantErr:     true,
-			ErrorSubstr: "expected value (string, number, duration, boolean, or identifier), got AT",
+			ErrorSubstr: "parameter 'duration' expects duration, got AT",
 		},
 		{
 			Name:        "reject @env() in decorator arguments",
 			Input:       `test: @timeout(@env(DURATION)) { npm test }`,
 			WantErr:     true,
-			ErrorSubstr: "expected value (string, number, duration, boolean, or identifier), got AT",
+			ErrorSubstr: "parameter 'duration' expects duration, got AT",
 		},
 		{
 			Name: "allow direct variable references in decorator arguments",

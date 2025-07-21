@@ -588,21 +588,21 @@ func TestNestedDecoratorGeneratedCodeCompiles(t *testing.T) {
 func TestComplexNestedDecorators(t *testing.T) {
 	// Test multiple levels of nesting with different decorator types
 	input := `test: @parallel {
-		echo "Task 1";
+		echo "Task 1"
 		@retry(attempts=2) { 
-			@when(ENV) {
+			@when("ENV") {
 				production: echo "Conditional Task"
 				default: echo "Default task"
-			};
+			}
 			echo "After condition"
-		};
+		}
 		@try {
 			main: {
-				echo "Try block";
+				echo "Try block"
 				@timeout(duration=5s) { echo "Timeout task" }
 			}
 			error: echo "Catch block"
-		};
+		}
 		echo "Task 4"
 	}`
 
@@ -642,10 +642,10 @@ func TestComplexNestedDecorators(t *testing.T) {
 func TestPatternDecoratorInParallel(t *testing.T) {
 	// Test pattern decorators inside parallel
 	input := `test: @parallel {
-		@when(ENV) {
+		@when("ENV") {
 			production: echo "When production"
 			default: echo "When default"
-		};
+		}
 		@try {
 			main: echo "Try success"
 			error: echo "Try failed"
@@ -682,11 +682,11 @@ func TestPatternDecoratorInParallel(t *testing.T) {
 func TestRetryWithPatternDecorator(t *testing.T) {
 	// Test retry containing pattern decorators
 	input := `test: @retry(attempts=3) {
-		@when(ENV) {
+		@when("ENV") {
 			development: echo "Dev environment"
 			default: echo "Other environment"
-		};
-		echo "Always execute";
+		}
+		echo "Always execute"
 		@try {
 			main: echo "Try operation"
 			error: echo "Fallback"

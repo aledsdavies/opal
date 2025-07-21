@@ -44,7 +44,7 @@ test: echo "@var(USER) lives in @env(HOME)"`,
 		},
 		{
 			name: "when pattern decorator",
-			input: `test: @when(ENV) {
+			input: `test: @when("ENV") {
   prod: echo "production"
   dev: echo "development"
 }`,
