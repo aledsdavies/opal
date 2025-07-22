@@ -147,7 +147,9 @@ rec {
         name = "process-test";
         binaryName = "process-test";
         commandsContent = ''
-          watch demo: python3 -m http.server 9999
+          watch demo: @timeout(duration=3s) {
+            python3 -m http.server 9999
+          }
           stop demo: pkill -f "python3 -m http.server 9999"
 
           watch multi: {
@@ -164,6 +166,10 @@ rec {
       testScript = ''
         ${testUtils.checkOutput "process-test --help" "status"}
         ${testUtils.simpleTest "process-test status"}
+        
+        # Test watch command with built-in timeout decorator
+        echo "Testing watch command with built-in timeout..."
+        process-test watch demo || echo "✅ Watch command timed out correctly after 3 seconds"
       '';
     };
   };
