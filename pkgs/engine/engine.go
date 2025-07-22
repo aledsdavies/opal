@@ -124,14 +124,19 @@ func (e *Engine) generateProgram(program *ast.Program) (*GenerationResult, error
 		return nil, fmt.Errorf("failed to collect decorator imports: %w", err)
 	}
 
+	// Add base dependencies that generated code always needs
+	result.AddGoModule("github.com/aledsdavies/devcmd", "v0.2.0")
+	result.AddGoModule("github.com/spf13/cobra", "v1.9.1")
+
 	// Generate go.mod file with collected dependencies
 	result.GoMod.WriteString("module devcmd-generated\n\n")
 	result.GoMod.WriteString(fmt.Sprintf("go %s\n", e.goVersion))
 	if len(result.GoModules) > 0 {
-		result.GoMod.WriteString("\n")
+		result.GoMod.WriteString("\nrequire (\n")
 		for module, version := range result.GoModules {
-			result.GoMod.WriteString(fmt.Sprintf("require %s %s\n", module, version))
+			result.GoMod.WriteString(fmt.Sprintf("\t%s %s\n", module, version))
 		}
+		result.GoMod.WriteString(")\n")
 	}
 
 	// Generate package declaration

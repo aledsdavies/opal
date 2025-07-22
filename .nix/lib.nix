@@ -1,5 +1,5 @@
 # Library functions for generating CLI packages from devcmd files
-{ pkgs, self, lib }:
+{ pkgs, self, lib, gitRev }:
 
 let
   # Simple content hash for deterministic caching
@@ -225,6 +225,10 @@ rec {
       # Template arguments
       templateArgs = lib.optionalString (templateFile != null) "--template ${toString templateFile}";
 
+      # Get git commit hash for proper versioning
+      gitHash = gitRev;
+      goVersion = "1.24.3";
+      
       # Generate Go source with cache-friendly naming
       goSource = pkgs.runCommand "${name}-go-source-${contentHash}"
         {
@@ -244,9 +248,12 @@ rec {
         ${devcmdBin}/bin/devcmd ${templateArgs} --binary "${binaryName}" --file ${commandsSrc} > "$out/main.go"
 
         cat > "$out/go.mod" <<EOF
-        module ${name}
-        go 1.21
-        EOF
+module ${name}
+go ${goVersion}
+
+require github.com/aledsdavies/devcmd v0.0.0-${gitHash}
+replace github.com/aledsdavies/devcmd => ${self}
+EOF
 
         echo "Validating generated Go code..."
         ${pkgs.go}/bin/go mod tidy -C "$out"
@@ -260,6 +267,7 @@ rec {
       inherit version;
       src = goSource;
       vendorHash = null;
+      proxyVendor = true;
 
       # Environment variables using correct syntax
       env.CGO_ENABLED = "0"; # Static binary for better caching

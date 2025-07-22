@@ -13,17 +13,20 @@
           pkgs = nixpkgs.legacyPackages.${system};
           lib = nixpkgs.lib;
 
+          # Get git revision for generated CLIs (fallback for dirty trees)
+          gitRev = self.rev or "dev-${toString self.lastModified}";
+
           # Main devcmd package
           devcmdPackage = import ./.nix/package.nix { inherit pkgs lib; version = "0.2.0"; };
 
           # Library functions with automatic system detection
-          devcmdLib = import ./.nix/lib.nix { inherit pkgs self lib; };
+          devcmdLib = import ./.nix/lib.nix { inherit pkgs self lib gitRev; };
 
           # Import all examples from examples.nix
-          examples = import ./.nix/examples.nix { inherit pkgs lib self; };
+          examples = import ./.nix/examples.nix { inherit pkgs lib self gitRev; };
 
           # Import tests from tests.nix
-          tests = import ./.nix/tests.nix { inherit pkgs lib self; };
+          tests = import ./.nix/tests.nix { inherit pkgs lib self gitRev; };
 
         in
         {
@@ -61,7 +64,7 @@
           # Development shells
           devShells = {
             # Main development shell with generated CLI
-            default = import ./.nix/development.nix { inherit pkgs self; };
+            default = import ./.nix/development.nix { inherit pkgs self gitRev; };
 
             # Example development shells
             basic = examples.shells.basicShell;

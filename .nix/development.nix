@@ -1,10 +1,10 @@
 # Development environment for devcmd project
 # Dogfooding our own tool for development commands
-{ pkgs, self ? null }:
+{ pkgs, self ? null, gitRev ? "dev" }:
 let
   # Import our own library to create the development CLI
   devcmdLib = import ./lib.nix {
-    inherit pkgs self;
+    inherit pkgs self gitRev;
     lib = pkgs.lib;
   };
   # Generate the development CLI from our commands.cli file

@@ -278,9 +278,11 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error writing Go source: %w", err)
 	}
 
-	// Create go.mod file
+	// Create go.mod file using engine's generated dependencies
 	moduleName := strings.ReplaceAll(binaryName, "-", "_")
-	goModContent := fmt.Sprintf("module %s\n\ngo 1.21\n", moduleName)
+	engineGoMod := genResult.GoModString()
+	// Replace the default module name with our binary name
+	goModContent := strings.Replace(engineGoMod, "module devcmd-generated", "module "+moduleName, 1)
 	goModPath := filepath.Join(tempDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		return fmt.Errorf("error writing go.mod: %w", err)

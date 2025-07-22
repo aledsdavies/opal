@@ -4,16 +4,17 @@
 #   - @var(NAME) = devcmd variable reference
 #   - $(command) = shell command substitution (no escaping needed)
 #   - $VAR = shell variable reference (no escaping needed)
-{ pkgs, lib, self }:
+{ pkgs, lib, self, gitRev }:
 
 let
-  devcmdLib = import ./lib.nix { inherit pkgs self lib; };
+  devcmdLib = import ./lib.nix { inherit pkgs self lib gitRev; };
 
 in
 rec {
   # Simple development commands
   basicDev = devcmdLib.mkDevCLI {
     name = "dev";
+    binaryName = "dev";
     commandsContent = ''
       # Basic development commands
       var SRC = "./src"
@@ -61,6 +62,7 @@ rec {
   # Web development with frontend/backend
   webDev = devcmdLib.mkDevCLI {
     name = "webdev";
+    binaryName = "webdev";
     commandsContent = ''
       # Web development environment
       var FRONTEND_PORT = "3000"
@@ -135,6 +137,7 @@ rec {
   # Go project with comprehensive tooling - demonstrates shell command substitution
   goProject = devcmdLib.mkDevCLI {
     name = "godev";
+    binaryName = "godev";
     commandsContent = ''
       # Go project development
       var MODULE = "github.com/example/myproject"
@@ -238,6 +241,7 @@ rec {
   # Rust project development
   rustProject = devcmdLib.mkDevCLI {
     name = "rustdev";
+    binaryName = "rustdev";
     commandsContent = ''
       # Rust project development
       var CRATE_NAME = "myproject"
@@ -330,6 +334,7 @@ rec {
   # Data science / Python project
   dataScienceProject = devcmdLib.mkDevCLI {
     name = "datadev";
+    binaryName = "datadev";
     commandsContent = ''
       # Data science project development
       var PYTHON = "python3"
@@ -412,6 +417,7 @@ rec {
   # DevOps / Infrastructure project
   devOpsProject = devcmdLib.mkDevCLI {
     name = "devops";
+    binaryName = "devops";
     commandsContent = ''
       # DevOps and infrastructure management
       var ENVIRONMENT = "development"

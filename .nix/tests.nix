@@ -1,8 +1,8 @@
 # Test scenarios for devcmd library and generated CLIs
-{ pkgs, lib, self }:
+{ pkgs, lib, self, gitRev }:
 
 let
-  devcmdLib = import ./lib.nix { inherit pkgs self lib; };
+  devcmdLib = import ./lib.nix { inherit pkgs self lib gitRev; };
 
   # Common test utilities
   testUtils = {
