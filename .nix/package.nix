@@ -7,7 +7,7 @@ pkgs.buildGoModule rec {
 
   src = ./..;
 
-  vendorHash = lib.fakeHash;
+  vendorHash = "sha256-D+GwlCwvxMg71a8jxF+zm5uiWsS4mj1W8Ynk35A2tFw=";
 
   subPackages = [ "cmd/devcmd" ];
 
