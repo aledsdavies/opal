@@ -304,14 +304,14 @@ func TestPatternDecorators(t *testing.T) {
 	testCases := []TestCase{
 		{
 			Name: "@when pattern decorator with simple branches",
-			Input: `deploy: @when(ENV) {
+			Input: `deploy: @when("ENV") {
   production: kubectl apply -f k8s/prod/
   staging: kubectl apply -f k8s/staging/
   default: echo "Unknown environment"
 }`,
 			Expected: Program(
 				Cmd("deploy",
-					PatternDecoratorWithBranches("when", Id("ENV"),
+					PatternDecoratorWithBranches("when", Str("ENV"),
 						Branch("production", Shell("kubectl apply -f k8s/prod/")),
 						Branch("staging", Shell("kubectl apply -f k8s/staging/")),
 						Branch("default", Shell("echo \"Unknown environment\"")),
@@ -321,7 +321,7 @@ func TestPatternDecorators(t *testing.T) {
 		},
 		{
 			Name: "@when pattern decorator with multiple commands per branch",
-			Input: `deploy: @when(ENV) {
+			Input: `deploy: @when("ENV") {
   production: {
     kubectl config use-context prod
     kubectl apply -f k8s/prod/
@@ -331,7 +331,7 @@ func TestPatternDecorators(t *testing.T) {
 }`,
 			Expected: Program(
 				Cmd("deploy",
-					PatternDecoratorWithBranches("when", Id("ENV"),
+					PatternDecoratorWithBranches("when", Str("ENV"),
 						Branch("production",
 							Shell("kubectl config use-context prod"),
 							Shell("kubectl apply -f k8s/prod/"),
@@ -373,13 +373,13 @@ func TestPatternDecorators(t *testing.T) {
 		},
 		{
 			Name: "@when with @var references in commands",
-			Input: `deploy: @when(MODE) {
+			Input: `deploy: @when("MODE") {
   production: echo "Deploying @var(APP) to production"
   staging: echo "Deploying @var(APP) to staging"
 }`,
 			Expected: Program(
 				Cmd("deploy",
-					PatternDecoratorWithBranches("when", Id("MODE"),
+					PatternDecoratorWithBranches("when", Str("MODE"),
 						Branch("production", Shell("echo \"Deploying ", At("var", Id("APP")), " to production\"")),
 						Branch("staging", Shell("echo \"Deploying ", At("var", Id("APP")), " to staging\"")),
 					),
@@ -569,10 +569,10 @@ func TestNestedDecorators(t *testing.T) {
 		},
 		{
 			Name:  "decorator with variable as argument",
-			Input: "build: @cwd(BUILD_DIR) { make clean && make all }",
+			Input: "build: @cwd(\"BUILD_DIR\") { make clean && make all }",
 			Expected: Program(
 				CmdBlock("build",
-					DecoratedShell(Decorator("cwd", Id("BUILD_DIR")),
+					DecoratedShell(Decorator("cwd", Str("BUILD_DIR")),
 						Text("make clean && make all"),
 					),
 				),
@@ -674,7 +674,7 @@ func TestNewDecoratorParameterTypes(t *testing.T) {
 			Name:        "timeout missing required parameter",
 			Input:       "test: @timeout() { npm test }",
 			WantErr:     true,
-			ErrorSubstr: "@timeout requires exactly 1 parameter",
+			ErrorSubstr: "missing required parameter 'duration' for @timeout decorator",
 		},
 		{
 			Name:        "retry with wrong parameter type",
@@ -748,10 +748,10 @@ func TestDecoratorVariations(t *testing.T) {
 		},
 		{
 			Name:  "decorator with variable argument",
-			Input: "deploy: @cwd(BUILD_DIR) { make install }",
+			Input: "deploy: @cwd(\"BUILD_DIR\") { make install }",
 			Expected: Program(
 				CmdBlock("deploy",
-					DecoratedShell(Decorator("cwd", Id("BUILD_DIR")),
+					DecoratedShell(Decorator("cwd", Str("BUILD_DIR")),
 						Text("make install"),
 					),
 				),
@@ -759,10 +759,10 @@ func TestDecoratorVariations(t *testing.T) {
 		},
 		{
 			Name:  "decorator with variable pattern argument",
-			Input: "advanced: @watch-files(PATTERN) { rebuild }",
+			Input: "advanced: @watch-files(\"PATTERN\") { rebuild }",
 			Expected: Program(
 				CmdBlock("advanced",
-					DecoratedShell(Decorator("watch-files", Id("PATTERN")),
+					DecoratedShell(Decorator("watch-files", Str("PATTERN")),
 						Text("rebuild"),
 					),
 				),

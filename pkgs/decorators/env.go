@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
@@ -41,49 +42,10 @@ func (e *EnvDecorator) ParameterSchema() []ParameterSchema {
 }
 
 // Validate checks if the decorator usage is correct during parsing
-func (e *EnvDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
-	if len(params) == 0 {
-		return fmt.Errorf("@env requires at least 1 parameter (key), got 0")
-	}
-	if len(params) > 2 {
-		return fmt.Errorf("@env accepts at most 2 parameters (key, default), got %d", len(params))
-	}
 
-	// Check for required 'key' parameter
-	keyParam := ast.FindParameter(params, "key")
-	if keyParam == nil && len(params) > 0 {
-		// If no named 'key', first parameter should be key
-		keyParam = &params[0]
-	}
-	if keyParam == nil {
-		return fmt.Errorf("@env requires 'key' parameter")
-	}
-
-	// Key parameter must be a string literal
-	if _, ok := keyParam.Value.(*ast.StringLiteral); !ok {
-		return fmt.Errorf("@env 'key' parameter must be a string literal (environment variable key)")
-	}
-
-	// Check optional 'default' parameter
-	defaultParam := ast.FindParameter(params, "default")
-	if defaultParam == nil && len(params) > 1 {
-		// If no named 'default', second parameter should be default
-		defaultParam = &params[1]
-	}
-	if defaultParam != nil {
-		if _, ok := defaultParam.Value.(*ast.StringLiteral); !ok {
-			return fmt.Errorf("@env 'default' parameter must be a string literal (default value)")
-		}
-	}
-
-	return nil
-}
-
-// Run executes the decorator at runtime and returns the environment variable value
-func (e *EnvDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (string, error) {
-	if err := e.Validate(ctx, params); err != nil {
-		return "", err
-	}
+// Execute provides unified execution for all modes using the execution package
+func (e *EnvDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	// Validate parameters first
 
 	// Get the environment variable key using helper
 	key := ast.GetStringParam(params, "key", "")
@@ -94,6 +56,24 @@ func (e *EnvDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (
 		}
 	}
 
+	switch ctx.Mode() {
+	case execution.InterpreterMode:
+		return e.executeInterpreter(ctx, key, params)
+	case execution.GeneratorMode:
+		return e.executeGenerator(ctx, key, params)
+	case execution.PlanMode:
+		return e.executePlan(ctx, key, params)
+	default:
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+		}
+	}
+}
+
+// executeInterpreter gets environment variable value in interpreter mode
+func (e *EnvDecorator) executeInterpreter(ctx *execution.ExecutionContext, key string, params []ast.NamedParameter) *execution.ExecutionResult {
 	// Get the environment variable value
 	value := os.Getenv(key)
 
@@ -102,31 +82,23 @@ func (e *EnvDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (
 		value = ast.GetStringParam(params, "default", "")
 	}
 
-	return value, nil
+	return &execution.ExecutionResult{
+		Mode:  execution.InterpreterMode,
+		Data:  value,
+		Error: nil,
+	}
 }
 
-// Generate produces Go code for the decorator in compiled mode
-func (e *EnvDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter) (string, error) {
-	if err := e.Validate(ctx, params); err != nil {
-		return "", err
-	}
-
-	// Get the environment variable key using helper
-	key := ast.GetStringParam(params, "key", "")
-	if key == "" && len(params) > 0 {
-		// Fallback to positional if no named parameter
-		if keyLiteral, ok := params[0].Value.(*ast.StringLiteral); ok {
-			key = keyLiteral.Value
-		}
-	}
-
+// executeGenerator generates Go code for environment variable access
+func (e *EnvDecorator) executeGenerator(ctx *execution.ExecutionContext, key string, params []ast.NamedParameter) *execution.ExecutionResult {
 	// Get default value if provided
 	defaultValue := ast.GetStringParam(params, "default", "")
 
+	var code string
 	// Generate Go code based on whether default is provided
 	if defaultValue == "" {
 		// No default value
-		return fmt.Sprintf(`os.Getenv(%q)`, key), nil
+		code = fmt.Sprintf(`os.Getenv(%q)`, key)
 	} else {
 		// With default value
 		var builder strings.Builder
@@ -136,60 +108,46 @@ func (e *EnvDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 		builder.WriteString("\t}\n")
 		builder.WriteString(fmt.Sprintf("\treturn %q\n", defaultValue))
 		builder.WriteString("}()")
+		code = builder.String()
+	}
 
-		return builder.String(), nil
+	return &execution.ExecutionResult{
+		Mode:  execution.GeneratorMode,
+		Data:  code,
+		Error: nil,
 	}
 }
 
-// Plan describes what this decorator would do in dry run mode
-func (e *EnvDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) (plan.PlanElement, error) {
-	if err := e.Validate(ctx, params); err != nil {
-		return nil, err
-	}
-
-	// Get the environment variable name
-	var envName string
-	var defaultValue string
-
-	nameParam := ast.FindParameter(params, "name")
-	if nameParam == nil && len(params) > 0 {
-		nameParam = &params[0]
-	}
-	if nameParam != nil {
-		if str, ok := nameParam.Value.(*ast.StringLiteral); ok {
-			envName = str.Value
-		} else if ident, ok := nameParam.Value.(*ast.Identifier); ok {
-			envName = ident.Name
-		}
-	}
-
-	defaultParam := ast.FindParameter(params, "default")
-	if defaultParam != nil {
-		if str, ok := defaultParam.Value.(*ast.StringLiteral); ok {
-			defaultValue = str.Value
-		}
-	}
+// executePlan creates a plan element for dry-run mode
+func (e *EnvDecorator) executePlan(ctx *execution.ExecutionContext, key string, params []ast.NamedParameter) *execution.ExecutionResult {
+	// Get default value if provided
+	defaultValue := ast.GetStringParam(params, "default", "")
 
 	// Get the actual environment value (in dry run, we still check the env)
 	var description string
-	actualValue := os.Getenv(envName)
+	actualValue := os.Getenv(key)
 	if actualValue != "" {
-		description = fmt.Sprintf("Environment variable: $%s → %q", envName, actualValue)
+		description = fmt.Sprintf("Environment variable: $%s → %q", key, actualValue)
 	} else if defaultValue != "" {
-		description = fmt.Sprintf("Environment variable: $%s → %q (default)", envName, defaultValue)
+		description = fmt.Sprintf("Environment variable: $%s → %q (default)", key, defaultValue)
 	} else {
-		description = fmt.Sprintf("Environment variable: $%s → <unset>", envName)
+		description = fmt.Sprintf("Environment variable: $%s → <unset>", key)
 	}
 
-	decorator := plan.Decorator("env").
+	element := plan.Decorator("env").
 		WithType("function").
-		WithParameter("name", envName)
+		WithParameter("key", key).
+		WithDescription(description)
 
 	if defaultValue != "" {
-		decorator.WithParameter("default", defaultValue)
+		element = element.WithParameter("default", defaultValue)
 	}
 
-	return decorator.WithDescription(description), nil
+	return &execution.ExecutionResult{
+		Mode:  execution.PlanMode,
+		Data:  element,
+		Error: nil,
+	}
 }
 
 // ImportRequirements returns the dependencies needed for code generation

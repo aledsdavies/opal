@@ -2,16 +2,24 @@ package decorators
 
 import (
 	"github.com/aledsdavies/devcmd/pkgs/ast"
-	"github.com/aledsdavies/devcmd/pkgs/plan"
-	"github.com/aledsdavies/devcmd/pkgs/types"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 )
 
 // ParameterSchema describes a decorator parameter
 type ParameterSchema struct {
-	Name        string               // Parameter name (e.g., "key", "default")
-	Type        types.ExpressionType // Parameter type (StringType, NumberType, etc.)
-	Required    bool                 // Whether this parameter is required
-	Description string               // Human-readable description
+	Name        string             // Parameter name (e.g., "key", "default")
+	Type        ast.ExpressionType // Parameter type (StringType, NumberType, etc.)
+	Required    bool               // Whether this parameter is required
+	Description string             // Human-readable description
+}
+
+// PatternSchema describes what patterns a pattern decorator accepts
+type PatternSchema struct {
+	AllowedPatterns     []string // Specific patterns allowed (e.g., ["main", "error", "finally"] for @try)
+	RequiredPatterns    []string // Patterns that must be present (e.g., ["main"] for @try)
+	AllowsWildcard      bool     // Whether "default" wildcard is allowed (e.g., true for @when)
+	AllowsAnyIdentifier bool     // Whether any identifier is allowed (e.g., true for @when)
+	Description         string   // Human-readable description of pattern rules
 }
 
 // ImportRequirement describes dependencies needed for code generation
@@ -26,7 +34,6 @@ type ImportRequirement struct {
 type Decorator interface {
 	Name() string
 	Description() string
-	Validate(ctx *ExecutionContext, params []ast.NamedParameter) error
 	ParameterSchema() []ParameterSchema
 
 	// ImportRequirements returns the dependencies needed for code generation
@@ -38,14 +45,8 @@ type Decorator interface {
 type FunctionDecorator interface {
 	Decorator
 
-	// Run executes the decorator at runtime and returns the transformed value
-	Run(ctx *ExecutionContext, params []ast.NamedParameter) (string, error)
-
-	// Generate produces Go code for the decorator in compiled mode
-	Generate(ctx *ExecutionContext, params []ast.NamedParameter) (string, error)
-
-	// Plan creates a plan element describing what this decorator would do in dry run mode
-	Plan(ctx *ExecutionContext, params []ast.NamedParameter) (plan.PlanElement, error)
+	// Execute provides unified execution for all modes using the execution package
+	Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult
 }
 
 // BlockDecorator represents decorators that modify command execution behavior
@@ -53,14 +54,8 @@ type FunctionDecorator interface {
 type BlockDecorator interface {
 	Decorator
 
-	// Run executes the decorator at runtime with the given command content
-	Run(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error
-
-	// Generate produces Go code for the decorator in compiled mode
-	Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error)
-
-	// Plan creates a plan element describing what this decorator would do in dry run mode with the given content
-	Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error)
+	// Execute provides unified execution for all modes using the execution package
+	Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
 }
 
 // PatternDecorator represents decorators that handle pattern matching
@@ -68,14 +63,11 @@ type BlockDecorator interface {
 type PatternDecorator interface {
 	Decorator
 
-	// Run executes the decorator at runtime with pattern branches
-	Run(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) error
+	// Execute provides unified execution for all modes using the execution package
+	Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
 
-	// Generate produces Go code for the decorator in compiled mode
-	Generate(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (string, error)
-
-	// Plan creates a plan element describing what this decorator would do in dry run mode with the given patterns
-	Plan(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (plan.PlanElement, error)
+	// PatternSchema defines what patterns this decorator accepts
+	PatternSchema() PatternSchema
 }
 
 // DecoratorType represents the type of decorator

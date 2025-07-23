@@ -8,6 +8,7 @@ import (
 	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
@@ -111,35 +112,9 @@ func (p *ParallelDecorator) ParameterSchema() []ParameterSchema {
 }
 
 // Validate checks if the decorator usage is correct during parsing
-func (p *ParallelDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
-	if len(params) > 2 {
-		return fmt.Errorf("@parallel accepts at most 2 parameters (concurrency, failOnFirstError), got %d", len(params))
-	}
 
-	// Validate optional parameters
-	if err := ValidateOptionalParameter(params, "concurrency", ast.NumberType, "parallel"); err != nil {
-		return err
-	}
-
-	if err := ValidateOptionalParameter(params, "failOnFirstError", ast.BooleanType, "parallel"); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// executeCommandContent executes different types of command content in interpreter mode
-func (p *ParallelDecorator) executeCommandContent(ctx *ExecutionContext, content ast.CommandContent) error {
-	// Use the engine's content executor for full decorator support
-	return ctx.ExecuteCommandContent(content)
-}
-
-// Run executes the decorator at runtime with concurrent command execution
-func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
-	if err := p.Validate(ctx, params); err != nil {
-		return err
-	}
-
+// Execute provides unified execution for all modes using the execution package
+func (p *ParallelDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
 	// Parse parameters with defaults
 	concurrency := len(content) // Default: no limit (run all at once)
 	failOnFirstError := false   // Default: continue on errors
@@ -147,6 +122,24 @@ func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamet
 	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
 	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
 
+	switch ctx.Mode() {
+	case execution.InterpreterMode:
+		return p.executeInterpreter(ctx, concurrency, failOnFirstError, content)
+	case execution.GeneratorMode:
+		return p.executeGenerator(ctx, concurrency, failOnFirstError, content)
+	case execution.PlanMode:
+		return p.executePlan(ctx, concurrency, failOnFirstError, content)
+	default:
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+		}
+	}
+}
+
+// executeInterpreter executes commands concurrently in interpreter mode
+func (p *ParallelDecorator) executeInterpreter(ctx *execution.ExecutionContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Create context for cancellation if failOnFirstError is true
 	execCtx := ctx
 	var cancel context.CancelFunc
@@ -165,7 +158,11 @@ func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamet
 		// Check if context is cancelled
 		select {
 		case <-execCtx.Done():
-			return execCtx.Err()
+			return &execution.ExecutionResult{
+				Mode:  execution.InterpreterMode,
+				Data:  nil,
+				Error: execCtx.Err(),
+			}
 		default:
 		}
 
@@ -186,7 +183,7 @@ func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamet
 			}
 
 			// Execute the actual command content
-			err := p.executeCommandContent(execCtx, command)
+			err := execCtx.ExecuteCommandContent(command)
 			errChan <- err
 		}(i, cmd)
 	}
@@ -209,26 +206,20 @@ func (p *ParallelDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamet
 		}
 	}
 
+	var finalError error
 	if len(errors) > 0 {
-		return fmt.Errorf("parallel execution failed: %s", strings.Join(errors, "; "))
+		finalError = fmt.Errorf("parallel execution failed: %s", strings.Join(errors, "; "))
 	}
 
-	return nil
+	return &execution.ExecutionResult{
+		Mode:  execution.InterpreterMode,
+		Data:  nil,
+		Error: finalError,
+	}
 }
 
-// Generate produces Go code for the decorator in compiled mode using templates
-func (p *ParallelDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
-	if err := p.Validate(ctx, params); err != nil {
-		return "", err
-	}
-
-	// Parse parameters with defaults for code generation
-	concurrency := len(content)
-	failOnFirstError := false
-
-	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
-	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
-
+// executeGenerator generates Go code for parallel execution
+func (p *ParallelDecorator) executeGenerator(ctx *execution.ExecutionContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Prepare template data
 	templateData := ParallelTemplateData{
 		Concurrency:      concurrency,
@@ -240,30 +231,31 @@ func (p *ParallelDecorator) Generate(ctx *ExecutionContext, params []ast.NamedPa
 	// Parse and execute template with context functions
 	tmpl, err := template.New("parallel").Funcs(ctx.GetTemplateFunctions()).Parse(parallelExecutionTemplate)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse parallel template: %w", err)
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to parse parallel template: %w", err),
+		}
 	}
 
 	var result strings.Builder
 	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute parallel template: %w", err)
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to execute parallel template: %w", err),
+		}
 	}
 
-	return result.String(), nil
+	return &execution.ExecutionResult{
+		Mode:  execution.GeneratorMode,
+		Data:  result.String(),
+		Error: nil,
+	}
 }
 
-// Plan creates a plan element describing what this decorator would do in dry run mode
-func (p *ParallelDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
-	if err := p.Validate(ctx, params); err != nil {
-		return nil, err
-	}
-
-	// Parse parameters with defaults
-	concurrency := len(content) // Default: no limit (run all at once)
-	failOnFirstError := false   // Default: continue on errors
-
-	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
-	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
-
+// executePlan creates a plan element for dry-run mode
+func (p *ParallelDecorator) executePlan(ctx *execution.ExecutionContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
 	description := fmt.Sprintf("Execute %d commands concurrently", len(content))
 	if concurrency < len(content) {
 		description += fmt.Sprintf(" (max %d at a time)", concurrency)
@@ -285,7 +277,11 @@ func (p *ParallelDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParame
 		element = element.WithParameter("failOnFirstError", "true")
 	}
 
-	return element, nil
+	return &execution.ExecutionResult{
+		Mode:  execution.PlanMode,
+		Data:  element,
+		Error: nil,
+	}
 }
 
 // ImportRequirements returns the dependencies needed for code generation

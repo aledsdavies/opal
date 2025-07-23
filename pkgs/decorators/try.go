@@ -6,6 +6,7 @@ import (
 	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
@@ -92,18 +93,28 @@ func (t *TryDecorator) ParameterSchema() []ParameterSchema {
 	return []ParameterSchema{} // @try takes no parameters
 }
 
-// Validate checks if the decorator usage is correct during parsing
-func (t *TryDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
-	if len(params) > 0 {
-		return fmt.Errorf("@try takes no parameters, got %d", len(params))
+// PatternSchema defines what patterns @try accepts
+func (t *TryDecorator) PatternSchema() PatternSchema {
+	return PatternSchema{
+		AllowedPatterns:     []string{"main", "error", "finally"},
+		RequiredPatterns:    []string{"main"},
+		AllowsWildcard:      false, // No "default" wildcard for @try
+		AllowsAnyIdentifier: false, // Only specific patterns allowed
+		Description:         "Requires 'main', optionally accepts 'error' and 'finally'",
 	}
-	return nil
 }
 
-// Run executes the decorator at runtime with error handling patterns
-func (t *TryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) error {
-	if err := t.Validate(ctx, params); err != nil {
-		return err
+// Validate checks if the decorator usage is correct during parsing
+
+// Execute provides unified execution for all modes using the execution package
+func (t *TryDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	// Validate parameters first
+	if len(params) > 0 {
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("try decorator takes no parameters, got %d", len(params)),
+		}
 	}
 
 	// Find pattern branches
@@ -121,18 +132,48 @@ func (t *TryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, p
 		case "finally":
 			finallyBranch = pattern
 		default:
-			return fmt.Errorf("@try only supports 'main', 'error', and 'finally' patterns, got '%s'", patternStr)
+			return &execution.ExecutionResult{
+				Mode:  ctx.Mode(),
+				Data:  nil,
+				Error: fmt.Errorf("@try only supports 'main', 'error', and 'finally' patterns, got '%s'", patternStr),
+			}
 		}
 	}
 
 	// Validate required patterns
 	if mainBranch == nil {
-		return fmt.Errorf("@try requires a 'main' pattern")
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("@try requires a 'main' pattern"),
+		}
 	}
 	if errorBranch == nil && finallyBranch == nil {
-		return fmt.Errorf("@try requires at least one of 'error' or 'finally' patterns")
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("@try requires at least one of 'error' or 'finally' patterns"),
+		}
 	}
 
+	switch ctx.Mode() {
+	case execution.InterpreterMode:
+		return t.executeInterpreter(ctx, mainBranch, errorBranch, finallyBranch)
+	case execution.GeneratorMode:
+		return t.executeGenerator(ctx, mainBranch, errorBranch, finallyBranch)
+	case execution.PlanMode:
+		return t.executePlan(ctx, mainBranch, errorBranch, finallyBranch)
+	default:
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+		}
+	}
+}
+
+// executeInterpreter executes try-catch patterns in interpreter mode
+func (t *TryDecorator) executeInterpreter(ctx *execution.ExecutionContext, mainBranch, errorBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
 	// Execute main block
 	mainErr := t.executeCommands(ctx, mainBranch.Commands)
 
@@ -148,61 +189,15 @@ func (t *TryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, p
 		_ = t.executeCommands(ctx, finallyBranch.Commands)
 	}
 
-	// Return the original main error (if any)
-	return mainErr
-}
-
-// executeCommands executes commands using the unified execution engine
-func (t *TryDecorator) executeCommands(ctx *ExecutionContext, commands []ast.CommandContent) error {
-	for _, cmd := range commands {
-		if err := ctx.ExecuteCommandContent(cmd); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// patternToString converts a pattern to its string representation
-func (t *TryDecorator) patternToString(pattern ast.Pattern) string {
-	switch p := pattern.(type) {
-	case *ast.IdentifierPattern:
-		return p.Name
-	default:
-		return "unknown"
+	return &execution.ExecutionResult{
+		Mode:  execution.InterpreterMode,
+		Data:  nil,
+		Error: mainErr, // Return the original main error (if any)
 	}
 }
 
-// Generate produces Go code for the decorator in compiled mode
-func (t *TryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (string, error) {
-	if err := t.Validate(ctx, params); err != nil {
-		return "", err
-	}
-
-	// Find pattern branches for code generation
-	var mainBranch, errorBranch, finallyBranch *ast.PatternBranch
-
-	for i := range patterns {
-		pattern := &patterns[i]
-		patternStr := t.patternToString(pattern.Pattern)
-
-		switch patternStr {
-		case "main":
-			mainBranch = pattern
-		case "error":
-			errorBranch = pattern
-		case "finally":
-			finallyBranch = pattern
-		}
-	}
-
-	// Validate patterns for code generation
-	if mainBranch == nil {
-		return "", fmt.Errorf("@try requires a 'main' pattern")
-	}
-	if errorBranch == nil && finallyBranch == nil {
-		return "", fmt.Errorf("@try requires at least one of 'error' or 'finally' patterns")
-	}
-
+// executeGenerator generates Go code for try-catch logic
+func (t *TryDecorator) executeGenerator(ctx *execution.ExecutionContext, mainBranch, errorBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
 	// Prepare template data
 	templateData := TryTemplateData{
 		MainCommands:     mainBranch.Commands,
@@ -221,40 +216,31 @@ func (t *TryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParamet
 	// Parse and execute template with context functions
 	tmpl, err := template.New("try").Funcs(ctx.GetTemplateFunctions()).Parse(tryExecutionTemplate)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse try template: %w", err)
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to parse try template: %w", err),
+		}
 	}
 
 	var result strings.Builder
 	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute try template: %w", err)
-	}
-
-	return result.String(), nil
-}
-
-// Plan creates a plan element describing what this decorator would do in dry run mode
-func (t *TryDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (plan.PlanElement, error) {
-	if err := t.Validate(ctx, params); err != nil {
-		return nil, err
-	}
-
-	// Find pattern branches
-	var mainBranch, errorBranch, finallyBranch *ast.PatternBranch
-
-	for i := range patterns {
-		pattern := &patterns[i]
-		patternStr := t.patternToString(pattern.Pattern)
-
-		switch patternStr {
-		case "main":
-			mainBranch = pattern
-		case "error":
-			errorBranch = pattern
-		case "finally":
-			finallyBranch = pattern
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to execute try template: %w", err),
 		}
 	}
 
+	return &execution.ExecutionResult{
+		Mode:  execution.GeneratorMode,
+		Data:  result.String(),
+		Error: nil,
+	}
+}
+
+// executePlan creates a plan element for dry-run mode
+func (t *TryDecorator) executePlan(ctx *execution.ExecutionContext, mainBranch, errorBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
 	description := "Try-catch execution: "
 	if mainBranch != nil {
 		description += fmt.Sprintf("execute main (%d commands)", len(mainBranch.Commands))
@@ -266,9 +252,35 @@ func (t *TryDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, 
 		description += fmt.Sprintf(", always execute finally (%d commands)", len(finallyBranch.Commands))
 	}
 
-	return plan.Decorator("try").
+	element := plan.Decorator("try").
 		WithType("pattern").
-		WithDescription(description), nil
+		WithDescription(description)
+
+	return &execution.ExecutionResult{
+		Mode:  execution.PlanMode,
+		Data:  element,
+		Error: nil,
+	}
+}
+
+// executeCommands executes commands using the unified execution engine
+func (t *TryDecorator) executeCommands(ctx *execution.ExecutionContext, commands []ast.CommandContent) error {
+	for _, cmd := range commands {
+		if err := ctx.ExecuteCommandContent(cmd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// patternToString converts a pattern to its string representation
+func (t *TryDecorator) patternToString(pattern ast.Pattern) string {
+	switch p := pattern.(type) {
+	case *ast.IdentifierPattern:
+		return p.Name
+	default:
+		return "unknown"
+	}
 }
 
 // ImportRequirements returns the dependencies needed for code generation

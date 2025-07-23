@@ -23,6 +23,9 @@ type Parser struct {
 	// errors is a slice of errors encountered during parsing.
 	// This allows for better error reporting by collecting multiple errors.
 	errors []string
+
+	// program is the AST being built during parsing (for variable type lookups)
+	program *ast.Program
 }
 
 // Parse tokenizes and parses the input from an io.Reader into a complete AST.
@@ -55,6 +58,7 @@ func Parse(reader io.Reader) (*ast.Program, error) {
 // Program = { VariableDecl | VarGroup | CommandDecl }*
 func (p *Parser) parseProgram() *ast.Program {
 	program := &ast.Program{}
+	p.program = program // Store reference for variable type lookups
 
 	for !p.isAtEnd() {
 		p.skipWhitespaceAndComments()
@@ -393,10 +397,9 @@ func (p *Parser) parsePatternContent() (*ast.PatternDecorator, error) {
 		}
 	}
 
-	// Step 3: Run decorator's validate method
-	ctx := &decorators.ExecutionContext{}
-	if err := decorator.Validate(ctx, params); err != nil {
-		return nil, fmt.Errorf("invalid pattern decorator usage @%s: %w", decoratorName, err)
+	// Step 3: Validate parameters using decorator schema
+	if err := p.validateDecoratorParameters(decorator, params, decoratorName); err != nil {
+		return nil, err
 	}
 
 	// Expect opening brace
@@ -425,6 +428,13 @@ func (p *Parser) parsePatternContent() (*ast.PatternDecorator, error) {
 	_, err = p.consume(types.RBRACE, "expected '}' to close pattern block")
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate pattern branches using decorator schema
+	if patternDecorator, ok := decorator.(decorators.PatternDecorator); ok {
+		if err := p.validatePatternBranches(patternDecorator, patterns, decoratorName); err != nil {
+			return nil, err
+		}
 	}
 
 	return &ast.PatternDecorator{
@@ -748,9 +758,8 @@ func (p *Parser) extractFunctionDecorator(shellText string, i int) (*ast.Functio
 		})
 	}
 
-	// Step 3: Validate (minimal validation for inline decorators)
-	ctx := &decorators.ExecutionContext{}
-	if err := decorator.Validate(ctx, params); err != nil {
+	// Step 3: Validate parameters using decorator schema
+	if err := p.validateDecoratorParameters(decorator, params, decoratorName); err != nil {
 		return nil, i, false // Invalid decorator usage
 	}
 
@@ -957,10 +966,9 @@ func (p *Parser) parseDecorator() (ast.CommandContent, error) {
 		}
 	}
 
-	// Step 4: Run decorator's validate method
-	ctx := &decorators.ExecutionContext{} // Create minimal context for validation
-	if err := decorator.Validate(ctx, params); err != nil {
-		return nil, fmt.Errorf("invalid decorator usage @%s: %w", decoratorName, err)
+	// Step 4: Validate parameters using decorator schema
+	if err := p.validateDecoratorParameters(decorator, params, decoratorName); err != nil {
+		return nil, err
 	}
 
 	// Step 5: Create appropriate AST node based on decorator type
@@ -1361,4 +1369,171 @@ func (p *Parser) synchronize() {
 		}
 		p.advance()
 	}
+}
+
+// validateDecoratorParameters validates parameters against the decorator's schema
+func (p *Parser) validateDecoratorParameters(decorator decorators.Decorator, params []ast.NamedParameter, decoratorName string) error {
+	schema := decorator.ParameterSchema()
+
+	// Check required parameters
+	requiredParams := make(map[string]bool)
+	for _, param := range schema {
+		if param.Required {
+			requiredParams[param.Name] = true
+		}
+	}
+
+	// Check provided parameters
+	providedParams := make(map[string]bool)
+	for i, param := range params {
+		var paramName string
+		if param.Name != "" {
+			// Named parameter
+			paramName = param.Name
+		} else {
+			// Positional parameter - map to schema
+			if i >= len(schema) {
+				return fmt.Errorf("too many parameters for @%s decorator (expected %d, got %d)", decoratorName, len(schema), len(params))
+			}
+			paramName = schema[i].Name
+		}
+
+		// Check if parameter exists in schema
+		found := false
+		for _, schemaParam := range schema {
+			if schemaParam.Name == paramName {
+				found = true
+				// Validate parameter type
+				if err := p.validateParameterType(param.Value, schemaParam.Type, paramName, decoratorName); err != nil {
+					return err
+				}
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("unknown parameter '%s' for @%s decorator", paramName, decoratorName)
+		}
+
+		providedParams[paramName] = true
+		delete(requiredParams, paramName)
+	}
+
+	// Check for missing required parameters
+	for paramName := range requiredParams {
+		return fmt.Errorf("missing required parameter '%s' for @%s decorator", paramName, decoratorName)
+	}
+
+	return nil
+}
+
+// validateParameterType checks if a parameter value matches the expected type
+func (p *Parser) validateParameterType(value ast.Expression, expectedType ast.ExpressionType, paramName, decoratorName string) error {
+	// Get the actual type of the provided value
+	actualType := value.GetType()
+
+	// Check if types match
+	if actualType != expectedType {
+		// Handle identifier references to variables
+		if actualType == ast.IdentifierType {
+			if ident, ok := value.(*ast.Identifier); ok {
+				// Look up the variable to check its type
+				varType, found := p.getVariableType(ident.Name)
+				if !found {
+					return fmt.Errorf("parameter '%s' for @%s decorator references undefined variable '%s'",
+						paramName, decoratorName, ident.Name)
+				}
+
+				// Check if the variable's type matches the expected type
+				if varType != expectedType {
+					return fmt.Errorf("parameter '%s' for @%s decorator expects %s, but variable '%s' is %s",
+						paramName, decoratorName, expectedType.String(), ident.Name, varType.String())
+				}
+
+				// Variable type matches - identifier is valid
+				return nil
+			}
+		}
+
+		return fmt.Errorf("parameter '%s' for @%s decorator expects %s, got %s",
+			paramName, decoratorName, expectedType.String(), actualType.String())
+	}
+
+	return nil
+}
+
+// getVariableType looks up a variable's type from the program's variable declarations
+func (p *Parser) getVariableType(varName string) (ast.ExpressionType, bool) {
+	// Look in the current program being parsed
+	if p.program != nil {
+		// Check regular variables
+		for _, variable := range p.program.Variables {
+			if variable.Name == varName {
+				return variable.Value.GetType(), true
+			}
+		}
+
+		// Check variable groups
+		for _, group := range p.program.VarGroups {
+			for _, variable := range group.Variables {
+				if variable.Name == varName {
+					return variable.Value.GetType(), true
+				}
+			}
+		}
+	}
+
+	return ast.StringType, false // Return any type since it wasn't found
+}
+
+// validatePatternBranches validates pattern branches against the decorator's pattern schema
+func (p *Parser) validatePatternBranches(decorator decorators.PatternDecorator, patterns []ast.PatternBranch, decoratorName string) error {
+	schema := decorator.PatternSchema()
+
+	// Track which patterns are provided
+	providedPatterns := make(map[string]bool)
+	for _, patternBranch := range patterns {
+		var patternName string
+
+		// Handle different pattern types
+		switch p := patternBranch.Pattern.(type) {
+		case *ast.IdentifierPattern:
+			patternName = p.Name
+		case *ast.WildcardPattern:
+			patternName = "default"
+		default:
+			return fmt.Errorf("unknown pattern type for @%s decorator", decoratorName)
+		}
+
+		// Check for wildcard
+		if patternName == "default" {
+			if !schema.AllowsWildcard {
+				return fmt.Errorf("@%s decorator does not allow 'default' wildcard pattern", decoratorName)
+			}
+		} else {
+			// Check if this specific pattern is allowed
+			if !schema.AllowsAnyIdentifier && len(schema.AllowedPatterns) > 0 {
+				allowed := false
+				for _, allowedPattern := range schema.AllowedPatterns {
+					if patternName == allowedPattern {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					return fmt.Errorf("unknown pattern '%s' for @%s decorator", patternName, decoratorName)
+				}
+			}
+		}
+
+		providedPatterns[patternName] = true
+	}
+
+	// Check for missing required patterns
+	for _, requiredPattern := range schema.RequiredPatterns {
+		if !providedPatterns[requiredPattern] {
+			return fmt.Errorf("missing required pattern '%s' for @%s decorator", requiredPattern, decoratorName)
+		}
+	}
+
+	return nil
 }

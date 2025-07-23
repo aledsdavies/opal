@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
-	"github.com/aledsdavies/devcmd/pkgs/decorators"
 	"github.com/aledsdavies/devcmd/pkgs/engine"
 	"github.com/aledsdavies/devcmd/pkgs/errors"
 	"github.com/aledsdavies/devcmd/pkgs/parser"
@@ -193,18 +191,10 @@ func generateCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate Go output using the engine
-	ctx := decorators.NewExecutionContext(context.Background(), program)
-	ctx.Debug = debug
-
-	eng := engine.New(engine.GeneratorMode, ctx)
-	result, err := eng.Execute(program)
+	eng := engine.New(program)
+	genResult, err := eng.GenerateCode(program)
 	if err != nil {
 		return fmt.Errorf("error generating Go output: %w", err)
-	}
-
-	genResult, ok := result.(*engine.GenerationResult)
-	if !ok {
-		return fmt.Errorf("expected GenerationResult, got %T", result)
 	}
 
 	// Output the result
@@ -230,18 +220,10 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate Go source code using the engine
-	ctx := decorators.NewExecutionContext(context.Background(), program)
-	ctx.Debug = debug
-
-	eng := engine.New(engine.GeneratorMode, ctx)
-	result, err := eng.Execute(program)
+	eng := engine.New(program)
+	genResult, err := eng.GenerateCode(program)
 	if err != nil {
 		return fmt.Errorf("error generating Go source: %w", err)
-	}
-
-	genResult, ok := result.(*engine.GenerationResult)
-	if !ok {
-		return fmt.Errorf("expected GenerationResult, got %T", result)
 	}
 
 	goSource := genResult.String()
@@ -286,6 +268,18 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 	goModPath := filepath.Join(tempDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		return fmt.Errorf("error writing go.mod: %w", err)
+	}
+
+	// Run go mod tidy to generate go.sum and download dependencies
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = tempDir
+	tidyCmd.Stderr = os.Stderr
+	if debug {
+		fmt.Fprintf(os.Stderr, "Running go mod tidy...\n")
+		tidyCmd.Stdout = os.Stderr
+	}
+	if err := tidyCmd.Run(); err != nil {
+		return fmt.Errorf("error running go mod tidy: %w", err)
 	}
 
 	// Build the binary
@@ -350,18 +344,10 @@ func runCommand(cmd *cobra.Command, args []string) error {
 		return errors.NewCommandNotFoundError(commandName, availableCommands)
 	}
 
-	// Use the engine to process variables first, then execute the specific command
-	ctx := decorators.NewExecutionContext(context.Background(), program)
-	ctx.Debug = debug
+	// Use the engine to execute the specific command
+	eng := engine.New(program)
 
-	// Initialize variables in the execution context
-	if err := ctx.InitializeVariables(); err != nil {
-		return errors.Wrap(errors.ErrVariableInitialization, "Failed to initialize variables", err)
-	}
-
-	eng := engine.New(engine.InterpreterMode, ctx)
-
-	// Now execute the specific command with variables available
+	// Execute the specific command
 	cmdResult, err := eng.ExecuteCommand(targetCommand)
 	if err != nil {
 		return errors.NewCommandExecutionError(commandName, err)

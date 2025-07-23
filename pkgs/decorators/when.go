@@ -7,6 +7,7 @@ import (
 	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
@@ -77,24 +78,35 @@ func (w *WhenDecorator) ParameterSchema() []ParameterSchema {
 	}
 }
 
-// Validate checks if the decorator usage is correct during parsing
-func (w *WhenDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
-	if len(params) != 1 {
-		return fmt.Errorf("@when requires exactly 1 parameter (variable name), got %d", len(params))
+// PatternSchema defines what patterns @when accepts
+func (w *WhenDecorator) PatternSchema() PatternSchema {
+	return PatternSchema{
+		AllowedPatterns:     []string{}, // No specific patterns - any identifier is allowed
+		RequiredPatterns:    []string{}, // No required patterns
+		AllowsWildcard:      true,       // "default" wildcard is allowed
+		AllowsAnyIdentifier: true,       // Any identifier is allowed (production, staging, etc.)
+		Description:         "Accepts any identifier patterns and 'default' wildcard",
 	}
-
-	// Validate the required variable parameter
-	if err := ValidateRequiredParameter(params, "variable", ast.StringType, "when"); err != nil {
-		return err
-	}
-
-	return nil
 }
 
-// Run executes the decorator at runtime with pattern matching
-func (w *WhenDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) error {
-	if err := w.Validate(ctx, params); err != nil {
-		return err
+// Validate checks if the decorator usage is correct during parsing
+
+// Execute provides unified execution for all modes using the execution package
+func (w *WhenDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	// Validate parameters first
+	if len(params) == 0 {
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("when decorator requires a 'variable' parameter"),
+		}
+	}
+	if len(params) > 1 {
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("when decorator accepts exactly 1 parameter (variable), got %d", len(params)),
+		}
 	}
 
 	// Get the variable name to match against
@@ -106,24 +118,157 @@ func (w *WhenDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, 
 		}
 	}
 
-	// Get the variable value (for now, check environment variables)
-	// TODO: This should use the execution context to get variable values
-	value := os.Getenv(varName)
+	// Check that we got a valid variable name
+	if varName == "" {
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("when decorator requires a valid 'variable' parameter"),
+		}
+	}
+
+	switch ctx.Mode() {
+	case execution.InterpreterMode:
+		return w.executeInterpreter(ctx, varName, patterns)
+	case execution.GeneratorMode:
+		return w.executeGenerator(ctx, varName, patterns)
+	case execution.PlanMode:
+		return w.executePlan(ctx, varName, patterns)
+	default:
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+		}
+	}
+}
+
+// executeInterpreter executes pattern matching in interpreter mode
+func (w *WhenDecorator) executeInterpreter(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	// Get the variable value (check context first, then environment variables)
+	value := ""
+	if ctxValue, exists := ctx.GetVariable(varName); exists {
+		value = ctxValue
+	} else {
+		value = os.Getenv(varName)
+	}
 
 	// Find matching pattern branch
 	for _, pattern := range patterns {
 		if w.matchesPattern(value, pattern.Pattern) {
-			// Execute the commands in the matching pattern using unified execution engine
-			return w.executeCommands(ctx, pattern.Commands)
+			// Execute the commands in the matching pattern
+			if err := w.executeCommands(ctx, pattern.Commands); err != nil {
+				return &execution.ExecutionResult{
+					Mode:  execution.InterpreterMode,
+					Data:  nil,
+					Error: err,
+				}
+			}
+			break
 		}
 	}
 
-	// No pattern matched - this is not an error, just no action needed
-	return nil
+	// No pattern matched or execution succeeded
+	return &execution.ExecutionResult{
+		Mode:  execution.InterpreterMode,
+		Data:  nil,
+		Error: nil,
+	}
+}
+
+// executeGenerator generates Go code for pattern matching
+func (w *WhenDecorator) executeGenerator(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	// Convert patterns to template data
+	var patternData []WhenPatternData
+	for _, pattern := range patterns {
+		patternStr := w.patternToString(pattern.Pattern)
+		isDefault := false
+		if _, ok := pattern.Pattern.(*ast.WildcardPattern); ok {
+			isDefault = true
+		}
+
+		patternData = append(patternData, WhenPatternData{
+			Name:      patternStr,
+			IsDefault: isDefault,
+			Commands:  pattern.Commands,
+		})
+	}
+
+	// Prepare template data
+	templateData := WhenTemplateData{
+		VariableName: varName,
+		Patterns:     patternData,
+	}
+
+	// Parse and execute template with context functions
+	tmpl, err := template.New("when").Funcs(ctx.GetTemplateFunctions()).Parse(whenExecutionTemplate)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to parse when template: %w", err),
+		}
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to execute when template: %w", err),
+		}
+	}
+
+	return &execution.ExecutionResult{
+		Mode:  execution.GeneratorMode,
+		Data:  result.String(),
+		Error: nil,
+	}
+}
+
+// executePlan creates a plan element for dry-run mode
+func (w *WhenDecorator) executePlan(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	// Get current value from context or environment
+	currentValue := ""
+	if value, exists := ctx.GetVariable(varName); exists {
+		currentValue = value
+	} else {
+		currentValue = os.Getenv(varName)
+	}
+
+	// Find matching pattern
+	selectedPattern := "default"
+	var selectedCommands []ast.CommandContent
+
+	for _, pattern := range patterns {
+		patternStr := w.patternToString(pattern.Pattern)
+		if patternStr == currentValue {
+			selectedPattern = patternStr
+			selectedCommands = pattern.Commands
+			break
+		}
+		if patternStr == "default" {
+			selectedCommands = pattern.Commands
+		}
+	}
+
+	description := fmt.Sprintf("Evaluate %s = %q → execute '%s' branch (%d commands)",
+		varName, currentValue, selectedPattern, len(selectedCommands))
+
+	element := plan.Decorator("when").
+		WithType("pattern").
+		WithParameter("variable", varName).
+		WithDescription(description)
+
+	return &execution.ExecutionResult{
+		Mode:  execution.PlanMode,
+		Data:  element,
+		Error: nil,
+	}
 }
 
 // executeCommands executes commands using the unified execution engine
-func (w *WhenDecorator) executeCommands(ctx *ExecutionContext, commands []ast.CommandContent) error {
+func (w *WhenDecorator) executeCommands(ctx *execution.ExecutionContext, commands []ast.CommandContent) error {
 	for _, cmd := range commands {
 		if err := ctx.ExecuteCommandContent(cmd); err != nil {
 			return err
@@ -154,104 +299,6 @@ func (w *WhenDecorator) patternToString(pattern ast.Pattern) string {
 	default:
 		return "unknown"
 	}
-}
-
-// Generate produces Go code for the decorator in compiled mode
-func (w *WhenDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (string, error) {
-	if err := w.Validate(ctx, params); err != nil {
-		return "", err
-	}
-
-	// Get the variable name
-	varName := ast.GetStringParam(params, "variable", "")
-	if varName == "" && len(params) > 0 {
-		// Fallback to positional if no named parameter
-		if varLiteral, ok := params[0].Value.(*ast.StringLiteral); ok {
-			varName = varLiteral.Value
-		}
-	}
-
-	// Convert patterns to template data
-	var patternData []WhenPatternData
-	for _, pattern := range patterns {
-		patternStr := w.patternToString(pattern.Pattern)
-		isDefault := false
-		if _, ok := pattern.Pattern.(*ast.WildcardPattern); ok {
-			isDefault = true
-		}
-
-		patternData = append(patternData, WhenPatternData{
-			Name:      patternStr,
-			IsDefault: isDefault,
-			Commands:  pattern.Commands,
-		})
-	}
-
-	// Prepare template data
-	templateData := WhenTemplateData{
-		VariableName: varName,
-		Patterns:     patternData,
-	}
-
-	// Parse and execute template with context functions
-	tmpl, err := template.New("when").Funcs(ctx.GetTemplateFunctions()).Parse(whenExecutionTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse when template: %w", err)
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute when template: %w", err)
-	}
-
-	return result.String(), nil
-}
-
-// Plan creates a plan element describing what this decorator would do in dry run mode
-func (w *WhenDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (plan.PlanElement, error) {
-	if err := w.Validate(ctx, params); err != nil {
-		return nil, err
-	}
-
-	// Get the variable name to match against
-	varName := ast.GetStringParam(params, "variable", "")
-	if varName == "" && len(params) > 0 {
-		// Fallback to positional if no named parameter
-		if varLiteral, ok := params[0].Value.(*ast.StringLiteral); ok {
-			varName = varLiteral.Value
-		}
-	}
-
-	// Get current value from context or environment
-	currentValue := ""
-	if value, exists := ctx.GetVariable(varName); exists {
-		currentValue = value
-	} else {
-		currentValue = os.Getenv(varName)
-	}
-
-	// Find matching pattern
-	selectedPattern := "default"
-	var selectedCommands []ast.CommandContent
-
-	for _, pattern := range patterns {
-		patternStr := w.patternToString(pattern.Pattern)
-		if patternStr == currentValue {
-			selectedPattern = patternStr
-			break
-		}
-		if patternStr == "default" {
-			selectedCommands = pattern.Commands
-		}
-	}
-
-	description := fmt.Sprintf("Evaluate %s = %q → execute '%s' branch (%d commands)",
-		varName, currentValue, selectedPattern, len(selectedCommands))
-
-	return plan.Decorator("when").
-		WithType("pattern").
-		WithParameter("variable", varName).
-		WithDescription(description), nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

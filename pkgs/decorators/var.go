@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
@@ -33,34 +34,10 @@ func (v *VarDecorator) ParameterSchema() []ParameterSchema {
 }
 
 // Validate checks if the decorator usage is correct during parsing
-func (v *VarDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
-	if len(params) != 1 {
-		return fmt.Errorf("@var requires exactly 1 parameter (variable identifier), got %d", len(params))
-	}
 
-	// Get the variable name parameter
-	nameParam := ast.FindParameter(params, "name")
-	if nameParam == nil && len(params) > 0 {
-		// If no named 'name', first parameter should be the variable name
-		nameParam = &params[0]
-	}
-	if nameParam == nil {
-		return fmt.Errorf("@var requires 'name' parameter")
-	}
-
-	// Parameter must be an identifier (variable name)
-	if _, ok := nameParam.Value.(*ast.Identifier); !ok {
-		return fmt.Errorf("@var 'name' parameter must be an identifier (variable name), got %T", nameParam.Value)
-	}
-
-	return nil
-}
-
-// Run executes the decorator at runtime and returns the variable value
-func (v *VarDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (string, error) {
-	if err := v.Validate(ctx, params); err != nil {
-		return "", err
-	}
+// Execute provides unified execution for all modes using the execution package
+func (v *VarDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	// Validate parameters first
 
 	// Get the variable name
 	var varName string
@@ -72,54 +49,60 @@ func (v *VarDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter) (
 		varName = ident.Name
 	}
 
+	switch ctx.Mode() {
+	case execution.InterpreterMode:
+		return v.executeInterpreter(ctx, varName)
+	case execution.GeneratorMode:
+		return v.executeGenerator(ctx, varName)
+	case execution.PlanMode:
+		return v.executePlan(ctx, varName)
+	default:
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+		}
+	}
+}
+
+// executeInterpreter gets variable value in interpreter mode
+func (v *VarDecorator) executeInterpreter(ctx *execution.ExecutionContext, varName string) *execution.ExecutionResult {
 	// Look up the variable in the execution context
 	if value, exists := ctx.GetVariable(varName); exists {
-		return value, nil
+		return &execution.ExecutionResult{
+			Mode:  execution.InterpreterMode,
+			Data:  value,
+			Error: nil,
+		}
 	}
 
-	return "", fmt.Errorf("variable '%s' not defined", varName)
+	return &execution.ExecutionResult{
+		Mode:  execution.InterpreterMode,
+		Data:  nil,
+		Error: fmt.Errorf("variable '%s' not defined", varName),
+	}
 }
 
-// Generate produces Go code for the decorator in compiled mode
-func (v *VarDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter) (string, error) {
-	if err := v.Validate(ctx, params); err != nil {
-		return "", err
-	}
-
-	// Get the variable name
-	var varName string
-	nameParam := ast.FindParameter(params, "name")
-	if nameParam == nil && len(params) > 0 {
-		nameParam = &params[0]
-	}
-	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
-		varName = ident.Name
-	}
-
+// executeGenerator generates Go code for variable access
+func (v *VarDecorator) executeGenerator(ctx *execution.ExecutionContext, varName string) *execution.ExecutionResult {
 	// Return the variable name to reference the generated variable
 	if _, exists := ctx.GetVariable(varName); exists {
-		return varName, nil
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  varName,
+			Error: nil,
+		}
 	}
 
-	return "", fmt.Errorf("variable '%s' not defined", varName)
+	return &execution.ExecutionResult{
+		Mode:  execution.GeneratorMode,
+		Data:  nil,
+		Error: fmt.Errorf("variable '%s' not defined", varName),
+	}
 }
 
-// Plan creates a plan element describing what this decorator would do in dry run mode
-func (v *VarDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) (plan.PlanElement, error) {
-	if err := v.Validate(ctx, params); err != nil {
-		return nil, err
-	}
-
-	// Get the variable name
-	var varName string
-	nameParam := ast.FindParameter(params, "name")
-	if nameParam == nil && len(params) > 0 {
-		nameParam = &params[0]
-	}
-	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
-		varName = ident.Name
-	}
-
+// executePlan creates a plan element for dry-run mode
+func (v *VarDecorator) executePlan(ctx *execution.ExecutionContext, varName string) *execution.ExecutionResult {
 	// Look up the variable in the execution context
 	var description string
 	if value, exists := ctx.GetVariable(varName); exists {
@@ -128,10 +111,16 @@ func (v *VarDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter) 
 		description = fmt.Sprintf("Variable resolution: ${%s} → <undefined>", varName)
 	}
 
-	return plan.Decorator("var").
+	element := plan.Decorator("var").
 		WithType("function").
 		WithParameter("name", varName).
-		WithDescription(description), nil
+		WithDescription(description)
+
+	return &execution.ExecutionResult{
+		Mode:  execution.PlanMode,
+		Data:  element,
+		Error: nil,
+	}
 }
 
 // ImportRequirements returns the dependencies needed for code generation

@@ -228,7 +228,7 @@ rec {
       # Get git commit hash for proper versioning
       gitHash = gitRev;
       goVersion = "1.24.3";
-      
+
       # Generate Go source with cache-friendly naming
       goSource = pkgs.runCommand "${name}-go-source-${contentHash}"
         {
@@ -238,27 +238,27 @@ rec {
           preferLocalBuild = true;
           allowSubstitutes = true;
         } ''
-        # Go needs a writable cache dir
-        export HOME=$TMPDIR
-        export GOCACHE=$TMPDIR/go-build
+                # Go needs a writable cache dir
+                export HOME=$TMPDIR
+                export GOCACHE=$TMPDIR/go-build
 
-        mkdir -p "$GOCACHE" "$out"
+                mkdir -p "$GOCACHE" "$out"
 
-        echo "Generating Go CLI from commands.cli..."
-        ${devcmdBin}/bin/devcmd ${templateArgs} --binary "${binaryName}" --file ${commandsSrc} > "$out/main.go"
+                echo "Generating Go CLI from commands.cli..."
+                ${devcmdBin}/bin/devcmd ${templateArgs} --binary "${binaryName}" --file ${commandsSrc} > "$out/main.go"
 
-        cat > "$out/go.mod" <<EOF
-module ${name}
-go ${goVersion}
+                cat > "$out/go.mod" <<EOF
+        module ${name}
+        go ${goVersion}
 
-require github.com/aledsdavies/devcmd v0.0.0-${gitHash}
-replace github.com/aledsdavies/devcmd => ${self}
-EOF
+        require github.com/aledsdavies/devcmd v0.0.0-${gitHash}
+        replace github.com/aledsdavies/devcmd => ${self}
+        EOF
 
-        echo "Validating generated Go code..."
-        ${pkgs.go}/bin/go mod tidy -C "$out"
-        ${pkgs.go}/bin/go build -C "$out" -o /dev/null ./...
-        echo "✅ Generated Go code is valid"
+                echo "Validating generated Go code..."
+                ${pkgs.go}/bin/go mod tidy -C "$out"
+                ${pkgs.go}/bin/go build -C "$out" -o /dev/null ./...
+                echo "✅ Generated Go code is valid"
       '';
 
     in

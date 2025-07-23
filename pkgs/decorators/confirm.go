@@ -7,17 +7,12 @@ import (
 	"strings"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
-	"github.com/aledsdavies/devcmd/pkgs/types"
 )
 
 // ConfirmDecorator implements the @confirm decorator for user confirmation prompts
 type ConfirmDecorator struct{}
-
-func init() {
-	// Register the decorator with the global registry
-	globalRegistry.RegisterBlock(&ConfirmDecorator{})
-}
 
 // Name returns the decorator name
 func (c *ConfirmDecorator) Name() string {
@@ -34,31 +29,31 @@ func (c *ConfirmDecorator) ParameterSchema() []ParameterSchema {
 	return []ParameterSchema{
 		{
 			Name:        "message",
-			Type:        types.StringType,
+			Type:        ast.StringType,
 			Required:    false,
 			Description: "Message to display to the user (default: 'Do you want to continue?')",
 		},
 		{
 			Name:        "defaultYes",
-			Type:        types.BooleanType,
+			Type:        ast.BooleanType,
 			Required:    false,
 			Description: "Default to yes if user just presses enter (default: false)",
 		},
 		{
 			Name:        "abortOnNo",
-			Type:        types.BooleanType,
+			Type:        ast.BooleanType,
 			Required:    false,
 			Description: "Abort execution if user says no (default: true)",
 		},
 		{
 			Name:        "caseSensitive",
-			Type:        types.BooleanType,
+			Type:        ast.BooleanType,
 			Required:    false,
 			Description: "Make y/n matching case sensitive (default: false)",
 		},
 		{
 			Name:        "ci",
-			Type:        types.BooleanType,
+			Type:        ast.BooleanType,
 			Required:    false,
 			Description: "Skip confirmation in CI environments (checks CI env var, default: true)",
 		},
@@ -66,10 +61,6 @@ func (c *ConfirmDecorator) ParameterSchema() []ParameterSchema {
 }
 
 // Validate checks if the decorator usage is correct during parsing
-func (c *ConfirmDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
-	// All parameters are optional, so no validation needed
-	return nil
-}
 
 // ImportRequirements returns the dependencies needed for code generation
 func (c *ConfirmDecorator) ImportRequirements() ImportRequirement {
@@ -101,22 +92,53 @@ func isCI() bool {
 	return false
 }
 
-// Run executes the decorator at runtime with the given command content
-func (c *ConfirmDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
+// Execute provides unified execution for all modes using the execution package
+func (c *ConfirmDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	// Validate parameters first
+
+	// Parse parameters with defaults
 	message := ast.GetStringParam(params, "message", "Do you want to continue?")
 	defaultYes := ast.GetBoolParam(params, "defaultYes", false)
 	abortOnNo := ast.GetBoolParam(params, "abortOnNo", true)
 	caseSensitive := ast.GetBoolParam(params, "caseSensitive", false)
 	skipInCI := ast.GetBoolParam(params, "ci", true)
 
+	switch ctx.Mode() {
+	case execution.InterpreterMode:
+		return c.executeInterpreter(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
+	case execution.GeneratorMode:
+		return c.executeGenerator(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
+	case execution.PlanMode:
+		return c.executePlan(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
+	default:
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+		}
+	}
+}
+
+// executeInterpreter executes confirmation prompt in interpreter mode
+func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Check if we should skip confirmation in CI environment
 	if skipInCI && isCI() {
-		// Silently proceed in CI - no output, execute commands manually for now
+		// Auto-confirm in CI and execute commands
 		fmt.Printf("CI environment detected - auto-confirming: %s\n", message)
-		for i, cmd := range content {
-			fmt.Printf("  Command %d: %+v\n", i, cmd)
+		for _, cmd := range content {
+			if err := ctx.ExecuteCommandContent(cmd); err != nil {
+				return &execution.ExecutionResult{
+					Mode:  execution.InterpreterMode,
+					Data:  nil,
+					Error: fmt.Errorf("command execution failed: %w", err),
+				}
+			}
 		}
-		return nil
+		return &execution.ExecutionResult{
+			Mode:  execution.InterpreterMode,
+			Data:  nil,
+			Error: nil,
+		}
 	}
 
 	// Display the confirmation message
@@ -131,61 +153,103 @@ func (c *ConfirmDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamete
 	reader := bufio.NewReader(os.Stdin)
 	response, err := reader.ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("failed to read user input: %w", err)
+		return &execution.ExecutionResult{
+			Mode:  execution.InterpreterMode,
+			Data:  nil,
+			Error: fmt.Errorf("failed to read user input: %w", err),
+		}
 	}
 
 	response = strings.TrimSpace(response)
 
-	// Handle empty response (use default)
+	// Determine if user confirmed
+	confirmed := false
 	if response == "" {
-		if !defaultYes && abortOnNo {
-			return fmt.Errorf("user cancelled execution")
-		}
-		if !defaultYes {
-			// Default is no, but don't abort - just skip
-			return nil
-		}
-		// Default is yes, continue execution
+		confirmed = defaultYes
 	} else {
-		// Check the response
-		var confirmed bool
 		if caseSensitive {
 			confirmed = response == "y" || response == "Y" || response == "yes" || response == "Yes"
 		} else {
 			lowerResponse := strings.ToLower(response)
 			confirmed = lowerResponse == "y" || lowerResponse == "yes"
 		}
+	}
 
-		if !confirmed {
-			if abortOnNo {
-				return fmt.Errorf("user cancelled execution")
+	if !confirmed {
+		if abortOnNo {
+			return &execution.ExecutionResult{
+				Mode:  execution.InterpreterMode,
+				Data:  nil,
+				Error: fmt.Errorf("user cancelled execution"),
 			}
-			// User said no but don't abort - just skip execution
-			return nil
+		}
+		// User said no but don't abort - just skip execution
+		return &execution.ExecutionResult{
+			Mode:  execution.InterpreterMode,
+			Data:  nil,
+			Error: nil,
 		}
 	}
 
-	// User confirmed, execute the content manually for now
-	fmt.Printf("User confirmed - executing %d commands\n", len(content))
-	for i, cmd := range content {
-		fmt.Printf("  Command %d: %+v\n", i, cmd)
+	// User confirmed, execute the commands
+	for _, cmd := range content {
+		if err := ctx.ExecuteCommandContent(cmd); err != nil {
+			return &execution.ExecutionResult{
+				Mode:  execution.InterpreterMode,
+				Data:  nil,
+				Error: fmt.Errorf("command execution failed: %w", err),
+			}
+		}
 	}
-	return nil
+
+	return &execution.ExecutionResult{
+		Mode:  execution.InterpreterMode,
+		Data:  nil,
+		Error: nil,
+	}
 }
 
-// Generate produces Go code for the decorator in compiled mode
-func (c *ConfirmDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
-	// For now, return a placeholder - full implementation would be complex
-	return "// @confirm decorator code generation not yet implemented\n", nil
+// executeGenerator generates Go code for confirmation logic
+func (c *ConfirmDecorator) executeGenerator(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
+	// For now, return a simple implementation
+	var builder strings.Builder
+	builder.WriteString("func() error {\n")
+	builder.WriteString("\t// TODO: Implement full confirmation logic\n")
+	builder.WriteString(fmt.Sprintf("\tfmt.Println(\"Would confirm: %s\")\n", message))
+
+	// Generate execution for each command
+	for i, cmd := range content {
+		if shellContent, ok := cmd.(*ast.ShellContent); ok {
+			result := ctx.WithMode(execution.GeneratorMode).ExecuteShell(shellContent)
+			if result.Error != nil {
+				return &execution.ExecutionResult{
+					Mode:  execution.GeneratorMode,
+					Data:  "",
+					Error: fmt.Errorf("failed to generate shell command %d: %w", i, result.Error),
+				}
+			}
+			if code, ok := result.Data.(string); ok {
+				builder.WriteString(fmt.Sprintf("\tif err := func() error {\n%s\n\t\treturn nil\n\t}(); err != nil {\n", code))
+				builder.WriteString("\t\treturn err\n")
+				builder.WriteString("\t}\n")
+			}
+		} else {
+			builder.WriteString("\t// TODO: Generate execution for non-shell command content\n")
+		}
+	}
+
+	builder.WriteString("\treturn nil\n")
+	builder.WriteString("}()")
+
+	return &execution.ExecutionResult{
+		Mode:  execution.GeneratorMode,
+		Data:  builder.String(),
+		Error: nil,
+	}
 }
 
-// Plan creates a plan element describing what this decorator would do in dry run mode
-func (c *ConfirmDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
-	message := ast.GetStringParam(params, "message", "Do you want to continue?")
-	defaultYes := ast.GetBoolParam(params, "defaultYes", false)
-	abortOnNo := ast.GetBoolParam(params, "abortOnNo", true)
-	skipInCI := ast.GetBoolParam(params, "ci", true)
-
+// executePlan creates a plan element for dry-run mode
+func (c *ConfirmDecorator) executePlan(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Context-aware planning: check current environment
 	var description string
 
@@ -211,11 +275,32 @@ func (c *ConfirmDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParamet
 		description = fmt.Sprintf("🤔 User Prompt: %s (%s)", prompt, behavior)
 	}
 
-	return plan.Decorator("confirm").
+	element := plan.Decorator("confirm").
 		WithType("block").
 		WithParameter("message", message).
-		WithParameter("defaultYes", defaultYes).
-		WithParameter("abortOnNo", abortOnNo).
-		WithParameter("ci", skipInCI).
-		WithDescription(description), nil
+		WithDescription(description)
+
+	if defaultYes {
+		element = element.WithParameter("defaultYes", "true")
+	}
+	if !abortOnNo {
+		element = element.WithParameter("abortOnNo", "false")
+	}
+	if caseSensitive {
+		element = element.WithParameter("caseSensitive", "true")
+	}
+	if !skipInCI {
+		element = element.WithParameter("ci", "false")
+	}
+
+	return &execution.ExecutionResult{
+		Mode:  execution.PlanMode,
+		Data:  element,
+		Error: nil,
+	}
+}
+
+// init registers the confirm decorator
+func init() {
+	RegisterBlock(&ConfirmDecorator{})
 }

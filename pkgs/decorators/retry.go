@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
@@ -92,31 +93,35 @@ func (r *RetryDecorator) ParameterSchema() []ParameterSchema {
 }
 
 // Validate checks if the decorator usage is correct during parsing
-func (r *RetryDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
+
+// Execute provides unified execution for all modes using the execution package
+func (r *RetryDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	// Validate parameters first
+
+	// Check parameter count (retry supports 1-2 parameters: attempts, and optionally delay)
 	if len(params) == 0 {
-		return fmt.Errorf("@retry requires at least 1 parameter (attempts), got 0")
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("retry decorator requires an 'attempts' parameter"),
+		}
 	}
 	if len(params) > 2 {
-		return fmt.Errorf("@retry accepts at most 2 parameters (attempts, delay), got %d", len(params))
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("retry decorator accepts at most 2 parameters (attempts, delay), got %d", len(params)),
+		}
 	}
 
-	// Validate the required attempts parameter
-	if err := ValidateRequiredParameter(params, "attempts", ast.NumberType, "retry"); err != nil {
-		return err
-	}
-
-	// Validate the optional delay parameter
-	if err := ValidateOptionalParameter(params, "delay", ast.DurationType, "retry"); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Run executes the decorator at runtime with retry logic
-func (r *RetryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
-	if err := r.Validate(ctx, params); err != nil {
-		return err
+	// Check that attempts parameter exists
+	attemptsParam := ast.FindParameter(params, "attempts")
+	if attemptsParam == nil {
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("retry decorator requires an 'attempts' parameter"),
+		}
 	}
 
 	// Parse parameters
@@ -125,16 +130,42 @@ func (r *RetryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter,
 
 	// Validate attempts is positive
 	if maxAttempts <= 0 {
-		return fmt.Errorf("retry attempts must be positive, got %d", maxAttempts)
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("retry attempts must be positive, got %d", maxAttempts),
+		}
 	}
 
+	switch ctx.Mode() {
+	case execution.InterpreterMode:
+		return r.executeInterpreter(ctx, maxAttempts, delay, content)
+	case execution.GeneratorMode:
+		return r.executeGenerator(ctx, maxAttempts, delay, content)
+	case execution.PlanMode:
+		return r.executePlan(ctx, maxAttempts, delay, content)
+	default:
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+		}
+	}
+}
+
+// executeInterpreter executes retry logic in interpreter mode
+func (r *RetryDecorator) executeInterpreter(ctx *execution.ExecutionContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Execute commands using the unified execution engine
 		execErr := r.executeCommands(ctx, content)
 
 		if execErr == nil {
-			return nil // Success!
+			return &execution.ExecutionResult{
+				Mode:  execution.InterpreterMode,
+				Data:  nil,
+				Error: nil, // Success!
+			}
 		}
 
 		lastErr = execErr
@@ -145,33 +176,17 @@ func (r *RetryDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter,
 		}
 	}
 
-	return fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr)
+	return &execution.ExecutionResult{
+		Mode:  execution.InterpreterMode,
+		Data:  nil,
+		Error: fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr),
+	}
 }
 
-// executeCommands executes commands using the unified execution engine
-func (r *RetryDecorator) executeCommands(ctx *ExecutionContext, content []ast.CommandContent) error {
-	for _, cmd := range content {
-		if err := ctx.ExecuteCommandContent(cmd); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Generate produces Go code for the decorator in compiled mode using templates
-func (r *RetryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
-	if err := r.Validate(ctx, params); err != nil {
-		return "", err
-	}
-
-	// Parse parameters for code generation
-	maxAttempts := ast.GetIntParam(params, "attempts", 3)
-	defaultDelay := "1s"
-	if delayParam := ast.FindParameter(params, "delay"); delayParam != nil {
-		if durLit, ok := delayParam.Value.(*ast.DurationLiteral); ok {
-			defaultDelay = durLit.Value
-		}
-	}
+// executeGenerator generates Go code for retry logic
+func (r *RetryDecorator) executeGenerator(ctx *execution.ExecutionContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+	// Parse delay for code generation
+	defaultDelay := delay.String()
 
 	// Prepare template data
 	templateData := RetryTemplateData{
@@ -183,33 +198,32 @@ func (r *RetryDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParam
 	// Parse and execute template with context functions
 	tmpl, err := template.New("retry").Funcs(ctx.GetTemplateFunctions()).Parse(retryExecutionTemplate)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse retry template: %w", err)
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to parse retry template: %w", err),
+		}
 	}
 
 	var result strings.Builder
 	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute retry template: %w", err)
-	}
-
-	return result.String(), nil
-}
-
-// Plan creates a plan element describing what this decorator would do in dry run mode
-func (r *RetryDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
-	if err := r.Validate(ctx, params); err != nil {
-		return nil, err
-	}
-
-	// Parse parameters with defaults
-	maxAttempts := 3 // Default: 3 attempts
-	delayStr := "1s" // Default: 1 second delay
-
-	maxAttempts = ast.GetIntParam(params, "attempts", maxAttempts)
-	if delayParam := ast.FindParameter(params, "delay"); delayParam != nil {
-		if durLit, ok := delayParam.Value.(*ast.DurationLiteral); ok {
-			delayStr = durLit.Value
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to execute retry template: %w", err),
 		}
 	}
+
+	return &execution.ExecutionResult{
+		Mode:  execution.GeneratorMode,
+		Data:  result.String(),
+		Error: nil,
+	}
+}
+
+// executePlan creates a plan element for dry-run mode
+func (r *RetryDecorator) executePlan(ctx *execution.ExecutionContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+	delayStr := delay.String()
 
 	description := fmt.Sprintf("Execute %d commands with up to %d attempts", len(content), maxAttempts)
 	if delayStr != "" && delayStr != "0s" {
@@ -225,7 +239,21 @@ func (r *RetryDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter
 		element = element.WithParameter("delay", delayStr)
 	}
 
-	return element, nil
+	return &execution.ExecutionResult{
+		Mode:  execution.PlanMode,
+		Data:  element,
+		Error: nil,
+	}
+}
+
+// executeCommands executes commands using the unified execution engine
+func (r *RetryDecorator) executeCommands(ctx *execution.ExecutionContext, content []ast.CommandContent) error {
+	for _, cmd := range content {
+		if err := ctx.ExecuteCommandContent(cmd); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

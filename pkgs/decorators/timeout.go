@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
+	"github.com/aledsdavies/devcmd/pkgs/execution"
 	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
@@ -35,39 +36,61 @@ func (t *TimeoutDecorator) ParameterSchema() []ParameterSchema {
 }
 
 // Validate checks if the decorator usage is correct during parsing
-func (t *TimeoutDecorator) Validate(ctx *ExecutionContext, params []ast.NamedParameter) error {
-	if len(params) != 1 {
-		return fmt.Errorf("@timeout requires exactly 1 parameter (duration), got %d", len(params))
-	}
 
-	// Validate the required duration parameter
-	if err := ValidateRequiredParameter(params, "duration", ast.DurationType, "timeout"); err != nil {
-		return err
-	}
+// Execute provides unified execution for all modes using the execution package
+func (t *TimeoutDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	// Validate parameters first
 
-	return nil
-}
-
-// Run executes the decorator at runtime with timeout
-func (t *TimeoutDecorator) Run(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) error {
-	if err := t.Validate(ctx, params); err != nil {
-		return err
-	}
-
-	// Get the timeout duration
+	// Parse timeout duration
 	var timeout time.Duration
 	durationParam := ast.FindParameter(params, "duration")
 	if durationParam == nil && len(params) > 0 {
 		durationParam = &params[0]
 	}
-	if durLit, ok := durationParam.Value.(*ast.DurationLiteral); ok {
-		var err error
-		timeout, err = time.ParseDuration(durLit.Value)
-		if err != nil {
-			return fmt.Errorf("invalid duration '%s': %w", durLit.Value, err)
+	if durationParam != nil {
+		if durLit, ok := durationParam.Value.(*ast.DurationLiteral); ok {
+			var err error
+			timeout, err = time.ParseDuration(durLit.Value)
+			if err != nil {
+				return &execution.ExecutionResult{
+					Mode:  ctx.Mode(),
+					Data:  nil,
+					Error: fmt.Errorf("invalid duration '%s': %w", durLit.Value, err),
+				}
+			}
+		} else {
+			return &execution.ExecutionResult{
+				Mode:  ctx.Mode(),
+				Data:  nil,
+				Error: fmt.Errorf("duration parameter must be a duration literal"),
+			}
+		}
+	} else {
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("timeout decorator requires a duration parameter"),
 		}
 	}
 
+	switch ctx.Mode() {
+	case execution.InterpreterMode:
+		return t.executeInterpreter(ctx, timeout, content)
+	case execution.GeneratorMode:
+		return t.executeGenerator(ctx, timeout, content)
+	case execution.PlanMode:
+		return t.executePlan(ctx, timeout, content)
+	default:
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+		}
+	}
+}
+
+// executeInterpreter executes commands with timeout in interpreter mode
+func (t *TimeoutDecorator) executeInterpreter(ctx *execution.ExecutionContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
 	// Create context with timeout
 	timeoutCtx, cancel := ctx.WithTimeout(timeout)
 	defer cancel()
@@ -106,29 +129,29 @@ func (t *TimeoutDecorator) Run(ctx *ExecutionContext, params []ast.NamedParamete
 	select {
 	case err := <-done:
 		if err != nil {
-			return fmt.Errorf("command execution failed: %w", err)
+			return &execution.ExecutionResult{
+				Mode:  execution.InterpreterMode,
+				Data:  nil,
+				Error: fmt.Errorf("command execution failed: %w", err),
+			}
 		}
-		return nil
+		return &execution.ExecutionResult{
+			Mode:  execution.InterpreterMode,
+			Data:  nil,
+			Error: nil,
+		}
 	case <-timeoutCtx.Done():
-		return fmt.Errorf("command execution timed out after %s", timeout)
+		return &execution.ExecutionResult{
+			Mode:  execution.InterpreterMode,
+			Data:  nil,
+			Error: fmt.Errorf("command execution timed out after %s", timeout),
+		}
 	}
 }
 
-// Generate produces Go code for the decorator in compiled mode
-func (t *TimeoutDecorator) Generate(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (string, error) {
-	if err := t.Validate(ctx, params); err != nil {
-		return "", err
-	}
-
-	// Get the timeout duration
-	var durationStr string
-	durationParam := ast.FindParameter(params, "duration")
-	if durationParam == nil && len(params) > 0 {
-		durationParam = &params[0]
-	}
-	if durLit, ok := durationParam.Value.(*ast.DurationLiteral); ok {
-		durationStr = durLit.Value
-	}
+// executeGenerator generates Go code for timeout logic
+func (t *TimeoutDecorator) executeGenerator(ctx *execution.ExecutionContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+	durationStr := timeout.String()
 
 	var builder strings.Builder
 	builder.WriteString("func() error {\n")
@@ -160,8 +183,27 @@ func (t *TimeoutDecorator) Generate(ctx *ExecutionContext, params []ast.NamedPar
 		builder.WriteString("\t\tdefault:\n")
 		builder.WriteString("\t\t}\n")
 		builder.WriteString("\n")
-		builder.WriteString(fmt.Sprintf("\t\t// Execute command %d: %+v\n", i, cmd))
-		builder.WriteString("\t\t// TODO: Generate actual command execution code\n")
+		builder.WriteString(fmt.Sprintf("\t\t// Execute command %d\n", i))
+
+		// For shell content, use the execution helpers
+		if shellContent, ok := cmd.(*ast.ShellContent); ok {
+			result := ctx.WithMode(execution.GeneratorMode).ExecuteShell(shellContent)
+			if result.Error != nil {
+				return &execution.ExecutionResult{
+					Mode:  execution.GeneratorMode,
+					Data:  "",
+					Error: fmt.Errorf("failed to generate shell command %d: %w", i, result.Error),
+				}
+			}
+			if code, ok := result.Data.(string); ok {
+				builder.WriteString(fmt.Sprintf("\t\tif err := func() error {\n%s\n\t\t\treturn nil\n\t\t}(); err != nil {\n", code))
+				builder.WriteString("\t\t\tdone <- err\n")
+				builder.WriteString("\t\t\treturn\n")
+				builder.WriteString("\t\t}\n")
+			}
+		} else {
+			builder.WriteString("\t\t// TODO: Generate execution for non-shell command content\n")
+		}
 		builder.WriteString("\n")
 	}
 
@@ -179,36 +221,29 @@ func (t *TimeoutDecorator) Generate(ctx *ExecutionContext, params []ast.NamedPar
 	builder.WriteString("\t}\n")
 	builder.WriteString("}()")
 
-	return builder.String(), nil
+	return &execution.ExecutionResult{
+		Mode:  execution.GeneratorMode,
+		Data:  builder.String(),
+		Error: nil,
+	}
 }
 
-// Plan creates a plan element describing what this decorator would do in dry run mode
-func (t *TimeoutDecorator) Plan(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) (plan.PlanElement, error) {
-	if err := t.Validate(ctx, params); err != nil {
-		return nil, err
-	}
-
-	// Get the timeout duration
-	var durationStr string
-	var timeout time.Duration
-	durationParam := ast.FindParameter(params, "duration")
-	if durationParam == nil && len(params) > 0 {
-		durationParam = &params[0]
-	}
-	if durLit, ok := durationParam.Value.(*ast.DurationLiteral); ok {
-		durationStr = durLit.Value
-		if d, err := time.ParseDuration(durationStr); err == nil {
-			timeout = d
-		}
-	}
-
+// executePlan creates a plan element for dry-run mode
+func (t *TimeoutDecorator) executePlan(ctx *execution.ExecutionContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+	durationStr := timeout.String()
 	description := fmt.Sprintf("Execute %d commands with %s timeout (cancel if exceeded)", len(content), durationStr)
 
-	return plan.Decorator("timeout").
+	element := plan.Decorator("timeout").
 		WithType("block").
 		WithTimeout(timeout).
 		WithParameter("duration", durationStr).
-		WithDescription(description), nil
+		WithDescription(description)
+
+	return &execution.ExecutionResult{
+		Mode:  execution.PlanMode,
+		Data:  element,
+		Error: nil,
+	}
 }
 
 // ImportRequirements returns the dependencies needed for code generation
