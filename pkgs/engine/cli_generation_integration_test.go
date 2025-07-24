@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -68,23 +67,10 @@ dangerous: {
 			t.Fatalf("Generated code too short, likely failed: %d chars", len(generatedCode))
 		}
 
-		// Write generated code to file
-		mainGoPath := filepath.Join(tempDir, "main.go")
-		err = os.WriteFile(mainGoPath, []byte(generatedCode), 0o644)
+		// Use engine to write both main.go and go.mod files
+		err = engine.WriteFiles(generationResult, tempDir, "testcli")
 		if err != nil {
-			t.Fatalf("Failed to write generated code: %v", err)
-		}
-
-		// Create go.mod for the test
-		goModContent := `module testcli
-go 1.24.3
-
-require github.com/spf13/cobra v1.9.1
-`
-		goModPath := filepath.Join(tempDir, "go.mod")
-		err = os.WriteFile(goModPath, []byte(goModContent), 0o644)
-		if err != nil {
-			t.Fatalf("Failed to write go.mod: %v", err)
+			t.Fatalf("Failed to write generated files: %v", err)
 		}
 
 		// Test 1: Code should compile
@@ -312,22 +298,10 @@ info: {
 
 	generatedCode := generationResult.String()
 
-	// Write and compile
-	mainGoPath := filepath.Join(tempDir, "main.go")
-	err = os.WriteFile(mainGoPath, []byte(generatedCode), 0o644)
+	// Use engine to write both main.go and go.mod files
+	err = engine.WriteFiles(generationResult, tempDir, "complexcli")
 	if err != nil {
-		t.Fatalf("Failed to write generated code: %v", err)
-	}
-
-	goModContent := `module complexcli
-go 1.24.3
-
-require github.com/spf13/cobra v1.9.1
-`
-	goModPath := filepath.Join(tempDir, "go.mod")
-	err = os.WriteFile(goModPath, []byte(goModContent), 0o644)
-	if err != nil {
-		t.Fatalf("Failed to write go.mod: %v", err)
+		t.Fatalf("Failed to write generated files: %v", err)
 	}
 
 	// First run go mod tidy to generate go.sum

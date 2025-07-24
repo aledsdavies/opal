@@ -227,8 +227,10 @@ func (c *ExecutionContext) executeShellGenerator(content *ast.ShellContent) *Exe
 
 // executeShellPlan creates a plan element for shell execution
 func (c *ExecutionContext) executeShellPlan(content *ast.ShellContent) *ExecutionResult {
-	// Compose the command string for display
-	cmdStr, err := c.composeShellCommand(content)
+	// Compose the command string for display using interpreter-style resolution
+	// This ensures variables are resolved to their actual values for the plan display
+	interpreterCtx := c.WithMode(InterpreterMode)
+	cmdStr, err := interpreterCtx.composeShellCommand(content)
 	if err != nil {
 		return &ExecutionResult{
 			Mode:  PlanMode,
@@ -380,6 +382,89 @@ func (c *ExecutionContext) SetContentExecutor(executor func(ast.CommandContent) 
 // SetFunctionDecoratorLookup sets the function decorator lookup (used by engine)
 func (c *ExecutionContext) SetFunctionDecoratorLookup(lookup func(name string) (FunctionDecorator, bool)) {
 	c.functionDecoratorLookup = lookup
+}
+
+// Shell command execution template for use within error-returning functions
+const shellCommandTemplate = `			cmdStr := {{.CommandExpression}}
+			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+			execCmd.Stdout = os.Stdout
+			execCmd.Stderr = os.Stderr
+			execCmd.Stdin = os.Stdin
+			if err := execCmd.Run(); err != nil {
+				return fmt.Errorf("command failed: %w", err)
+			}
+			return nil`
+
+// GenerateShellCodeForTemplate generates clean Go code for shell command execution
+// This method is designed to be used by decorator templates to generate proper Go code
+// that returns an error instead of calling os.Exit
+func (c *ExecutionContext) GenerateShellCodeForTemplate(content *ast.ShellContent) (string, error) {
+	// Build Go expression parts for the command (similar to executeShellGenerator)
+	var goExprParts []string
+
+	for _, part := range content.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			// Plain text - add as quoted string
+			goExprParts = append(goExprParts, strconv.Quote(p.Text))
+
+		case *ast.FunctionDecorator:
+			// Check if function decorator lookup is available
+			if c.functionDecoratorLookup == nil {
+				return "", fmt.Errorf("function decorator lookup not available (engine not properly initialized)")
+			}
+
+			// Look up the function decorator in the registry
+			funcDecorator, exists := c.functionDecoratorLookup(p.Name)
+			if !exists {
+				return "", fmt.Errorf("function decorator @%s not found in registry", p.Name)
+			}
+
+			// Execute the decorator in generator mode to get Go code
+			generatorCtx := c.WithMode(GeneratorMode)
+			result := funcDecorator.Execute(generatorCtx, p.Args)
+			if result.Error != nil {
+				return "", fmt.Errorf("@%s decorator code generation failed: %w", p.Name, result.Error)
+			}
+
+			// Extract the generated Go code
+			if code, ok := result.Data.(string); ok {
+				goExprParts = append(goExprParts, code)
+			} else {
+				return "", fmt.Errorf("@%s decorator returned non-string code: %T", p.Name, result.Data)
+			}
+
+		default:
+			return "", fmt.Errorf("unsupported shell part type: %T", part)
+		}
+	}
+
+	// Build the Go expression for the command
+	var cmdExpr string
+	if len(goExprParts) == 1 {
+		cmdExpr = goExprParts[0]
+	} else {
+		cmdExpr = strings.Join(goExprParts, " + ")
+	}
+
+	// Use template to generate the code
+	tmpl, err := template.New("shellCommand").Parse(shellCommandTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse shell command template: %w", err)
+	}
+
+	templateData := struct {
+		CommandExpression string
+	}{
+		CommandExpression: cmdExpr,
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute shell command template: %w", err)
+	}
+
+	return result.String(), nil
 }
 
 // resolveVariableValue converts an AST expression to its string value

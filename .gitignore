@@ -70,6 +70,9 @@ examples/*.go
 examples/dev/
 examples/build/
 
+# Build directory for temporary files
+build/
+
 # Test artifacts
 coverage.out
 coverage.html

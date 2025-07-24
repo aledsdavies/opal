@@ -44,7 +44,7 @@ const parallelExecutionTemplate = `func() error {
 
 		// Execute command using template function
 		if err := func() error {
-			{{executeCommand $cmd}}
+			{{generateShellCode $cmd}}
 		}(); err != nil {
 			errChan <- err
 			return
@@ -288,7 +288,7 @@ func (p *ParallelDecorator) executePlan(ctx *execution.ExecutionContext, concurr
 func (p *ParallelDecorator) ImportRequirements() ImportRequirement {
 	return ImportRequirement{
 		StandardLibrary: []string{"context", "sync", "fmt", "strings"}, // Parallel needs sync, context, etc.
-		ThirdParty:      []string{},
+		ThirdParty:      []string{},                                    // Plan import removed - only needed for dry-run which isn't implemented in generated binaries yet
 		GoModules:       map[string]string{},
 	}
 }

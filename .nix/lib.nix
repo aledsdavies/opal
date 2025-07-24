@@ -229,73 +229,40 @@ rec {
       gitHash = gitRev;
       goVersion = "1.24.3";
 
-      # Generate Go source with cache-friendly naming
-      goSource = pkgs.runCommand "${name}-go-source-${contentHash}"
-        {
-          nativeBuildInputs = [ devcmdBin pkgs.go ];
+      # FOD to build CLI binary with network access
+      cliDerivation = pkgs.stdenv.mkDerivation {
+        name = "${name}-${contentHash}";
+        nativeBuildInputs = [ devcmdBin pkgs.go pkgs.cacert ];
 
-          # Cache-friendly attributes
-          preferLocalBuild = true;
-          allowSubstitutes = true;
-        } ''
-                # Go needs a writable cache dir
-                export HOME=$TMPDIR
-                export GOCACHE=$TMPDIR/go-build
+        # FOD configuration - allows network access for Go modules
+        outputHashMode = "recursive";
+        outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Fix after first build
 
-                mkdir -p "$GOCACHE" "$out"
+        phases = [ "installPhase" ];
+        installPhase = ''
+          export HOME=$TMPDIR
+          export GOCACHE=$TMPDIR/go-cache
+          export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+          
+          mkdir -p $out/bin
+          
+          # Build binary directly with devcmd (has network access in FOD)
+          ${devcmdBin}/bin/devcmd build \
+            --file "${commandsSrc}" \
+            --binary "${binaryName}" \
+            --output "$out/bin/${binaryName}"
+        '';
 
-                echo "Generating Go CLI from commands.cli..."
-                ${devcmdBin}/bin/devcmd ${templateArgs} --binary "${binaryName}" --file ${commandsSrc} > "$out/main.go"
-
-                cat > "$out/go.mod" <<EOF
-        module ${name}
-        go ${goVersion}
-
-        require github.com/aledsdavies/devcmd v0.0.0-${gitHash}
-        replace github.com/aledsdavies/devcmd => ${self}
-        EOF
-
-                echo "Validating generated Go code..."
-                ${pkgs.go}/bin/go mod tidy -C "$out"
-                ${pkgs.go}/bin/go build -C "$out" -o /dev/null ./...
-                echo "✅ Generated Go code is valid"
-      '';
+        meta = {
+          description = "Generated CLI binary from devcmd: ${name}";
+          license = lib.licenses.mit;
+          platforms = lib.platforms.unix;
+          mainProgram = binaryName;
+        };
+      };
 
     in
-    pkgs.buildGoModule {
-      pname = name;
-      inherit version;
-      src = goSource;
-      vendorHash = null;
-      proxyVendor = true;
-
-      # Environment variables using correct syntax
-      env.CGO_ENABLED = "0"; # Static binary for better caching
-
-      # Build flags following CODE_GUIDELINES.md
-      ldflags = [
-        "-s"
-        "-w"
-        "-X main.Version=${version}"
-        "-X main.BinaryName=${binaryName}" # Self-awareness: binary knows its own name
-        "-X main.BuildTime=1970-01-01T00:00:00Z" # Deterministic for caching
-        "-X main.GitCommit=nix-generated"
-      ];
-
-      # Custom binary name support
-      postInstall = ''
-        if [ "$pname" != "${binaryName}" ]; then
-          mv $out/bin/$pname $out/bin/${binaryName}
-        fi
-      '';
-
-      meta = {
-        description = "Generated CLI from devcmd: ${name}";
-        license = lib.licenses.mit;
-        platforms = lib.platforms.unix;
-        mainProgram = binaryName;
-      } // meta;
-    };
+    cliDerivation;
 
   # Create a development shell with generated CLI
   mkDevShell =

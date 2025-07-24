@@ -31,7 +31,7 @@ const retryExecutionTemplate = `return func() error {
 			{{range $i, $cmd := .Commands}}
 			// Execute command {{$i}}
 			if err := func() error {
-				{{executeCommand $cmd}}
+				{{generateShellCode $cmd}}
 			}(); err != nil {
 				return err
 			}

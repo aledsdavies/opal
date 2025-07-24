@@ -3,11 +3,17 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime/debug"
 	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/aledsdavies/devcmd/pkgs/decorators"
 	"github.com/aledsdavies/devcmd/pkgs/execution"
+	"github.com/aledsdavies/devcmd/pkgs/plan"
 )
 
 // ProcessGroup represents a group of watch/stop commands for the same identifier
@@ -92,17 +98,80 @@ func (e *Engine) ExecuteCommand(command *ast.CommandDecl) (*CommandResult, error
 	return cmdResult, nil
 }
 
-// GenerateCode generates Go code for the entire program
-func (e *Engine) GenerateCode(program *ast.Program) (*GenerationResult, error) {
-	// Set execution mode to generator
-	ctx := e.ctx.WithMode(execution.GeneratorMode)
+// ExecuteCommandPlan generates an execution plan for a command without executing it
+func (e *Engine) ExecuteCommandPlan(command *ast.CommandDecl) (*plan.ExecutionPlan, error) {
+	// Set execution mode to plan mode
+	ctx := e.ctx.WithMode(execution.PlanMode)
 
-	// Initialize variables
+	// Initialize variables if not already done
 	if err := ctx.InitializeVariables(); err != nil {
 		return nil, fmt.Errorf("failed to initialize variables: %w", err)
 	}
 
-	return e.generateProgram(program)
+	// Create a new execution plan
+	planBuilder := plan.NewPlan()
+
+	// Execute the command content in plan mode to collect plan elements
+	for _, content := range command.Body.Content {
+		switch c := content.(type) {
+		case *ast.ShellContent:
+			// Execute shell content in plan mode
+			result := ctx.ExecuteShell(c)
+			if result.Error != nil {
+				return nil, fmt.Errorf("failed to create plan for shell content: %w", result.Error)
+			}
+
+			// Convert the result to a plan element
+			if planData, ok := result.Data.(map[string]interface{}); ok {
+				if cmdStr, ok := planData["command"].(string); ok {
+					description := "Execute shell command"
+					if desc, ok := planData["description"].(string); ok {
+						description = desc
+					}
+					element := plan.Command(cmdStr).WithDescription(description)
+					planBuilder.Add(element)
+				}
+			}
+		case *ast.BlockDecorator:
+			// Execute block decorator in plan mode
+			result, err := e.executeDecoratorPlan(ctx, c)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create plan for block decorator: %w", err)
+			}
+
+			// Add the plan element returned by the decorator
+			if planElement, ok := result.Data.(plan.PlanElement); ok {
+				planBuilder.Add(planElement)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported command content type in plan mode: %T", content)
+		}
+	}
+
+	return planBuilder.Build(), nil
+}
+
+// executeDecoratorPlan executes a decorator in plan mode
+func (e *Engine) executeDecoratorPlan(ctx *execution.ExecutionContext, decorator *ast.BlockDecorator) (*execution.ExecutionResult, error) {
+	// Look up the decorator in the registry
+	blockDecorator, err := decorators.GetBlock(decorator.Name)
+	if err != nil {
+		return nil, fmt.Errorf("block decorator @%s not found: %w", decorator.Name, err)
+	}
+
+	// Execute the decorator in plan mode
+	result := blockDecorator.Execute(ctx, decorator.Args, decorator.Content)
+	if result.Error != nil {
+		return nil, fmt.Errorf("@%s decorator plan execution failed: %w", decorator.Name, result.Error)
+	}
+
+	return result, nil
+}
+
+// GenerateCode generates Go code for the entire program using template-based approach
+func (e *Engine) GenerateCode(program *ast.Program) (*GenerationResult, error) {
+	// Use the new template-based approach
+	return e.generateCodeWithTemplate(program)
 }
 
 // setupDependencyInjection sets up dependency injection for the execution context
@@ -119,185 +188,24 @@ func (e *Engine) setupDependencyInjection() {
 	e.setupTemplateFunctions()
 }
 
-// generateProgram generates Go code for the program
-func (e *Engine) generateProgram(program *ast.Program) (*GenerationResult, error) {
-	result := &GenerationResult{
-		Code:              strings.Builder{},
-		GoMod:             strings.Builder{},
-		StandardImports:   make(map[string]bool),
-		ThirdPartyImports: make(map[string]bool),
-		GoModules:         make(map[string]string),
+// WriteFiles writes the generated Go code and go.mod to the specified directory
+func (e *Engine) WriteFiles(result *GenerationResult, targetDir string, moduleName string) error {
+	// Write main.go
+	mainGoPath := filepath.Join(targetDir, "main.go")
+	if err := os.WriteFile(mainGoPath, []byte(result.String()), 0o644); err != nil {
+		return fmt.Errorf("failed to write main.go: %w", err)
 	}
 
-	// Process variables into context first (needed for decorator generation)
-	if err := e.processVariablesIntoContext(program); err != nil {
-		return nil, fmt.Errorf("failed to process variables: %w", err)
+	// Write go.mod with custom module name
+	goModContent := result.GoModString()
+	if moduleName != "" && moduleName != "devcmd-generated" {
+		goModContent = strings.Replace(goModContent, "module devcmd-generated", "module "+moduleName, 1)
 	}
 
-	// Add base imports that are always needed
-	result.AddStandardImport("fmt")
-	result.AddStandardImport("os")
-
-	// Analyze and group commands first
-	commandGroups := e.analyzeCommands(program.Commands)
-
-	// Add shell execution imports if the program has commands
-	if len(program.Commands) > 0 {
-		result.AddStandardImport("context")
-		result.AddStandardImport("os/exec")
-		result.AddThirdPartyImport("github.com/spf13/cobra")
+	goModPath := filepath.Join(targetDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
+		return fmt.Errorf("failed to write go.mod: %w", err)
 	}
-
-	// Add process management imports if we have process groups
-	if len(commandGroups.ProcessGroups) > 0 {
-		result.AddStandardImport("io/ioutil")
-		result.AddStandardImport("path/filepath")
-		result.AddStandardImport("strconv")
-		result.AddStandardImport("syscall")
-		result.AddStandardImport("time")
-	}
-
-	// Collect imports from decorators
-	if err := e.collectDecoratorImports(program, result); err != nil {
-		return nil, fmt.Errorf("failed to collect decorator imports: %w", err)
-	}
-
-	// Generate package declaration and imports
-	result.Code.WriteString("package main\n\n")
-	result.Code.WriteString("import (\n")
-	for imp := range result.StandardImports {
-		result.Code.WriteString(fmt.Sprintf("\t\"%s\"\n", imp))
-	}
-	for imp := range result.ThirdPartyImports {
-		result.Code.WriteString(fmt.Sprintf("\t\"%s\"\n", imp))
-	}
-	result.Code.WriteString(")\n\n")
-
-	// Generate the main function header
-	result.Code.WriteString("func main() {\n")
-
-	// Add context for shell execution
-	if len(program.Commands) > 0 {
-		result.Code.WriteString("\tctx := context.Background()\n\n")
-	}
-
-	// Generate variables inside main function
-	if err := e.generateVariables(program.Variables, program, result); err != nil {
-		return nil, fmt.Errorf("failed to generate variables: %w", err)
-	}
-
-	// Generate variable groups inside main function
-	if err := e.generateVarGroups(program.VarGroups, program, result); err != nil {
-		return nil, fmt.Errorf("failed to generate variable groups: %w", err)
-	}
-	result.Code.WriteString("\trootCmd := &cobra.Command{\n")
-	result.Code.WriteString("\t\tUse:   \"cli\",\n")
-	result.Code.WriteString("\t\tShort: \"Generated CLI from devcmd\",\n")
-	result.Code.WriteString("\t}\n\n")
-
-	// Generate regular commands
-	for _, cmd := range commandGroups.RegularCommands {
-		if err := e.generateCobraCommand(cmd, result); err != nil {
-			return nil, fmt.Errorf("failed to generate command %s: %w", cmd.Name, err)
-		}
-	}
-
-	// Generate process management commands (watch/stop groups)
-	for _, group := range commandGroups.ProcessGroups {
-		if err := e.generateProcessCommand(group, result); err != nil {
-			return nil, fmt.Errorf("failed to generate process command %s: %w", group.Identifier, err)
-		}
-	}
-
-	// Execute the root command
-	result.Code.WriteString("\tif err := rootCmd.Execute(); err != nil {\n")
-	result.Code.WriteString("\t\tfmt.Println(err, os.Stderr)\n")
-	result.Code.WriteString("\t\tos.Exit(1)\n")
-	result.Code.WriteString("\t}\n")
-	result.Code.WriteString("}\n")
-
-	return result, nil
-}
-
-// generateCobraCommand generates a Cobra command from an AST command declaration
-func (e *Engine) generateCobraCommand(cmd *ast.CommandDecl, result *GenerationResult) error {
-	// Generate command variable name based on command identifier
-	var cmdVarName string
-	if strings.HasPrefix(cmd.Name, "watch ") {
-		// For watch commands: "watch dev" -> "watchDev"
-		ident := strings.TrimPrefix(cmd.Name, "watch ")
-		cmdVarName = "watch" + capitalizeFirst(toCamelCase(ident))
-	} else if strings.HasPrefix(cmd.Name, "stop ") {
-		// For stop commands: "stop dev" -> "stopDev"
-		ident := strings.TrimPrefix(cmd.Name, "stop ")
-		cmdVarName = "stop" + capitalizeFirst(toCamelCase(ident))
-	} else {
-		// Regular commands: "build" -> "build", "test-all" -> "testAll"
-		cmdVarName = toCamelCase(cmd.Name)
-	}
-
-	// Generate command function
-	result.Code.WriteString(fmt.Sprintf("\t%s := func(cmd *cobra.Command, args []string) {\n", cmdVarName))
-
-	// Generate command body using execution context
-	generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
-	for _, content := range cmd.Body.Content {
-		switch c := content.(type) {
-		case *ast.ShellContent:
-			// Use execution context to generate proper shell code
-			shellResult := generatorCtx.ExecuteShell(c)
-			if shellResult.Error != nil {
-				return fmt.Errorf("failed to generate shell code: %w", shellResult.Error)
-			}
-			if code, ok := shellResult.Data.(string); ok {
-				result.Code.WriteString(code)
-			}
-		case *ast.BlockDecorator:
-			// Add decorator marker comment
-			result.Code.WriteString(fmt.Sprintf("\t\t// Block decorator: @%s\n", c.Name))
-
-			// Generate block decorator code using decorator registry
-			decorator, err := decorators.GetBlock(c.Name)
-			if err != nil {
-				return fmt.Errorf("block decorator @%s not found: %w", c.Name, err)
-			}
-			decoratorResult := decorator.Execute(generatorCtx, c.Args, c.Content)
-			if decoratorResult.Error != nil {
-				return fmt.Errorf("failed to generate block decorator code: %w", decoratorResult.Error)
-			}
-			if code, ok := decoratorResult.Data.(string); ok {
-				result.Code.WriteString(code)
-			}
-		case *ast.PatternDecorator:
-			// Add decorator marker comment
-			result.Code.WriteString(fmt.Sprintf("\t\t// Pattern decorator: @%s\n", c.Name))
-
-			// Generate pattern decorator code using decorator registry
-			decorator, err := decorators.GetPattern(c.Name)
-			if err != nil {
-				return fmt.Errorf("pattern decorator @%s not found: %w", c.Name, err)
-			}
-			decoratorResult := decorator.Execute(generatorCtx, c.Args, c.Patterns)
-			if decoratorResult.Error != nil {
-				return fmt.Errorf("failed to generate pattern decorator code: %w", decoratorResult.Error)
-			}
-			if code, ok := decoratorResult.Data.(string); ok {
-				result.Code.WriteString(code)
-			}
-		default:
-			result.Code.WriteString("\t\t// Unknown command content\n")
-		}
-	}
-
-	result.Code.WriteString("\t}\n\n")
-
-	// Create the Cobra command variable
-	cmdStructName := cmdVarName + "Cmd"
-	result.Code.WriteString(fmt.Sprintf("\t%s := &cobra.Command{\n", cmdStructName))
-	result.Code.WriteString(fmt.Sprintf("\t\tUse:   \"%s\",\n", cmd.Name))
-	result.Code.WriteString(fmt.Sprintf("\t\tRun:   %s,\n", cmdVarName))
-	result.Code.WriteString("\t}\n")
-	result.Code.WriteString(fmt.Sprintf("\trootCmd.AddCommand(%s)\n\n", cmdStructName))
 
 	return nil
 }
@@ -434,125 +342,141 @@ func (e *Engine) addDecoratorImports(decoratorType, name string, result *Generat
 		for module, version := range requirements.GoModules {
 			result.AddGoModule(module, version)
 		}
-	}
 
-	return nil
-}
-
-// generateVariables generates Go code for variable declarations
-func (e *Engine) generateVariables(variables []ast.VariableDecl, program *ast.Program, result *GenerationResult) error {
-	if len(variables) == 0 {
-		return nil
-	}
-
-	// Only generate variables that are actually used in commands
-	usedVars := e.findUsedVariables(program)
-	hasUsedVars := false
-
-	for _, variable := range variables {
-		if usedVars[variable.Name] {
-			if !hasUsedVars {
-				result.Code.WriteString("\t// Variables\n")
-				hasUsedVars = true
-			}
-			value, err := e.resolveVariableValue(variable.Value)
-			if err != nil {
-				return fmt.Errorf("failed to resolve variable %s: %w", variable.Name, err)
-			}
-			result.Code.WriteString(fmt.Sprintf("\t%s := %q\n", variable.Name, value))
-		}
-	}
-
-	if hasUsedVars {
-		result.Code.WriteString("\n")
-	}
-
-	return nil
-}
-
-// generateVarGroups generates Go code for variable group declarations
-func (e *Engine) generateVarGroups(groups []ast.VarGroup, program *ast.Program, result *GenerationResult) error {
-	if len(groups) == 0 {
-		return nil
-	}
-
-	// Only generate variables that are actually used in commands
-	usedVars := e.findUsedVariables(program)
-
-	for _, group := range groups {
-		hasUsedVars := false
-		for _, variable := range group.Variables {
-			if usedVars[variable.Name] {
-				if !hasUsedVars {
-					result.Code.WriteString("\t// Variable group\n")
-					hasUsedVars = true
-				}
-				value, err := e.resolveVariableValue(variable.Value)
-				if err != nil {
-					return fmt.Errorf("failed to resolve variable %s in group: %w", variable.Name, err)
-				}
-				result.Code.WriteString(fmt.Sprintf("\t%s := %q\n", variable.Name, value))
+		// Check if this decorator uses the plan package and inject devcmd dependency
+		needsDevcmdPlan := false
+		for _, pkg := range requirements.ThirdParty {
+			if strings.Contains(pkg, "github.com/aledsdavies/devcmd/pkgs/plan") {
+				needsDevcmdPlan = true
+				break
 			}
 		}
-		if hasUsedVars {
-			result.Code.WriteString("\n")
+
+		// If decorator needs plan package, add devcmd dependency with current version
+		if needsDevcmdPlan {
+			devcmdVersion := e.getDevcmdVersion()
+			result.AddGoModule("github.com/aledsdavies/devcmd", devcmdVersion)
 		}
 	}
 
 	return nil
 }
 
-// findUsedVariables scans the program to find which variables are actually used
-func (e *Engine) findUsedVariables(program *ast.Program) map[string]bool {
-	used := make(map[string]bool)
+// generateGoMod creates the go.mod file content from collected dependencies
+// Go module template
+const goModTemplate = `module devcmd-generated
 
-	// Scan commands for variable usage
-	for _, cmd := range program.Commands {
-		e.scanCommandContentForVariables(cmd.Body.Content, used)
-	}
+go 1.21
 
-	// DEBUG: For now, mark all variables as used to avoid compilation errors
-	// This is a temporary fix until proper shell command generation is implemented
-	for _, variable := range program.Variables {
-		used[variable.Name] = true
-	}
-	for _, group := range program.VarGroups {
-		for _, variable := range group.Variables {
-			used[variable.Name] = true
-		}
-	}
+require (
+	github.com/spf13/cobra v1.9.1{{if .NeedsDevcmd}}
+	github.com/aledsdavies/devcmd {{.DevcmdVersion}}{{end}}
+	{{range .Modules}}{{.Module}} {{.Version}}
+	{{end}}
+)
+{{if and .NeedsDevcmd .IsLocalDev}}
+// Replace directive for local development
+replace github.com/aledsdavies/devcmd => {{.LocalPath}}
+{{end}}`
 
-	return used
+type GoModTemplateData struct {
+	NeedsDevcmd   bool
+	DevcmdVersion string
+	IsLocalDev    bool
+	LocalPath     string
+	Modules       []ModuleData
 }
 
-// scanCommandContentForVariables recursively scans command content for variable usage
-func (e *Engine) scanCommandContentForVariables(content []ast.CommandContent, used map[string]bool) {
-	for _, item := range content {
-		switch c := item.(type) {
-		case *ast.ShellContent:
-			// Scan shell parts for function decorators (like @var)
-			for _, part := range c.Parts {
-				if fn, ok := part.(*ast.FunctionDecorator); ok && fn.Name == "var" {
-					// Extract variable name from @var() decorator
-					if len(fn.Args) > 0 {
-						if param := fn.Args[0]; param.Name == "" || param.Name == "name" {
-							if identifier, ok := param.Value.(*ast.Identifier); ok {
-								used[identifier.Name] = true
-							}
-						}
-					}
-				}
-			}
-		case *ast.BlockDecorator:
-			// Recursively scan block content
-			e.scanCommandContentForVariables(c.Content, used)
-		case *ast.PatternDecorator:
-			// Recursively scan pattern branches
-			for _, pattern := range c.Patterns {
-				e.scanCommandContentForVariables(pattern.Commands, used)
+type ModuleData struct {
+	Module  string
+	Version string
+}
+
+func (e *Engine) generateGoMod(result *GenerationResult) error {
+	// Check if we need devcmd module (for plan DSL, etc.)
+	needsDevcmd := false
+	for module := range result.GoModules {
+		if strings.Contains(module, "github.com/aledsdavies/devcmd") {
+			needsDevcmd = true
+			break
+		}
+	}
+
+	// Collect other modules (excluding cobra and devcmd)
+	var modules []ModuleData
+	for module, version := range result.GoModules {
+		if module != "github.com/spf13/cobra" && !strings.Contains(module, "github.com/aledsdavies/devcmd") {
+			modules = append(modules, ModuleData{
+				Module:  module,
+				Version: version,
+			})
+		}
+	}
+
+	templateData := GoModTemplateData{
+		NeedsDevcmd:   needsDevcmd,
+		DevcmdVersion: e.getDevcmdVersion(),
+		IsLocalDev:    e.isLocalDevelopment(),
+		LocalPath:     e.getDevcmdLocalPath(),
+		Modules:       modules,
+	}
+
+	tmpl, err := template.New("goMod").Parse(goModTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse go.mod template: %w", err)
+	}
+
+	if err := tmpl.Execute(&result.GoMod, templateData); err != nil {
+		return fmt.Errorf("failed to execute go.mod template: %w", err)
+	}
+
+	return nil
+}
+
+// isLocalDevelopment checks if we're in local development mode
+func (e *Engine) isLocalDevelopment() bool {
+	// Check if we're in a git repository and the version looks like a dev version
+	version := e.getDevcmdVersion()
+	return strings.Contains(version, "dev") || version == "v0.0.0-dev"
+}
+
+// getDevcmdLocalPath tries to determine the local path to the devcmd module
+func (e *Engine) getDevcmdLocalPath() string {
+	// Try to find the devcmd project root by looking for go.mod
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return "../../" // fallback
+	}
+
+	// Check if we're in the devcmd project itself
+	if _, err := os.Stat(filepath.Join(workingDir, "go.mod")); err == nil {
+		// Check if this is the devcmd module
+		if goModBytes, err := os.ReadFile(filepath.Join(workingDir, "go.mod")); err == nil {
+			if strings.Contains(string(goModBytes), "github.com/aledsdavies/devcmd") {
+				return workingDir
 			}
 		}
 	}
+
+	// Try going up directories to find the devcmd project
+	currentDir := workingDir
+	for i := 0; i < 5; i++ { // Limit search depth
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			break // reached root
+		}
+
+		goModPath := filepath.Join(parentDir, "go.mod")
+		if goModBytes, err := os.ReadFile(goModPath); err == nil {
+			if strings.Contains(string(goModBytes), "github.com/aledsdavies/devcmd") {
+				return parentDir
+			}
+		}
+		currentDir = parentDir
+	}
+
+	// Fallback to relative path
+	return "../../"
 }
 
 // toCamelCase converts a command name to camelCase for variable naming
@@ -624,227 +548,531 @@ func (e *Engine) analyzeCommands(commands []ast.CommandDecl) CommandGroups {
 	return groups
 }
 
-// generateProcessCommand generates a process management command with run/stop/status/logs subcommands
-func (e *Engine) generateProcessCommand(group ProcessGroup, result *GenerationResult) error {
-	identifier := toCamelCase(group.Identifier)
-
-	// Generate the main run function first (will be used by main command and run subcommand)
-	var runFunctionName string
-	if group.WatchCommand != nil {
-		runFunctionName = fmt.Sprintf("%sRun", identifier)
-		if err := e.generateProcessRunFunction(group, result); err != nil {
-			return fmt.Errorf("failed to generate run function: %w", err)
-		}
-	}
-
-	// Generate the main process command with default run behavior
-	result.Code.WriteString(fmt.Sprintf("\t// Process management for %s\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t%sCmd := &cobra.Command{\n", identifier))
-	result.Code.WriteString(fmt.Sprintf("\t\tUse:   \"%s\",\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t\tShort: \"Manage %s process\",\n", group.Identifier))
-	if runFunctionName != "" {
-		result.Code.WriteString(fmt.Sprintf("\t\tRun:   %s, // Default action is to run\n", runFunctionName))
-	}
-	result.Code.WriteString("\t}\n\n")
-
-	// Generate run subcommand (from watch command)
-	if group.WatchCommand != nil {
-		if err := e.generateProcessRunCommand(group, result); err != nil {
-			return fmt.Errorf("failed to generate run command: %w", err)
-		}
-	}
-
-	// Generate stop subcommand (from stop command or default)
-	if err := e.generateProcessStopCommand(group, result); err != nil {
-		return fmt.Errorf("failed to generate stop command: %w", err)
-	}
-
-	// Generate status subcommand
-	if err := e.generateProcessStatusCommand(group, result); err != nil {
-		return fmt.Errorf("failed to generate status command: %w", err)
-	}
-
-	// Generate logs subcommand
-	if err := e.generateProcessLogsCommand(group, result); err != nil {
-		return fmt.Errorf("failed to generate logs command: %w", err)
-	}
-
-	// Add the main command to root
-	result.Code.WriteString(fmt.Sprintf("\trootCmd.AddCommand(%sCmd)\n\n", identifier))
-
-	return nil
-}
-
-// generateProcessRunFunction generates the run function that can be shared by main command and run subcommand
-func (e *Engine) generateProcessRunFunction(group ProcessGroup, result *GenerationResult) error {
-	identifier := toCamelCase(group.Identifier)
-
-	result.Code.WriteString(fmt.Sprintf("\t// %s run function\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t%sRun := func(cmd *cobra.Command, args []string) {\n", identifier))
-
-	// Generate the command content from watch command
-	generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
-	for _, content := range group.WatchCommand.Body.Content {
-		switch c := content.(type) {
-		case *ast.ShellContent:
-			shellResult := generatorCtx.ExecuteShell(c)
-			if shellResult.Error != nil {
-				return fmt.Errorf("failed to generate shell code: %w", shellResult.Error)
-			}
-			if code, ok := shellResult.Data.(string); ok {
-				result.Code.WriteString(code)
-			}
-		}
-	}
-
-	result.Code.WriteString("\t}\n\n")
-	return nil
-}
-
-// generateProcessRunCommand generates the 'run' subcommand for process management
-func (e *Engine) generateProcessRunCommand(group ProcessGroup, result *GenerationResult) error {
-	identifier := toCamelCase(group.Identifier)
-
-	// Create the run subcommand (reuses the function generated earlier)
-	result.Code.WriteString(fmt.Sprintf("\t%sRunCmd := &cobra.Command{\n", identifier))
-	result.Code.WriteString("\t\tUse:   \"run\",\n")
-	result.Code.WriteString(fmt.Sprintf("\t\tShort: \"Start %s process (explicit)\",\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t\tRun:   %sRun,\n", identifier))
-	result.Code.WriteString("\t}\n")
-	result.Code.WriteString(fmt.Sprintf("\t%sCmd.AddCommand(%sRunCmd)\n\n", identifier, identifier))
-
-	return nil
-}
-
-// generateProcessStopCommand generates the 'stop' subcommand
-func (e *Engine) generateProcessStopCommand(group ProcessGroup, result *GenerationResult) error {
-	identifier := toCamelCase(group.Identifier)
-
-	result.Code.WriteString(fmt.Sprintf("\t// %s stop command\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t%sStop := func(cmd *cobra.Command, args []string) {\n", identifier))
-
-	if group.StopCommand != nil {
-		// Use custom stop command if provided
-		generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
-		for _, content := range group.StopCommand.Body.Content {
-			switch c := content.(type) {
-			case *ast.ShellContent:
-				shellResult := generatorCtx.ExecuteShell(c)
-				if shellResult.Error != nil {
-					return fmt.Errorf("failed to generate shell code: %w", shellResult.Error)
-				}
-				if code, ok := shellResult.Data.(string); ok {
-					result.Code.WriteString(code)
-				}
-			}
-		}
-	} else {
-		// Default stop behavior - kill process by name
-		result.Code.WriteString("\t\tfunc() {\n")
-		result.Code.WriteString(fmt.Sprintf("\t\t\tcmdStr := \"pkill -f '%s'\"\n", group.Identifier))
-		result.Code.WriteString("\t\t\texecCmd := exec.CommandContext(ctx, \"sh\", \"-c\", cmdStr)\n")
-		result.Code.WriteString("\t\t\texecCmd.Stdout = os.Stdout\n")
-		result.Code.WriteString("\t\t\texecCmd.Stderr = os.Stderr\n")
-		result.Code.WriteString("\t\t\tif err := execCmd.Run(); err != nil {\n")
-		result.Code.WriteString("\t\t\t\tfmt.Fprintf(os.Stderr, \"Stop command failed: %v\\n\", err)\n")
-		result.Code.WriteString("\t\t\t}\n")
-		result.Code.WriteString("\t\t}()\n")
-	}
-
-	result.Code.WriteString("\t}\n\n")
-
-	// Create the stop subcommand
-	result.Code.WriteString(fmt.Sprintf("\t%sStopCmd := &cobra.Command{\n", identifier))
-	result.Code.WriteString("\t\tUse:   \"stop\",\n")
-	result.Code.WriteString(fmt.Sprintf("\t\tShort: \"Stop %s process\",\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t\tRun:   %sStop,\n", identifier))
-	result.Code.WriteString("\t}\n")
-	result.Code.WriteString(fmt.Sprintf("\t%sCmd.AddCommand(%sStopCmd)\n\n", identifier, identifier))
-
-	return nil
-}
-
-// generateProcessStatusCommand generates the 'status' subcommand
-func (e *Engine) generateProcessStatusCommand(group ProcessGroup, result *GenerationResult) error {
-	identifier := toCamelCase(group.Identifier)
-
-	result.Code.WriteString(fmt.Sprintf("\t// %s status command\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t%sStatus := func(cmd *cobra.Command, args []string) {\n", identifier))
-	result.Code.WriteString("\t\tfunc() {\n")
-	result.Code.WriteString(fmt.Sprintf("\t\t\tcmdStr := \"pgrep -f '%s' || echo 'Process not running'\"\n", group.Identifier))
-	result.Code.WriteString("\t\t\texecCmd := exec.CommandContext(ctx, \"sh\", \"-c\", cmdStr)\n")
-	result.Code.WriteString("\t\t\texecCmd.Stdout = os.Stdout\n")
-	result.Code.WriteString("\t\t\texecCmd.Stderr = os.Stderr\n")
-	result.Code.WriteString("\t\t\tif err := execCmd.Run(); err != nil {\n")
-	result.Code.WriteString("\t\t\t\tfmt.Fprintf(os.Stderr, \"Status command failed: %v\\n\", err)\n")
-	result.Code.WriteString("\t\t\t}\n")
-	result.Code.WriteString("\t\t}()\n")
-	result.Code.WriteString("\t}\n\n")
-
-	// Create the status subcommand
-	result.Code.WriteString(fmt.Sprintf("\t%sStatusCmd := &cobra.Command{\n", identifier))
-	result.Code.WriteString("\t\tUse:   \"status\",\n")
-	result.Code.WriteString(fmt.Sprintf("\t\tShort: \"Show %s process status\",\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t\tRun:   %sStatus,\n", identifier))
-	result.Code.WriteString("\t}\n")
-	result.Code.WriteString(fmt.Sprintf("\t%sCmd.AddCommand(%sStatusCmd)\n\n", identifier, identifier))
-
-	return nil
-}
-
-// generateProcessLogsCommand generates the 'logs' subcommand
-func (e *Engine) generateProcessLogsCommand(group ProcessGroup, result *GenerationResult) error {
-	identifier := toCamelCase(group.Identifier)
-
-	result.Code.WriteString(fmt.Sprintf("\t// %s logs command\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t%sLogs := func(cmd *cobra.Command, args []string) {\n", identifier))
-	result.Code.WriteString("\t\tfunc() {\n")
-	result.Code.WriteString(fmt.Sprintf("\t\t\tcmdStr := \"echo 'Logs for %s process'\"\n", group.Identifier))
-	result.Code.WriteString("\t\t\texecCmd := exec.CommandContext(ctx, \"sh\", \"-c\", cmdStr)\n")
-	result.Code.WriteString("\t\t\texecCmd.Stdout = os.Stdout\n")
-	result.Code.WriteString("\t\t\texecCmd.Stderr = os.Stderr\n")
-	result.Code.WriteString("\t\t\tif err := execCmd.Run(); err != nil {\n")
-	result.Code.WriteString("\t\t\t\tfmt.Fprintf(os.Stderr, \"Logs command failed: %v\\n\", err)\n")
-	result.Code.WriteString("\t\t\t}\n")
-	result.Code.WriteString("\t\t}()\n")
-	result.Code.WriteString("\t}\n\n")
-
-	// Create the logs subcommand
-	result.Code.WriteString(fmt.Sprintf("\t%sLogsCmd := &cobra.Command{\n", identifier))
-	result.Code.WriteString("\t\tUse:   \"logs\",\n")
-	result.Code.WriteString(fmt.Sprintf("\t\tShort: \"Show %s process logs\",\n", group.Identifier))
-	result.Code.WriteString(fmt.Sprintf("\t\tRun:   %sLogs,\n", identifier))
-	result.Code.WriteString("\t}\n")
-	result.Code.WriteString(fmt.Sprintf("\t%sCmd.AddCommand(%sLogsCmd)\n\n", identifier, identifier))
-
-	return nil
-}
-
 // setupTemplateFunctions sets up template functions for the execution context
 func (e *Engine) setupTemplateFunctions() {
 	templateFuncs := map[string]interface{}{
-		"executeCommand": func(content ast.CommandContent) string {
-			// Generate code for executing a command content within template context
-			generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
+		"generateShellCode": func(content ast.CommandContent) string {
+			// Use the execution context's clean shell code generation
 			switch c := content.(type) {
 			case *ast.ShellContent:
-				result := generatorCtx.ExecuteShell(c)
-				if result.Error != nil {
-					return fmt.Sprintf("return fmt.Errorf(\"shell generation error: %v\")", result.Error)
+				code, err := e.ctx.GenerateShellCodeForTemplate(c)
+				if err != nil {
+					return fmt.Sprintf("return fmt.Errorf(\"shell generation error: %v\")", err)
 				}
-				if code, ok := result.Data.(string); ok {
-					// Modify the shell code to return an error instead of calling os.Exit
-					modifiedCode := strings.ReplaceAll(code, "os.Exit(1)", "return err")
-					// Remove the function wrapper since we're inside a template function
-					modifiedCode = strings.Replace(modifiedCode, "func() {", "", 1)
-					modifiedCode = strings.Replace(modifiedCode, "}()", "return nil", 1)
-					return modifiedCode
-				}
-				return "return fmt.Errorf(\"failed to generate shell code\")"
+				return code
 			default:
 				return fmt.Sprintf("return fmt.Errorf(\"unsupported command content type: %T\")", content)
 			}
 		},
 	}
 	e.ctx.SetTemplateFunctions(templateFuncs)
+}
+
+// getDevcmdVersion attempts to determine the current devcmd version for go.mod generation
+func (e *Engine) getDevcmdVersion() string {
+	// Try to get version from build info (when built with go install or go build)
+	if info, ok := debug.ReadBuildInfo(); ok {
+		// Check if we can find our own module version
+		if info.Main.Version != "" && info.Main.Version != "(devel)" {
+			return info.Main.Version
+		}
+
+		// Look for version info in build settings (git commit, etc.)
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" && len(setting.Value) >= 7 {
+				// Use pseudo-version format with commit hash
+				return fmt.Sprintf("v0.0.0-dev-%s", setting.Value[:7])
+			}
+		}
+	}
+
+	// Try to get version from git (if we're in a git repository)
+	if gitVersion := e.tryGetGitVersion(); gitVersion != "" {
+		return gitVersion
+	}
+
+	// Fallback to development version
+	return "v0.0.0-dev"
+}
+
+// tryGetGitVersion attempts to get version info from git
+func (e *Engine) tryGetGitVersion() string {
+	// Try to get current commit hash
+	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	if output, err := cmd.Output(); err == nil {
+		commit := strings.TrimSpace(string(output))
+		if commit != "" {
+			return fmt.Sprintf("v0.0.0-dev-%s", commit)
+		}
+	}
+
+	return ""
+}
+
+// Main CLI template - replaces all the fragile WriteString calls
+const mainCLITemplate = `package main
+
+import (
+	{{range .StandardImports}}"{{.}}"
+	{{end}}{{range .ThirdPartyImports}}"{{.}}"
+	{{end}}
+)
+
+func main() {
+	ctx := context.Background()
+
+	// Variables
+	{{range .Variables}}{{.Name}} := {{.Value}}
+	{{end}}
+
+	// Global flag for dry-run mode
+	var dryRun bool
+
+	rootCmd := &cobra.Command{
+		Use:   "cli",
+		Short: "Generated CLI from devcmd",
+	}
+	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Show execution plan without running commands")
+
+	{{range .Commands}}
+	// Command: {{.Name}}
+	{{.FunctionName}} := func(cmd *cobra.Command, args []string) {
+		if dryRun {
+			// TODO: Execute in plan mode - embed AST and use engine
+			fmt.Printf("=== Execution Plan ===\nCommand: {{.Name}}\n(Plan mode not implemented yet)\n")
+			return
+		}
+		
+		// Normal execution
+		{{.ExecutionCode}}
+	}
+
+	{{.CommandName}} := &cobra.Command{
+		Use:   "{{.Name}}",
+		Run:   {{.FunctionName}},
+	}
+	rootCmd.AddCommand({{.CommandName}})
+	{{end}}
+
+	{{range .ProcessGroups}}
+	// Process management for {{.Identifier}}
+	{{.FunctionName}}Run := func(cmd *cobra.Command, args []string) {
+		if dryRun {
+			// TODO: Execute in plan mode - embed AST and use engine
+			fmt.Printf("=== Execution Plan ===\nProcess: {{.Identifier}} (run)\n(Plan mode not implemented yet)\n")
+			return
+		}
+		
+		// Normal execution
+		{{.WatchExecutionCode}}
+	}
+
+	{{.CommandName}} := &cobra.Command{
+		Use:   "{{.Identifier}}",
+		Short: "Manage {{.Identifier}} process",
+		{{if .WatchExecutionCode}}Run:   {{.FunctionName}}Run, // Default action is to run{{end}}
+	}
+
+	// Run subcommand (explicit)
+	{{.FunctionName}}RunCmd := &cobra.Command{
+		Use:   "run",
+		Short: "Start {{.Identifier}} process (explicit)",
+		Run:   {{.FunctionName}}Run,
+	}
+	{{.CommandName}}.AddCommand({{.FunctionName}}RunCmd)
+
+	// Stop subcommand
+	{{.FunctionName}}Stop := func(cmd *cobra.Command, args []string) {
+		if dryRun {
+			// TODO: Execute in plan mode - embed AST and use engine  
+			fmt.Printf("=== Execution Plan ===\nProcess: {{.Identifier}} (stop)\n(Plan mode not implemented yet)\n")
+			return
+		}
+		
+		{{if .HasCustomStop}}// Custom stop logic
+		{{.StopExecutionCode}}{{else}}// Default stop logic
+		func() {
+			cmdStr := "pkill -f '{{.Identifier}}'"
+			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+			execCmd.Stdout = os.Stdout
+			execCmd.Stderr = os.Stderr
+			if err := execCmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Stop command failed: %v\n", err)
+			}
+		}(){{end}}
+	}
+
+	{{.FunctionName}}StopCmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop {{.Identifier}} process",
+		Run:   {{.FunctionName}}Stop,
+	}
+	{{.CommandName}}.AddCommand({{.FunctionName}}StopCmd)
+
+	// Status subcommand
+	{{.FunctionName}}Status := func(cmd *cobra.Command, args []string) {
+		if dryRun {
+			// TODO: Execute in plan mode - embed AST and use engine
+			fmt.Printf("=== Execution Plan ===\nProcess: {{.Identifier}} (status)\n(Plan mode not implemented yet)\n")
+			return
+		}
+		
+		func() {
+			cmdStr := "pgrep -f '{{.Identifier}}' || echo 'Process not running'"
+			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+			execCmd.Stdout = os.Stdout
+			execCmd.Stderr = os.Stderr
+			if err := execCmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Status command failed: %v\n", err)
+			}
+		}()
+	}
+
+	{{.FunctionName}}StatusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show {{.Identifier}} process status",
+		Run:   {{.FunctionName}}Status,
+	}
+	{{.CommandName}}.AddCommand({{.FunctionName}}StatusCmd)
+
+	// Logs subcommand
+	{{.FunctionName}}Logs := func(cmd *cobra.Command, args []string) {
+		if dryRun {
+			// TODO: Execute in plan mode - embed AST and use engine
+			fmt.Printf("=== Execution Plan ===\nProcess: {{.Identifier}} (logs)\n(Plan mode not implemented yet)\n")
+			return
+		}
+		
+		func() {
+			cmdStr := "echo 'Logs for {{.Identifier}} process'"
+			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+			execCmd.Stdout = os.Stdout
+			execCmd.Stderr = os.Stderr
+			if err := execCmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Logs command failed: %v\n", err)
+			}
+		}()
+	}
+
+	{{.FunctionName}}LogsCmd := &cobra.Command{
+		Use:   "logs",
+		Short: "Show {{.Identifier}} process logs",
+		Run:   {{.FunctionName}}Logs,
+	}
+	{{.CommandName}}.AddCommand({{.FunctionName}}LogsCmd)
+
+	rootCmd.AddCommand({{.CommandName}})
+	{{end}}
+
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err, os.Stderr)
+		os.Exit(1)
+	}
+}
+`
+
+// Template data structures
+type CLITemplateData struct {
+	StandardImports   []string
+	ThirdPartyImports []string
+	Variables         []VariableData
+	Commands          []CommandData
+	ProcessGroups     []ProcessGroupData
+}
+
+type VariableData struct {
+	Name  string
+	Value string
+}
+
+type CommandData struct {
+	Name          string
+	FunctionName  string
+	CommandName   string
+	ExecutionCode string
+}
+
+type ProcessGroupData struct {
+	Identifier         string
+	FunctionName       string
+	CommandName        string
+	RunFunctionName    string
+	HasCustomStop      bool
+	WatchExecutionCode string
+	StopExecutionCode  string
+}
+
+// generateCodeWithTemplate uses a template-based approach instead of fragile WriteString calls
+func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResult, error) {
+	// Set execution mode to generator
+	ctx := e.ctx.WithMode(execution.GeneratorMode)
+
+	// Initialize variables in the context first (critical for @var decorator)
+	if err := ctx.InitializeVariables(); err != nil {
+		return nil, fmt.Errorf("failed to initialize variables: %w", err)
+	}
+
+	// Analyze commands to separate regular commands from process management early
+	commandGroups := e.analyzeCommands(program.Commands)
+
+	// Initialize the result
+	result := &GenerationResult{
+		Code:              strings.Builder{},
+		GoMod:             strings.Builder{},
+		StandardImports:   make(map[string]bool),
+		ThirdPartyImports: make(map[string]bool),
+		GoModules:         make(map[string]string),
+	}
+
+	// Add basic imports needed for generated CLI
+	result.AddStandardImport("context")
+	result.AddStandardImport("fmt")
+	result.AddStandardImport("os")
+	result.AddStandardImport("os/exec")
+
+	// Add process management imports if we have process groups
+	if len(commandGroups.ProcessGroups) > 0 {
+		result.AddStandardImport("io/ioutil")
+		result.AddStandardImport("path/filepath")
+		result.AddStandardImport("strconv")
+		result.AddStandardImport("syscall")
+		result.AddStandardImport("time")
+	}
+
+	// Collect imports from all decorators used in the program
+	if err := e.collectDecoratorImports(program, result); err != nil {
+		return nil, fmt.Errorf("failed to collect decorator imports: %w", err)
+	}
+
+	// Add cobra for CLI generation (always needed for generated CLIs)
+	result.AddThirdPartyImport("github.com/spf13/cobra")
+
+	// Convert import maps to slices for template
+	var standardImports []string
+	for imp := range result.StandardImports {
+		standardImports = append(standardImports, imp)
+	}
+	var thirdPartyImports []string
+	for imp := range result.ThirdPartyImports {
+		thirdPartyImports = append(thirdPartyImports, imp)
+	}
+
+	// Prepare template data
+	templateData := CLITemplateData{
+		StandardImports:   standardImports,
+		ThirdPartyImports: thirdPartyImports,
+		Variables:         []VariableData{},
+		Commands:          []CommandData{},
+		ProcessGroups:     []ProcessGroupData{},
+	}
+
+	// Add variables to template data
+	for _, variable := range program.Variables {
+		value, err := e.resolveVariableValue(variable.Value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve variable %s: %w", variable.Name, err)
+		}
+		templateData.Variables = append(templateData.Variables, VariableData{
+			Name:  variable.Name,
+			Value: fmt.Sprintf("%q", value), // Quote the string value
+		})
+	}
+
+	// Add regular commands to template data by executing them in generator mode
+	for _, cmd := range commandGroups.RegularCommands {
+		// Execute the command content using the execution context to get proper template-generated code
+		var executionCode strings.Builder
+
+		for _, content := range cmd.Body.Content {
+			// Execute each piece of content and collect the generated code
+			switch c := content.(type) {
+			case *ast.ShellContent:
+				execResult := ctx.ExecuteShell(c)
+				if execResult.Error != nil {
+					return nil, fmt.Errorf("failed to generate shell code for command %s: %w", cmd.Name, execResult.Error)
+				}
+				if code, ok := execResult.Data.(string); ok {
+					executionCode.WriteString(code)
+				}
+
+			case *ast.BlockDecorator:
+				// Add decorator marker comment (expected by tests)
+				executionCode.WriteString(fmt.Sprintf("\t\t// Block decorator: @%s\n", c.Name))
+
+				// Collect imports for this decorator
+				if err := e.addDecoratorImports("block", c.Name, result); err != nil {
+					return nil, fmt.Errorf("failed to collect imports for @%s in command %s: %w", c.Name, cmd.Name, err)
+				}
+
+				// Execute the decorator to get generated code
+				blockDecorator, err := decorators.GetBlock(c.Name)
+				if err != nil {
+					return nil, fmt.Errorf("block decorator @%s not found for command %s: %w", c.Name, cmd.Name, err)
+				}
+				decoratorResult := blockDecorator.Execute(ctx, c.Args, c.Content)
+				if decoratorResult.Error != nil {
+					return nil, fmt.Errorf("@%s decorator execution failed in command %s: %w", c.Name, cmd.Name, decoratorResult.Error)
+				}
+				if code, ok := decoratorResult.Data.(string); ok {
+					executionCode.WriteString(code)
+				}
+
+			case *ast.PatternDecorator:
+				// Add decorator marker comment (expected by tests)
+				executionCode.WriteString(fmt.Sprintf("\t\t// Pattern decorator: @%s\n", c.Name))
+
+				// Collect imports for this decorator
+				if err := e.addDecoratorImports("pattern", c.Name, result); err != nil {
+					return nil, fmt.Errorf("failed to collect imports for @%s in command %s: %w", c.Name, cmd.Name, err)
+				}
+
+				// Also collect imports from pattern branches recursively
+				for _, pattern := range c.Patterns {
+					if err := e.collectDecoratorImportsFromContent(pattern.Commands, result); err != nil {
+						return nil, fmt.Errorf("failed to collect imports from pattern branches in command %s: %w", cmd.Name, err)
+					}
+				}
+
+				// Execute the pattern decorator to get generated code
+				patternDecorator, err := decorators.GetPattern(c.Name)
+				if err != nil {
+					return nil, fmt.Errorf("pattern decorator @%s not found for command %s: %w", c.Name, cmd.Name, err)
+				}
+				decoratorResult := patternDecorator.Execute(ctx, c.Args, c.Patterns)
+				if decoratorResult.Error != nil {
+					return nil, fmt.Errorf("@%s decorator execution failed in command %s: %w", c.Name, cmd.Name, decoratorResult.Error)
+				}
+				if code, ok := decoratorResult.Data.(string); ok {
+					executionCode.WriteString(code)
+				}
+
+			default:
+				return nil, fmt.Errorf("unsupported command content type %T in command %s", content, cmd.Name)
+			}
+		}
+
+		templateData.Commands = append(templateData.Commands, CommandData{
+			Name:          cmd.Name,
+			FunctionName:  toCamelCase(cmd.Name),
+			CommandName:   toCamelCase(cmd.Name) + "Cmd",
+			ExecutionCode: executionCode.String(),
+		})
+	}
+
+	// Process groups (watch/stop commands)
+	for _, group := range commandGroups.ProcessGroups {
+		identifier := group.Identifier
+		processData := ProcessGroupData{
+			Identifier:      identifier,
+			FunctionName:    toCamelCase(identifier),
+			CommandName:     toCamelCase(identifier) + "Cmd",
+			RunFunctionName: toCamelCase(identifier) + "Run",
+			HasCustomStop:   group.StopCommand != nil,
+		}
+
+		// Generate watch command execution code
+		if group.WatchCommand != nil {
+			var watchCode strings.Builder
+			for _, content := range group.WatchCommand.Body.Content {
+				switch c := content.(type) {
+				case *ast.ShellContent:
+					execResult := ctx.ExecuteShell(c)
+					if execResult.Error != nil {
+						return nil, fmt.Errorf("failed to generate shell code for watch command %s: %w", identifier, execResult.Error)
+					}
+					if code, ok := execResult.Data.(string); ok {
+						watchCode.WriteString(code)
+					}
+				case *ast.BlockDecorator:
+					if err := e.addDecoratorImports("block", c.Name, result); err != nil {
+						return nil, fmt.Errorf("failed to collect imports for @%s in watch command %s: %w", c.Name, identifier, err)
+					}
+					blockDecorator, err := decorators.GetBlock(c.Name)
+					if err != nil {
+						return nil, fmt.Errorf("block decorator @%s not found for watch command %s: %w", c.Name, identifier, err)
+					}
+					decoratorResult := blockDecorator.Execute(ctx, c.Args, c.Content)
+					if decoratorResult.Error != nil {
+						return nil, fmt.Errorf("@%s decorator execution failed in watch command %s: %w", c.Name, identifier, decoratorResult.Error)
+					}
+					if code, ok := decoratorResult.Data.(string); ok {
+						watchCode.WriteString(code)
+					}
+				default:
+					return nil, fmt.Errorf("unsupported command content type %T in watch command %s", content, identifier)
+				}
+			}
+			processData.WatchExecutionCode = watchCode.String()
+		}
+
+		// Generate stop command execution code
+		if group.StopCommand != nil {
+			var stopCode strings.Builder
+			for _, content := range group.StopCommand.Body.Content {
+				switch c := content.(type) {
+				case *ast.ShellContent:
+					execResult := ctx.ExecuteShell(c)
+					if execResult.Error != nil {
+						return nil, fmt.Errorf("failed to generate shell code for stop command %s: %w", identifier, execResult.Error)
+					}
+					if code, ok := execResult.Data.(string); ok {
+						stopCode.WriteString(code)
+					}
+				case *ast.BlockDecorator:
+					if err := e.addDecoratorImports("block", c.Name, result); err != nil {
+						return nil, fmt.Errorf("failed to collect imports for @%s in stop command %s: %w", c.Name, identifier, err)
+					}
+					blockDecorator, err := decorators.GetBlock(c.Name)
+					if err != nil {
+						return nil, fmt.Errorf("block decorator @%s not found for stop command %s: %w", c.Name, identifier, err)
+					}
+					decoratorResult := blockDecorator.Execute(ctx, c.Args, c.Content)
+					if decoratorResult.Error != nil {
+						return nil, fmt.Errorf("@%s decorator execution failed in stop command %s: %w", c.Name, identifier, decoratorResult.Error)
+					}
+					if code, ok := decoratorResult.Data.(string); ok {
+						stopCode.WriteString(code)
+					}
+				default:
+					return nil, fmt.Errorf("unsupported command content type %T in stop command %s", content, identifier)
+				}
+			}
+			processData.StopExecutionCode = stopCode.String()
+		}
+
+		templateData.ProcessGroups = append(templateData.ProcessGroups, processData)
+	}
+
+	// Update template data with collected imports (convert maps to slices)
+	standardImports = []string{}
+	for imp := range result.StandardImports {
+		standardImports = append(standardImports, imp)
+	}
+	thirdPartyImports = []string{}
+	for imp := range result.ThirdPartyImports {
+		thirdPartyImports = append(thirdPartyImports, imp)
+	}
+	templateData.StandardImports = standardImports
+	templateData.ThirdPartyImports = thirdPartyImports
+
+	// Execute the template
+	tmpl, err := template.New("mainCLI").Parse(mainCLITemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse main CLI template: %w", err)
+	}
+
+	var codeBuilder strings.Builder
+	if err := tmpl.Execute(&codeBuilder, templateData); err != nil {
+		return nil, fmt.Errorf("failed to execute main CLI template: %w", err)
+	}
+
+	// Set the generated code
+	result.Code.WriteString(codeBuilder.String())
+
+	// Generate go.mod
+	if err := e.generateGoMod(result); err != nil {
+		return nil, fmt.Errorf("failed to generate go.mod: %w", err)
+	}
+
+	return result, nil
 }

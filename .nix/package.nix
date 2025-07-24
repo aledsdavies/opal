@@ -9,7 +9,7 @@ pkgs.buildGoModule rec {
 
   # Computed vendorHash for clean dependencies (no replace directive)
   vendorHash = "sha256-D+GwlCwvxMg71a8jxF+zm5uiWsS4mj1W8Ynk35A2tFw=";
-  
+
   subPackages = [ "cmd/devcmd" ];
 
   # Enhanced build flags following CODE_GUIDELINES.md

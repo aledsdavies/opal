@@ -29,6 +29,9 @@ var (
 	binaryName   string
 	output       string
 	debug        bool
+	outputDir    string
+	generateOnly bool
+	dryRun       bool
 )
 
 func main() {
@@ -162,9 +165,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&templateFile, "template", "", "Custom template file for generation")
 	rootCmd.PersistentFlags().StringVar(&binaryName, "binary", "dev", "Binary name for the generated CLI")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
+	rootCmd.PersistentFlags().StringVar(&outputDir, "output-dir", "", "Directory to write generated files (default: stdout for main.go only)")
 
 	// Build command specific flags
 	buildCmd.Flags().StringVarP(&output, "output", "o", "", "Output binary path (default: ./<binary-name>)")
+	buildCmd.Flags().BoolVar(&generateOnly, "generate-only", false, "Generate code only without building binary")
+
+	// Run command specific flags
+	runCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show execution plan without running commands")
 
 	// Add subcommands
 	rootCmd.AddCommand(buildCmd)
@@ -197,8 +205,21 @@ func generateCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error generating Go output: %w", err)
 	}
 
-	// Output the result
-	fmt.Print(genResult.String())
+	// If output directory specified, write files there
+	if outputDir != "" {
+		moduleName := strings.ReplaceAll(binaryName, "-", "_")
+		if err := eng.WriteFiles(genResult, outputDir, moduleName); err != nil {
+			return fmt.Errorf("error writing files: %w", err)
+		}
+
+		if debug {
+			fmt.Fprintf(os.Stderr, "✅ Generated main.go and go.mod in %s\n", outputDir)
+		}
+	} else {
+		// Default behavior: output main.go to stdout
+		fmt.Print(genResult.String())
+	}
+
 	return nil
 }
 
@@ -226,8 +247,6 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error generating Go source: %w", err)
 	}
 
-	goSource := genResult.String()
-
 	// Determine output path
 	outputPath := output
 	if outputPath == "" {
@@ -254,20 +273,28 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Write Go source to temp directory
-	mainGoPath := filepath.Join(tempDir, "main.go")
-	if err := os.WriteFile(mainGoPath, []byte(goSource), 0o644); err != nil {
-		return fmt.Errorf("error writing Go source: %w", err)
+	// Handle generate-only mode
+	if generateOnly {
+		if outputDir != "" {
+			// Write files to specified directory
+			moduleName := strings.ReplaceAll(binaryName, "-", "_")
+			if err := eng.WriteFiles(genResult, outputDir, moduleName); err != nil {
+				return fmt.Errorf("error writing source files: %w", err)
+			}
+			if debug {
+				fmt.Fprintf(os.Stderr, "✅ Generated files written to: %s\n", outputDir)
+			}
+		} else {
+			// Output main.go to stdout
+			fmt.Print(genResult.Code.String())
+		}
+		return nil
 	}
 
-	// Create go.mod file using engine's generated dependencies
+	// Use engine to write both files to temp directory
 	moduleName := strings.ReplaceAll(binaryName, "-", "_")
-	engineGoMod := genResult.GoModString()
-	// Replace the default module name with our binary name
-	goModContent := strings.Replace(engineGoMod, "module devcmd-generated", "module "+moduleName, 1)
-	goModPath := filepath.Join(tempDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
-		return fmt.Errorf("error writing go.mod: %w", err)
+	if err := eng.WriteFiles(genResult, tempDir, moduleName); err != nil {
+		return fmt.Errorf("error writing source files: %w", err)
 	}
 
 	// Run go mod tidy to generate go.sum and download dependencies
@@ -347,7 +374,19 @@ func runCommand(cmd *cobra.Command, args []string) error {
 	// Use the engine to execute the specific command
 	eng := engine.New(program)
 
-	// Execute the specific command
+	if dryRun {
+		// Execute in plan mode to show execution plan
+		plan, err := eng.ExecuteCommandPlan(targetCommand)
+		if err != nil {
+			return errors.NewCommandExecutionError(commandName, err)
+		}
+
+		// Print the plan using the plan DSL's beautiful ASCII tree visualization
+		fmt.Print(plan.String())
+		return nil
+	}
+
+	// Execute the specific command normally
 	cmdResult, err := eng.ExecuteCommand(targetCommand)
 	if err != nil {
 		return errors.NewCommandExecutionError(commandName, err)

@@ -29,7 +29,7 @@ const whenExecutionTemplate = `func() error {
 		if err := func() error {
 			{{range $i, $cmd := $pattern.Commands}}
 			if err := func() error {
-				{{executeCommand $cmd}}
+				{{generateShellCode $cmd}}
 			}(); err != nil {
 				return err
 			}

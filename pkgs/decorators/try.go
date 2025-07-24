@@ -21,7 +21,7 @@ const tryExecutionTemplate = `return func() error {
 	mainErr = func() error {
 		{{range $i, $cmd := .MainCommands}}
 		if err := func() error {
-			{{executeCommand $cmd}}
+			{{generateShellCode $cmd}}
 		}(); err != nil {
 			return err
 		}
@@ -35,7 +35,7 @@ const tryExecutionTemplate = `return func() error {
 		errorErr := func() error {
 			{{range $i, $cmd := .ErrorCommands}}
 			if err := func() error {
-				{{executeCommand $cmd}}
+				{{generateShellCode $cmd}}
 			}(); err != nil {
 				return err
 			}
@@ -53,7 +53,7 @@ const tryExecutionTemplate = `return func() error {
 	finallyErr := func() error {
 		{{range $i, $cmd := .FinallyCommands}}
 		if err := func() error {
-			{{executeCommand $cmd}}
+			{{generateShellCode $cmd}}
 		}(); err != nil {
 			return err
 		}
