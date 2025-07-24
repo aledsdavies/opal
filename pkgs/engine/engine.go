@@ -508,6 +508,74 @@ func capitalizeFirst(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// generateShellCommandExpression generates a Go string expression for a shell command with variable expansion
+func (e *Engine) generateShellCommandExpression(content *ast.ShellContent) (string, error) {
+	// Build Go expression parts for the command (similar to GenerateShellCodeForTemplate)
+	var goExprParts []string
+
+	for _, part := range content.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			// Plain text - add as quoted string
+			goExprParts = append(goExprParts, fmt.Sprintf("%q", p.Text))
+
+		case *ast.FunctionDecorator:
+			// For @var(NAME) decorators, generate Go variable reference
+			if p.Name == "var" && len(p.Args) == 1 {
+				if ident, ok := p.Args[0].Value.(*ast.Identifier); ok {
+					varName := ident.Name
+					goExprParts = append(goExprParts, varName)
+				} else {
+					return "", fmt.Errorf("@var decorator argument must be an identifier, got: %T", p.Args[0].Value)
+				}
+			} else {
+				return "", fmt.Errorf("unsupported function decorator in shell command: @%s", p.Name)
+			}
+
+		default:
+			return "", fmt.Errorf("unsupported shell part type: %T", part)
+		}
+	}
+
+	// Build the Go expression for the command
+	if len(goExprParts) == 1 {
+		return goExprParts[0], nil
+	} else {
+		return strings.Join(goExprParts, " + "), nil
+	}
+}
+
+// extractShellCommand extracts the raw shell command string from AST ShellContent
+func (e *Engine) extractShellCommand(shellContent *ast.ShellContent) string {
+	var command strings.Builder
+	for _, part := range shellContent.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			command.WriteString(p.Text)
+		case *ast.FunctionDecorator:
+			// Handle function decorators like @var(name)
+			if p.Name == "var" && len(p.Args) > 0 {
+				if param := p.Args[0]; param.Name == "" || param.Name == "name" {
+					if identifier, ok := param.Value.(*ast.Identifier); ok {
+						if value, exists := e.ctx.GetVariable(identifier.Name); exists {
+							command.WriteString(value)
+						}
+					}
+				}
+			} else if p.Name == "env" && len(p.Args) > 0 {
+				if param := p.Args[0]; param.Name == "" || param.Name == "name" {
+					if identifier, ok := param.Value.(*ast.Identifier); ok {
+						if value := os.Getenv(identifier.Name); value != "" {
+							command.WriteString(value)
+						}
+					}
+				}
+			}
+		}
+	}
+	return strings.TrimSpace(command.String())
+}
+
 // analyzeCommands groups watch/stop commands and separates regular commands
 func (e *Engine) analyzeCommands(commands []ast.CommandDecl) CommandGroups {
 	groups := CommandGroups{
@@ -638,8 +706,10 @@ func main() {
 	// Command: {{.Name}}
 	{{.FunctionName}} := func(cmd *cobra.Command, args []string) {
 		if dryRun {
-			// TODO: Execute in plan mode - embed AST and use engine
-			fmt.Printf("=== Execution Plan ===\nCommand: {{.Name}}\n(Plan mode not implemented yet)\n")
+			// Execute in plan mode using embedded execution plan
+			fmt.Printf("=== Execution Plan ===\n")
+			fmt.Printf("Command: {{.Name}}\n")
+			{{if .ExecutionPlan}}fmt.Print({{.ExecutionPlan}}){{else}}fmt.Printf("(No plan available)\n"){{end}}
 			return
 		}
 		
@@ -658,13 +728,70 @@ func main() {
 	// Process management for {{.Identifier}}
 	{{.FunctionName}}Run := func(cmd *cobra.Command, args []string) {
 		if dryRun {
-			// TODO: Execute in plan mode - embed AST and use engine
-			fmt.Printf("=== Execution Plan ===\nProcess: {{.Identifier}} (run)\n(Plan mode not implemented yet)\n")
+			// Execute in plan mode using embedded execution plan
+			fmt.Printf("=== Execution Plan ===\n")
+			fmt.Printf("Process: {{.Identifier}} (run)\n")
+			{{if .WatchExecutionPlan}}fmt.Print({{.WatchExecutionPlan}}){{else}}fmt.Printf("(No plan available)\n"){{end}}
 			return
 		}
 		
-		// Normal execution
-		{{.WatchExecutionCode}}
+		// Process management with PID tracking and log files
+		processName := "{{.Identifier}}"
+		pidFile := filepath.Join(os.TempDir(), processName+".pid")
+		logFile := filepath.Join(os.TempDir(), processName+".log")
+		
+		// Check if process is already running
+		if pidBytes, err := os.ReadFile(pidFile); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes))); err == nil {
+				if process, err := os.FindProcess(pid); err == nil {
+					// Send signal 0 to check if process exists
+					if err := process.Signal(syscall.Signal(0)); err == nil {
+						fmt.Printf("Process %s is already running (PID: %d)\n", processName, pid)
+						return
+					}
+				}
+			}
+		}
+		
+		// Create log file
+		logFileHandle, err := os.Create(logFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create log file: %v\n", err)
+			return
+		}
+		defer logFileHandle.Close()
+		
+		// Execute the watch command in background with process management
+		{{if .WatchCommandString}}cmdStr := {{printf "%q" .WatchCommandString}}{{else}}cmdStr := "echo 'No command defined'"{{end}}
+		execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+		execCmd.Stdout = logFileHandle
+		execCmd.Stderr = logFileHandle
+		
+		// Make the process run independently (detach from parent)
+		execCmd.SysProcAttr = &syscall.SysProcAttr{
+			Setpgid: true, // Create new process group
+		}
+		
+		// Start the process in background
+		if err := execCmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to start process: %v\n", err)
+			return
+		}
+		
+		// Save PID to file
+		pid := execCmd.Process.Pid
+		if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write PID file: %v\n", err)
+			return
+		}
+		
+		// Don't wait for the process - let it run in background
+		go func() {
+			execCmd.Wait() // Clean up when process finishes
+		}()
+		
+		fmt.Printf("Started %s process (PID: %d)\n", processName, pid)
+		fmt.Printf("Logs: %s\n", logFile)
 	}
 
 	{{.CommandName}} := &cobra.Command{
@@ -684,22 +811,67 @@ func main() {
 	// Stop subcommand
 	{{.FunctionName}}Stop := func(cmd *cobra.Command, args []string) {
 		if dryRun {
-			// TODO: Execute in plan mode - embed AST and use engine  
-			fmt.Printf("=== Execution Plan ===\nProcess: {{.Identifier}} (stop)\n(Plan mode not implemented yet)\n")
+			// Execute in plan mode using embedded execution plan
+			fmt.Printf("=== Execution Plan ===\n")
+			fmt.Printf("Process: {{.Identifier}} (stop)\n")
+			{{if .StopExecutionPlan}}fmt.Print({{.StopExecutionPlan}}){{else}}fmt.Printf("(No plan available)\n"){{end}}
 			return
 		}
 		
-		{{if .HasCustomStop}}// Custom stop logic
-		{{.StopExecutionCode}}{{else}}// Default stop logic
-		func() {
-			cmdStr := "pkill -f '{{.Identifier}}'"
-			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-			execCmd.Stdout = os.Stdout
-			execCmd.Stderr = os.Stderr
-			if err := execCmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Stop command failed: %v\n", err)
+		// Process management with PID tracking
+		processName := "{{.Identifier}}"
+		pidFile := filepath.Join(os.TempDir(), processName+".pid")
+		
+		// Read PID from file
+		pidBytes, err := os.ReadFile(pidFile)
+		if err != nil {
+			fmt.Printf("Process %s is not running (no PID file found)\n", processName)
+			return
+		}
+		
+		pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid PID in file: %v\n", err)
+			return
+		}
+		
+		// Find and kill the process
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to find process %d: %v\n", pid, err)
+			return
+		}
+		
+		{{if .HasCustomStop}}
+		// Custom stop command (also terminate the original process)
+		{{if .StopCommandString}}cmdStr := {{.StopCommandString}}
+		stopCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+		if err := stopCmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Custom stop command failed: %v\n", err)
+		}{{else}}{{.StopExecutionCode}}{{end}}
+		
+		// Also terminate the original process
+		if err := process.Signal(syscall.SIGTERM); err != nil {
+			// Try SIGKILL if SIGTERM fails
+			process.Signal(syscall.SIGKILL)
+		}
+		{{else}}
+		// Default stop: kill the process
+		if err := process.Signal(syscall.SIGTERM); err != nil {
+			// Try SIGKILL if SIGTERM fails
+			if err := process.Signal(syscall.SIGKILL); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to kill process %d: %v\n", pid, err)
+				return
 			}
-		}(){{end}}
+		}
+		{{end}}
+		
+		// Clean up PID file
+		if err := os.Remove(pidFile); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove PID file: %v\n", err)
+		}
+		
+		fmt.Printf("Stopped %s process (PID: %d)\n", processName, pid)
 	}
 
 	{{.FunctionName}}StopCmd := &cobra.Command{
@@ -712,20 +884,48 @@ func main() {
 	// Status subcommand
 	{{.FunctionName}}Status := func(cmd *cobra.Command, args []string) {
 		if dryRun {
-			// TODO: Execute in plan mode - embed AST and use engine
-			fmt.Printf("=== Execution Plan ===\nProcess: {{.Identifier}} (status)\n(Plan mode not implemented yet)\n")
+			// Execute in plan mode - status commands use simple default plan
+			fmt.Printf("=== Execution Plan ===\n")
+			fmt.Printf("Process: {{.Identifier}} (status)\n")
+			fmt.Printf("├── Check PID file and process status\n")
 			return
 		}
 		
-		func() {
-			cmdStr := "pgrep -f '{{.Identifier}}' || echo 'Process not running'"
-			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-			execCmd.Stdout = os.Stdout
-			execCmd.Stderr = os.Stderr
-			if err := execCmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Status command failed: %v\n", err)
-			}
-		}()
+		// Process management status checking
+		processName := "{{.Identifier}}"
+		pidFile := filepath.Join(os.TempDir(), processName+".pid")
+		logFile := filepath.Join(os.TempDir(), processName+".log")
+		
+		// Check if PID file exists
+		pidBytes, err := os.ReadFile(pidFile)
+		if err != nil {
+			fmt.Printf("Process %s is not running (no PID file)\n", processName)
+			return
+		}
+		
+		pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+		if err != nil {
+			fmt.Printf("Process %s has invalid PID file\n", processName)
+			return
+		}
+		
+		// Check if process is actually running
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			fmt.Printf("Process %s (PID: %d) not found\n", processName, pid)
+			return
+		}
+		
+		// Send signal 0 to check if process exists without affecting it
+		if err := process.Signal(syscall.Signal(0)); err != nil {
+			fmt.Printf("Process %s (PID: %d) is not running\n", processName, pid)
+			// Clean up stale PID file
+			os.Remove(pidFile)
+			return
+		}
+		
+		fmt.Printf("Process %s is running (PID: %d)\n", processName, pid)
+		fmt.Printf("Log file: %s\n", logFile)
 	}
 
 	{{.FunctionName}}StatusCmd := &cobra.Command{
@@ -738,20 +938,41 @@ func main() {
 	// Logs subcommand
 	{{.FunctionName}}Logs := func(cmd *cobra.Command, args []string) {
 		if dryRun {
-			// TODO: Execute in plan mode - embed AST and use engine
-			fmt.Printf("=== Execution Plan ===\nProcess: {{.Identifier}} (logs)\n(Plan mode not implemented yet)\n")
+			// Execute in plan mode - logs commands use simple default plan
+			fmt.Printf("=== Execution Plan ===\n")
+			fmt.Printf("Process: {{.Identifier}} (logs)\n")
+			fmt.Printf("├── Read and display log file\n")
 			return
 		}
 		
-		func() {
-			cmdStr := "echo 'Logs for {{.Identifier}} process'"
-			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-			execCmd.Stdout = os.Stdout
-			execCmd.Stderr = os.Stderr
-			if err := execCmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Logs command failed: %v\n", err)
-			}
-		}()
+		// Process management log reading
+		processName := "{{.Identifier}}"
+		logFile := filepath.Join(os.TempDir(), processName+".log")
+		
+		// Check if log file exists
+		if _, err := os.Stat(logFile); err != nil {
+			fmt.Printf("No log file found for process %s\n", processName)
+			fmt.Printf("Expected location: %s\n", logFile)
+			return
+		}
+		
+		// Read and display log file contents
+		logContent, err := os.ReadFile(logFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to read log file: %v\n", err)
+			return
+		}
+		
+		if len(logContent) == 0 {
+			fmt.Printf("Log file for %s is empty\n", processName)
+			return
+		}
+		
+		fmt.Printf("=== Logs for %s ===\n", processName)
+		fmt.Print(string(logContent))
+		if !strings.HasSuffix(string(logContent), "\n") {
+			fmt.Println() // Add newline if log doesn't end with one
+		}
 	}
 
 	{{.FunctionName}}LogsCmd := &cobra.Command{
@@ -790,6 +1011,7 @@ type CommandData struct {
 	FunctionName  string
 	CommandName   string
 	ExecutionCode string
+	ExecutionPlan string // Embedded execution plan for dry-run mode
 }
 
 type ProcessGroupData struct {
@@ -800,6 +1022,10 @@ type ProcessGroupData struct {
 	HasCustomStop      bool
 	WatchExecutionCode string
 	StopExecutionCode  string
+	WatchExecutionPlan string // Embedded execution plan for watch command dry-run
+	StopExecutionPlan  string // Embedded execution plan for stop command dry-run
+	WatchCommandString string // Raw shell command for process management
+	StopCommandString  string // Raw shell command for stop process management
 }
 
 // generateCodeWithTemplate uses a template-based approach instead of fragile WriteString calls
@@ -832,11 +1058,11 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 
 	// Add process management imports if we have process groups
 	if len(commandGroups.ProcessGroups) > 0 {
-		result.AddStandardImport("io/ioutil")
+		result.AddStandardImport("strings") // Needed for string operations in process management
 		result.AddStandardImport("path/filepath")
 		result.AddStandardImport("strconv")
 		result.AddStandardImport("syscall")
-		result.AddStandardImport("time")
+		// io/ioutil and time are not used in current template implementation
 	}
 
 	// Collect imports from all decorators used in the program
@@ -951,11 +1177,18 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 			}
 		}
 
+		// Generate execution plan for this command
+		executionPlan := ""
+		if plan, err := e.ExecuteCommandPlan(cmd); err == nil {
+			executionPlan = fmt.Sprintf("%q", plan.String())
+		}
+
 		templateData.Commands = append(templateData.Commands, CommandData{
 			Name:          cmd.Name,
 			FunctionName:  toCamelCase(cmd.Name),
 			CommandName:   toCamelCase(cmd.Name) + "Cmd",
 			ExecutionCode: executionCode.String(),
+			ExecutionPlan: executionPlan,
 		})
 	}
 
@@ -970,12 +1203,18 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 			HasCustomStop:   group.StopCommand != nil,
 		}
 
-		// Generate watch command execution code
+		// Generate watch command execution code and extract raw shell commands
+		watchCommandString := ""
 		if group.WatchCommand != nil {
 			var watchCode strings.Builder
 			for _, content := range group.WatchCommand.Body.Content {
 				switch c := content.(type) {
 				case *ast.ShellContent:
+					// Extract raw shell command for process management
+					if watchCommandString == "" { // Use first shell command for process management
+						watchCommandString = e.extractShellCommand(c)
+					}
+
 					execResult := ctx.ExecuteShell(c)
 					if execResult.Error != nil {
 						return nil, fmt.Errorf("failed to generate shell code for watch command %s: %w", identifier, execResult.Error)
@@ -1005,12 +1244,22 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 			processData.WatchExecutionCode = watchCode.String()
 		}
 
-		// Generate stop command execution code
+		// Generate stop command execution code and extract shell commands
+		stopCommandString := ""
 		if group.StopCommand != nil {
 			var stopCode strings.Builder
 			for _, content := range group.StopCommand.Body.Content {
 				switch c := content.(type) {
 				case *ast.ShellContent:
+					// Generate shell command string for process management (with proper variable expansion)
+					if stopCommandString == "" { // Use first shell command for process management
+						if cmdExpr, err := e.generateShellCommandExpression(c); err == nil {
+							stopCommandString = cmdExpr
+						} else {
+							stopCommandString = e.extractShellCommand(c) // fallback to raw command
+						}
+					}
+
 					execResult := ctx.ExecuteShell(c)
 					if execResult.Error != nil {
 						return nil, fmt.Errorf("failed to generate shell code for stop command %s: %w", identifier, execResult.Error)
@@ -1039,6 +1288,29 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 			}
 			processData.StopExecutionCode = stopCode.String()
 		}
+
+		// Generate execution plans for watch and stop commands
+		watchExecutionPlan := ""
+		if group.WatchCommand != nil {
+			if plan, err := e.ExecuteCommandPlan(group.WatchCommand); err == nil {
+				watchExecutionPlan = fmt.Sprintf("%q", plan.String())
+			}
+		}
+
+		stopExecutionPlan := ""
+		if group.StopCommand != nil {
+			if plan, err := e.ExecuteCommandPlan(group.StopCommand); err == nil {
+				stopExecutionPlan = fmt.Sprintf("%q", plan.String())
+			}
+		} else {
+			// Default stop plan
+			stopExecutionPlan = fmt.Sprintf("%q", fmt.Sprintf("├── Execute shell command: pkill -f '%s'\n", identifier))
+		}
+
+		processData.WatchExecutionPlan = watchExecutionPlan
+		processData.StopExecutionPlan = stopExecutionPlan
+		processData.WatchCommandString = watchCommandString
+		processData.StopCommandString = stopCommandString
 
 		templateData.ProcessGroups = append(templateData.ProcessGroups, processData)
 	}
