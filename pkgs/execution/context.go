@@ -204,23 +204,34 @@ func (c *ExecutionContext) executeShellGenerator(content *ast.ShellContent) *Exe
 		cmdExpr = strings.Join(goExprParts, " + ")
 	}
 
-	// Generate the Go code for command execution using a function call to avoid variable redeclaration
-	goCode := fmt.Sprintf(`		func() {
-			cmdStr := %s
-			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-			execCmd.Stdout = os.Stdout
-			execCmd.Stderr = os.Stderr
-			execCmd.Stdin = os.Stdin
-			if err := execCmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Command failed: %%v\n", err)
-				os.Exit(1)
-			}
-		}()
-`, cmdExpr)
+	// Generate the Go code using the dedicated template for CLI generation
+	tmpl, err := template.New("shellCommandCLI").Parse(shellCommandCLITemplate)
+	if err != nil {
+		return &ExecutionResult{
+			Mode:  GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to parse shell command CLI template: %w", err),
+		}
+	}
+
+	templateData := struct {
+		CommandExpression string
+	}{
+		CommandExpression: cmdExpr,
+	}
+
+	var goCode strings.Builder
+	if err := tmpl.Execute(&goCode, templateData); err != nil {
+		return &ExecutionResult{
+			Mode:  GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to execute shell command CLI template: %w", err),
+		}
+	}
 
 	return &ExecutionResult{
 		Mode:  GeneratorMode,
-		Data:  goCode,
+		Data:  goCode.String(),
 		Error: nil,
 	}
 }
@@ -394,6 +405,19 @@ const shellCommandTemplate = `			cmdStr := {{.CommandExpression}}
 				return fmt.Errorf("command failed: %w", err)
 			}
 			return nil`
+
+// Template for shell command generation in main CLI (calls os.Exit on failure)
+const shellCommandCLITemplate = `		func() {
+			cmdStr := {{.CommandExpression}}
+			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+			execCmd.Stdout = os.Stdout
+			execCmd.Stderr = os.Stderr
+			execCmd.Stdin = os.Stdin
+			if err := execCmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
+				os.Exit(1)
+			}
+		}()`
 
 // GenerateShellCodeForTemplate generates clean Go code for shell command execution
 // This method is designed to be used by decorator templates to generate proper Go code

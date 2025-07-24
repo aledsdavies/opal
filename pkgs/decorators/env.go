@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/aledsdavies/devcmd/pkgs/execution"
@@ -12,6 +13,14 @@ import (
 
 // EnvDecorator implements the @env decorator for environment variable access
 type EnvDecorator struct{}
+
+// Template for environment variable access with default value
+const envWithDefaultTemplate = `func() string {
+	if value := os.Getenv({{.Key}}); value != "" {
+		return value
+	}
+	return {{.Default}}
+}()`
 
 // Name returns the decorator name
 func (e *EnvDecorator) Name() string {
@@ -97,18 +106,36 @@ func (e *EnvDecorator) executeGenerator(ctx *execution.ExecutionContext, key str
 	var code string
 	// Generate Go code based on whether default is provided
 	if defaultValue == "" {
-		// No default value
+		// No default value - simple os.Getenv call
 		code = fmt.Sprintf(`os.Getenv(%q)`, key)
 	} else {
-		// With default value
-		var builder strings.Builder
-		builder.WriteString("func() string {\n")
-		builder.WriteString(fmt.Sprintf("\tif value := os.Getenv(%q); value != \"\" {\n", key))
-		builder.WriteString("\t\treturn value\n")
-		builder.WriteString("\t}\n")
-		builder.WriteString(fmt.Sprintf("\treturn %q\n", defaultValue))
-		builder.WriteString("}()")
-		code = builder.String()
+		// With default value - use template
+		tmpl, err := template.New("envWithDefault").Parse(envWithDefaultTemplate)
+		if err != nil {
+			return &execution.ExecutionResult{
+				Mode:  execution.GeneratorMode,
+				Data:  "",
+				Error: fmt.Errorf("failed to parse env template: %w", err),
+			}
+		}
+
+		templateData := struct {
+			Key     string
+			Default string
+		}{
+			Key:     fmt.Sprintf("%q", key),
+			Default: fmt.Sprintf("%q", defaultValue),
+		}
+
+		var result strings.Builder
+		if err := tmpl.Execute(&result, templateData); err != nil {
+			return &execution.ExecutionResult{
+				Mode:  execution.GeneratorMode,
+				Data:  "",
+				Error: fmt.Errorf("failed to execute env template: %w", err),
+			}
+		}
+		code = result.String()
 	}
 
 	return &execution.ExecutionResult{

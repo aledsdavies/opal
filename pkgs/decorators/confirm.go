@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/pkgs/ast"
 	"github.com/aledsdavies/devcmd/pkgs/execution"
@@ -13,6 +14,58 @@ import (
 
 // ConfirmDecorator implements the @confirm decorator for user confirmation prompts
 type ConfirmDecorator struct{}
+
+// Template for confirmation logic code generation
+const confirmExecutionTemplate = `func() error {
+	// Check if we should skip confirmation in CI environment
+	if {{.SkipInCI}} && func() bool {
+		// Check common CI environment variables
+		ciVars := []string{
+			"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "TRAVIS", 
+			"CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER",
+		}
+		for _, envVar := range ciVars {
+			if os.Getenv(envVar) != "" {
+				return true
+			}
+		}
+		return false
+	}() {
+		// Auto-confirm in CI and execute commands
+		fmt.Printf("CI environment detected - auto-confirming: {{.Message}}\n")
+	} else {
+		// Display the confirmation message
+		fmt.Print({{.Message}})
+		{{if .DefaultYes}}fmt.Print(" [Y/n]: "){{else}}fmt.Print(" [y/N]: "){{end}}
+		
+		// Read user input
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read user input: %w", err)
+		}
+		
+		response = strings.TrimSpace(response)
+		
+		// Determine if user confirmed
+		confirmed := false
+		if response == "" {
+			confirmed = {{.DefaultYes}}
+		} else {
+			{{if .CaseSensitive}}confirmed = response == "y" || response == "Y" || response == "yes" || response == "Yes"{{else}}lowerResponse := strings.ToLower(response)
+			confirmed = lowerResponse == "y" || lowerResponse == "yes"{{end}}
+		}
+		
+		if !confirmed {
+			{{if .AbortOnNo}}return fmt.Errorf("user cancelled execution"){{else}}return nil{{end}}
+		}
+	}
+	
+	// Execute the commands
+	{{range $i, $cmd := .Commands}}{{$cmd}}
+	{{end}}
+	return nil
+}()`
 
 // Name returns the decorator name
 func (c *ConfirmDecorator) Name() string {
@@ -211,13 +264,8 @@ func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, m
 
 // executeGenerator generates Go code for confirmation logic
 func (c *ConfirmDecorator) executeGenerator(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
-	// For now, return a simple implementation
-	var builder strings.Builder
-	builder.WriteString("func() error {\n")
-	builder.WriteString("\t// TODO: Implement full confirmation logic\n")
-	builder.WriteString(fmt.Sprintf("\tfmt.Println(\"Would confirm: %s\")\n", message))
-
-	// Generate execution for each command
+	// Generate execution code for each command
+	var commands []string
 	for i, cmd := range content {
 		if shellContent, ok := cmd.(*ast.ShellContent); ok {
 			result := ctx.WithMode(execution.GeneratorMode).ExecuteShell(shellContent)
@@ -229,21 +277,54 @@ func (c *ConfirmDecorator) executeGenerator(ctx *execution.ExecutionContext, mes
 				}
 			}
 			if code, ok := result.Data.(string); ok {
-				builder.WriteString(fmt.Sprintf("\tif err := func() error {\n%s\n\t\treturn nil\n\t}(); err != nil {\n", code))
-				builder.WriteString("\t\treturn err\n")
-				builder.WriteString("\t}\n")
+				// Wrap the shell code in an error-returning function
+				wrappedCode := fmt.Sprintf("if err := func() error {\n%s\n\t\treturn nil\n\t}(); err != nil {\n\t\treturn err\n\t}", code)
+				commands = append(commands, wrappedCode)
 			}
 		} else {
-			builder.WriteString("\t// TODO: Generate execution for non-shell command content\n")
+			// TODO: Handle other command content types
+			commands = append(commands, "// TODO: Generate execution for non-shell command content")
 		}
 	}
 
-	builder.WriteString("\treturn nil\n")
-	builder.WriteString("}()")
+	// Use template to generate the full confirmation logic
+	tmpl, err := template.New("confirmExecution").Parse(confirmExecutionTemplate)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to parse confirm template: %w", err),
+		}
+	}
+
+	templateData := struct {
+		Message       string
+		DefaultYes    bool
+		AbortOnNo     bool
+		CaseSensitive bool
+		SkipInCI      bool
+		Commands      []string
+	}{
+		Message:       fmt.Sprintf("%q", message),
+		DefaultYes:    defaultYes,
+		AbortOnNo:     abortOnNo,
+		CaseSensitive: caseSensitive,
+		SkipInCI:      skipInCI,
+		Commands:      commands,
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to execute confirm template: %w", err),
+		}
+	}
 
 	return &execution.ExecutionResult{
 		Mode:  execution.GeneratorMode,
-		Data:  builder.String(),
+		Data:  result.String(),
 		Error: nil,
 	}
 }

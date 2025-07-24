@@ -1166,6 +1166,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 				}
 				if code, ok := execResult.Data.(string); ok {
 					executionCode.WriteString(code)
+					executionCode.WriteString("\n")
 				}
 
 			case *ast.BlockDecorator:
@@ -1188,6 +1189,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 				}
 				if code, ok := decoratorResult.Data.(string); ok {
 					executionCode.WriteString(code)
+					executionCode.WriteString("\n")
 				}
 
 			case *ast.PatternDecorator:
@@ -1217,6 +1219,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 				}
 				if code, ok := decoratorResult.Data.(string); ok {
 					executionCode.WriteString(code)
+					executionCode.WriteString("\n")
 				}
 
 			default:
