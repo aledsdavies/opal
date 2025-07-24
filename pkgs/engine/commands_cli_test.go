@@ -72,7 +72,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 			}
 		}
 
-		t.Logf("Successfully parsed commands.cli with %d variables and %d commands", 
+		t.Logf("Successfully parsed commands.cli with %d variables and %d commands",
 			len(program.Variables), len(program.Commands))
 	})
 
@@ -159,7 +159,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 		buildCmd.Dir = tempDir
 		buildOutput, err := buildCmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("Compilation failed: %v\nOutput: %s\nGenerated code preview:\n%s", 
+			t.Fatalf("Compilation failed: %v\nOutput: %s\nGenerated code preview:\n%s",
 				err, string(buildOutput), result.String()[:2000]+"...")
 		}
 
@@ -167,7 +167,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 	})
 
 	t.Run("TestGeneratedCLIBasicFunctionality", func(t *testing.T) {
-		// Create temporary directory 
+		// Create temporary directory
 		tempDir := t.TempDir()
 
 		// Parse and generate
@@ -241,14 +241,14 @@ func TestCommandsCLIGeneration(t *testing.T) {
 				}
 			}
 			if !foundAny {
-				t.Errorf("Help output should contain at least one of our commands %v\nOutput: %s", 
+				t.Errorf("Help output should contain at least one of our commands %v\nOutput: %s",
 					someCommands, helpOutput)
 			}
 
 			// CRITICAL: Should NOT contain command execution output
 			forbiddenInHelp := []string{
 				"Setting up devcmd",
-				"Building devcmd", 
+				"Building devcmd",
 				"Running Go tests",
 				"go build -o",
 				"echo",
@@ -256,7 +256,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 
 			for _, forbidden := range forbiddenInHelp {
 				if strings.Contains(helpOutput, forbidden) {
-					t.Errorf("CRITICAL: Help output contains execution output '%s' - commands being executed during help!\nOutput: %s", 
+					t.Errorf("CRITICAL: Help output contains execution output '%s' - commands being executed during help!\nOutput: %s",
 						forbidden, helpOutput)
 				}
 			}
@@ -284,8 +284,8 @@ func TestCommandsCLIGeneration(t *testing.T) {
 			}
 
 			// Should contain our expected help content
-			if !strings.Contains(outputStr, "Development Commands") || 
-			   !strings.Contains(outputStr, "Quick Start") {
+			if !strings.Contains(outputStr, "Development Commands") ||
+				!strings.Contains(outputStr, "Quick Start") {
 				t.Errorf("Help command should contain our custom help content\nOutput: %s", outputStr)
 			}
 		})

@@ -35,9 +35,6 @@ pkgs.mkShell {
     go
     gopls
     golangci-lint
-    # ANTLR for grammar generation
-    antlr4
-    openjdk17 # Required for ANTLR
     # Development tools
     git
     zsh
@@ -45,8 +42,6 @@ pkgs.mkShell {
     nixpkgs-fmt
     gofumpt
   ] ++ pkgs.lib.optional (devCLI != null) devCLI;
-  # Environment setup
-  JAVA_HOME = "${pkgs.openjdk17}/lib/openjdk";
   shellHook = ''
     echo "🔧 Devcmd Development Environment"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

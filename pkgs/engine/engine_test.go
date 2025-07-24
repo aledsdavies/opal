@@ -9,35 +9,17 @@ import (
 	"github.com/aledsdavies/devcmd/pkgs/parser"
 )
 
-// cleanupTestFiles removes any temporary files that might be created during tests
-func cleanupTestFiles(t *testing.T) {
-	// Clean up any generated.go files in the project root
-	if _, err := os.Stat("generated.go"); err == nil {
-		if err := os.Remove("generated.go"); err != nil {
-			t.Logf("Warning: failed to clean up generated.go: %v", err)
-		}
-	}
-	
-	// Clean up any .tmp files in current directory
-	matches, _ := filepath.Glob("*.tmp")
-	for _, match := range matches {
-		if err := os.Remove(match); err != nil {
-			t.Logf("Warning: failed to clean up %s: %v", match, err)
-		}
-	}
-}
-
 // TestMain ensures cleanup happens after all tests
 func TestMain(m *testing.M) {
 	code := m.Run()
-	
-	// Final cleanup
-	os.Remove("generated.go")
+
+	// Final cleanup - ignore errors since we're cleaning up
+	_ = os.Remove("generated.go")
 	matches, _ := filepath.Glob("*.tmp")
 	for _, match := range matches {
-		os.Remove(match)
+		_ = os.Remove(match)
 	}
-	
+
 	os.Exit(code)
 }
 
