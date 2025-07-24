@@ -229,37 +229,47 @@ rec {
       gitHash = gitRev;
       goVersion = "1.24.3";
 
-      # FOD to build CLI binary with network access
-      cliDerivation = pkgs.stdenv.mkDerivation {
-        name = "${name}-${contentHash}";
-        nativeBuildInputs = [ devcmdBin pkgs.go pkgs.cacert ];
-
-        # FOD configuration - allows network access for Go modules
-        outputHashMode = "recursive";
-        outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Fix after first build
-
-        phases = [ "installPhase" ];
-        installPhase = ''
-          export HOME=$TMPDIR
-          export GOCACHE=$TMPDIR/go-cache
-          export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
-          
-          mkdir -p $out/bin
-          
-          # Build binary directly with devcmd (has network access in FOD)
-          ${devcmdBin}/bin/devcmd build \
-            --file "${commandsSrc}" \
-            --binary "${binaryName}" \
-            --output "$out/bin/${binaryName}"
-        '';
-
-        meta = {
-          description = "Generated CLI binary from devcmd: ${name}";
-          license = lib.licenses.mit;
-          platforms = lib.platforms.unix;
-          mainProgram = binaryName;
-        };
-      };
+      # Simplified approach: Use devcmd build to handle everything
+      cliDerivation = pkgs.writeShellScriptBin binaryName ''
+        set -euo pipefail
+        
+        # Cache configuration
+        CACHE_DIR="$HOME/.cache/devcmd/${name}"
+        CONTENT_HASH="${contentHash}"
+        BINARY_PATH="$CACHE_DIR/bin/${binaryName}"
+        HASH_FILE="$CACHE_DIR/hash"
+        
+        # Check if cached binary exists and is current
+        if [[ -f "$BINARY_PATH" && -f "$HASH_FILE" ]]; then
+          if [[ "$(cat "$HASH_FILE" 2>/dev/null || echo "")" == "$CONTENT_HASH" ]]; then
+            # Cache hit - use existing binary
+            exec "$BINARY_PATH" "$@"
+          fi
+        fi
+        
+        # Cache miss - use devcmd build to generate and compile everything
+        echo "🔨 Building ${name} CLI..."
+        mkdir -p "$CACHE_DIR/bin"
+        
+        # Ensure Go toolchain is available
+        if ! command -v go >/dev/null 2>&1; then
+          echo "❌ Error: Go toolchain not found. Please ensure Go is installed."
+          exit 1
+        fi
+        
+        # Use devcmd build to handle generation, module management, and compilation
+        ${devcmdBin}/bin/devcmd build \
+          --file "${commandsSrc}" \
+          --binary "${binaryName}" \
+          --output "$BINARY_PATH"
+        
+        # Cache the result
+        echo "$CONTENT_HASH" > "$HASH_FILE"
+        echo "✅ ${name} CLI built successfully"
+        
+        # Execute the built binary
+        exec "$BINARY_PATH" "$@"
+      '';
 
     in
     cliDerivation;
