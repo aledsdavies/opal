@@ -115,9 +115,9 @@ func getGeneratedBinaryPlan(t *testing.T, cliContent, command string) (string, e
 		return "", err
 	}
 
-	// Build binary (this will use the current devcmd binary in build/)
+	// Build binary using go run to avoid dependency on build directory
 	binaryPath := filepath.Join(tempDir, "test-cli")
-	buildCmd := exec.Command("../../build/devcmd", "build", "-f", cliFile, "--binary", "test-cli", "--output", binaryPath)
+	buildCmd := exec.Command("go", "run", "../../cmd/devcmd", "build", "-f", cliFile, "--binary", "test-cli", "--output", binaryPath)
 	buildCmd.Dir = tempDir
 
 	if _, err := buildCmd.CombinedOutput(); err != nil {

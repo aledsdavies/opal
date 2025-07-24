@@ -68,7 +68,7 @@ start: echo "Starting @var(ENV) server on @var(HOST):@var(PORT)"`,
 			name: "only variables, no commands",
 			input: `var PORT = "8080"
 var HOST = "localhost"`,
-			expectVars: map[string]string{"PORT": "8080", "HOST": "localhost"},
+			expectVars: map[string]string{}, // No variables should be included if unused
 			expectCmds: 0,
 			expectErr:  false,
 		},
@@ -143,16 +143,28 @@ func testInterpreterMode(engine *Engine, program *ast.Program) (interface{}, err
 		Commands:  make([]CommandResult, 0),
 	}
 
-	// Get variables from context
+	// Track which variables are actually used
+	usedVars := make(map[string]bool)
+	for _, cmd := range program.Commands {
+		for _, content := range cmd.Body.Content {
+			engine.trackVariableUsage(content, usedVars)
+		}
+	}
+
+	// Get only used variables from context
 	for _, variable := range program.Variables {
-		if value, exists := engine.ctx.GetVariable(variable.Name); exists {
-			execResult.Variables[variable.Name] = value
+		if usedVars[variable.Name] {
+			if value, exists := engine.ctx.GetVariable(variable.Name); exists {
+				execResult.Variables[variable.Name] = value
+			}
 		}
 	}
 	for _, group := range program.VarGroups {
 		for _, variable := range group.Variables {
-			if value, exists := engine.ctx.GetVariable(variable.Name); exists {
-				execResult.Variables[variable.Name] = value
+			if usedVars[variable.Name] {
+				if value, exists := engine.ctx.GetVariable(variable.Name); exists {
+					execResult.Variables[variable.Name] = value
+				}
 			}
 		}
 	}
@@ -196,16 +208,28 @@ func testPlanMode(engine *Engine, program *ast.Program) (interface{}, error) {
 		Commands:  make([]string, 0),
 	}
 
-	// Get variables
+	// Track which variables are actually used
+	usedVars := make(map[string]bool)
+	for _, cmd := range program.Commands {
+		for _, content := range cmd.Body.Content {
+			engine.trackVariableUsage(content, usedVars)
+		}
+	}
+
+	// Get only used variables
 	for _, variable := range program.Variables {
-		if value, exists := engine.ctx.GetVariable(variable.Name); exists {
-			planResult.Variables[variable.Name] = value
+		if usedVars[variable.Name] {
+			if value, exists := engine.ctx.GetVariable(variable.Name); exists {
+				planResult.Variables[variable.Name] = value
+			}
 		}
 	}
 	for _, group := range program.VarGroups {
 		for _, variable := range group.Variables {
-			if value, exists := engine.ctx.GetVariable(variable.Name); exists {
-				planResult.Variables[variable.Name] = value
+			if usedVars[variable.Name] {
+				if value, exists := engine.ctx.GetVariable(variable.Name); exists {
+					planResult.Variables[variable.Name] = value
+				}
 			}
 		}
 	}

@@ -508,6 +508,39 @@ func capitalizeFirst(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// trackVariableUsage recursively tracks which variables are used in command content
+func (e *Engine) trackVariableUsage(content ast.CommandContent, usedVars map[string]bool) {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		for _, part := range c.Parts {
+			if funcDec, ok := part.(*ast.FunctionDecorator); ok {
+				if funcDec.Name == "var" && len(funcDec.Args) == 1 {
+					if ident, ok := funcDec.Args[0].Value.(*ast.Identifier); ok {
+						usedVars[ident.Name] = true
+					}
+				}
+			}
+		}
+	case *ast.BlockDecorator:
+		for _, item := range c.Content {
+			e.trackVariableUsage(item, usedVars)
+		}
+	case *ast.PatternDecorator:
+		for _, pattern := range c.Patterns {
+			for _, cmd := range pattern.Commands {
+				e.trackVariableUsage(cmd, usedVars)
+			}
+		}
+	}
+}
+
+// trackVariableUsageInBody tracks variable usage in a command body
+func (e *Engine) trackVariableUsageInBody(body *ast.CommandBody, usedVars map[string]bool) {
+	for _, content := range body.Content {
+		e.trackVariableUsage(content, usedVars)
+	}
+}
+
 // generateShellCommandExpression generates a Go string expression for a shell command with variable expansion
 func (e *Engine) generateShellCommandExpression(content *ast.ShellContent) (string, error) {
 	// Build Go expression parts for the command (similar to GenerateShellCodeForTemplate)
@@ -690,8 +723,8 @@ func main() {
 	ctx := context.Background()
 
 	// Variables
-	{{range .Variables}}{{.Name}} := {{.Value}}
-	{{end}}
+	{{range .Variables}}{{if .Used}}{{.Name}} := {{.Value}}
+	{{end}}{{end}}
 
 	// Global flag for dry-run mode
 	var dryRun bool
@@ -761,34 +794,40 @@ func main() {
 		}
 		defer logFileHandle.Close()
 		
-		// Execute the watch command in background with process management
-		{{if .WatchCommandString}}cmdStr := {{printf "%q" .WatchCommandString}}{{else}}cmdStr := "echo 'No command defined'"{{end}}
-		execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-		execCmd.Stdout = logFileHandle
-		execCmd.Stderr = logFileHandle
+		// Execute the watch command with full decorator support
+		// Redirect stdout/stderr to log file for this execution
+		oldStdout := os.Stdout
+		oldStderr := os.Stderr
+		os.Stdout = logFileHandle
+		os.Stderr = logFileHandle
 		
-		// Make the process run independently (detach from parent)
-		execCmd.SysProcAttr = &syscall.SysProcAttr{
-			Setpgid: true, // Create new process group
-		}
+		// Execute as a background goroutine to simulate process behavior
+		// while allowing decorators to work properly
+		go func() {
+			defer func() {
+				os.Stdout = oldStdout
+				os.Stderr = oldStderr
+				logFileHandle.Close()
+				if r := recover(); r != nil {
+					fmt.Fprintf(os.Stderr, "Watch command panic: %v\n", r)
+				}
+			}()
+			
+			// Execute the full command with decorators
+			{{.WatchExecutionCode}}
+		}()
 		
-		// Start the process in background
-		if err := execCmd.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to start process: %v\n", err)
-			return
-		}
-		
-		// Save PID to file
-		pid := execCmd.Process.Pid
+		// Use current process PID since we're running as goroutines
+		// Note: This is a simplified process management approach for decorator support
+		pid := os.Getpid()
 		if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to write PID file: %v\n", err)
 			return
 		}
 		
-		// Don't wait for the process - let it run in background
-		go func() {
-			execCmd.Wait() // Clean up when process finishes
-		}()
+		// Restore stdout/stderr immediately for the main process
+		os.Stdout = oldStdout
+		os.Stderr = oldStderr
 		
 		fmt.Printf("Started %s process (PID: %d)\n", processName, pid)
 		fmt.Printf("Logs: %s\n", logFile)
@@ -1004,6 +1043,7 @@ type CLITemplateData struct {
 type VariableData struct {
 	Name  string
 	Value string
+	Used  bool
 }
 
 type CommandData struct {
@@ -1092,7 +1132,13 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 		ProcessGroups:     []ProcessGroupData{},
 	}
 
-	// Add variables to template data
+	// Track which variables are used across all commands
+	usedVariables := make(map[string]bool)
+	for _, cmd := range program.Commands {
+		e.trackVariableUsageInBody(&cmd.Body, usedVariables)
+	}
+
+	// Add variables to template data, only including used ones
 	for _, variable := range program.Variables {
 		value, err := e.resolveVariableValue(variable.Value)
 		if err != nil {
@@ -1101,6 +1147,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 		templateData.Variables = append(templateData.Variables, VariableData{
 			Name:  variable.Name,
 			Value: fmt.Sprintf("%q", value), // Quote the string value
+			Used:  usedVariables[variable.Name],
 		})
 	}
 
