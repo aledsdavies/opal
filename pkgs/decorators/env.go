@@ -52,11 +52,11 @@ func (e *EnvDecorator) ParameterSchema() []ParameterSchema {
 
 // Validate checks if the decorator usage is correct during parsing
 
-// Expand provides unified expansion for all modes using the execution package  
+// Expand provides unified expansion for all modes using the execution package
 func (e *EnvDecorator) Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult {
 	// DEBUG: Add debug output to see if this method is being called
 	fmt.Printf("DEBUG: EnvDecorator.Expand called with %d params\n", len(params))
-	
+
 	// Validate parameters first
 
 	// Get the environment variable key using helper

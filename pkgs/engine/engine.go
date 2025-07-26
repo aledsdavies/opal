@@ -198,7 +198,7 @@ func (e *Engine) setupDependencyInjection() {
 			fmt.Printf("DEBUG: Decorator '%s' not found\n", name)
 			return nil, false
 		}
-		
+
 		fmt.Printf("DEBUG: Found decorator '%s'\n", name)
 		// Create an adapter that bridges the interface difference
 		adapter := &functionDecoratorAdapter{decorator: decorator}
@@ -581,13 +581,13 @@ func (e *Engine) generateShellCommandExpression(content *ast.ShellContent) (stri
 			if err != nil {
 				return "", fmt.Errorf("function decorator @%s not found in shell command: %w", p.Name, err)
 			}
-			
+
 			// Expand the decorator in generator mode to get Go code
 			result := decorator.Expand(e.ctx, p.Args)
 			if result.Error != nil {
 				return "", fmt.Errorf("decorator @%s expansion failed: %w", p.Name, result.Error)
 			}
-			
+
 			// Use the decorator-generated code
 			if codeStr, ok := result.Data.(string); ok {
 				goExprParts = append(goExprParts, codeStr)
@@ -623,7 +623,7 @@ func (e *Engine) extractShellCommand(shellContent *ast.ShellContent) string {
 				command.WriteString(fmt.Sprintf("[ERROR: %v]", err))
 				continue
 			}
-			
+
 			// Expand the decorator in interpreter mode to get actual value
 			result := decorator.Expand(e.ctx, p.Args)
 			if result.Error != nil {
@@ -631,7 +631,7 @@ func (e *Engine) extractShellCommand(shellContent *ast.ShellContent) string {
 				command.WriteString(fmt.Sprintf("[ERROR: %v]", result.Error))
 				continue
 			}
-			
+
 			// Use the decorator-generated value
 			if value, ok := result.Data.(string); ok {
 				command.WriteString(value)

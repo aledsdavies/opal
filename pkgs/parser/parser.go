@@ -574,9 +574,9 @@ func (p *Parser) parseBlockContent() ([]ast.CommandContent, error) {
 			continue
 		}
 
-		// **CRITICAL FIX**: Parse consecutive SHELL_TEXT tokens as separate commands
+		// **CRITICAL FIX**: Parse consecutive SHELL_TEXT tokens and decorator sequences as separate commands
 		// This implements the spec requirement: "newlines create multiple commands everywhere"
-		if p.match(types.SHELL_TEXT) {
+		if p.match(types.SHELL_TEXT) || p.match(types.AT) {
 			shellContent, err := p.parseShellContent(true)
 			if err != nil {
 				return nil, err
@@ -597,27 +597,86 @@ func (p *Parser) parseBlockContent() ([]ast.CommandContent, error) {
 }
 
 // parseShellContent parses a single shell content item (one SHELL_TEXT token)
-// **UPDATED**: Now parses only one SHELL_TEXT token to create separate content items
+// **UPDATED**: Now handles pre-tokenized decorator sequences from lexer
 func (p *Parser) parseShellContent(inBlock bool) (*ast.ShellContent, error) {
 	startPos := p.current()
 	var parts []ast.ShellPart
 
-	// Parse only one SHELL_TEXT token at a time
+	// Handle one shell part at a time - either SHELL_TEXT or decorator sequence
 	if p.match(types.SHELL_TEXT) {
+		// Regular shell text
 		shellToken := p.current()
 		p.advance()
-
-		extractedParts, err := p.extractInlineDecorators(shellToken.Value)
+		parts = append(parts, &ast.TextPart{Text: shellToken.Value})
+	} else if p.match(types.AT) {
+		// Pre-tokenized function decorator sequence: @ IDENTIFIER ( params )
+		decorator, err := p.parseFunctionDecoratorFromTokens()
 		if err != nil {
 			return nil, err
 		}
-
-		parts = append(parts, extractedParts...)
+		parts = append(parts, decorator)
 	}
 
 	return &ast.ShellContent{
 		Parts: parts,
 		Pos:   ast.Position{Line: startPos.Line, Column: startPos.Column},
+	}, nil
+}
+
+// parseFunctionDecoratorFromTokens parses a pre-tokenized function decorator sequence
+// Expects the current token to be AT, followed by IDENTIFIER LPAREN params RPAREN
+func (p *Parser) parseFunctionDecoratorFromTokens() (*ast.FunctionDecorator, error) {
+	// Current token should be AT
+	if !p.match(types.AT) {
+		return nil, p.NewSyntaxError("expected '@' for function decorator")
+	}
+	p.advance() // consume @
+
+	// Next should be identifier (decorator name)
+	if !p.match(types.IDENTIFIER, types.VAR) { // VAR is for @var specifically
+		return nil, p.NewSyntaxError("expected decorator name after '@'")
+	}
+	nameToken := p.current()
+	decoratorName := nameToken.Value
+	p.advance()
+
+	// Next should be opening parenthesis
+	if !p.match(types.LPAREN) {
+		return nil, p.NewSyntaxError("expected '(' after decorator name")
+	}
+	p.advance() // consume (
+
+	// Parse parameters until closing parenthesis
+	var params []ast.NamedParameter
+	for !p.match(types.RPAREN) && !p.isAtEnd() {
+		// For now, handle simple identifier parameters
+		if p.match(types.IDENTIFIER) {
+			paramToken := p.current()
+			param := ast.NamedParameter{
+				Name:  "", // Not named, just positional
+				Value: &ast.Identifier{Name: paramToken.Value},
+			}
+			params = append(params, param)
+			p.advance()
+		} else {
+			return nil, p.NewSyntaxError("unexpected token in decorator parameters")
+		}
+
+		// Handle comma separation (if needed in future)
+		if p.match(types.COMMA) {
+			p.advance()
+		}
+	}
+
+	// Consume closing parenthesis
+	if !p.match(types.RPAREN) {
+		return nil, p.NewSyntaxError("expected ')' after decorator parameters")
+	}
+	p.advance()
+
+	return &ast.FunctionDecorator{
+		Name: decoratorName,
+		Args: params,
 	}, nil
 }
 
