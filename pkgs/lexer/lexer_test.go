@@ -1210,6 +1210,26 @@ func TestVarInShellText(t *testing.T) {
 				{types.EOF, ""},
 			},
 		},
+		{
+			name:  "@var should be tokenized as shell text (for parser processing)",
+			input: `test: echo "@var(PORT)"`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "test"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, `echo "@var(PORT)"`},
+				{types.EOF, ""},
+			},
+		},
+		{
+			name:  "@env should be tokenized as shell text (same as @var)",
+			input: `test: echo "@env(HOME)"`,
+			expected: []tokenExpectation{
+				{types.IDENTIFIER, "test"},
+				{types.COLON, ":"},
+				{types.SHELL_TEXT, `echo "@env(HOME)"`},
+				{types.EOF, ""},
+			},
+		},
 	}
 
 	for _, tt := range tests {
