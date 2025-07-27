@@ -75,50 +75,61 @@ rec {
 
       # Get devcmd binary with better error handling
       devcmdBin =
-        if self != null then self.packages.${pkgs.system}.default
-        else throw "Self reference required for CLI generation. Cannot build '${name}' without devcmd parser.";
+        if self != null then 
+          (builtins.tryEval self.packages.${pkgs.system}.default).value or null
+        else null;
 
       # Simplified approach: Use devcmd build to handle everything
-      cliDerivation = pkgs.writeShellScriptBin binaryName ''
-        set -euo pipefail
-        
-        # Cache configuration
-        CACHE_DIR="$HOME/.cache/devcmd/${name}"
-        CONTENT_HASH="${contentHash}"
-        BINARY_PATH="$CACHE_DIR/bin/${binaryName}"
-        HASH_FILE="$CACHE_DIR/hash"
-        
-        # Check if cached binary exists and is current
-        if [[ -f "$BINARY_PATH" && -f "$HASH_FILE" ]]; then
-          if [[ "$(cat "$HASH_FILE" 2>/dev/null || echo "")" == "$CONTENT_HASH" ]]; then
-            # Cache hit - use existing binary
+      cliDerivation = 
+        if devcmdBin != null then
+          pkgs.writeShellScriptBin binaryName ''
+            set -euo pipefail
+            
+            # Cache configuration
+            CACHE_DIR="$HOME/.cache/devcmd/${name}"
+            CONTENT_HASH="${contentHash}"
+            BINARY_PATH="$CACHE_DIR/bin/${binaryName}"
+            HASH_FILE="$CACHE_DIR/hash"
+            
+            # Check if cached binary exists and is current
+            if [[ -f "$BINARY_PATH" && -f "$HASH_FILE" ]]; then
+              if [[ "$(cat "$HASH_FILE" 2>/dev/null || echo "")" == "$CONTENT_HASH" ]]; then
+                # Cache hit - use existing binary
+                exec "$BINARY_PATH" "$@"
+              fi
+            fi
+            
+            # Cache miss - use devcmd build to generate and compile everything
+            echo "🔨 Building ${name} CLI..."
+            mkdir -p "$CACHE_DIR/bin"
+            
+            # Ensure Go toolchain is available
+            if ! command -v go >/dev/null 2>&1; then
+              echo "❌ Error: Go toolchain not found. Please ensure Go is installed."
+              exit 1
+            fi
+            
+            # Use devcmd build to handle generation, module management, and compilation
+            ${devcmdBin}/bin/devcmd build \
+              --file "${commandsSrc}" \
+              --binary "${binaryName}" \
+              --output "$BINARY_PATH"
+            
+            # Cache the result
+            echo "$CONTENT_HASH" > "$HASH_FILE"
+            echo "✅ ${name} CLI built successfully"
+            
+            # Execute the built binary
             exec "$BINARY_PATH" "$@"
-          fi
-        fi
-        
-        # Cache miss - use devcmd build to generate and compile everything
-        echo "🔨 Building ${name} CLI..."
-        mkdir -p "$CACHE_DIR/bin"
-        
-        # Ensure Go toolchain is available
-        if ! command -v go >/dev/null 2>&1; then
-          echo "❌ Error: Go toolchain not found. Please ensure Go is installed."
-          exit 1
-        fi
-        
-        # Use devcmd build to handle generation, module management, and compilation
-        ${devcmdBin}/bin/devcmd build \
-          --file "${commandsSrc}" \
-          --binary "${binaryName}" \
-          --output "$BINARY_PATH"
-        
-        # Cache the result
-        echo "$CONTENT_HASH" > "$HASH_FILE"
-        echo "✅ ${name} CLI built successfully"
-        
-        # Execute the built binary
-        exec "$BINARY_PATH" "$@"
-      '';
+          ''
+        else
+          # Fallback when devcmd package isn't available
+          pkgs.writeShellScriptBin binaryName ''
+            echo "⚠️  ${name} CLI not available: devcmd package not built"
+            echo "   To use generated CLIs, first build devcmd or use 'nix develop'"
+            echo "   Manual alternative: devcmd run [command] -f ${commandsSrc}"
+            exit 1
+          '';
 
     in
     cliDerivation;

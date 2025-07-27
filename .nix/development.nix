@@ -2,31 +2,9 @@
 # Dogfooding our own tool for development commands
 { pkgs, self ? null, gitRev ? "dev" }:
 let
-  # Import our own library to create the development CLI
-  devcmdLib = import ./lib.nix {
-    inherit pkgs self gitRev;
-    lib = pkgs.lib;
-  };
-  # Generate the development CLI from our commands.cli file
-  devCLI =
-    if self != null then
-      devcmdLib.mkDevCLI
-        {
-          name = "dev";
-          binaryName = "dev"; # Explicitly set binary name for self-awareness
-          commandsFile = ../commands.cli;
-          version = "latest";
-          meta = {
-            description = "Devcmd development CLI - dogfooding our own tool";
-            longDescription = ''
-              This CLI is generated from commands.cli using devcmd itself.
-              It provides a streamlined development experience with all
-              necessary commands for building, testing, and maintaining devcmd.
-            '';
-          };
-        }
-    else
-      null;
+  # For now, skip the generated CLI and use manual commands
+  # TODO: Re-enable when Nix package build works with Go modules
+  devCLI = null;
 in
 pkgs.mkShell {
   name = "devcmd-dev";
@@ -46,16 +24,16 @@ pkgs.mkShell {
     echo "🔧 Devcmd Development Environment"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    ${if devCLI != null then ''
-        dev help
-    '' else ''
-      echo "⚠️  Development CLI not available (missing self reference)"
-      echo "   To get the full experience: nix develop"
-      echo ""
-      echo "Manual commands:"
-      echo "  cd cli && go build -o ../devcmd ./main.go"
-      echo "  go test ./..."
-    ''}
+    echo "🔨 Build devcmd first:"
+    echo "  cd cli && go build -o ../devcmd ./main.go"
+    echo ""
+    echo "🚀 Then use the CLI:"
+    echo "  ./devcmd run build    # Build the project"
+    echo "  ./devcmd run test     # Run all tests"
+    echo "  ./devcmd run help     # See all commands"
+    echo ""
+    echo "💡 Or use direct Go commands:"
+    echo "  go test ./core/... ./runtime/... ./cli/... # Test all modules"
     exec ${pkgs.zsh}/bin/zsh
   '';
 }
