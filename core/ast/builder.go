@@ -62,9 +62,9 @@ func Text(text string) *TextPart {
 	}
 }
 
-// At creates a function decorator within shell content: @var(NAME)
-func At(name string, args ...NamedParameter) *FunctionDecorator {
-	return &FunctionDecorator{
+// At creates a value decorator within shell content: @var(NAME)
+func At(name string, args ...NamedParameter) *ValueDecorator {
+	return &ValueDecorator{
 		Name: name,
 		Args: args,
 	}

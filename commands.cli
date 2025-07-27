@@ -17,7 +17,7 @@ var GO_VERSION = "1.24.3"
 # Build the CLI from multi-module structure
 build: {
     echo "🔨 Building @var(PROJECT) CLI..."
-    cd cli && go build -ldflags="-s -w -X main.Version=@var(VERSION) -X main.BuildTime=@var(BUILD_TIME)" -o ../@var(PROJECT) ./main.go
+    @workdir("cli") { go build -ldflags="-s -w -X main.Version=@var(VERSION) -X main.BuildTime=@var(BUILD_TIME)" -o ../@var(PROJECT) ./main.go }
     echo "✅ Built: ./@var(PROJECT)"
 }
 
@@ -44,7 +44,7 @@ test-quick: {
     echo "🔍 Checking Go formatting..."
     command -v gofumpt >/dev/null 2>&1 && gofumpt -l . | head -20 || go fmt ./... >/dev/null
     echo "🔍 Running basic linters..."
-    command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --fast || echo "⚠️  golangci-lint not available"
+    command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || echo "⚠️  golangci-lint not available"
     echo "✅ Quick checks passed!"
 }
 
@@ -63,16 +63,26 @@ test: {
 # Testing with coverage reports
 test-coverage: {
     echo "📊 Running tests with coverage across all modules..."
-    @parallel {
-        cd core && go test -race -coverprofile=../coverage-core.out -covermode=atomic ./...
-        cd runtime && go test -race -coverprofile=../coverage-runtime.out -covermode=atomic ./...
-        cd testing && go test -race -coverprofile=../coverage-testing.out -covermode=atomic ./...
-        cd cli && go test -race -coverprofile=../coverage-cli.out -covermode=atomic ./...
-    }
+    @workdir("core") { go test -race -coverprofile=../coverage-core.out -covermode=atomic ./... }
+    @workdir("runtime") { go test -race -coverprofile=../coverage-runtime.out -covermode=atomic ./... }
+    @workdir("testing") { go test -race -coverprofile=../coverage-testing.out -covermode=atomic ./... }
+    @workdir("cli") { go test -race -coverprofile=../coverage-cli.out -covermode=atomic ./... }
+    @cmd(coverage-reports)
+}
+
+# Generate coverage reports (only called if tests pass)
+coverage-reports: {
     echo "📊 Merging coverage reports..."
     command -v gocovmerge >/dev/null 2>&1 && gocovmerge coverage-*.out > coverage.out && rm coverage-*.out || echo "⚠️  gocovmerge not available"
     command -v go >/dev/null 2>&1 && go tool cover -html=coverage.out -o coverage.html && echo "📊 Coverage report: coverage.html"
     echo "✅ Coverage testing complete!"
+}
+
+# Test command to verify error propagation
+test-error-propagation: @workdir("testing") { 
+    echo "About to run a command that should fail..."
+    false
+    echo "This should NOT be printed if error propagation works"
 }
 
 # Module-specific testing commands
@@ -109,10 +119,10 @@ lint: {
     echo "🔍 Running linters across all modules..."
     if command -v golangci-lint >/dev/null 2>&1; then echo "Using golangci-lint"; else echo "⚠️  golangci-lint not available, using go vet"; fi
     @parallel {
-        cd core && (command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --timeout=3m || go vet ./...)
-        cd runtime && (command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --timeout=3m || go vet ./...)
-        cd testing && (command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --timeout=3m || go vet ./...)
-        cd cli && (command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --timeout=3m || go vet ./...)
+        @workdir("core") { command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --timeout=3m || go vet ./... }
+        @workdir("runtime") { command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --timeout=3m || go vet ./... }
+        @workdir("testing") { command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --timeout=3m || go vet ./... }
+        @workdir("cli") { command -v golangci-lint >/dev/null 2>&1 && golangci-lint run --timeout=3m || go vet ./... }
     }
     echo "✅ Linting complete!"
 }
@@ -217,13 +227,13 @@ dev-flow: {
 ci: {
     echo "🔄 Running CI workflow..."
     echo "Stage 1: Quick Checks..."
-    dev test-quick
+    @cmd(test-quick)
     echo "Stage 2: Full Testing..."
-    dev test-coverage
+    @cmd(test-coverage)
     echo "Stage 3: Build Verification..."
-    dev build
+    @cmd(build)
     echo "Stage 4: Nix Validation..."
-    dev nix-check
+    @cmd(nix-check)
     echo "🎉 CI workflow complete!"
 }
 

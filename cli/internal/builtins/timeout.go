@@ -12,57 +12,55 @@ import (
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
-// timeoutExecutionTemplate generates Go code for timeout logic
-const timeoutExecutionTemplate = `func() error {
-	timeout, err := time.ParseDuration("{{.Duration}}")
-	if err != nil {
-		return fmt.Errorf("invalid timeout duration '{{.Duration}}': %w", err)
-	}
+// timeoutExecutionTemplate generates Go code for timeout logic (unified contract: statement blocks)
+const timeoutExecutionTemplate = `// Timeout execution setup
+timeoutDuration, err := time.ParseDuration("{{.Duration}}")
+if err != nil {
+	return fmt.Errorf("invalid timeout duration '{{.Duration}}': %w", err)
+}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+timeoutCtx, timeoutCancel := context.WithTimeout(ctx, timeoutDuration)
+defer timeoutCancel()
 
-	done := make(chan error, 1)
+timeoutDone := make(chan error, 1)
 
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				done <- fmt.Errorf("panic during execution: %v", r)
-			}
-		}()
-
-		{{range $i, $cmd := .Commands}}
-		// Check for cancellation before command {{$i}}
-		select {
-		case <-timeoutCtx.Done():
-			done <- timeoutCtx.Err()
-			return
-		default:
+go func() {
+	defer func() {
+		if r := recover(); r != nil {
+			timeoutDone <- fmt.Errorf("panic during execution: %v", r)
 		}
-
-		// Execute command {{$i}}
-		if err := func() error {
-			{{generateShellCode $cmd}}
-			return nil
-		}(); err != nil {
-			done <- err
-			return
-		}
-		{{end}}
-
-		done <- nil
 	}()
 
+	{{range $i, $cmd := .Commands}}
+	// Check for timeout cancellation before command {{$i}}
 	select {
-	case err := <-done:
-		if err != nil {
-			return fmt.Errorf("command execution failed: %w", err)
-		}
-		return nil
 	case <-timeoutCtx.Done():
-		return fmt.Errorf("command execution timed out after {{.Duration}}")
+		timeoutDone <- timeoutCtx.Err()
+		return
+	default:
 	}
-}()`
+
+	// Execute timeout command {{$i}}
+	if err := func() error {
+		{{generateShellCode $cmd}}
+		return nil
+	}(); err != nil {
+		timeoutDone <- err
+		return
+	}
+	{{end}}
+
+	timeoutDone <- nil
+}()
+
+select {
+case err := <-timeoutDone:
+	if err != nil {
+		return fmt.Errorf("command execution failed: %w", err)
+	}
+case <-timeoutCtx.Done():
+	return fmt.Errorf("command execution timed out after {{.Duration}}")
+}`
 
 // TimeoutTemplateData holds data for the timeout template
 type TimeoutTemplateData struct {

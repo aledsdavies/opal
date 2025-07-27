@@ -16,16 +16,6 @@ import (
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
-// functionDecoratorAdapter adapts decorators.FunctionDecorator to execution.FunctionDecorator
-type functionDecoratorAdapter struct {
-	decorator decorators.FunctionDecorator
-}
-
-// Expand implements execution.FunctionDecorator by delegating to decorators.FunctionDecorator.Expand
-func (a *functionDecoratorAdapter) Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	return a.decorator.Expand(ctx, params)
-}
-
 // ProcessGroup represents a group of watch/stop commands for the same identifier
 type ProcessGroup struct {
 	Identifier   string
@@ -207,16 +197,16 @@ func (e *Engine) GenerateCode(program *ast.Program) (*GenerationResult, error) {
 
 // setupDependencyInjection sets up dependency injection for the execution context
 func (e *Engine) setupDependencyInjection() {
-	// Set up function decorator lookup - create an adapter to bridge decorator interfaces
-	e.ctx.SetFunctionDecoratorLookup(func(name string) (execution.FunctionDecorator, bool) {
-		decorator, exists := decorators.GetFunctionDecorator(name)
-		if !exists {
-			return nil, false
-		}
+	// Set up value decorator lookup
+	e.ctx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
+		decorator, exists := decorators.GetValueDecorator(name)
+		return decorator, exists
+	})
 
-		// Create an adapter that bridges the interface difference
-		adapter := &functionDecoratorAdapter{decorator: decorator}
-		return adapter, true
+	// Set up action decorator lookup
+	e.ctx.SetActionDecoratorLookup(func(name string) (interface{}, bool) {
+		decorator, exists := decorators.GetActionDecorator(name)
+		return decorator, exists
 	})
 
 	// Set up command content executor - this is used by ExecuteCommandContent
@@ -359,10 +349,14 @@ func (e *Engine) collectDecoratorImportsFromContent(content []ast.CommandContent
 	for _, item := range content {
 		switch c := item.(type) {
 		case *ast.ShellContent:
-			// Collect from function decorators in shell parts
+			// Collect from decorators in shell parts
 			for _, part := range c.Parts {
-				if fn, ok := part.(*ast.FunctionDecorator); ok {
-					if err := e.addDecoratorImports("function", fn.Name, result); err != nil {
+				if valueDecor, ok := part.(*ast.ValueDecorator); ok {
+					if err := e.addDecoratorImports("value", valueDecor.Name, result); err != nil {
+						return err
+					}
+				} else if actionDecor, ok := part.(*ast.ActionDecorator); ok {
+					if err := e.addDecoratorImports("action", actionDecor.Name, result); err != nil {
 						return err
 					}
 				}
@@ -396,8 +390,10 @@ func (e *Engine) addDecoratorImports(decoratorType, name string, result *Generat
 	var err error
 
 	switch decoratorType {
-	case "function":
-		decorator, err = decorators.GetFunction(name)
+	case "value":
+		decorator, err = decorators.GetValue(name)
+	case "action":
+		decorator, err = decorators.GetAction(name)
 	case "block":
 		decorator, err = decorators.GetBlock(name)
 	case "pattern":
@@ -601,7 +597,7 @@ func (e *Engine) trackVariableUsage(content ast.CommandContent, usedVars map[str
 	switch c := content.(type) {
 	case *ast.ShellContent:
 		for _, part := range c.Parts {
-			if funcDec, ok := part.(*ast.FunctionDecorator); ok {
+			if funcDec, ok := part.(*ast.ValueDecorator); ok {
 				if funcDec.Name == "var" && len(funcDec.Args) == 1 {
 					if ident, ok := funcDec.Args[0].Value.(*ast.Identifier); ok {
 						usedVars[ident.Name] = true
@@ -631,46 +627,18 @@ func (e *Engine) trackVariableUsageInBody(body *ast.CommandBody, usedVars map[st
 
 // generateShellCommandExpression generates a Go string expression for a shell command with variable expansion
 func (e *Engine) generateShellCommandExpression(content *ast.ShellContent) (string, error) {
-	// Build Go expression parts for the command (similar to GenerateShellCodeForTemplate)
-	var goExprParts []string
-
-	for _, part := range content.Parts {
-		switch p := part.(type) {
-		case *ast.TextPart:
-			// Plain text - add as quoted string
-			goExprParts = append(goExprParts, fmt.Sprintf("%q", p.Text))
-
-		case *ast.FunctionDecorator:
-			// Let the decorator handle its own expansion logic
-			decorator, err := decorators.GetFunction(p.Name)
-			if err != nil {
-				return "", fmt.Errorf("function decorator @%s not found in shell command: %w", p.Name, err)
-			}
-
-			// Expand the decorator in generator mode to get Go code
-			result := decorator.Expand(e.ctx, p.Args)
-			if result.Error != nil {
-				return "", fmt.Errorf("decorator @%s expansion failed: %w", p.Name, result.Error)
-			}
-
-			// Use the decorator-generated code
-			if codeStr, ok := result.Data.(string); ok {
-				goExprParts = append(goExprParts, codeStr)
-			} else {
-				return "", fmt.Errorf("decorator @%s returned invalid data type for shell generation: %T", p.Name, result.Data)
-			}
-
-		default:
-			return "", fmt.Errorf("unsupported shell part type: %T", part)
-		}
+	// Use the unified shell processing approach
+	generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
+	result := generatorCtx.ExecuteShell(content)
+	if result.Error != nil {
+		return "", result.Error
 	}
 
-	// Build the Go expression for the command
-	if len(goExprParts) == 1 {
-		return goExprParts[0], nil
-	} else {
-		return strings.Join(goExprParts, " + "), nil
+	if cmdExpr, ok := result.Data.(string); ok {
+		return cmdExpr, nil
 	}
+
+	return "", fmt.Errorf("shell execution returned non-string result: %T", result.Data)
 }
 
 // extractShellCommand extracts the raw shell command string from AST ShellContent
@@ -680,9 +648,9 @@ func (e *Engine) extractShellCommand(shellContent *ast.ShellContent) string {
 		switch p := part.(type) {
 		case *ast.TextPart:
 			command.WriteString(p.Text)
-		case *ast.FunctionDecorator:
+		case *ast.ValueDecorator:
 			// Let the decorator handle its own expansion logic
-			decorator, err := decorators.GetFunction(p.Name)
+			decorator, err := decorators.GetValue(p.Name)
 			if err != nil {
 				// For now, show the error instead of silently skipping
 				command.WriteString(fmt.Sprintf("[ERROR: %v]", err))
@@ -750,7 +718,7 @@ func (e *Engine) analyzeCommands(commands []ast.CommandDecl) CommandGroups {
 func (e *Engine) setupTemplateFunctions() {
 	templateFuncs := map[string]interface{}{
 		"generateShellCode": func(content ast.CommandContent) string {
-			// Use the execution context's clean shell code generation
+			// Handle different types of command content
 			switch c := content.(type) {
 			case *ast.ShellContent:
 				code, err := e.ctx.GenerateShellCodeForTemplate(c)
@@ -758,9 +726,69 @@ func (e *Engine) setupTemplateFunctions() {
 					return fmt.Sprintf("return fmt.Errorf(\"shell generation error: %v\")", err)
 				}
 				return code
+			case *ast.BlockDecorator:
+				// Handle nested decorators by executing them in generator mode
+				decorator, err := decorators.GetBlock(c.Name)
+				if err != nil {
+					return fmt.Sprintf("return fmt.Errorf(\"block decorator @%s not found: %v\")", c.Name, err)
+				}
+				
+				// Execute the decorator in generator mode to get the generated code
+				result := decorator.Execute(e.ctx, c.Args, c.Content)
+				if result.Error != nil {
+					return fmt.Sprintf("return fmt.Errorf(\"@%s decorator execution failed: %v\")", c.Name, result.Error)
+				}
+				
+				// Return the generated code from the decorator
+				if code, ok := result.Data.(string); ok {
+					return code
+				}
+				return fmt.Sprintf("return fmt.Errorf(\"@%s decorator did not return code string\")", c.Name)
+			case *ast.ActionDecorator:
+				// Handle action decorators - these generate execution code
+				decorator, err := decorators.GetAction(c.Name)
+				if err != nil {
+					return fmt.Sprintf("return fmt.Errorf(\"action decorator @%s not found: %v\")", c.Name, err)
+				}
+				
+				// Action decorators generate execution code
+				generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
+				result := decorator.Expand(generatorCtx, c.Args)
+				if result.Error != nil {
+					return fmt.Sprintf("return fmt.Errorf(\"@%s decorator execution failed: %v\")", c.Name, result.Error)
+				}
+				
+				// Return the generated code from the decorator
+				if code, ok := result.Data.(string); ok {
+					return code
+				}
+				return fmt.Sprintf("return fmt.Errorf(\"@%s decorator did not return code string\")", c.Name)
 			default:
 				return fmt.Sprintf("return fmt.Errorf(\"unsupported command content type: %T\")", content)
 			}
+		},
+		"add": func(a, b int) int {
+			return a + b
+		},
+		"title": func(s string) string {
+			return strings.Title(s)
+		},
+		"hasSuffix": func(s, suffix string) bool {
+			return strings.HasSuffix(strings.TrimSpace(s), suffix)
+		},
+		"generateShellExpression": func(content *ast.ShellContent) string {
+			// Use unified shell processing in generator mode
+			generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
+			result := generatorCtx.ExecuteShell(content)
+			if result.Error != nil {
+				return fmt.Sprintf(`"error: %s"`, result.Error.Error())
+			}
+
+			if cmdExpr, ok := result.Data.(string); ok {
+				return cmdExpr
+			}
+
+			return fmt.Sprintf(`"invalid result type: %T"`, result.Data)
 		},
 	}
 	e.ctx.SetTemplateFunctions(templateFuncs)
@@ -827,12 +855,26 @@ func main() {
 	var dryRun bool
 	var noColor bool
 
+	// Centralized error handling function
+	handleCommandError := func(commandName string, err error) {
+		fmt.Fprintf(os.Stderr, "Command '%s' failed: %v\n", commandName, err)
+		os.Exit(1)
+	}
+
 	rootCmd := &cobra.Command{
 		Use:   "cli",
 		Short: "Generated CLI from devcmd",
 	}
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Show execution plan without running commands")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output in dry-run mode")
+
+	// Execution functions for commands
+	{{range .Commands}}
+	execute{{.FunctionName | title}} := func() error {
+		{{.ExecutionCode}}{{if not (hasSuffix .ExecutionCode "return")}}
+		return nil{{end}}
+	}
+	{{end}}
 
 	{{range .Commands}}
 	// Command: {{.Name}}
@@ -849,8 +891,10 @@ func main() {
 			return
 		}
 		
-		// Normal execution
-		{{.ExecutionCode}}
+		// Normal execution - call the execution function
+		if err := execute{{.FunctionName | title}}(); err != nil {
+			handleCommandError("{{.Name}}", err)
+		}
 	}
 
 	{{.CommandName}} := &cobra.Command{
@@ -1136,8 +1180,7 @@ func main() {
 	{{end}}
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err, os.Stderr)
-		os.Exit(1)
+		handleCommandError("root", err)
 	}
 }
 `
@@ -1269,12 +1312,19 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 	for _, cmd := range commandGroups.RegularCommands {
 		// Execute the command content using the execution context to get proper template-generated code
 		var executionCode strings.Builder
+		shellCommandIndex := 0
 
 		for _, content := range cmd.Body.Content {
 			// Execute each piece of content and collect the generated code
 			switch c := content.(type) {
 			case *ast.ShellContent:
-				execResult := ctx.ExecuteShell(c)
+				// Set current command name and index for meaningful variable names
+				commandSuffix := cmd.Name
+				if shellCommandIndex > 0 {
+					commandSuffix = fmt.Sprintf("%s%d", cmd.Name, shellCommandIndex)
+				}
+				cmdCtx := ctx.WithCurrentCommand(commandSuffix)
+				execResult := cmdCtx.ExecuteShell(c)
 				if execResult.Error != nil {
 					return nil, fmt.Errorf("failed to generate shell code for command %s: %w", cmd.Name, execResult.Error)
 				}
@@ -1282,6 +1332,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 					executionCode.WriteString(code)
 					executionCode.WriteString("\n")
 				}
+				shellCommandIndex++
 
 			case *ast.BlockDecorator:
 				// Add decorator marker comment (expected by tests)
@@ -1328,6 +1379,29 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 					return nil, fmt.Errorf("pattern decorator @%s not found for command %s: %w", c.Name, cmd.Name, err)
 				}
 				decoratorResult := patternDecorator.Execute(ctx, c.Args, c.Patterns)
+				if decoratorResult.Error != nil {
+					return nil, fmt.Errorf("@%s decorator execution failed in command %s: %w", c.Name, cmd.Name, decoratorResult.Error)
+				}
+				if code, ok := decoratorResult.Data.(string); ok {
+					executionCode.WriteString(code)
+					executionCode.WriteString("\n")
+				}
+
+			case *ast.ActionDecorator:
+				// Add decorator marker comment
+				executionCode.WriteString(fmt.Sprintf("\t\t// Action decorator: @%s\n", c.Name))
+
+				// Collect imports for this decorator
+				if err := e.addDecoratorImports("action", c.Name, result); err != nil {
+					return nil, fmt.Errorf("failed to collect imports for @%s in command %s: %w", c.Name, cmd.Name, err)
+				}
+
+				// Execute the action decorator to get generated code
+				actionDecorator, err := decorators.GetAction(c.Name)
+				if err != nil {
+					return nil, fmt.Errorf("action decorator @%s not found for command %s: %w", c.Name, cmd.Name, err)
+				}
+				decoratorResult := actionDecorator.Expand(ctx, c.Args)
 				if decoratorResult.Error != nil {
 					return nil, fmt.Errorf("@%s decorator execution failed in command %s: %w", c.Name, cmd.Name, decoratorResult.Error)
 				}
@@ -1502,8 +1576,8 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 	templateData.StandardImports = standardImports
 	templateData.ThirdPartyImports = thirdPartyImports
 
-	// Execute the template
-	tmpl, err := template.New("mainCLI").Parse(mainCLITemplate)
+	// Execute the template using context template functions
+	tmpl, err := template.New("mainCLI").Funcs(e.ctx.GetTemplateFunctions()).Parse(mainCLITemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse main CLI template: %w", err)
 	}

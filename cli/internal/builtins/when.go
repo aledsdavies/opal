@@ -2,7 +2,6 @@ package decorators
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"text/template"
 
@@ -15,34 +14,22 @@ import (
 // WhenDecorator implements the @when decorator for conditional execution based on patterns
 type WhenDecorator struct{}
 
-// Template for when execution code generation
-const whenExecutionTemplate = `func() error {
-	// Pattern matching for variable: {{.VariableName}}
-	value := os.Getenv({{printf "%q" .VariableName}})
-	switch value {
-	{{range $pattern := .Patterns}}
-	{{if $pattern.IsDefault}}
-	default:
-	{{else}}
-	case {{printf "%q" $pattern.Name}}:
+// Template for when execution code generation (unified contract: statement blocks)
+const whenExecutionTemplate = `// Pattern matching for variable: {{.VariableName}}
+// Use captured environment value resolved at generation time
+switch {{printf "%q" .ResolvedValue}} {
+{{range $pattern := .Patterns}}
+{{if $pattern.IsDefault}}
+default:
+{{else}}
+case {{printf "%q" $pattern.Name}}:
+{{end}}
+	// Execute commands for pattern: {{$pattern.Name}}
+	{{range $i, $cmd := $pattern.Commands}}
+	{{generateShellCode $cmd}}
 	{{end}}
-		// Execute commands for pattern: {{$pattern.Name}}
-		if err := func() error {
-			{{range $i, $cmd := $pattern.Commands}}
-			if err := func() error {
-				{{generateShellCode $cmd}}
-			}(); err != nil {
-				return err
-			}
-			{{end}}
-			return nil
-		}(); err != nil {
-			return err
-		}
-	{{end}}
-	}
-	return nil
-}()`
+{{end}}
+}`
 
 // WhenPatternData holds data for a single pattern branch
 type WhenPatternData struct {
@@ -53,8 +40,9 @@ type WhenPatternData struct {
 
 // WhenTemplateData holds data for template execution
 type WhenTemplateData struct {
-	VariableName string
-	Patterns     []WhenPatternData
+	VariableName  string
+	ResolvedValue string // The actual resolved value from captured environment
+	Patterns      []WhenPatternData
 }
 
 // Name returns the decorator name
@@ -146,12 +134,12 @@ func (w *WhenDecorator) Execute(ctx *execution.ExecutionContext, params []ast.Na
 
 // executeInterpreter executes pattern matching in interpreter mode
 func (w *WhenDecorator) executeInterpreter(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
-	// Get the variable value (check context first, then environment variables)
+	// Get the variable value (check context first, then captured environment)
 	value := ""
 	if ctxValue, exists := ctx.GetVariable(varName); exists {
 		value = ctxValue
-	} else {
-		value = os.Getenv(varName)
+	} else if envValue, exists := ctx.GetEnv(varName); exists {
+		value = envValue
 	}
 
 	// Find matching pattern branch
@@ -179,6 +167,14 @@ func (w *WhenDecorator) executeInterpreter(ctx *execution.ExecutionContext, varN
 
 // executeGenerator generates Go code for pattern matching
 func (w *WhenDecorator) executeGenerator(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	// Resolve the variable value at generation time from captured environment
+	resolvedValue := ""
+	if ctxValue, exists := ctx.GetVariable(varName); exists {
+		resolvedValue = ctxValue
+	} else if envValue, exists := ctx.GetEnv(varName); exists {
+		resolvedValue = envValue
+	}
+
 	// Convert patterns to template data
 	var patternData []WhenPatternData
 	for _, pattern := range patterns {
@@ -195,10 +191,11 @@ func (w *WhenDecorator) executeGenerator(ctx *execution.ExecutionContext, varNam
 		})
 	}
 
-	// Prepare template data
+	// Prepare template data with resolved value
 	templateData := WhenTemplateData{
-		VariableName: varName,
-		Patterns:     patternData,
+		VariableName:  varName,
+		ResolvedValue: resolvedValue,
+		Patterns:      patternData,
 	}
 
 	// Parse and execute template with context functions
@@ -229,12 +226,12 @@ func (w *WhenDecorator) executeGenerator(ctx *execution.ExecutionContext, varNam
 
 // executePlan creates a plan element for dry-run mode
 func (w *WhenDecorator) executePlan(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
-	// Get current value from context or environment
+	// Get current value from context or captured environment
 	currentValue := ""
 	if value, exists := ctx.GetVariable(varName); exists {
 		currentValue = value
-	} else {
-		currentValue = os.Getenv(varName)
+	} else if envValue, exists := ctx.GetEnv(varName); exists {
+		currentValue = envValue
 	}
 
 	// Find matching pattern
@@ -340,7 +337,7 @@ func (w *WhenDecorator) patternToString(pattern ast.Pattern) string {
 // ImportRequirements returns the dependencies needed for code generation
 func (w *WhenDecorator) ImportRequirements() decorators.ImportRequirement {
 	return decorators.ImportRequirement{
-		StandardLibrary: []string{"os"}, // When decorator may need os for environment variables
+		StandardLibrary: []string{}, // No imports needed - generates string literals
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
 	}

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
+	"github.com/aledsdavies/devcmd/core/ast"
 )
 
 // TestEngine_EndToEndRealCommandsFile tests end-to-end functionality with real commands.cli
@@ -127,9 +127,11 @@ func TestEngine_EndToEndRealCommandsFile(t *testing.T) {
 						parallelCommands++
 					}
 				case *ast.ShellContent:
-					// Count function decorators in shell content
+					// Count decorators in shell content
 					for _, part := range c.Parts {
-						if _, ok := part.(*ast.FunctionDecorator); ok {
+						if _, ok := part.(*ast.ValueDecorator); ok {
+							functionDecoratorCommands++
+						} else if _, ok := part.(*ast.ActionDecorator); ok {
 							functionDecoratorCommands++
 						}
 					}
@@ -187,7 +189,10 @@ func TestEngine_EndToEndRealCommandsFile(t *testing.T) {
 			for _, content := range cmd.Body.Content {
 				if shell, ok := content.(*ast.ShellContent); ok {
 					for _, part := range shell.Parts {
-						if _, ok := part.(*ast.FunctionDecorator); ok {
+						if _, ok := part.(*ast.ValueDecorator); ok {
+							commandsWithVars++
+							break
+						} else if _, ok := part.(*ast.ActionDecorator); ok {
 							commandsWithVars++
 							break
 						}

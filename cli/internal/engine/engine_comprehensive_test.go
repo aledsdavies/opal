@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
+	"github.com/aledsdavies/devcmd/core/ast"
 )
 
 // ExecutionMode for comprehensive testing

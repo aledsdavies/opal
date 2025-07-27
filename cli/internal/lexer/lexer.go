@@ -552,7 +552,7 @@ func (l *Lexer) lexDecoratorInCommand(start, startLine, startColumn int) types.T
 				l.readChar() // Skip the @ character
 
 				return l.createToken(types.AT, "@", start, startLine, startColumn)
-			} else if decorators.IsFunctionDecorator(identifier) {
+			} else if decorators.IsDecorator(identifier) {
 				// Check if followed by parentheses for function decorators
 				if l.ch == '(' {
 					// This is a function decorator - switch to LanguageMode for the decorator sequence
@@ -817,7 +817,7 @@ func (l *Lexer) lexDecoratorInShell(start, startLine, startColumn int) types.Tok
 				l.readChar() // Skip the @ character
 
 				return l.createToken(types.AT, "@", start, startLine, startColumn)
-			} else if decorators.IsFunctionDecorator(identifier) {
+			} else if decorators.IsDecorator(identifier) {
 				// Check if followed by parentheses for function decorators
 				if l.ch == '(' {
 					// This is a function decorator - switch to LanguageMode for the decorator sequence
@@ -947,7 +947,7 @@ func (l *Lexer) lexShellTextWithContext(start, startLine, startColumn int) types
 					}
 
 					// Break for function decorators with parentheses (we'll tokenize them here)
-					if decorators.IsFunctionDecorator(identifier) && hasOpenParen {
+					if decorators.IsDecorator(identifier) && hasOpenParen {
 						break
 					}
 				}
@@ -1172,7 +1172,7 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 					}
 
 					// Break for function decorators with parentheses (we'll tokenize them here)
-					if decorators.IsFunctionDecorator(identifier) && hasOpenParen {
+					if decorators.IsDecorator(identifier) && hasOpenParen {
 						break
 					}
 				}

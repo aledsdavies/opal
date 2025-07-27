@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
+	"github.com/aledsdavies/devcmd/core/ast"
 )
 
 // TestPlanConsistency verifies that interpreter mode and generated binary mode

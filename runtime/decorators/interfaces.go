@@ -40,16 +40,26 @@ type Decorator interface {
 	ImportRequirements() ImportRequirement
 }
 
-// FunctionDecorator represents decorators that provide values for command composition
-// Examples: @env, @var, @file, @config, @api
-// These decorators transform input parameters into values that can be injected into shell commands
-type FunctionDecorator interface {
+// ValueDecorator represents decorators that provide values for shell interpolation
+// Examples: @var, @env - inline value substitution only
+type ValueDecorator interface {
 	Decorator
 
-	// Expand returns a value that can be used in command composition
-	// The execution context determines how the value is used:
+	// Expand returns a value that can be used in shell command composition
 	// - GeneratorMode: Returns Go code expression that evaluates to the value
 	// - InterpreterMode: Returns the actual runtime value
+	// - PlanMode: Returns description for dry-run display
+	Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult
+}
+
+// ActionDecorator represents decorators that execute commands with structured output
+// Examples: @cmd - can be standalone or chained with shell operators
+type ActionDecorator interface {
+	Decorator
+
+	// Expand executes an action and returns structured result for chaining
+	// - GeneratorMode: Returns Go code that produces CommandResult
+	// - InterpreterMode: Executes and returns CommandResult
 	// - PlanMode: Returns description for dry-run display
 	Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult
 }
@@ -75,11 +85,13 @@ type PatternDecorator interface {
 	PatternSchema() PatternSchema
 }
 
+
 // DecoratorType represents the type of decorator
 type DecoratorType int
 
 const (
-	FunctionType DecoratorType = iota
+	ValueType DecoratorType = iota
+	ActionType
 	BlockType
 	PatternType
 )
@@ -87,8 +99,10 @@ const (
 // GetDecoratorType returns the type of a decorator
 func GetDecoratorType(d Decorator) DecoratorType {
 	switch d.(type) {
-	case FunctionDecorator:
-		return FunctionType
+	case ValueDecorator:
+		return ValueType
+	case ActionDecorator:
+		return ActionType
 	case BlockDecorator:
 		return BlockType
 	case PatternDecorator:

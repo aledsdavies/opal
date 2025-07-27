@@ -15,48 +15,44 @@ import (
 // RetryDecorator implements the @retry decorator for retrying failed command execution
 type RetryDecorator struct{}
 
-// Template for retry execution code generation
-const retryExecutionTemplate = `return func() error {
-	maxAttempts := {{.MaxAttempts}}
-	delay, err := time.ParseDuration({{printf "%q" .Delay}})
-	if err != nil {
-		return fmt.Errorf("invalid retry delay '{{.Delay}}': %w", err)
+// Template for retry execution code generation (unified contract: statement blocks)
+const retryExecutionTemplate = `// Retry execution setup
+maxAttempts := {{.MaxAttempts}}
+delay, err := time.ParseDuration({{printf "%q" .Delay}})
+if err != nil {
+	return fmt.Errorf("invalid retry delay '{{.Delay}}': %w", err)
+}
+
+var lastErr error
+for attempt := 1; attempt <= maxAttempts; attempt++ {
+	fmt.Printf("Retry attempt %d/%d\n", attempt, maxAttempts)
+
+	// Execute commands in child context
+	execErr := func() error {
+		{{range $i, $cmd := .Commands}}
+		{{generateShellCode $cmd}}
+		{{end}}
+		return nil
+	}()
+
+	if execErr == nil {
+		fmt.Printf("Commands succeeded on attempt %d\n", attempt)
+		break
 	}
 
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		fmt.Printf("Retry attempt %d/%d\n", attempt, maxAttempts)
+	lastErr = execErr
+	fmt.Printf("Attempt %d failed: %v\n", attempt, execErr)
 
-		// Execute commands
-		execErr := func() error {
-			{{range $i, $cmd := .Commands}}
-			// Execute command {{$i}}
-			if err := func() error {
-				{{generateShellCode $cmd}}
-			}(); err != nil {
-				return err
-			}
-			{{end}}
-			return nil
-		}()
-
-		if execErr == nil {
-			fmt.Printf("Commands succeeded on attempt %d\n", attempt)
-			return nil
-		}
-
-		lastErr = execErr
-		fmt.Printf("Attempt %d failed: %v\n", attempt, execErr)
-
-		// Don't delay after the last attempt
-		if attempt < maxAttempts {
-			fmt.Printf("Waiting %s before next attempt...\n", delay)
-			time.Sleep(delay)
-		}
+	// Don't delay after the last attempt
+	if attempt < maxAttempts {
+		fmt.Printf("Waiting %s before next attempt...\n", delay)
+		time.Sleep(delay)
 	}
+}
 
+if lastErr != nil {
 	return fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr)
-}()`
+}`
 
 // RetryTemplateData holds data for template execution
 type RetryTemplateData struct {
@@ -158,8 +154,11 @@ func (r *RetryDecorator) Execute(ctx *execution.ExecutionContext, params []ast.N
 func (r *RetryDecorator) executeInterpreter(ctx *execution.ExecutionContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Create child context for each retry attempt
+		retryCtx := ctx.Child()
+		
 		// Execute commands using the unified execution engine
-		execErr := r.executeCommands(ctx, content)
+		execErr := r.executeCommands(retryCtx, content)
 
 		if execErr == nil {
 			return &execution.ExecutionResult{
@@ -186,6 +185,9 @@ func (r *RetryDecorator) executeInterpreter(ctx *execution.ExecutionContext, max
 
 // executeGenerator generates Go code for retry logic
 func (r *RetryDecorator) executeGenerator(ctx *execution.ExecutionContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+	// Create child context for isolated execution
+	retryCtx := ctx.Child()
+	
 	// Parse delay for code generation
 	defaultDelay := delay.String()
 
@@ -196,8 +198,8 @@ func (r *RetryDecorator) executeGenerator(ctx *execution.ExecutionContext, maxAt
 		Commands:    content,
 	}
 
-	// Parse and execute template with context functions
-	tmpl, err := template.New("retry").Funcs(ctx.GetTemplateFunctions()).Parse(retryExecutionTemplate)
+	// Parse and execute template with child context functions
+	tmpl, err := template.New("retry").Funcs(retryCtx.GetTemplateFunctions()).Parse(retryExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Mode:  execution.GeneratorMode,

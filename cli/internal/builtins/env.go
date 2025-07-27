@@ -2,9 +2,6 @@ package decorators
 
 import (
 	"fmt"
-	"os"
-	"strings"
-	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/core/plan"
@@ -14,14 +11,6 @@ import (
 
 // EnvDecorator implements the @env decorator for environment variable access
 type EnvDecorator struct{}
-
-// Template for environment variable access with default value
-const envWithDefaultTemplate = `func() string {
-	if value := os.Getenv({{.Key}}); value != "" {
-		return value
-	}
-	return {{.Default}}
-}()`
 
 // Name returns the decorator name
 func (e *EnvDecorator) Name() string {
@@ -49,6 +38,11 @@ func (e *EnvDecorator) ParameterSchema() []decorators.ParameterSchema {
 			Description: "Default value if environment variable is not set",
 		},
 	}
+}
+
+// DecoratorType returns that this is a substitution decorator
+func (e *EnvDecorator) DecoratorType() execution.FunctionDecoratorType {
+	return execution.SubstitutionDecorator
 }
 
 // Validate checks if the decorator usage is correct during parsing
@@ -88,11 +82,11 @@ func (e *EnvDecorator) Expand(ctx *execution.ExecutionContext, params []ast.Name
 
 // executeInterpreter gets environment variable value in interpreter mode
 func (e *EnvDecorator) executeInterpreter(ctx *execution.ExecutionContext, key string, params []ast.NamedParameter) *execution.ExecutionResult {
-	// Get the environment variable value
-	value := os.Getenv(key)
+	// Get the environment variable value from captured environment
+	value, exists := ctx.GetEnv(key)
 
 	// If not found and default provided, use default
-	if value == "" {
+	if !exists || value == "" {
 		value = ast.GetStringParam(params, "default", "")
 	}
 
@@ -105,43 +99,22 @@ func (e *EnvDecorator) executeInterpreter(ctx *execution.ExecutionContext, key s
 
 // executeGenerator generates Go code for environment variable access
 func (e *EnvDecorator) executeGenerator(ctx *execution.ExecutionContext, key string, params []ast.NamedParameter) *execution.ExecutionResult {
+	// Get the environment variable value from captured environment at generation time
+	value, exists := ctx.GetEnv(key)
+	
 	// Get default value if provided
 	defaultValue := ast.GetStringParam(params, "default", "")
 
-	var code string
-	// Generate Go code based on whether default is provided
-	if defaultValue == "" {
-		// No default value - simple os.Getenv call
-		code = fmt.Sprintf(`os.Getenv(%q)`, key)
+	// Use captured value or default - generate literal string instead of runtime os.Getenv()
+	var finalValue string
+	if exists && value != "" {
+		finalValue = value
 	} else {
-		// With default value - use template
-		tmpl, err := template.New("envWithDefault").Parse(envWithDefaultTemplate)
-		if err != nil {
-			return &execution.ExecutionResult{
-				Mode:  execution.GeneratorMode,
-				Data:  "",
-				Error: fmt.Errorf("failed to parse env template: %w", err),
-			}
-		}
-
-		templateData := struct {
-			Key     string
-			Default string
-		}{
-			Key:     fmt.Sprintf("%q", key),
-			Default: fmt.Sprintf("%q", defaultValue),
-		}
-
-		var result strings.Builder
-		if err := tmpl.Execute(&result, templateData); err != nil {
-			return &execution.ExecutionResult{
-				Mode:  execution.GeneratorMode,
-				Data:  "",
-				Error: fmt.Errorf("failed to execute env template: %w", err),
-			}
-		}
-		code = result.String()
+		finalValue = defaultValue
 	}
+
+	// Generate quoted string literal of the captured/default value
+	code := fmt.Sprintf("%q", finalValue)
 
 	return &execution.ExecutionResult{
 		Mode:  execution.GeneratorMode,
@@ -155,10 +128,10 @@ func (e *EnvDecorator) executePlan(ctx *execution.ExecutionContext, key string, 
 	// Get default value if provided
 	defaultValue := ast.GetStringParam(params, "default", "")
 
-	// Get the actual environment value (in dry run, we still check the env)
+	// Get the actual environment value from captured environment
 	var description string
-	actualValue := os.Getenv(key)
-	if actualValue != "" {
+	actualValue, exists := ctx.GetEnv(key)
+	if exists && actualValue != "" {
 		description = fmt.Sprintf("Environment variable: $%s → %q", key, actualValue)
 	} else if defaultValue != "" {
 		description = fmt.Sprintf("Environment variable: $%s → %q (default)", key, defaultValue)
@@ -185,7 +158,7 @@ func (e *EnvDecorator) executePlan(ctx *execution.ExecutionContext, key string, 
 // ImportRequirements returns the dependencies needed for code generation
 func (e *EnvDecorator) ImportRequirements() decorators.ImportRequirement {
 	return decorators.ImportRequirement{
-		StandardLibrary: []string{"os"}, // Env decorator needs os package
+		StandardLibrary: []string{}, // No imports needed - generates string literals
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
 	}
@@ -193,5 +166,5 @@ func (e *EnvDecorator) ImportRequirements() decorators.ImportRequirement {
 
 // init registers the env decorator
 func init() {
-	decorators.RegisterFunction(&EnvDecorator{})
+	decorators.RegisterValue(&EnvDecorator{})
 }

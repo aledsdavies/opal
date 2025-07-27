@@ -34,6 +34,11 @@ func (d *CmdDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
+// DecoratorType returns that this is an execution decorator
+func (d *CmdDecorator) DecoratorType() execution.FunctionDecoratorType {
+	return execution.ExecutionDecorator
+}
+
 // ImportRequirements returns the dependencies needed for code generation
 func (d *CmdDecorator) ImportRequirements() decorators.ImportRequirement {
 	return decorators.ImportRequirement{
@@ -123,10 +128,14 @@ func (d *CmdDecorator) executeInterpreter(ctx *execution.ExecutionContext, cmdNa
 
 // executeGenerator generates Go code for the command reference
 func (d *CmdDecorator) executeGenerator(ctx *execution.ExecutionContext, cmdName string) *execution.ExecutionResult {
-	// Generate a function call to the referenced command
-	// This assumes that each command becomes a function in the generated code
-	functionName := fmt.Sprintf("cmd_%s", strings.ReplaceAll(cmdName, "-", "_"))
-	code := fmt.Sprintf("%s()", functionName)
+	// Generate a proper error-handling function call
+	functionName := strings.Title(toCamelCase(cmdName))
+	code := fmt.Sprintf(`func() error {
+		if err := execute%s(); err != nil {
+			return fmt.Errorf("referenced command '%s' failed: %%w", err)
+		}
+		return nil
+	}()`, functionName, cmdName)
 
 	return &execution.ExecutionResult{
 		Mode:  execution.GeneratorMode,
@@ -135,7 +144,36 @@ func (d *CmdDecorator) executeGenerator(ctx *execution.ExecutionContext, cmdName
 	}
 }
 
+// toCamelCase converts a command name to camelCase for function naming
+// This matches the engine's toCamelCase function exactly
+func toCamelCase(name string) string {
+	// Handle different separators: hyphens, underscores, and spaces
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		return r == '-' || r == '_' || r == ' '
+	})
+
+	if len(parts) == 0 {
+		return name
+	}
+
+	// First part stays lowercase, subsequent parts get title case
+	result := parts[0]
+	for i := 1; i < len(parts); i++ {
+		result += capitalizeFirst(parts[i])
+	}
+
+	return result
+}
+
+// capitalizeFirst capitalizes the first letter of a string
+func capitalizeFirst(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 // init registers the cmd decorator
 func init() {
-	decorators.RegisterFunction(&CmdDecorator{})
+	decorators.RegisterAction(&CmdDecorator{})
 }

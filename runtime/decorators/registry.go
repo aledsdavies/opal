@@ -7,10 +7,11 @@ import (
 
 // Registry manages all available decorators
 type Registry struct {
-	functionDecorators map[string]FunctionDecorator
-	blockDecorators    map[string]BlockDecorator
-	patternDecorators  map[string]PatternDecorator
-	mu                 sync.RWMutex
+	valueDecorators   map[string]ValueDecorator
+	actionDecorators  map[string]ActionDecorator
+	blockDecorators   map[string]BlockDecorator
+	patternDecorators map[string]PatternDecorator
+	mu                sync.RWMutex
 }
 
 // Global registry instance
@@ -19,17 +20,25 @@ var globalRegistry = NewRegistry()
 // NewRegistry creates a new decorator registry
 func NewRegistry() *Registry {
 	return &Registry{
-		functionDecorators: make(map[string]FunctionDecorator),
-		blockDecorators:    make(map[string]BlockDecorator),
-		patternDecorators:  make(map[string]PatternDecorator),
+		valueDecorators:   make(map[string]ValueDecorator),
+		actionDecorators:  make(map[string]ActionDecorator),
+		blockDecorators:   make(map[string]BlockDecorator),
+		patternDecorators: make(map[string]PatternDecorator),
 	}
 }
 
-// RegisterFunction registers a function decorator
-func (r *Registry) RegisterFunction(decorator FunctionDecorator) {
+// RegisterValue registers a value decorator
+func (r *Registry) RegisterValue(decorator ValueDecorator) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.functionDecorators[decorator.Name()] = decorator
+	r.valueDecorators[decorator.Name()] = decorator
+}
+
+// RegisterAction registers an action decorator
+func (r *Registry) RegisterAction(decorator ActionDecorator) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.actionDecorators[decorator.Name()] = decorator
 }
 
 // RegisterBlock registers a block decorator
@@ -46,11 +55,19 @@ func (r *Registry) RegisterPattern(decorator PatternDecorator) {
 	r.patternDecorators[decorator.Name()] = decorator
 }
 
-// GetFunction retrieves a function decorator by name
-func (r *Registry) GetFunction(name string) (FunctionDecorator, bool) {
+// GetValue retrieves a value decorator by name
+func (r *Registry) GetValue(name string) (ValueDecorator, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	decorator, exists := r.functionDecorators[name]
+	decorator, exists := r.valueDecorators[name]
+	return decorator, exists
+}
+
+// GetAction retrieves an action decorator by name
+func (r *Registry) GetAction(name string) (ActionDecorator, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	decorator, exists := r.actionDecorators[name]
 	return decorator, exists
 }
 
@@ -75,8 +92,11 @@ func (r *Registry) GetAny(name string) (Decorator, DecoratorType, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if decorator, exists := r.functionDecorators[name]; exists {
-		return decorator, FunctionType, true
+	if decorator, exists := r.valueDecorators[name]; exists {
+		return decorator, ValueType, true
+	}
+	if decorator, exists := r.actionDecorators[name]; exists {
+		return decorator, ActionType, true
 	}
 	if decorator, exists := r.blockDecorators[name]; exists {
 		return decorator, BlockType, true
@@ -85,20 +105,24 @@ func (r *Registry) GetAny(name string) (Decorator, DecoratorType, bool) {
 		return decorator, PatternType, true
 	}
 
-	return nil, FunctionType, false
+	return nil, ValueType, false
 }
 
 // ListAll returns all registered decorators by type
-func (r *Registry) ListAll() ([]FunctionDecorator, []BlockDecorator, []PatternDecorator) {
+func (r *Registry) ListAll() ([]ValueDecorator, []ActionDecorator, []BlockDecorator, []PatternDecorator) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var functions []FunctionDecorator
+	var values []ValueDecorator
+	var actions []ActionDecorator
 	var blocks []BlockDecorator
 	var patterns []PatternDecorator
 
-	for _, decorator := range r.functionDecorators {
-		functions = append(functions, decorator)
+	for _, decorator := range r.valueDecorators {
+		values = append(values, decorator)
+	}
+	for _, decorator := range r.actionDecorators {
+		actions = append(actions, decorator)
 	}
 	for _, decorator := range r.blockDecorators {
 		blocks = append(blocks, decorator)
@@ -107,14 +131,20 @@ func (r *Registry) ListAll() ([]FunctionDecorator, []BlockDecorator, []PatternDe
 		patterns = append(patterns, decorator)
 	}
 
-	return functions, blocks, patterns
+	return values, actions, blocks, patterns
 }
+
 
 // Global registry functions for convenience
 
-// RegisterFunction registers a function decorator in the global registry
-func RegisterFunction(decorator FunctionDecorator) {
-	globalRegistry.RegisterFunction(decorator)
+// RegisterValue registers a value decorator in the global registry
+func RegisterValue(decorator ValueDecorator) {
+	globalRegistry.RegisterValue(decorator)
+}
+
+// RegisterAction registers an action decorator in the global registry
+func RegisterAction(decorator ActionDecorator) {
+	globalRegistry.RegisterAction(decorator)
 }
 
 // RegisterBlock registers a block decorator in the global registry
@@ -127,11 +157,20 @@ func RegisterPattern(decorator PatternDecorator) {
 	globalRegistry.RegisterPattern(decorator)
 }
 
-// GetFunction retrieves a function decorator from the global registry
-func GetFunction(name string) (FunctionDecorator, error) {
-	decorator, exists := globalRegistry.GetFunction(name)
+// GetValue retrieves a value decorator from the global registry
+func GetValue(name string) (ValueDecorator, error) {
+	decorator, exists := globalRegistry.GetValue(name)
 	if !exists {
-		return nil, fmt.Errorf("function decorator @%s not found", name)
+		return nil, fmt.Errorf("value decorator @%s not found", name)
+	}
+	return decorator, nil
+}
+
+// GetAction retrieves an action decorator from the global registry
+func GetAction(name string) (ActionDecorator, error) {
+	decorator, exists := globalRegistry.GetAction(name)
+	if !exists {
+		return nil, fmt.Errorf("action decorator @%s not found", name)
 	}
 	return decorator, nil
 }
@@ -158,21 +197,27 @@ func GetPattern(name string) (PatternDecorator, error) {
 func GetAny(name string) (Decorator, DecoratorType, error) {
 	decorator, decoratorType, exists := globalRegistry.GetAny(name)
 	if !exists {
-		return nil, FunctionType, fmt.Errorf("decorator @%s not found", name)
+		return nil, ValueType, fmt.Errorf("decorator @%s not found", name)
 	}
 	return decorator, decoratorType, nil
 }
 
 // ListAll returns all registered decorators from the global registry
-func ListAll() ([]FunctionDecorator, []BlockDecorator, []PatternDecorator) {
+func ListAll() ([]ValueDecorator, []ActionDecorator, []BlockDecorator, []PatternDecorator) {
 	return globalRegistry.ListAll()
 }
 
 // Type checking functions for lexer and parser
 
-// IsFunctionDecorator checks if a decorator is a function decorator
-func IsFunctionDecorator(name string) bool {
-	_, exists := globalRegistry.GetFunction(name)
+// IsValueDecorator checks if a decorator is a value decorator
+func IsValueDecorator(name string) bool {
+	_, exists := globalRegistry.GetValue(name)
+	return exists
+}
+
+// IsActionDecorator checks if a decorator is an action decorator
+func IsActionDecorator(name string) bool {
+	_, exists := globalRegistry.GetAction(name)
 	return exists
 }
 
@@ -194,9 +239,14 @@ func IsDecorator(name string) bool {
 	return exists
 }
 
-// GetFunctionDecorator is an alias for GetFunction but returns only the decorator (for compatibility)
-func GetFunctionDecorator(name string) (FunctionDecorator, bool) {
-	return globalRegistry.GetFunction(name)
+// GetValueDecorator is an alias for GetValue but returns only the decorator (for compatibility)
+func GetValueDecorator(name string) (ValueDecorator, bool) {
+	return globalRegistry.GetValue(name)
+}
+
+// GetActionDecorator is an alias for GetAction but returns only the decorator (for compatibility)
+func GetActionDecorator(name string) (ActionDecorator, bool) {
+	return globalRegistry.GetAction(name)
 }
 
 // GetBlockDecorator is an alias for GetBlock but returns only the decorator (for compatibility)

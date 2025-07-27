@@ -4,12 +4,32 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/core/plan"
 	"github.com/aledsdavies/devcmd/runtime/decorators"
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
+
+// workdirExecutionTemplate generates Go code for workdir execution (unified contract: statement blocks)
+const workdirExecutionTemplate = `// Workdir execution setup
+// Verify target directory exists
+if _, err := os.Stat({{.Path | printf "%q"}}); err != nil {
+	return fmt.Errorf("failed to access directory %s: %w", {{.Path | printf "%q"}}, err)
+}
+
+{{range $i, $cmd := .Commands}}
+// Execute workdir command {{add $i 1}} in directory {{$.Path}}
+// Commands executed with unified shell builder will automatically use the working directory
+{{generateShellCode $cmd}}
+{{end}}`
+
+// WorkdirTemplateData holds data for the workdir execution template
+type WorkdirTemplateData struct {
+	Path     string
+	Commands []ast.CommandContent
+}
 
 // WorkdirDecorator implements the @workdir decorator for changing working directory
 type WorkdirDecorator struct{}
@@ -128,40 +148,52 @@ func (d *WorkdirDecorator) executePlan(path string, content []ast.CommandContent
 
 // executeInterpreter executes the workdir in interpreter mode
 func (d *WorkdirDecorator) executeInterpreter(ctx *execution.ExecutionContext, path string, content []ast.CommandContent) *execution.ExecutionResult {
-	// Save current directory
-	originalDir, err := os.Getwd()
-	if err != nil {
+	// Verify the target directory exists before proceeding
+	if _, err := os.Stat(path); err != nil {
 		return &execution.ExecutionResult{
 			Mode:  execution.InterpreterMode,
 			Data:  nil,
-			Error: fmt.Errorf("failed to get current directory: %w", err),
+			Error: fmt.Errorf("failed to access directory %s: %w", path, err),
 		}
 	}
 
-	// Change to target directory
-	if err := os.Chdir(path); err != nil {
+	// Create a new context with the updated working directory
+	// This ensures isolated execution without affecting global process directory
+	workdirCtx := *ctx  // Shallow copy the struct
+	workdirCtx.WorkingDir = path  // Update the working directory
+	
+	// Note: Shallow copy preserves all function pointers and maps from original context
+
+	// Execute the content in the new directory context
+	var executionError error
+	for i, cmdContent := range content {
+		// Handle different content types with the workdir context
+		var err error
+		switch cmd := cmdContent.(type) {
+		case *ast.ShellContent:
+			// Execute shell content directly using our workdir context
+			result := workdirCtx.ExecuteShell(cmd)
+			err = result.Error
+		default:
+			// For other content types, fall back to the content executor
+			err = workdirCtx.ExecuteCommandContent(cmdContent)
+		}
+		
+		if err != nil {
+			executionError = fmt.Errorf("command %d failed in directory %s: %w", i+1, path, err)
+			break
+		}
+	}
+
+	// No need to restore directory - we never changed the global process directory
+	// The original context remains unchanged
+
+	// Return execution error if any
+	if executionError != nil {
 		return &execution.ExecutionResult{
 			Mode:  execution.InterpreterMode,
 			Data:  nil,
-			Error: fmt.Errorf("failed to change to directory %s: %w", path, err),
-		}
-	}
-
-	// Ensure we restore the original directory
-	defer func() {
-		if err := os.Chdir(originalDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to restore directory to %s: %v\n", originalDir, err)
-		}
-	}()
-
-	// Execute the content in the new directory
-	for _, cmdContent := range content {
-		if err := ctx.ExecuteCommandContent(cmdContent); err != nil {
-			return &execution.ExecutionResult{
-				Mode:  execution.InterpreterMode,
-				Data:  nil,
-				Error: fmt.Errorf("failed to execute command in directory %s: %w", path, err),
-			}
+			Error: executionError,
 		}
 	}
 
@@ -172,34 +204,85 @@ func (d *WorkdirDecorator) executeInterpreter(ctx *execution.ExecutionContext, p
 	}
 }
 
-// executeGenerator generates Go code for the workdir decorator
+// executeGenerator generates Go code for the workdir decorator using templates
 func (d *WorkdirDecorator) executeGenerator(ctx *execution.ExecutionContext, path string, content []ast.CommandContent) *execution.ExecutionResult {
-	// For now, return a simple code generation result
-	// This would need more sophisticated code generation based on the content
-	code := fmt.Sprintf(`func() error {
-		originalDir, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %%w", err)
+	// Create a child context with the working directory set
+	// This ensures all nested commands get the correct working directory
+	workdirCtx := ctx.Child().WithWorkingDir(path)
+	
+	// Prepare template data
+	templateData := WorkdirTemplateData{
+		Path:     path,
+		Commands: content,
+	}
+
+	// Parse and execute template with workdir context functions
+	tmpl, err := template.New("workdir").Funcs(workdirCtx.GetTemplateFunctions()).Parse(workdirExecutionTemplate)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to parse workdir template: %w", err),
 		}
-		
-		if err := os.Chdir(%q); err != nil {
-			return fmt.Errorf("failed to change to directory %%s: %%w", %q, err)
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return &execution.ExecutionResult{
+			Mode:  execution.GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to execute workdir template: %w", err),
 		}
-		
-		defer func() {
-			if err := os.Chdir(originalDir); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to restore directory to %%s: %%v\n", originalDir, err)
-			}
-		}()
-		
-		// TODO: Execute content commands here
-		return nil
-	}()`, path, path)
+	}
 
 	return &execution.ExecutionResult{
 		Mode:  execution.GeneratorMode,
-		Data:  code,
+		Data:  result.String(),
 		Error: nil,
+	}
+}
+
+// generateShellExpression generates a Go string expression for a shell command
+func (d *WorkdirDecorator) generateShellExpression(ctx *execution.ExecutionContext, content *ast.ShellContent) (string, error) {
+	// Build Go expression parts for the command
+	var goExprParts []string
+
+	for _, part := range content.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			// Plain text - add as quoted string
+			goExprParts = append(goExprParts, fmt.Sprintf("%q", p.Text))
+
+		case *ast.ValueDecorator:
+			// Check if function decorator lookup is available
+			if ctx == nil {
+				return "", fmt.Errorf("execution context not available for function decorator")
+			}
+
+			// For @var decorator, expand the variable
+			if p.Name == "var" && len(p.Args) > 0 {
+				if nameParam := ast.FindParameter(p.Args, "name"); nameParam != nil {
+					if str, ok := nameParam.Value.(*ast.StringLiteral); ok {
+						// Generate variable reference
+						goExprParts = append(goExprParts, str.Value)
+					}
+				}
+			} else {
+				return "", fmt.Errorf("unsupported function decorator @%s in workdir shell generation", p.Name)
+			}
+
+		default:
+			return "", fmt.Errorf("unsupported shell part type %T in workdir generator", part)
+		}
+	}
+
+	// Combine the parts with Go string concatenation
+	if len(goExprParts) == 0 {
+		return `""`, nil
+	} else if len(goExprParts) == 1 {
+		return goExprParts[0], nil
+	} else {
+		return strings.Join(goExprParts, " + "), nil
 	}
 }
 

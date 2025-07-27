@@ -13,6 +13,41 @@ import (
 	"github.com/aledsdavies/devcmd/core/ast"
 )
 
+// FunctionDecoratorType represents the behavior type of function decorators
+type FunctionDecoratorType int
+
+const (
+	// SubstitutionDecorator decorators replace themselves with values in shell commands
+	// Examples: @var, @env - return string values that get substituted
+	SubstitutionDecorator FunctionDecoratorType = iota
+	
+	// ExecutionDecorator decorators execute actions when encountered
+	// Examples: @cmd - execute commands or other actions
+	ExecutionDecorator
+)
+
+// ChainElement represents an element in an ActionDecorator command chain
+type ChainElement struct {
+	Type           string // "action", "operator", "text"
+	ActionName     string // For ActionDecorator
+	ActionArgs     []ast.NamedParameter // For ActionDecorator
+	Operator       string // "&&", "||", "|", ">>"
+	Text           string // For text parts
+	VariableName   string // Generated variable name
+	IsPipeTarget   bool   // True if this element receives piped input
+	IsFileTarget   bool   // True if this element is a file for >> operation
+}
+
+// ChainOperator represents the type of chaining operator
+type ChainOperator string
+
+const (
+	AndOperator  ChainOperator = "&&" // Execute next if current succeeds
+	OrOperator   ChainOperator = "||" // Execute next if current fails  
+	PipeOperator ChainOperator = "|"  // Pipe stdout to next command
+	AppendOperator ChainOperator = ">>" // Append stdout to file
+)
+
 // ExecutionContext provides execution context for decorators and implements context.Context
 type ExecutionContext struct {
 	context.Context
@@ -20,7 +55,7 @@ type ExecutionContext struct {
 	// Core data
 	Program   *ast.Program
 	Variables map[string]string // Resolved variable values
-	Env       map[string]string // Environment variables
+	env       map[string]string // Immutable environment variables captured at command start
 
 	// Execution state
 	WorkingDir string
@@ -30,14 +65,20 @@ type ExecutionContext struct {
 	// Execution mode for the unified pattern
 	mode ExecutionMode
 
+	// Current command name for generating meaningful variable names
+	currentCommand string
+
 	// Template functions for code generation (populated by engine)
 	templateFunctions template.FuncMap
 
 	// Command content executor for nested command execution (populated by engine)
 	contentExecutor func(ast.CommandContent) error
 
-	// Function decorator lookup (populated by engine to avoid circular imports)
-	functionDecoratorLookup func(name string) (FunctionDecorator, bool)
+	// Value decorator lookup (populated by engine to avoid circular imports)
+	valueDecoratorLookup func(name string) (interface{}, bool)
+	
+	// Action decorator lookup (populated by engine to avoid circular imports)
+	actionDecoratorLookup func(name string) (interface{}, bool)
 
 	// Command executor for executing full commands (populated by engine)
 	commandExecutor func(*ast.CommandDecl) error
@@ -46,17 +87,36 @@ type ExecutionContext struct {
 	commandPlanGenerator func(*ast.CommandDecl) (*ExecutionResult, error)
 }
 
-// NewExecutionContext creates a new execution context
+// NewExecutionContext creates a new execution context and captures the environment immutably
 func NewExecutionContext(parent context.Context, program *ast.Program) *ExecutionContext {
 	if parent == nil {
 		parent = context.Background()
+	}
+
+	// Initialize working directory to current directory
+	workingDir, err := os.Getwd()
+	if err != nil {
+		// Fallback to empty string if we can't get current directory
+		workingDir = ""
+	}
+
+	// Capture environment variables immutably at command start for security
+	// This prevents manipulation during execution and ensures consistent environment state
+	capturedEnv := make(map[string]string)
+	for _, envVar := range os.Environ() {
+		if idx := strings.Index(envVar, "="); idx > 0 {
+			key := envVar[:idx]
+			value := envVar[idx+1:]
+			capturedEnv[key] = value
+		}
 	}
 
 	return &ExecutionContext{
 		Context:           parent,
 		Program:           program,
 		Variables:         make(map[string]string),
-		Env:               make(map[string]string),
+		env:               capturedEnv, // Immutable captured environment
+		WorkingDir:        workingDir,
 		Debug:             false,
 		DryRun:            false,
 		mode:              InterpreterMode, // Default mode
@@ -90,6 +150,53 @@ func (c *ExecutionContext) WithMode(mode ExecutionMode) *ExecutionContext {
 // Mode returns the current execution mode
 func (c *ExecutionContext) Mode() ExecutionMode {
 	return c.mode
+}
+
+// WithCurrentCommand creates a new context with the specified current command name
+func (c *ExecutionContext) WithCurrentCommand(commandName string) *ExecutionContext {
+	newCtx := *c
+	newCtx.currentCommand = commandName
+	return &newCtx
+}
+
+// Child creates a child context that inherits from the parent but can be modified independently
+// This is used by block and pattern decorators to create isolated execution environments
+func (c *ExecutionContext) Child() *ExecutionContext {
+	childCtx := &ExecutionContext{
+		Context:   c.Context,
+		Program:   c.Program,
+		Variables: make(map[string]string),
+		env:       c.env, // Share the same immutable environment reference
+		
+		// Copy execution state
+		WorkingDir:    c.WorkingDir,
+		Debug:         c.Debug,
+		DryRun:        c.DryRun,
+		mode:          c.mode,
+		currentCommand: c.currentCommand,
+		
+		// Copy function references
+		templateFunctions:         c.templateFunctions,
+		contentExecutor:           c.contentExecutor,
+		valueDecoratorLookup:      c.valueDecoratorLookup,
+		actionDecoratorLookup:     c.actionDecoratorLookup,
+		commandExecutor:           c.commandExecutor,
+		commandPlanGenerator:      c.commandPlanGenerator,
+	}
+	
+	// Copy variables (child gets its own copy)
+	for name, value := range c.Variables {
+		childCtx.Variables[name] = value
+	}
+	
+	return childCtx
+}
+
+// WithWorkingDir creates a new context with the specified working directory
+func (c *ExecutionContext) WithWorkingDir(workingDir string) *ExecutionContext {
+	newCtx := *c
+	newCtx.WorkingDir = workingDir
+	return &newCtx
 }
 
 // ExecuteShell executes shell content in the current mode
@@ -140,106 +247,123 @@ func (c *ExecutionContext) executeShellInterpreter(content *ast.ShellContent) *E
 	}
 }
 
-// executeShellGenerator generates Go code for shell execution
+// executeShellGenerator generates Go code for shell execution using unified decorator model
 func (c *ExecutionContext) executeShellGenerator(content *ast.ShellContent) *ExecutionResult {
-	// Build Go expression parts for the command
-	var goExprParts []string
-
-	for _, part := range content.Parts {
-		switch p := part.(type) {
-		case *ast.TextPart:
-			// Plain text - add as quoted string
-			goExprParts = append(goExprParts, strconv.Quote(p.Text))
-
-		case *ast.FunctionDecorator:
-			// Check if function decorator lookup is available
-			if c.functionDecoratorLookup == nil {
-				return &ExecutionResult{
-					Mode:  GeneratorMode,
-					Data:  "",
-					Error: fmt.Errorf("function decorator lookup not available (engine not properly initialized)"),
-				}
-			}
-
-			// Look up the function decorator in the registry
-			funcDecorator, exists := c.functionDecoratorLookup(p.Name)
-			if !exists {
-				return &ExecutionResult{
-					Mode:  GeneratorMode,
-					Data:  "",
-					Error: fmt.Errorf("function decorator @%s not found in registry", p.Name),
-				}
-			}
-
-			// Execute the decorator in generator mode to get Go code
-			generatorCtx := c.WithMode(GeneratorMode)
-			result := funcDecorator.Expand(generatorCtx, p.Args)
-			if result.Error != nil {
-				return &ExecutionResult{
-					Mode:  GeneratorMode,
-					Data:  "",
-					Error: fmt.Errorf("@%s decorator code generation failed: %w", p.Name, result.Error),
-				}
-			}
-
-			// Extract the generated Go code
-			if code, ok := result.Data.(string); ok {
-				goExprParts = append(goExprParts, code)
-			} else {
-				return &ExecutionResult{
-					Mode:  GeneratorMode,
-					Data:  "",
-					Error: fmt.Errorf("@%s decorator returned non-string code: %T", p.Name, result.Data),
-				}
-			}
-
-		default:
-			return &ExecutionResult{
-				Mode:  GeneratorMode,
-				Data:  "",
-				Error: fmt.Errorf("unsupported shell part type: %T", part),
-			}
-		}
-	}
-
-	// Build the Go expression for the command
-	var cmdExpr string
-	if len(goExprParts) == 1 {
-		cmdExpr = goExprParts[0]
-	} else {
-		cmdExpr = strings.Join(goExprParts, " + ")
-	}
-
-	// Generate the Go code using the dedicated template for CLI generation
-	tmpl, err := template.New("shellCommandCLI").Parse(shellCommandCLITemplate)
+	// Use the unified shell code builder
+	shellBuilder := NewShellCodeBuilder(c)
+	code, err := shellBuilder.GenerateShellCode(content)
 	if err != nil {
 		return &ExecutionResult{
 			Mode:  GeneratorMode,
 			Data:  "",
-			Error: fmt.Errorf("failed to parse shell command CLI template: %w", err),
-		}
-	}
-
-	templateData := struct {
-		CommandExpression string
-	}{
-		CommandExpression: cmdExpr,
-	}
-
-	var goCode strings.Builder
-	if err := tmpl.Execute(&goCode, templateData); err != nil {
-		return &ExecutionResult{
-			Mode:  GeneratorMode,
-			Data:  "",
-			Error: fmt.Errorf("failed to execute shell command CLI template: %w", err),
+			Error: fmt.Errorf("failed to generate shell execution code: %w", err),
 		}
 	}
 
 	return &ExecutionResult{
 		Mode:  GeneratorMode,
-		Data:  goCode.String(),
+		Data:  code,
 		Error: nil,
 	}
+}
+
+// generateDirectActionCode generates Go code for ActionDecorator direct execution with CommandResult chaining
+func (c *ExecutionContext) generateDirectActionCode(content *ast.ShellContent) *ExecutionResult {
+	// Use the unified shell code builder
+	shellBuilder := NewShellCodeBuilder(c)
+	code, err := shellBuilder.GenerateDirectActionTemplate(content)
+	if err != nil {
+		return &ExecutionResult{
+			Mode:  GeneratorMode,
+			Data:  "",
+			Error: fmt.Errorf("failed to generate action chain code: %w", err),
+		}
+	}
+
+	return &ExecutionResult{
+		Mode:  GeneratorMode,
+		Data:  code,
+		Error: nil,
+	}
+}
+
+// parseActionDecoratorChain parses shell content into a chain of commands and operators
+func (c *ExecutionContext) parseActionDecoratorChain(content *ast.ShellContent) ([]ChainElement, error) {
+	var chain []ChainElement
+	var currentIndex int
+
+	for _, part := range content.Parts {
+		switch p := part.(type) {
+		case *ast.ActionDecorator:
+			element := ChainElement{
+				Type:         "action",
+				ActionName:   p.Name,
+				ActionArgs:   p.Args,
+				VariableName: fmt.Sprintf("%sResult%d", c.getBaseName(), currentIndex),
+			}
+			chain = append(chain, element)
+			currentIndex++
+
+		case *ast.TextPart:
+			text := strings.TrimSpace(p.Text)
+			if text == "" {
+				continue
+			}
+
+			// Check if this is a chain operator
+			switch text {
+			case "&&", "||", "|", ">>":
+				if len(chain) == 0 {
+					return nil, fmt.Errorf("operator %s cannot be at the beginning of chain", text)
+				}
+				element := ChainElement{
+					Type:     "operator",
+					Operator: text,
+				}
+				chain = append(chain, element)
+			default:
+				// Regular text - treat as shell command
+				element := ChainElement{
+					Type:         "text",
+					Text:         text,
+					VariableName: fmt.Sprintf("%sShell%d", c.getBaseName(), currentIndex),
+				}
+				chain = append(chain, element)
+				currentIndex++
+			}
+
+		case *ast.ValueDecorator:
+			// ValueDecorators in ActionDecorator context should be resolved to values
+			if value, exists := c.GetVariable(p.Name); exists {
+				element := ChainElement{
+					Type: "text",
+					Text: value,
+				}
+				chain = append(chain, element)
+			} else {
+				return nil, fmt.Errorf("undefined variable in ActionDecorator chain: %s", p.Name)
+			}
+		}
+	}
+
+	return chain, nil
+}
+
+// getBaseName returns the base name for variable generation
+func (c *ExecutionContext) getBaseName() string {
+	if c.currentCommand != "" {
+		return strings.Title(c.currentCommand)
+	}
+	return "Action"
+}
+
+// Helper function to format parameters for Go code generation
+func formatParams(params []ast.NamedParameter) string {
+	if len(params) == 0 {
+		return "nil"
+	}
+	// For now, return simple representation - this needs to be expanded
+	return "[]ast.NamedParameter{}"
 }
 
 // executeShellPlan creates a plan element for shell execution
@@ -276,51 +400,120 @@ func (c *ExecutionContext) composeShellCommand(content *ast.ShellContent) (strin
 	var parts []string
 
 	for _, part := range content.Parts {
-		switch p := part.(type) {
-		case *ast.TextPart:
-			parts = append(parts, p.Text)
+		result, err := c.processShellPart(part)
+		if err != nil {
+			return "", err
+		}
 
-		case *ast.FunctionDecorator:
-			expanded, err := c.processFunctionDecorator(p)
-			if err != nil {
-				return "", err
-			}
-			parts = append(parts, expanded)
-
-		default:
-			return "", fmt.Errorf("unsupported shell part type: %T", part)
+		if value, ok := result.(string); ok {
+			parts = append(parts, value)
+		} else {
+			return "", fmt.Errorf("shell part returned non-string result: %T", result)
 		}
 	}
 
 	return strings.Join(parts, ""), nil
 }
 
-// processFunctionDecorator processes function decorators using the unified Execute pattern
-func (c *ExecutionContext) processFunctionDecorator(decorator *ast.FunctionDecorator) (string, error) {
-	// Check if function decorator lookup is available
-	if c.functionDecoratorLookup == nil {
-		return "", fmt.Errorf("function decorator lookup not available (engine not properly initialized)")
-	}
+// processShellPart processes any shell part (text, value decorator, action decorator) 
+// based on the current execution mode, returning the appropriate result
+func (c *ExecutionContext) processShellPart(part ast.ShellPart) (interface{}, error) {
+	switch p := part.(type) {
+	case *ast.TextPart:
+		switch c.mode {
+		case InterpreterMode:
+			return p.Text, nil
+		case GeneratorMode:
+			return strconv.Quote(p.Text), nil
+		case PlanMode:
+			return p.Text, nil
+		default:
+			return nil, fmt.Errorf("unsupported mode: %v", c.mode)
+		}
 
-	// Look up the function decorator in the registry
-	funcDecorator, exists := c.functionDecoratorLookup(decorator.Name)
-	if !exists {
-		return "", fmt.Errorf("function decorator @%s not found in registry", decorator.Name)
-	}
+	case *ast.ValueDecorator:
+		return c.processValueDecoratorUnified(p)
 
-	// Execute the decorator using the unified Execute pattern
-	result := funcDecorator.Expand(c, decorator.Args)
-	if result.Error != nil {
-		return "", fmt.Errorf("@%s decorator execution failed: %w", decorator.Name, result.Error)
-	}
+	case *ast.ActionDecorator:
+		return c.processActionDecoratorUnified(p)
 
-	// Extract the string result for substitution
-	if value, ok := result.Data.(string); ok {
-		return value, nil
+	default:
+		return nil, fmt.Errorf("unsupported shell part type: %T", part)
 	}
-
-	return "", fmt.Errorf("@%s decorator returned non-string result: %T", decorator.Name, result.Data)
 }
+
+// processValueDecoratorUnified handles value decorators across all execution modes
+func (c *ExecutionContext) processValueDecoratorUnified(decorator *ast.ValueDecorator) (interface{}, error) {
+	if c.valueDecoratorLookup == nil {
+		return nil, fmt.Errorf("value decorator lookup not available (engine not properly initialized)")
+	}
+
+	valueDecorator, exists := c.valueDecoratorLookup(decorator.Name)
+	if !exists {
+		return nil, fmt.Errorf("value decorator @%s not found in registry", decorator.Name)
+	}
+
+	result := valueDecorator.(interface{ Expand(*ExecutionContext, []ast.NamedParameter) *ExecutionResult }).Expand(c, decorator.Args)
+	if result.Error != nil {
+		return nil, fmt.Errorf("@%s decorator execution failed: %w", decorator.Name, result.Error)
+	}
+
+	// Return appropriate data type based on mode
+	switch c.mode {
+	case InterpreterMode:
+		if value, ok := result.Data.(string); ok {
+			return value, nil
+		}
+		return nil, fmt.Errorf("@%s decorator returned non-string result: %T", decorator.Name, result.Data)
+	case GeneratorMode:
+		if code, ok := result.Data.(string); ok {
+			return code, nil
+		}
+		return nil, fmt.Errorf("@%s decorator returned non-string code: %T", decorator.Name, result.Data)
+	case PlanMode:
+		return fmt.Sprintf("@%s(...)", decorator.Name), nil
+	default:
+		return nil, fmt.Errorf("unsupported mode: %v", c.mode)
+	}
+}
+
+// processActionDecoratorUnified handles action decorators across all execution modes  
+func (c *ExecutionContext) processActionDecoratorUnified(decorator *ast.ActionDecorator) (interface{}, error) {
+	if c.actionDecoratorLookup == nil {
+		return nil, fmt.Errorf("action decorator lookup not available (engine not properly initialized)")
+	}
+
+	actionDecorator, exists := c.actionDecoratorLookup(decorator.Name)
+	if !exists {
+		return nil, fmt.Errorf("action decorator @%s not found in registry", decorator.Name)
+	}
+
+	result := actionDecorator.(interface{ Expand(*ExecutionContext, []ast.NamedParameter) *ExecutionResult }).Expand(c, decorator.Args)
+	if result.Error != nil {
+		return nil, fmt.Errorf("@%s decorator execution failed: %w", decorator.Name, result.Error)
+	}
+
+	// Handle result based on mode and type
+	switch c.mode {
+	case InterpreterMode:
+		if commandResult, ok := result.Data.(CommandResult); ok {
+			return commandResult.Stdout, nil
+		} else if value, ok := result.Data.(string); ok {
+			return value, nil
+		}
+		return nil, fmt.Errorf("@%s action decorator returned unsupported result type: %T", decorator.Name, result.Data)
+	case GeneratorMode:
+		if code, ok := result.Data.(string); ok {
+			return code, nil
+		}
+		return nil, fmt.Errorf("@%s action decorator returned non-string code: %T", decorator.Name, result.Data)
+	case PlanMode:
+		return fmt.Sprintf("@%s(...)", decorator.Name), nil
+	default:
+		return nil, fmt.Errorf("unsupported mode: %v", c.mode)
+	}
+}
+
 
 // GetVariable retrieves a variable value
 func (c *ExecutionContext) GetVariable(name string) (string, bool) {
@@ -333,15 +526,10 @@ func (c *ExecutionContext) SetVariable(name, value string) {
 	c.Variables[name] = value
 }
 
-// GetEnv retrieves an environment variable
+// GetEnv retrieves an environment variable from the immutable captured environment
 func (c *ExecutionContext) GetEnv(name string) (string, bool) {
-	value, exists := c.Env[name]
+	value, exists := c.env[name]
 	return value, exists
-}
-
-// SetEnv sets an environment variable
-func (c *ExecutionContext) SetEnv(name, value string) {
-	c.Env[name] = value
 }
 
 // InitializeVariables processes and sets all variables from the program
@@ -375,7 +563,16 @@ func (c *ExecutionContext) InitializeVariables() error {
 
 // GetTemplateFunctions returns the template function map for code generation
 func (c *ExecutionContext) GetTemplateFunctions() template.FuncMap {
-	return c.templateFunctions
+	// Create a unified shell code builder and get its template functions
+	shellBuilder := NewShellCodeBuilder(c)
+	unifiedFunctions := shellBuilder.GetTemplateFunctions()
+	
+	// Merge with any existing custom template functions
+	for name, fn := range c.templateFunctions {
+		unifiedFunctions[name] = fn
+	}
+	
+	return unifiedFunctions
 }
 
 // SetTemplateFunctions sets the template function map (used by engine)
@@ -396,9 +593,14 @@ func (c *ExecutionContext) SetContentExecutor(executor func(ast.CommandContent) 
 	c.contentExecutor = executor
 }
 
-// SetFunctionDecoratorLookup sets the function decorator lookup (used by engine)
-func (c *ExecutionContext) SetFunctionDecoratorLookup(lookup func(name string) (FunctionDecorator, bool)) {
-	c.functionDecoratorLookup = lookup
+// SetValueDecoratorLookup sets the value decorator lookup (used by engine)
+func (c *ExecutionContext) SetValueDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.valueDecoratorLookup = lookup
+}
+
+// SetActionDecoratorLookup sets the action decorator lookup (used by engine)
+func (c *ExecutionContext) SetActionDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.actionDecoratorLookup = lookup
 }
 
 // ExecuteCommand executes a full command by name (used by decorators like @cmd)
@@ -447,100 +649,13 @@ func (c *ExecutionContext) SetCommandPlanGenerator(generator func(*ast.CommandDe
 	c.commandPlanGenerator = generator
 }
 
-// Shell command execution template for use within error-returning functions
-const shellCommandTemplate = `			cmdStr := {{.CommandExpression}}
-			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-			execCmd.Stdout = os.Stdout
-			execCmd.Stderr = os.Stderr
-			execCmd.Stdin = os.Stdin
-			if err := execCmd.Run(); err != nil {
-				return fmt.Errorf("command failed: %w", err)
-			}
-			return nil`
+// Legacy template constants removed - now using unified template system in templates.go
 
-// Template for shell command generation in main CLI (calls os.Exit on failure)
-const shellCommandCLITemplate = `		func() {
-			cmdStr := {{.CommandExpression}}
-			execCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-			execCmd.Stdout = os.Stdout
-			execCmd.Stderr = os.Stderr
-			execCmd.Stdin = os.Stdin
-			if err := execCmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
-				os.Exit(1)
-			}
-		}()`
-
-// GenerateShellCodeForTemplate generates clean Go code for shell command execution
-// This method is designed to be used by decorator templates to generate proper Go code
-// that returns an error instead of calling os.Exit
+// GenerateShellCodeForTemplate is deprecated - use unified template system in templates.go
+// This function is kept for backward compatibility but redirects to the new system
 func (c *ExecutionContext) GenerateShellCodeForTemplate(content *ast.ShellContent) (string, error) {
-	// Build Go expression parts for the command (similar to executeShellGenerator)
-	var goExprParts []string
-
-	for _, part := range content.Parts {
-		switch p := part.(type) {
-		case *ast.TextPart:
-			// Plain text - add as quoted string
-			goExprParts = append(goExprParts, strconv.Quote(p.Text))
-
-		case *ast.FunctionDecorator:
-			// Check if function decorator lookup is available
-			if c.functionDecoratorLookup == nil {
-				return "", fmt.Errorf("function decorator lookup not available (engine not properly initialized)")
-			}
-
-			// Look up the function decorator in the registry
-			funcDecorator, exists := c.functionDecoratorLookup(p.Name)
-			if !exists {
-				return "", fmt.Errorf("function decorator @%s not found in registry", p.Name)
-			}
-
-			// Execute the decorator in generator mode to get Go code
-			generatorCtx := c.WithMode(GeneratorMode)
-			result := funcDecorator.Expand(generatorCtx, p.Args)
-			if result.Error != nil {
-				return "", fmt.Errorf("@%s decorator code generation failed: %w", p.Name, result.Error)
-			}
-
-			// Extract the generated Go code
-			if code, ok := result.Data.(string); ok {
-				goExprParts = append(goExprParts, code)
-			} else {
-				return "", fmt.Errorf("@%s decorator returned non-string code: %T", p.Name, result.Data)
-			}
-
-		default:
-			return "", fmt.Errorf("unsupported shell part type: %T", part)
-		}
-	}
-
-	// Build the Go expression for the command
-	var cmdExpr string
-	if len(goExprParts) == 1 {
-		cmdExpr = goExprParts[0]
-	} else {
-		cmdExpr = strings.Join(goExprParts, " + ")
-	}
-
-	// Use template to generate the code
-	tmpl, err := template.New("shellCommand").Parse(shellCommandTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse shell command template: %w", err)
-	}
-
-	templateData := struct {
-		CommandExpression string
-	}{
-		CommandExpression: cmdExpr,
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute shell command template: %w", err)
-	}
-
-	return result.String(), nil
+	shellBuilder := NewShellCodeBuilder(c)
+	return shellBuilder.GenerateShellCode(content)
 }
 
 // resolveVariableValue converts an AST expression to its string value

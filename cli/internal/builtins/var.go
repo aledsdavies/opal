@@ -34,6 +34,11 @@ func (v *VarDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
+// DecoratorType returns that this is a substitution decorator
+func (v *VarDecorator) DecoratorType() execution.FunctionDecoratorType {
+	return execution.SubstitutionDecorator
+}
+
 // Validate checks if the decorator usage is correct during parsing
 
 // Expand provides unified expansion for all modes using the execution package
@@ -135,5 +140,5 @@ func (v *VarDecorator) ImportRequirements() decorators.ImportRequirement {
 
 // init registers the var decorator
 func init() {
-	decorators.RegisterFunction(&VarDecorator{})
+	decorators.RegisterValue(&VarDecorator{})
 }

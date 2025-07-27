@@ -105,9 +105,9 @@ docs/generator.md
 # Dependency directories
 vendor/
 
-# Go workspace file
-go.work
-go.work.sum
+# Go workspace file - committed for multi-module projects
+# go.work
+# go.work.sum
 
 # Go module download cache
 GOCACHE/

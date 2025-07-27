@@ -16,57 +16,44 @@ import (
 // ConfirmDecorator implements the @confirm decorator for user confirmation prompts
 type ConfirmDecorator struct{}
 
-// Template for confirmation logic code generation
-const confirmExecutionTemplate = `func() error {
-	// Check if we should skip confirmation in CI environment
-	if {{.SkipInCI}} && func() bool {
-		// Check common CI environment variables
-		ciVars := []string{
-			"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "TRAVIS", 
-			"CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER",
-		}
-		for _, envVar := range ciVars {
-			if os.Getenv(envVar) != "" {
-				return true
-			}
-		}
-		return false
-	}() {
-		// Auto-confirm in CI and execute commands
-		fmt.Printf("CI environment detected - auto-confirming: {{.Message}}\n")
-	} else {
-		// Display the confirmation message
-		fmt.Print({{.Message}})
-		{{if .DefaultYes}}fmt.Print(" [Y/n]: "){{else}}fmt.Print(" [y/N]: "){{end}}
-		
-		// Read user input
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read user input: %w", err)
-		}
-		
-		response = strings.TrimSpace(response)
-		
-		// Determine if user confirmed
-		confirmed := false
-		if response == "" {
-			confirmed = {{.DefaultYes}}
-		} else {
-			{{if .CaseSensitive}}confirmed = response == "y" || response == "Y" || response == "yes" || response == "Yes"{{else}}lowerResponse := strings.ToLower(response)
-			confirmed = lowerResponse == "y" || lowerResponse == "yes"{{end}}
-		}
-		
-		if !confirmed {
-			{{if .AbortOnNo}}return fmt.Errorf("user cancelled execution"){{else}}return nil{{end}}
-		}
+// Template for confirmation logic code generation (unified contract: statement blocks)
+const confirmExecutionTemplate = `// Confirmation execution setup
+{{if .SkipInCI}}// Check if we're in CI environment (resolved at generation time)
+if {{.IsCI}} {
+	// Auto-confirm in CI and execute commands
+	fmt.Printf("CI environment detected - auto-confirming: {{.Message}}\n")
+} else {{{end}}
+	// Display the confirmation message
+	fmt.Print({{.Message}})
+	{{if .DefaultYes}}fmt.Print(" [Y/n]: "){{else}}fmt.Print(" [y/N]: "){{end}}
+	
+	// Read user input
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read user input: %w", err)
 	}
 	
-	// Execute the commands
-	{{range $i, $cmd := .Commands}}{{$cmd}}
-	{{end}}
-	return nil
-}()`
+	response = strings.TrimSpace(response)
+	
+	// Determine if user confirmed
+	confirmed := false
+	if response == "" {
+		confirmed = {{.DefaultYes}}
+	} else {
+		{{if .CaseSensitive}}confirmed = response == "y" || response == "Y" || response == "yes" || response == "Yes"{{else}}lowerResponse := strings.ToLower(response)
+		confirmed = lowerResponse == "y" || lowerResponse == "yes"{{end}}
+	}
+	
+	if !confirmed {
+		{{if .AbortOnNo}}return fmt.Errorf("user cancelled execution"){{else}}return nil{{end}}
+	}
+{{if .SkipInCI}}}{{end}}
+
+// Execute the commands in child context
+{{range $i, $cmd := .Commands}}
+{{generateShellCode $cmd}}
+{{end}}`
 
 // Name returns the decorator name
 func (c *ConfirmDecorator) Name() string {
@@ -123,9 +110,9 @@ func (c *ConfirmDecorator) ImportRequirements() decorators.ImportRequirement {
 	}
 }
 
-// isCI checks if we're running in a CI environment
-func isCI() bool {
-	// Check common CI environment variables
+// isCI checks if we're running in a CI environment using captured environment
+func (c *ConfirmDecorator) isCI(ctx *execution.ExecutionContext) bool {
+	// Check common CI environment variables from captured environment
 	ciVars := []string{
 		"CI",                     // Most CI systems
 		"CONTINUOUS_INTEGRATION", // Legacy/alternate
@@ -139,7 +126,7 @@ func isCI() bool {
 	}
 
 	for _, envVar := range ciVars {
-		if os.Getenv(envVar) != "" {
+		if value, exists := ctx.GetEnv(envVar); exists && value != "" {
 			return true
 		}
 	}
@@ -176,11 +163,12 @@ func (c *ConfirmDecorator) Execute(ctx *execution.ExecutionContext, params []ast
 // executeInterpreter executes confirmation prompt in interpreter mode
 func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Check if we should skip confirmation in CI environment
-	if skipInCI && isCI() {
-		// Auto-confirm in CI and execute commands
+	if skipInCI && c.isCI(ctx) {
+		// Auto-confirm in CI and execute commands in child context
 		fmt.Printf("CI environment detected - auto-confirming: %s\n", message)
+		confirmCtx := ctx.Child()
 		for _, cmd := range content {
-			if err := ctx.ExecuteCommandContent(cmd); err != nil {
+			if err := confirmCtx.ExecuteCommandContent(cmd); err != nil {
 				return &execution.ExecutionResult{
 					Mode:  execution.InterpreterMode,
 					Data:  nil,
@@ -245,9 +233,10 @@ func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, m
 		}
 	}
 
-	// User confirmed, execute the commands
+	// User confirmed, execute the commands in child context
+	confirmCtx := ctx.Child()
 	for _, cmd := range content {
-		if err := ctx.ExecuteCommandContent(cmd); err != nil {
+		if err := confirmCtx.ExecuteCommandContent(cmd); err != nil {
 			return &execution.ExecutionResult{
 				Mode:  execution.InterpreterMode,
 				Data:  nil,
@@ -265,31 +254,14 @@ func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, m
 
 // executeGenerator generates Go code for confirmation logic
 func (c *ConfirmDecorator) executeGenerator(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
-	// Generate execution code for each command
-	var commands []string
-	for i, cmd := range content {
-		if shellContent, ok := cmd.(*ast.ShellContent); ok {
-			result := ctx.WithMode(execution.GeneratorMode).ExecuteShell(shellContent)
-			if result.Error != nil {
-				return &execution.ExecutionResult{
-					Mode:  execution.GeneratorMode,
-					Data:  "",
-					Error: fmt.Errorf("failed to generate shell command %d: %w", i, result.Error),
-				}
-			}
-			if code, ok := result.Data.(string); ok {
-				// Wrap the shell code in an error-returning function
-				wrappedCode := fmt.Sprintf("if err := func() error {\n%s\n\t\treturn nil\n\t}(); err != nil {\n\t\treturn err\n\t}", code)
-				commands = append(commands, wrappedCode)
-			}
-		} else {
-			// TODO: Handle other command content types
-			commands = append(commands, "// TODO: Generate execution for non-shell command content")
-		}
-	}
+	// Create child context for isolated execution
+	confirmCtx := ctx.Child()
+	
+	// Check CI environment at generation time
+	isCI := c.isCI(ctx)
 
 	// Use template to generate the full confirmation logic
-	tmpl, err := template.New("confirmExecution").Parse(confirmExecutionTemplate)
+	tmpl, err := template.New("confirmExecution").Funcs(confirmCtx.GetTemplateFunctions()).Parse(confirmExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Mode:  execution.GeneratorMode,
@@ -304,14 +276,16 @@ func (c *ConfirmDecorator) executeGenerator(ctx *execution.ExecutionContext, mes
 		AbortOnNo     bool
 		CaseSensitive bool
 		SkipInCI      bool
-		Commands      []string
+		IsCI          bool
+		Commands      []ast.CommandContent
 	}{
 		Message:       fmt.Sprintf("%q", message),
 		DefaultYes:    defaultYes,
 		AbortOnNo:     abortOnNo,
 		CaseSensitive: caseSensitive,
 		SkipInCI:      skipInCI,
-		Commands:      commands,
+		IsCI:          isCI,
+		Commands:      content,
 	}
 
 	var result strings.Builder
@@ -335,7 +309,7 @@ func (c *ConfirmDecorator) executePlan(ctx *execution.ExecutionContext, message 
 	// Context-aware planning: check current environment
 	var description string
 
-	if skipInCI && isCI() {
+	if skipInCI && c.isCI(ctx) {
 		// We're in CI and should skip confirmation
 		description = fmt.Sprintf("🤖 CI Environment Detected - Auto-confirming: %s", message)
 	} else {

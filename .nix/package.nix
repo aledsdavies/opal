@@ -5,9 +5,9 @@ pkgs.buildGoModule rec {
   pname = "devcmd";
   inherit version;
 
-  src = ./..;  # repo root that contains go.work
-  modRoot = "cli";  # path to CLI module's go.mod
-  subPackages = [ "." ];  # build the main package
+  src = ./..; # repo root that contains go.work
+  modRoot = "cli"; # path to CLI module's go.mod
+  subPackages = [ "." ]; # build the main package
 
   # Turn off workspace mode for vendoring (required since Go 1.22)
   env.GOWORK = "off";

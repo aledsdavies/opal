@@ -9,6 +9,17 @@ import (
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
+// isCI helper function for testing
+func isCI() bool {
+	ciVars := []string{"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "TRAVIS", "CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER"}
+	for _, envVar := range ciVars {
+		if os.Getenv(envVar) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func TestConfirmDecorator_Execute(t *testing.T) {
 	// Create test program
 	program := ast.NewProgram()

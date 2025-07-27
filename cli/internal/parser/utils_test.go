@@ -10,7 +10,7 @@ import (
 	"github.com/aledsdavies/devcmd/runtime/decorators"
 	"github.com/aledsdavies/devcmd/runtime/execution"
 	"github.com/google/go-cmp/cmp"
-	
+
 	// Import builtins to register decorators
 	_ "github.com/aledsdavies/devcmd/cli/internal/builtins"
 )
@@ -501,8 +501,8 @@ func Simple(parts ...interface{}) ExpectedCommandBody {
 	// Validate that simple commands don't contain BLOCK decorators
 	// Function decorators are allowed in simple commands
 	for _, part := range shellParts {
-		if part.Type == "function_decorator" {
-			if part.FunctionDecorator != nil && !decorators.IsFunctionDecorator(part.FunctionDecorator.Name) {
+		if part.Type == "value_decorator" {
+			if part.FunctionDecorator != nil && !decorators.IsDecorator(part.FunctionDecorator.Name) {
 				// Instead of panic, return an error body
 				return ExpectedCommandBody{
 					Content: []ExpectedCommandContent{
@@ -538,7 +538,7 @@ func Text(text string) ExpectedShellPart {
 // Only valid for function decorators like @var()
 func At(name string, args ...interface{}) ExpectedShellPart {
 	// Validate that this is a function decorator
-	if !decorators.IsFunctionDecorator(name) {
+	if !decorators.IsDecorator(name) {
 		// Instead of panic, return an error shell part
 		return ExpectedShellPart{
 			Type: "text",
@@ -552,7 +552,7 @@ func At(name string, args ...interface{}) ExpectedShellPart {
 	}
 
 	return ExpectedShellPart{
-		Type: "function_decorator",
+		Type: "value_decorator",
 		FunctionDecorator: &ExpectedFunctionDecorator{
 			Name: name,
 			Args: decoratorArgs,
@@ -775,7 +775,7 @@ func toExpression(v interface{}) ExpectedExpression {
 		return Bool(val)
 	case ExpectedFunctionDecorator:
 		return ExpectedExpression{
-			Type: "function_decorator",
+			Type: "value_decorator",
 			Name: val.Name,
 			Args: val.Args,
 		}
@@ -806,8 +806,8 @@ func toCommandBody(v interface{}) ExpectedCommandBody {
 		// Check if it contains BLOCK decorators - if so, it needs explicit blocks
 		// Function decorators are allowed and get syntax sugar
 		for _, part := range val.Parts {
-			if part.Type == "function_decorator" {
-				if part.FunctionDecorator != nil && !decorators.IsFunctionDecorator(part.FunctionDecorator.Name) {
+			if part.Type == "value_decorator" {
+				if part.FunctionDecorator != nil && !decorators.IsDecorator(part.FunctionDecorator.Name) {
 					// Instead of panic, return an error body
 					return ExpectedCommandBody{
 						Content: []ExpectedCommandContent{
@@ -961,12 +961,12 @@ func toShellParts(items ...interface{}) []ExpectedShellPart {
 			parts = append(parts, Text(v))
 		case ExpectedFunctionDecorator:
 			// Validate that function decorators are only used inline
-			if !decorators.IsFunctionDecorator(v.Name) {
+			if !decorators.IsDecorator(v.Name) {
 				// Instead of panic, create an error text part
 				parts = append(parts, Text(fmt.Sprintf("ERROR: '%s' is not a function decorator and cannot be used inline in shell content", v.Name)))
 			} else {
 				parts = append(parts, ExpectedShellPart{
-					Type:              "function_decorator",
+					Type:              "value_decorator",
 					FunctionDecorator: &v,
 				})
 			}
@@ -1020,16 +1020,6 @@ func expressionToComparable(expr ast.Expression) interface{} {
 			"Type":  "identifier",
 			"Value": e.Name,
 		}
-	case *ast.FunctionDecorator:
-		args := make([]interface{}, len(e.Args))
-		for i, arg := range e.Args {
-			args[i] = namedParameterToComparable(arg)
-		}
-		return map[string]interface{}{
-			"Type": "function_decorator",
-			"Name": e.Name,
-			"Args": args,
-		}
 	default:
 		return map[string]interface{}{
 			"Type":  "unknown",
@@ -1057,10 +1047,12 @@ func expectedArgsToNamedParams(decoratorName string, args []ExpectedExpression) 
 	result := make([]interface{}, len(args))
 
 	// Look up the decorator in the registry to get parameter names
-	// Try function, block, and pattern decorators
+	// Try value, action, block, and pattern decorators
 	var schema []decorators.ParameterSchema
-	if funcDecorator, err := decorators.GetFunction(decoratorName); err == nil {
-		schema = funcDecorator.ParameterSchema()
+	if valueDecorator, err := decorators.GetValue(decoratorName); err == nil {
+		schema = valueDecorator.ParameterSchema()
+	} else if actionDecorator, err := decorators.GetAction(decoratorName); err == nil {
+		schema = actionDecorator.ParameterSchema()
 	} else if blockDecorator, err := decorators.GetBlock(decoratorName); err == nil {
 		schema = blockDecorator.ParameterSchema()
 	} else if patternDecorator, err := decorators.GetPattern(decoratorName); err == nil {
@@ -1102,14 +1094,26 @@ func shellPartToComparable(part ast.ShellPart) interface{} {
 			"Type": "text",
 			"Text": p.Text,
 		}
-	case *ast.FunctionDecorator:
+	case *ast.ValueDecorator:
 		args := make([]interface{}, len(p.Args))
 		for i, arg := range p.Args {
 			args[i] = namedParameterToComparable(arg)
 		}
 		return map[string]interface{}{
-			"Type": "function_decorator",
-			"FunctionDecorator": map[string]interface{}{
+			"Type": "value_decorator",
+			"ValueDecorator": map[string]interface{}{
+				"Name": p.Name,
+				"Args": args,
+			},
+		}
+	case *ast.ActionDecorator:
+		args := make([]interface{}, len(p.Args))
+		for i, arg := range p.Args {
+			args[i] = namedParameterToComparable(arg)
+		}
+		return map[string]interface{}{
+			"Type": "action_decorator",
+			"ActionDecorator": map[string]interface{}{
 				"Name": p.Name,
 				"Args": args,
 			},
@@ -1130,10 +1134,10 @@ func expectedShellPartToComparable(part ExpectedShellPart) interface{} {
 	switch part.Type {
 	case "text":
 		result["Text"] = part.Text
-	case "function_decorator":
+	case "value_decorator":
 		if part.FunctionDecorator != nil {
 			args := expectedArgsToNamedParams(part.FunctionDecorator.Name, part.FunctionDecorator.Args)
-			result["FunctionDecorator"] = map[string]interface{}{
+			result["ValueDecorator"] = map[string]interface{}{
 				"Name": part.FunctionDecorator.Name,
 				"Args": args,
 			}
@@ -1290,7 +1294,7 @@ func expectedCommandContentToComparable(content ExpectedCommandContent) interfac
 	case ExpectedFunctionDecorator:
 		args := expectedArgsToNamedParams(c.Name, c.Args)
 		return map[string]interface{}{
-			"Type": "function_decorator",
+			"Type": "value_decorator",
 			"Name": c.Name,
 			"Args": args,
 		}

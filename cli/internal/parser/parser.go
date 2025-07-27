@@ -220,8 +220,11 @@ func (p *Parser) parseCommandBody() (*ast.CommandBody, error) {
 				return nil, fmt.Errorf("unexpected decorator type in block context")
 			}
 		} else {
-			// Decorator without braces - check if it's a function decorator
-			if _, ok := decorator.(*ast.FunctionDecorator); !ok {
+			// Decorator without braces - check if it's an action decorator
+			switch decorator.(type) {
+			case *ast.ActionDecorator:
+				// Valid standalone decorators
+			default:
 				// Block decorators must be followed by braces
 				return nil, fmt.Errorf("expected '{' after block decorator(s) (at %d:%d, got %s)",
 					p.current().Line, p.current().Column, p.current().Type)
@@ -294,13 +297,16 @@ func (p *Parser) isSimpleShellContent(contentItems []ast.CommandContent) bool {
 
 	// Must be shell content without decorators
 	if shell, ok := contentItems[0].(*ast.ShellContent); ok {
-		// Check if it contains only text parts or function decorators (no block decorators)
+		// Check if it contains only text parts or value/action decorators (no block decorators)
 		for _, part := range shell.Parts {
-			if funcDecorator, ok := part.(*ast.FunctionDecorator); ok {
-				// Function decorators are allowed in simple content
-				if !decorators.IsFunctionDecorator(funcDecorator.Name) {
-					return false
-				}
+			switch part.(type) {
+			case *ast.ValueDecorator, *ast.ActionDecorator:
+				// Value and action decorators are allowed in simple content
+			case *ast.TextPart:
+				// Text parts are allowed
+			default:
+				// Block decorators and other types are not allowed in simple content
+				return false
 			}
 		}
 		return true
@@ -609,17 +615,12 @@ func (p *Parser) parseShellContent(inBlock bool) (*ast.ShellContent, error) {
 			parts = append(parts, &ast.TextPart{Text: p.current().Value})
 			p.advance()
 		} else if p.match(types.AT) {
-			// Parse any type of decorator using unified approach
-			decorator, err := p.parseDecorator()
+			// Parse decorator in shell context - this can return ValueDecorator or ActionDecorator
+			decorator, err := p.parseShellDecorator()
 			if err != nil {
 				return nil, err
 			}
-			// Only function decorators can appear in shell content
-			if funcDecorator, ok := decorator.(*ast.FunctionDecorator); ok {
-				parts = append(parts, funcDecorator)
-			} else {
-				return nil, p.NewSyntaxError("only function decorators are allowed in shell content")
-			}
+			parts = append(parts, decorator)
 		} else {
 			// Unexpected token - stop parsing
 			break
@@ -770,6 +771,77 @@ func (p *Parser) parseGroupedVariableDecl() (*ast.VariableDecl, error) {
 
 // --- Decorator Parsing ---
 
+// parseShellDecorator parses a decorator in shell context and returns ShellPart (ValueDecorator or ActionDecorator)
+func (p *Parser) parseShellDecorator() (ast.ShellPart, error) {
+	// Reuse the same parsing logic as parseDecorator but return ShellPart
+	startPos := p.current()
+	atToken, _ := p.consume(types.AT, "expected '@'")
+
+	// Get decorator name
+	var nameToken types.Token
+	var err error
+
+	if p.current().Type == types.IDENTIFIER {
+		nameToken, err = p.consume(types.IDENTIFIER, "expected decorator name")
+	} else {
+		return nil, p.NewSyntaxError("expected decorator name after '@'")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	decoratorName := nameToken.Value
+	if nameToken.Type != types.IDENTIFIER {
+		decoratorName = strings.ToLower(nameToken.Value)
+	}
+
+	// Check if decorator exists in registry
+	decorator, decoratorType, err := decorators.GetAny(decoratorName)
+	if err != nil {
+		return nil, p.NewInvalidError("unknown decorator @" + decoratorName)
+	}
+
+	// Get parameter schema from decorator
+	paramSchema := decorator.ParameterSchema()
+
+	// Parse parameters according to schema
+	var params []ast.NamedParameter
+	if p.match(types.LPAREN) {
+		p.advance() // consume '('
+		params, err = p.parseParameterList(paramSchema)
+		if err != nil {
+			return nil, err
+		}
+		_, err = p.consume(types.RPAREN, "expected ')' after decorator arguments")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// In shell context, both ValueDecorator and ActionDecorator are allowed
+	switch decoratorType {
+	case decorators.ValueType:
+		return &ast.ValueDecorator{
+			Name:      decoratorName,
+			Args:      params,
+			Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
+			AtToken:   atToken,
+			NameToken: nameToken,
+		}, nil
+	case decorators.ActionType:
+		return &ast.ActionDecorator{
+			Name:      decoratorName,
+			Args:      params,
+			Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},
+			AtToken:   atToken,
+			NameToken: nameToken,
+		}, nil
+	default:
+		return nil, fmt.Errorf("decorator @%s cannot be used in shell context (line %d:%d) - only value and action decorators are allowed", decoratorName, startPos.Line, startPos.Column)
+	}
+}
+
 // parseDecorator parses a single decorator and returns the appropriate AST node type
 func (p *Parser) parseDecorator() (ast.CommandContent, error) {
 	startPos := p.current()
@@ -829,8 +901,10 @@ func (p *Parser) parseDecorator() (ast.CommandContent, error) {
 
 	// Step 5: Create appropriate AST node based on decorator type
 	switch decoratorType {
-	case decorators.FunctionType:
-		return &ast.FunctionDecorator{
+	case decorators.ValueType:
+		return nil, fmt.Errorf("value decorator @%s cannot be used as standalone command (line %d:%d) - value decorators can only be used inline within shell commands", decoratorName, startPos.Line, startPos.Column)
+	case decorators.ActionType:
+		return &ast.ActionDecorator{
 			Name:      decoratorName,
 			Args:      params,
 			Pos:       ast.Position{Line: startPos.Line, Column: startPos.Column},

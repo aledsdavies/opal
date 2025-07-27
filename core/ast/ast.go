@@ -968,11 +968,11 @@ func (w *WildcardPattern) GetPatternType() PatternType {
 	return WildcardPatternType
 }
 
-// Decorator type removed - replaced by specific decorator types (BlockDecorator, PatternDecorator, FunctionDecorator)
+// Decorator types: BlockDecorator, PatternDecorator, ValueDecorator, ActionDecorator
 
-// FunctionDecorator represents inline decorators like @var(NAME) or @sh(command)
-// These appear WITHIN shell content and return values
-type FunctionDecorator struct {
+// ValueDecorator represents inline decorators that provide values for shell interpolation
+// Examples: @var(NAME), @env(VAR) - these appear WITHIN shell content and return values
+type ValueDecorator struct {
 	Name   string
 	Args   []NamedParameter
 	Pos    Position
@@ -985,12 +985,12 @@ type FunctionDecorator struct {
 	CloseParen *types.Token // The ")" token (nil if no args)
 }
 
-func (f *FunctionDecorator) String() string {
-	name := fmt.Sprintf("@%s", f.Name)
+func (v *ValueDecorator) String() string {
+	name := fmt.Sprintf("@%s", v.Name)
 
-	if len(f.Args) > 0 {
+	if len(v.Args) > 0 {
 		var argStrs []string
-		for _, arg := range f.Args {
+		for _, arg := range v.Args {
 			argStrs = append(argStrs, arg.String())
 		}
 		name += fmt.Sprintf("(%s)", strings.Join(argStrs, ", "))
@@ -999,45 +999,41 @@ func (f *FunctionDecorator) String() string {
 	return name
 }
 
-func (f *FunctionDecorator) Position() Position {
-	return f.Pos
+func (v *ValueDecorator) Position() Position {
+	return v.Pos
 }
 
-func (f *FunctionDecorator) TokenRange() TokenRange {
-	return f.Tokens
+func (v *ValueDecorator) TokenRange() TokenRange {
+	return v.Tokens
 }
 
-func (f *FunctionDecorator) SemanticTokens() []types.Token {
+func (v *ValueDecorator) SemanticTokens() []types.Token {
 	var tokens []types.Token
 
 	// @ token as operator
-	atToken := f.AtToken
+	atToken := v.AtToken
 	atToken.Semantic = types.SemOperator
 	tokens = append(tokens, atToken)
 
-	// Function decorator name with proper semantic
-	nameToken := f.NameToken
-	if f.Name == "var" || f.Name == "sh" {
-		nameToken.Semantic = types.SemVariable
-	} else {
-		nameToken.Semantic = types.SemDecorator
-	}
+	// Value decorator name
+	nameToken := v.NameToken
+	nameToken.Semantic = types.SemVariable
 	tokens = append(tokens, nameToken)
 
 	// Add parentheses if present
-	if f.OpenParen != nil {
-		openParen := *f.OpenParen
+	if v.OpenParen != nil {
+		openParen := *v.OpenParen
 		openParen.Semantic = types.SemOperator
 		tokens = append(tokens, openParen)
 	}
 
 	// Add argument tokens
-	for _, arg := range f.Args {
+	for _, arg := range v.Args {
 		tokens = append(tokens, arg.SemanticTokens()...)
 	}
 
-	if f.CloseParen != nil {
-		closeParen := *f.CloseParen
+	if v.CloseParen != nil {
+		closeParen := *v.CloseParen
 		closeParen.Semantic = types.SemOperator
 		tokens = append(tokens, closeParen)
 	}
@@ -1045,19 +1041,94 @@ func (f *FunctionDecorator) SemanticTokens() []types.Token {
 	return tokens
 }
 
-func (f *FunctionDecorator) IsExpression() bool {
+func (v *ValueDecorator) IsExpression() bool {
 	return true
 }
 
-func (f *FunctionDecorator) GetType() ExpressionType {
+func (v *ValueDecorator) GetType() ExpressionType {
 	return IdentifierType
 }
 
-func (f *FunctionDecorator) IsShellPart() bool {
+func (v *ValueDecorator) IsShellPart() bool {
 	return true
 }
 
-func (f *FunctionDecorator) IsCommandContent() bool {
+// ActionDecorator represents standalone decorators that execute commands
+// Examples: @cmd(helper) - these appear as standalone CommandContent
+type ActionDecorator struct {
+	Name   string
+	Args   []NamedParameter
+	Pos    Position
+	Tokens TokenRange
+
+	// Concrete syntax tokens for precise formatting and LSP
+	AtToken    types.Token  // The "@" symbol
+	NameToken  types.Token  // The decorator name token
+	OpenParen  *types.Token // The "(" token (nil if no args)
+	CloseParen *types.Token // The ")" token (nil if no args)
+}
+
+func (a *ActionDecorator) String() string {
+	name := fmt.Sprintf("@%s", a.Name)
+
+	if len(a.Args) > 0 {
+		var argStrs []string
+		for _, arg := range a.Args {
+			argStrs = append(argStrs, arg.String())
+		}
+		name += fmt.Sprintf("(%s)", strings.Join(argStrs, ", "))
+	}
+
+	return name
+}
+
+func (a *ActionDecorator) Position() Position {
+	return a.Pos
+}
+
+func (a *ActionDecorator) TokenRange() TokenRange {
+	return a.Tokens
+}
+
+func (a *ActionDecorator) SemanticTokens() []types.Token {
+	var tokens []types.Token
+
+	// @ token as operator
+	atToken := a.AtToken
+	atToken.Semantic = types.SemOperator
+	tokens = append(tokens, atToken)
+
+	// Action decorator name
+	nameToken := a.NameToken
+	nameToken.Semantic = types.SemDecorator
+	tokens = append(tokens, nameToken)
+
+	// Add parentheses if present
+	if a.OpenParen != nil {
+		openParen := *a.OpenParen
+		openParen.Semantic = types.SemOperator
+		tokens = append(tokens, openParen)
+	}
+
+	// Add argument tokens
+	for _, arg := range a.Args {
+		tokens = append(tokens, arg.SemanticTokens()...)
+	}
+
+	if a.CloseParen != nil {
+		closeParen := *a.CloseParen
+		closeParen.Semantic = types.SemOperator
+		tokens = append(tokens, closeParen)
+	}
+
+	return tokens
+}
+
+func (a *ActionDecorator) IsCommandContent() bool {
+	return true
+}
+
+func (a *ActionDecorator) IsShellPart() bool {
 	return true
 }
 
@@ -1124,8 +1195,12 @@ func Walk(node Node, fn func(Node) bool) {
 		// Leaf node - pattern identifier
 	case *WildcardPattern:
 		// Leaf node - wildcard pattern
-	// Decorator type removed - specific decorator types handle their own walking
-	case *FunctionDecorator:
+	// Decorator types handle their own walking
+	case *ValueDecorator:
+		for _, arg := range n.Args {
+			Walk(arg.Value, fn)
+		}
+	case *ActionDecorator:
 		for _, arg := range n.Args {
 			Walk(arg.Value, fn)
 		}
@@ -1148,8 +1223,8 @@ func (b *CommandBody) GetShellText() string {
 			for _, part := range shell.Parts {
 				if textPart, ok := part.(*TextPart); ok {
 					textParts = append(textParts, textPart.Text)
-				} else if funcDecorator, ok := part.(*FunctionDecorator); ok {
-					textParts = append(textParts, funcDecorator.String())
+				} else if valueDecorator, ok := part.(*ValueDecorator); ok {
+					textParts = append(textParts, valueDecorator.String())
 				}
 			}
 			return strings.Join(textParts, "")
@@ -1158,15 +1233,15 @@ func (b *CommandBody) GetShellText() string {
 	return ""
 }
 
-// GetInlineDecorators returns all inline decorators within shell content
-func (b *CommandBody) GetInlineDecorators() []*FunctionDecorator {
-	var decorators []*FunctionDecorator
+// GetInlineDecorators returns all inline value decorators within shell content
+func (b *CommandBody) GetInlineDecorators() []*ValueDecorator {
+	var decorators []*ValueDecorator
 
 	for _, content := range b.Content {
 		if shell, ok := content.(*ShellContent); ok {
 			for _, part := range shell.Parts {
-				if funcDecorator, ok := part.(*FunctionDecorator); ok {
-					decorators = append(decorators, funcDecorator)
+				if valueDecorator, ok := part.(*ValueDecorator); ok {
+					decorators = append(decorators, valueDecorator)
 				}
 			}
 		}
@@ -1272,13 +1347,13 @@ func ValidatePatternDecorator(pattern *PatternDecorator) []error {
 	return errors
 }
 
-// FindVariableReferences finds all @var() function decorator references in the AST
-func FindVariableReferences(node Node) []*FunctionDecorator {
-	var refs []*FunctionDecorator
+// FindVariableReferences finds all @var() value decorator references in the AST
+func FindVariableReferences(node Node) []*ValueDecorator {
+	var refs []*ValueDecorator
 
 	Walk(node, func(n Node) bool {
-		if funcDecorator, ok := n.(*FunctionDecorator); ok && funcDecorator.Name == "var" {
-			refs = append(refs, funcDecorator)
+		if valueDecorator, ok := n.(*ValueDecorator); ok && valueDecorator.Name == "var" {
+			refs = append(refs, valueDecorator)
 		}
 		return true
 	})
@@ -1286,7 +1361,7 @@ func FindVariableReferences(node Node) []*FunctionDecorator {
 	return refs
 }
 
-// FindDecorators removed - use specific decorator type finders (FindBlockDecorators, FindPatternDecorators, FindFunctionDecorators)
+// FindDecorators removed - use specific decorator type finders (FindBlockDecorators, FindPatternDecorators, FindVariableReferences)
 
 // ValidateVariableReferences checks that all @var() decorator references are defined
 func ValidateVariableReferences(program *Program) []error {
@@ -1356,9 +1431,9 @@ func GetDefinitionForVariable(program *Program, varName string) *VariableDecl {
 	return nil
 }
 
-// GetReferencesForVariable finds all @var() function decorator references to a specific variable
-func GetReferencesForVariable(program *Program, varName string) []*FunctionDecorator {
-	var references []*FunctionDecorator
+// GetReferencesForVariable finds all @var() value decorator references to a specific variable
+func GetReferencesForVariable(program *Program, varName string) []*ValueDecorator {
+	var references []*ValueDecorator
 
 	refs := FindVariableReferences(program)
 	for _, ref := range refs {

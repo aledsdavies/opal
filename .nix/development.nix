@@ -7,7 +7,7 @@ let
     inherit pkgs self gitRev system;
     lib = pkgs.lib;
   };
-  
+
   # Generate the development CLI from our commands.cli file - fail if can't build
   devCLI = devcmdLib.mkDevCLI
     {

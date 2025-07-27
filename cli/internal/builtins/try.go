@@ -14,61 +14,50 @@ import (
 // TryDecorator implements the @try decorator for error handling with pattern matching
 type TryDecorator struct{}
 
-// Template for try execution code generation
-const tryExecutionTemplate = `return func() error {
-	var mainErr error
+// Template for try execution code generation (unified contract: statement blocks)
+const tryExecutionTemplate = `// Try-catch execution setup
+var mainErr error
 
-	// Execute main block
-	mainErr = func() error {
-		{{range $i, $cmd := .MainCommands}}
-		if err := func() error {
-			{{generateShellCode $cmd}}
-		}(); err != nil {
-			return err
-		}
+// Execute main block
+mainErr = func() error {
+	{{range $i, $cmd := .MainCommands}}
+	{{generateShellCode $cmd}}
+	{{end}}
+	return nil
+}()
+
+{{if .HasErrorBranch}}
+// Execute error block if main failed
+if mainErr != nil {
+	errorErr := func() error {
+		{{range $i, $cmd := .ErrorCommands}}
+		{{generateShellCode $cmd}}
 		{{end}}
 		return nil
 	}()
-
-	{{if .HasErrorBranch}}
-	// Execute error block if main failed
-	if mainErr != nil {
-		errorErr := func() error {
-			{{range $i, $cmd := .ErrorCommands}}
-			if err := func() error {
-				{{generateShellCode $cmd}}
-			}(); err != nil {
-				return err
-			}
-			{{end}}
-			return nil
-		}()
-		if errorErr != nil {
-			fmt.Printf("Error handler also failed: %v\n", errorErr)
-		}
+	if errorErr != nil {
+		fmt.Printf("Error handler also failed: %v\n", errorErr)
 	}
-	{{end}}
+}
+{{end}}
 
-	{{if .HasFinallyBranch}}
-	// Always execute finally block
-	finallyErr := func() error {
-		{{range $i, $cmd := .FinallyCommands}}
-		if err := func() error {
-			{{generateShellCode $cmd}}
-		}(); err != nil {
-			return err
-		}
-		{{end}}
-		return nil
-	}()
-	if finallyErr != nil {
-		fmt.Printf("Finally block failed: %v\n", finallyErr)
-	}
+{{if .HasFinallyBranch}}
+// Always execute finally block
+finallyErr := func() error {
+	{{range $i, $cmd := .FinallyCommands}}
+	{{generateShellCode $cmd}}
 	{{end}}
+	return nil
+}()
+if finallyErr != nil {
+	fmt.Printf("Finally block failed: %v\n", finallyErr)
+}
+{{end}}
 
-	// Return the original main error
+// Return the original main error
+if mainErr != nil {
 	return mainErr
-}()`
+}`
 
 // TryTemplateData holds data for template execution
 type TryTemplateData struct {
@@ -175,19 +164,22 @@ func (t *TryDecorator) Execute(ctx *execution.ExecutionContext, params []ast.Nam
 
 // executeInterpreter executes try-catch patterns in interpreter mode
 func (t *TryDecorator) executeInterpreter(ctx *execution.ExecutionContext, mainBranch, errorBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
-	// Execute main block
-	mainErr := t.executeCommands(ctx, mainBranch.Commands)
+	// Execute main block in child context
+	mainCtx := ctx.Child()
+	mainErr := t.executeCommands(mainCtx, mainBranch.Commands)
 
 	// Execute error block if main failed and error pattern exists
 	if mainErr != nil && errorBranch != nil {
+		errorCtx := ctx.Child()
 		// If error handler also fails, we still want to run finally
-		_ = t.executeCommands(ctx, errorBranch.Commands)
+		_ = t.executeCommands(errorCtx, errorBranch.Commands)
 	}
 
 	// Always execute finally block if it exists
 	if finallyBranch != nil {
+		finallyCtx := ctx.Child()
 		// Finally block errors don't override main error
-		_ = t.executeCommands(ctx, finallyBranch.Commands)
+		_ = t.executeCommands(finallyCtx, finallyBranch.Commands)
 	}
 
 	return &execution.ExecutionResult{
@@ -199,6 +191,9 @@ func (t *TryDecorator) executeInterpreter(ctx *execution.ExecutionContext, mainB
 
 // executeGenerator generates Go code for try-catch logic
 func (t *TryDecorator) executeGenerator(ctx *execution.ExecutionContext, mainBranch, errorBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
+	// Create child context for isolated execution
+	tryCtx := ctx.Child()
+	
 	// Prepare template data
 	templateData := TryTemplateData{
 		MainCommands:     mainBranch.Commands,
@@ -214,8 +209,8 @@ func (t *TryDecorator) executeGenerator(ctx *execution.ExecutionContext, mainBra
 		templateData.FinallyCommands = finallyBranch.Commands
 	}
 
-	// Parse and execute template with context functions
-	tmpl, err := template.New("try").Funcs(ctx.GetTemplateFunctions()).Parse(tryExecutionTemplate)
+	// Parse and execute template with child context functions
+	tmpl, err := template.New("try").Funcs(tryCtx.GetTemplateFunctions()).Parse(tryExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Mode:  execution.GeneratorMode,

@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
-	
+	"github.com/aledsdavies/devcmd/core/ast"
+
 	// Import builtins to register decorators
 	_ "github.com/aledsdavies/devcmd/cli/internal/builtins"
 )
@@ -25,6 +26,67 @@ func TestMain(m *testing.M) {
 
 	os.Exit(code)
 }
+
+// TestEngine_ShellBlockErrorHandling tests that shell blocks stop execution on first error
+func TestEngine_ShellBlockErrorHandling(t *testing.T) {
+	input := `
+# Command that will fail
+fail_command: exit 1
+
+# Test command with multiple shell statements where one fails
+test_sequence: {
+    echo "Step 1: Before failure"
+    @cmd(fail_command)
+    echo "Step 2: After failure - this should NOT execute"
+    echo "Step 3: This should also NOT execute"
+}
+`
+
+	program, err := parser.Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Failed to parse program: %v", err)
+	}
+
+	engine := New(program)
+	
+	// Find the test_sequence command
+	var testCmd *ast.CommandDecl
+	for _, cmd := range program.Commands {
+		if cmd.Name == "test_sequence" {
+			testCmd = &cmd
+			break
+		}
+	}
+	
+	if testCmd == nil {
+		t.Fatal("test_sequence command not found")
+	}
+
+	// Execute the command - this should fail
+	result, err := engine.ExecuteCommand(testCmd)
+	
+	// The command should fail (return an error)
+	if err == nil {
+		t.Error("Expected command to fail but it succeeded")
+	}
+	
+	if result == nil {
+		t.Fatal("Result should not be nil")
+	}
+	
+	if result.Status != "failed" {
+		t.Errorf("Expected status 'failed', got '%s'", result.Status)
+	}
+	
+	// The error should indicate the failure came from the @cmd(fail_command)
+	if !strings.Contains(result.Error, "fail_command") && !strings.Contains(err.Error(), "exit status 1") {
+		t.Errorf("Error should mention the failing command or exit status, got: %v", err)
+	}
+	
+	t.Logf("Command failed as expected with error: %v", err)
+	t.Logf("Result status: %s, error: %s", result.Status, result.Error)
+}
+
 
 // TestEngine_BasicConstruction tests basic engine construction
 func TestEngine_BasicConstruction(t *testing.T) {

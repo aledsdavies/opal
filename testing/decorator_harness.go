@@ -214,10 +214,17 @@ func (h *DecoratorHarness) testFunctionDecoratorInMode(decorator interface{}, pa
 	ctx := h.createExecutionContext(mode)
 
 	// Use type assertion to call the appropriate decorator interface
-	if funcDec, ok := decorator.(decorators.FunctionDecorator); ok {
+	if valueDec, ok := decorator.(decorators.ValueDecorator); ok {
 		// Get parameter schema from the decorator to convert params correctly
-		astParams := h.convertParamsUsingSchema(params, funcDec)
-		result := funcDec.Expand(ctx, astParams)
+		astParams := h.convertParamsUsingSchemaValue(params, valueDec)
+		result := valueDec.Expand(ctx, astParams)
+		return h.convertExecutionResult(result, mode)
+	}
+	
+	if actionDec, ok := decorator.(decorators.ActionDecorator); ok {
+		// Get parameter schema from the decorator to convert params correctly
+		astParams := h.convertParamsUsingSchemaAction(params, actionDec)
+		result := actionDec.Expand(ctx, astParams)
 		return h.convertExecutionResult(result, mode)
 	}
 
@@ -281,10 +288,7 @@ func (h *DecoratorHarness) createExecutionContext(mode ExecutionMode) *execution
 		ctx.SetVariable(name, value)
 	}
 
-	// Set up environment
-	for name, value := range h.env {
-		ctx.SetEnv(name, value)
-	}
+	// Environment is now immutable and set at context creation
 
 	// Configure context
 	ctx.WorkingDir = h.workingDir
@@ -455,7 +459,9 @@ func (h *DecoratorHarness) contentToString(content ast.CommandContent) string {
 			switch p := part.(type) {
 			case *ast.TextPart:
 				parts = append(parts, p.Text)
-			case *ast.FunctionDecorator:
+			case *ast.ValueDecorator:
+				parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
+			case *ast.ActionDecorator:
 				parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
 			}
 		}
@@ -463,4 +469,14 @@ func (h *DecoratorHarness) contentToString(content ast.CommandContent) string {
 	default:
 		return fmt.Sprintf("<%T>", content)
 	}
+}
+
+// convertParamsUsingSchemaValue converts parameters for ValueDecorator
+func (h *DecoratorHarness) convertParamsUsingSchemaValue(params map[string]interface{}, decorator decorators.ValueDecorator) []ast.NamedParameter {
+	return h.convertParamsUsingSchema(params, decorator)
+}
+
+// convertParamsUsingSchemaAction converts parameters for ActionDecorator  
+func (h *DecoratorHarness) convertParamsUsingSchemaAction(params map[string]interface{}, decorator decorators.ActionDecorator) []ast.NamedParameter {
+	return h.convertParamsUsingSchema(params, decorator)
 }

@@ -1,6 +1,6 @@
 package execution
 
-import "github.com/aledsdavies/devcmd/core/ast"
+import "fmt"
 
 // ExecutionMode represents the different modes of execution
 type ExecutionMode int
@@ -40,9 +40,32 @@ type ExecutionResult struct {
 	Error error
 }
 
-// FunctionDecorator interface to avoid circular imports
-// This mirrors the decorators.FunctionDecorator interface
-type FunctionDecorator interface {
-	// Expand provides unified expansion for all modes - returns values for command composition
-	Expand(ctx *ExecutionContext, params []ast.NamedParameter) *ExecutionResult
+
+// CommandResult represents the structured output from command execution
+// Used by ActionDecorators to enable proper piping and chaining
+type CommandResult struct {
+	Stdout   string // Standard output as string
+	Stderr   string // Standard error as string  
+	ExitCode int    // Exit code (0 = success)
+}
+
+// Success returns true if the command executed successfully (exit code 0)
+func (r CommandResult) Success() bool {
+	return r.ExitCode == 0
+}
+
+// Failed returns true if the command failed (non-zero exit code)
+func (r CommandResult) Failed() bool {
+	return r.ExitCode != 0
+}
+
+// Error returns an error representation when the command failed
+func (r CommandResult) Error() error {
+	if r.Success() {
+		return nil
+	}
+	if r.Stderr != "" {
+		return fmt.Errorf("exit code %d: %s", r.ExitCode, r.Stderr)
+	}
+	return fmt.Errorf("exit code %d", r.ExitCode)
 }
