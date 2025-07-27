@@ -1,10 +1,33 @@
 # Development environment for devcmd project
 # Dogfooding our own tool for development commands
-{ pkgs, self ? null, gitRev ? "dev" }:
+{ pkgs, self ? null, gitRev ? "dev", system }:
 let
-  # For now, skip the generated CLI and use manual commands
-  # TODO: Re-enable when Nix package build works with Go modules
-  devCLI = null;
+  # Import our own library to create the development CLI
+  devcmdLib = import ./lib.nix {
+    inherit pkgs self gitRev system;
+    lib = pkgs.lib;
+  };
+  
+  # Generate the development CLI from our commands.cli file
+  devCLI =
+    if self != null then
+      devcmdLib.mkDevCLI
+        {
+          name = "dev";
+          binaryName = "dev"; # Explicitly set binary name for self-awareness
+          commandsFile = ../commands.cli;
+          version = "latest";
+          meta = {
+            description = "Devcmd development CLI - dogfooding our own tool";
+            longDescription = ''
+              This CLI is generated from commands.cli using devcmd itself.
+              It provides a streamlined development experience with all
+              necessary commands for building, testing, and maintaining devcmd.
+            '';
+          };
+        }
+    else
+      null;
 in
 pkgs.mkShell {
   name = "devcmd-dev";
