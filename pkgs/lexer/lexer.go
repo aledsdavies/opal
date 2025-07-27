@@ -349,8 +349,8 @@ func (l *Lexer) lexLanguageMode() types.Token {
 				}
 				ch = rune(l.input[pos])
 			}
-			// If next non-whitespace is newline, EOF, or closing brace, this decorator ends the command
-			if ch == '\n' || ch == 0 || ch == '}' {
+			// If next non-whitespace is newline, EOF, or closing brace (but not inside shell parameter expansion), this decorator ends the command
+			if ch == '\n' || ch == 0 || (ch == '}' && l.shellBraceLevel == 0) {
 				l.needsShellEnd = true
 			}
 		}
@@ -690,14 +690,16 @@ func (l *Lexer) lexShellMode() types.Token {
 		// Simple rule: determine next mode based on context
 		if l.braceLevel == 0 {
 			l.mode = LanguageMode
-			// Reset shell context when exiting shell mode
-			l.shellBraceLevel = 0
-			l.shellParenLevel = 0
-			l.shellAnyBraceLevel = 0
-			// Reset quote state when exiting shell mode
-			l.shellInSingleQuote = false
-			l.shellInDoubleQuote = false
-			l.shellInBacktick = false
+			// Only reset shell context when truly exiting shell mode, not during temporary decorator parsing
+			if !l.inFunctionDecorator {
+				l.shellBraceLevel = 0
+				l.shellParenLevel = 0
+				l.shellAnyBraceLevel = 0
+				// Reset quote state when exiting shell mode
+				l.shellInSingleQuote = false
+				l.shellInDoubleQuote = false
+				l.shellInBacktick = false
+			}
 		} else if l.isInPatternContext() && l.braceLevel == l.patternBraceLevel {
 			// Only return to PatternMode if we're at the exact pattern brace level
 			l.mode = PatternMode
@@ -724,10 +726,12 @@ func (l *Lexer) lexShellMode() types.Token {
 				} else {
 					l.mode = CommandMode
 				}
-				// Reset shell context
-				l.shellBraceLevel = 0
-				l.shellParenLevel = 0
-				l.shellAnyBraceLevel = 0
+				// Only reset shell context when truly exiting shell mode, not during temporary decorator parsing
+				if !l.inFunctionDecorator {
+					l.shellBraceLevel = 0
+					l.shellParenLevel = 0
+					l.shellAnyBraceLevel = 0
+				}
 				// Reset position tracking to allow next token processing
 				l.lastPosition = -1
 				pos, line, col := l.getShellEndPosition(start, startLine, startColumn)
@@ -742,10 +746,12 @@ func (l *Lexer) lexShellMode() types.Token {
 				} else {
 					l.mode = CommandMode
 				}
-				// Reset shell context when exiting shell mode
-				l.shellBraceLevel = 0
-				l.shellParenLevel = 0
-				l.shellAnyBraceLevel = 0
+				// Only reset shell context when truly exiting shell mode, not during temporary decorator parsing
+				if !l.inFunctionDecorator {
+					l.shellBraceLevel = 0
+					l.shellParenLevel = 0
+					l.shellAnyBraceLevel = 0
+				}
 				// Let the appropriate mode handle the } token
 				return l.NextToken()
 			}
@@ -903,7 +909,7 @@ func (l *Lexer) lexShellTextWithContext(start, startLine, startColumn int) types
 		}
 
 		// Stop at @ if it starts any registered decorator - allow inside double quotes for decorator expansion
-		if l.ch == '@' && !inSingleQuote && !inBacktick {
+		if l.ch == '@' && !inSingleQuote {
 			// Look ahead to see if this is @identifier for any registered decorator
 			if l.readPos < len(l.input) {
 				nextCh, _ := utf8.DecodeRuneInString(l.input[l.readPos:])
@@ -1128,7 +1134,7 @@ func (l *Lexer) lexShellText(start, startLine, startColumn int) types.Token {
 		}
 
 		// Stop at @ if it starts any registered decorator - allow inside double quotes for decorator expansion
-		if l.ch == '@' && !inSingleQuote && !inBacktick {
+		if l.ch == '@' && !inSingleQuote {
 			// Look ahead to see if this is @identifier for any registered decorator
 			if l.readPos < len(l.input) {
 				nextCh, _ := utf8.DecodeRuneInString(l.input[l.readPos:])

@@ -192,14 +192,11 @@ func (e *Engine) GenerateCode(program *ast.Program) (*GenerationResult, error) {
 func (e *Engine) setupDependencyInjection() {
 	// Set up function decorator lookup - create an adapter to bridge decorator interfaces
 	e.ctx.SetFunctionDecoratorLookup(func(name string) (execution.FunctionDecorator, bool) {
-		fmt.Printf("DEBUG: Looking up decorator '%s'\n", name)
 		decorator, exists := decorators.GetFunctionDecorator(name)
 		if !exists {
-			fmt.Printf("DEBUG: Decorator '%s' not found\n", name)
 			return nil, false
 		}
 
-		fmt.Printf("DEBUG: Found decorator '%s'\n", name)
 		// Create an adapter that bridges the interface difference
 		adapter := &functionDecoratorAdapter{decorator: decorator}
 		return adapter, true

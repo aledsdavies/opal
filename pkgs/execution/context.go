@@ -270,14 +270,11 @@ func (c *ExecutionContext) composeShellCommand(content *ast.ShellContent) (strin
 	var parts []string
 
 	for _, part := range content.Parts {
-		fmt.Printf("DEBUG: Processing shell part: %T\n", part)
 		switch p := part.(type) {
 		case *ast.TextPart:
-			fmt.Printf("DEBUG: TextPart: %q\n", p.Text)
 			parts = append(parts, p.Text)
 
 		case *ast.FunctionDecorator:
-			fmt.Printf("DEBUG: FunctionDecorator: %s\n", p.Name)
 			expanded, err := c.processFunctionDecorator(p)
 			if err != nil {
 				return "", err
