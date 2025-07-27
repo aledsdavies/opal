@@ -126,6 +126,45 @@ clean: {
     echo "✅ Cleanup complete"
 }
 
+# Update Go dependencies across all modules
+update-packages: {
+    echo "🔄 Updating Go dependencies across all modules..."
+    
+    @parallel {
+        @workdir("core") {
+            echo "📦 Updating core module dependencies..."
+            go get -u ./...
+            go mod tidy
+            echo "✅ Core module updated"
+        }
+        @workdir("runtime") {
+            echo "📦 Updating runtime module dependencies..."
+            go get -u ./...
+            go mod tidy
+            echo "✅ Runtime module updated"
+        }
+        @workdir("testing") {
+            echo "📦 Updating testing module dependencies..."
+            go get -u ./...
+            go mod tidy
+            echo "✅ Testing module updated"
+        }
+        @workdir("cli") {
+            echo "📦 Updating CLI module dependencies..."
+            go get -u ./...
+            go mod tidy
+            echo "✅ CLI module updated"
+        }
+    }
+    
+    echo ""
+    echo "🔄 Syncing workspace..."
+    go work sync
+    
+    echo "✅ All modules updated successfully!"
+    echo "💡 Consider running 'devcmd run test' to verify everything works"
+}
+
 # =============================================================================
 # 📦 NIX INTEGRATION  
 # =============================================================================
@@ -257,6 +296,9 @@ help: {
     echo "📝 Code Quality:"
     echo "  format         - Format all code"
     echo "  lint           - Run all linters"
+    echo ""
+    echo "🔄 Package Management:"
+    echo "  update-packages - Update Go dependencies across all modules"
     echo ""
     echo "📦 Nix Integration:"
     echo "  nix-build      - Build with Nix"
