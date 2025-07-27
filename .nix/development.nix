@@ -53,7 +53,7 @@ pkgs.mkShell {
       echo "   To get the full experience: nix develop"
       echo ""
       echo "Manual commands:"
-      echo "  go build -o devcmd ./cmd/devcmd"
+      echo "  cd cli && go build -o ../devcmd ./main.go"
       echo "  go test ./..."
     ''}
     exec ${pkgs.zsh}/bin/zsh

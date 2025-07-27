@@ -84,15 +84,16 @@ jobs:
           cache: true
 
 
-      - name: Download Go dependencies
+      - name: Download Go dependencies (workspace)
         run: |
-          go mod download
-          go mod verify
+          echo "📦 Downloading dependencies for all modules..."
+          go work sync
+          go work use ./core ./runtime ./cli ./testing
 
-      - name: Run Go tests with coverage
+      - name: Run Go tests with coverage (multi-module)
         run: |
-          echo "🧪 Running Go tests with coverage..."
-          go test -race -coverprofile=coverage.out -covermode=atomic ./...
+          echo "🧪 Running Go tests across all modules..."
+          go test -race -coverprofile=coverage.out -covermode=atomic ./core/... ./runtime/... ./cli/... ./testing/...
           go tool cover -html=coverage.out -o coverage.html
 
       - name: Upload coverage reports
@@ -147,7 +148,7 @@ jobs:
 
           go build -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
             -o devcmd-${{ matrix.goos }}-${{ matrix.goarch }} \
-            ./cmd/devcmd
+            ./cli/main.go
 
       - name: Test binary
         run: |
@@ -343,7 +344,7 @@ jobs:
             CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
               -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -o "release/$BINARY_NAME" \
-              ./cmd/devcmd
+              ./cli/main.go
           done
 
 
