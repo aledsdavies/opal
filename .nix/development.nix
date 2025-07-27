@@ -8,26 +8,14 @@ let
     lib = pkgs.lib;
   };
   
-  # Generate the development CLI from our commands.cli file
-  devCLI =
-    if self != null then
-      devcmdLib.mkDevCLI
-        {
-          name = "dev";
-          binaryName = "dev"; # Explicitly set binary name for self-awareness
-          commandsFile = ../commands.cli;
-          version = "latest";
-          meta = {
-            description = "Devcmd development CLI - dogfooding our own tool";
-            longDescription = ''
-              This CLI is generated from commands.cli using devcmd itself.
-              It provides a streamlined development experience with all
-              necessary commands for building, testing, and maintaining devcmd.
-            '';
-          };
-        }
-    else
-      null;
+  # Generate the development CLI from our commands.cli file - fail if can't build
+  devCLI = devcmdLib.mkDevCLI
+    {
+      name = "dev";
+      binaryName = "dev"; # Explicitly set binary name for self-awareness
+      commandsFile = ../commands.cli;
+      version = "latest";
+    };
 in
 pkgs.mkShell {
   name = "devcmd-dev";
@@ -42,7 +30,7 @@ pkgs.mkShell {
     # Code formatting
     nixpkgs-fmt
     gofumpt
-  ] ++ pkgs.lib.optional (devCLI != null) devCLI;
+  ] ++ [ devCLI ];
   shellHook = ''
     echo "🔧 Devcmd Development Environment"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
