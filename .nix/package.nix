@@ -9,29 +9,21 @@ pkgs.stdenv.mkDerivation rec {
 
   nativeBuildInputs = with pkgs; [ go ];
 
-  # Simple build without network requirements for now
   buildPhase = ''
     runHook preBuild
     
     echo "🔨 Building devcmd from multi-module workspace..."
-    echo "⚠️  Note: This build may require network access for Go modules"
     
     # Set up Go build environment
     export GOCACHE=$TMPDIR/go-cache
     export GOPATH=$TMPDIR/go
     export CGO_ENABLED=0
-    export GOPROXY=direct
-    export GOSUMDB=off
     
-    # Try building directly - Go will handle module resolution
+    # Build the CLI module (it will use local modules via replace directives)
     cd cli
     go build -o ../devcmd \
       -ldflags="-s -w -X main.Version=${version} -X main.BuildTime=1970-01-01T00:00:00Z" \
-      ./main.go || {
-        echo "❌ Build failed - likely due to missing dependencies"
-        echo "💡 For local builds, use: nix develop && ./devcmd run build"
-        exit 1
-      }
+      ./main.go
     
     echo "✅ devcmd build completed successfully"
     
