@@ -35,16 +35,7 @@ pkgs.mkShell {
     echo "🔧 Devcmd Development Environment"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo "🔨 Build devcmd first:"
-    echo "  cd cli && go build -o ../devcmd ./main.go"
-    echo ""
-    echo "🚀 Then use the CLI:"
-    echo "  ./devcmd run build    # Build the project"
-    echo "  ./devcmd run test     # Run all tests"
-    echo "  ./devcmd run help     # See all commands"
-    echo ""
-    echo "💡 Or use direct Go commands:"
-    echo "  go test ./core/... ./runtime/... ./cli/... # Test all modules"
+    dev help
     exec ${pkgs.zsh}/bin/zsh
   '';
 }
