@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
+	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
 // TestEngineIntegration tests end-to-end engine functionality
@@ -124,9 +126,10 @@ test: echo "Testing on @var(HOST)"
 	engine := New(program)
 
 	// Test variable processing
-	err = engine.processVariablesIntoContext(program)
+	ctx := execution.NewGeneratorContext(context.Background(), program)
+	err = ctx.InitializeVariables()
 	if err != nil {
-		t.Fatalf("Failed to process variables: %v", err)
+		t.Fatalf("Failed to initialize variables: %v", err)
 	}
 
 	// Check that variables are correctly resolved
@@ -137,7 +140,7 @@ test: echo "Testing on @var(HOST)"
 	}
 
 	for name, expectedValue := range expectedVars {
-		if actualValue, exists := engine.ctx.GetVariable(name); !exists {
+		if actualValue, exists := ctx.GetVariable(name); !exists {
 			t.Errorf("Expected variable %s not found", name)
 		} else if actualValue != expectedValue {
 			t.Errorf("Variable %s: expected %s, got %s", name, expectedValue, actualValue)

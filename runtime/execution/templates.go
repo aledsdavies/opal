@@ -10,11 +10,11 @@ import (
 
 // ShellCodeBuilder provides unified shell code generation for templates
 type ShellCodeBuilder struct {
-	context *ExecutionContext
+	context GeneratorContext
 }
 
 // NewShellCodeBuilder creates a new shell code builder
-func NewShellCodeBuilder(ctx *ExecutionContext) *ShellCodeBuilder {
+func NewShellCodeBuilder(ctx GeneratorContext) *ShellCodeBuilder {
 	return &ShellCodeBuilder{
 		context: ctx,
 	}
@@ -95,7 +95,7 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 		case *ast.ValueDecorator:
 			formatParts = append(formatParts, "%s")
 			// Call the ValueDecorator to get the proper generated code
-			result, err := b.context.processValueDecoratorUnified(p)
+			result, err := b.context.ProcessValueDecoratorUnified(p)
 			if err != nil {
 				return "", fmt.Errorf("failed to process value decorator @%s: %w", p.Name, err)
 			}
@@ -120,7 +120,7 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 		CmdVarName:    fmt.Sprintf("%sCmdStr", baseName),
 		ExecVarName:   fmt.Sprintf("%sExecCmd", baseName),
 		BaseName:      baseName,
-		WorkingDir:    b.context.WorkingDir, // Include working directory from context
+		WorkingDir:    b.context.GetWorkingDir(), // Include working directory from context
 	}
 
 	// Return the shell execution template
@@ -211,7 +211,7 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 	templateData := ActionChainTemplateData{
 		CommandChain:               commandChain,
 		BaseName:                   b.getBaseName(),
-		WorkingDir:                 b.context.WorkingDir,
+		WorkingDir:                 b.context.GetWorkingDir(),
 		NeedsShellCommandWithInput: needsShellCommandWithInput,
 		NeedsShellCommand:          needsShellCommand,
 		NeedsAppendToFile:          needsAppendToFile,
@@ -372,27 +372,26 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 // generateBlockDecoratorTemplate creates template string for executing a block decorator
 func (b *ShellCodeBuilder) generateBlockDecoratorTemplate(blockDecorator *ast.BlockDecorator) (string, error) {
 	// Look up the block decorator using the dependency injection lookup to avoid circular imports
-	if b.context.blockDecoratorLookup == nil {
+	lookupFunc := b.context.GetBlockDecoratorLookup()
+	if lookupFunc == nil {
 		return "", fmt.Errorf("block decorator lookup not available (engine not properly initialized)")
 	}
 	
-	decoratorInterface, exists := b.context.blockDecoratorLookup(blockDecorator.Name)
+	decoratorInterface, exists := lookupFunc(blockDecorator.Name)
 	if !exists {
 		return "", fmt.Errorf("block decorator @%s not found", blockDecorator.Name)
 	}
 
 	// Cast to the expected interface type
 	decorator, ok := decoratorInterface.(interface {
-		Execute(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *ExecutionResult
+		ExecuteGenerator(ctx GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *ExecutionResult
 	})
 	if !ok {
-		return "", fmt.Errorf("block decorator @%s does not implement expected Execute method", blockDecorator.Name)
+		return "", fmt.Errorf("block decorator @%s does not implement expected ExecuteGenerator method", blockDecorator.Name)
 	}
 
 	// Execute the decorator in generator mode to get the generated Go code
-	// Create a child context in generator mode to ensure proper code generation
-	generatorCtx := b.context.WithMode(GeneratorMode)
-	result := decorator.Execute(generatorCtx, blockDecorator.Args, blockDecorator.Content)
+	result := decorator.ExecuteGenerator(b.context, blockDecorator.Args, blockDecorator.Content)
 	
 	if result.Error != nil {
 		return "", fmt.Errorf("failed to generate code for @%s decorator: %w", blockDecorator.Name, result.Error)
@@ -409,27 +408,26 @@ func (b *ShellCodeBuilder) generateBlockDecoratorTemplate(blockDecorator *ast.Bl
 // generatePatternDecoratorTemplate creates template string for executing a pattern decorator
 func (b *ShellCodeBuilder) generatePatternDecoratorTemplate(patternDecorator *ast.PatternDecorator) (string, error) {
 	// Look up the pattern decorator using the dependency injection lookup to avoid circular imports
-	if b.context.patternDecoratorLookup == nil {
+	lookupFunc := b.context.GetPatternDecoratorLookup()
+	if lookupFunc == nil {
 		return "", fmt.Errorf("pattern decorator lookup not available (engine not properly initialized)")
 	}
 	
-	decoratorInterface, exists := b.context.patternDecoratorLookup(patternDecorator.Name)
+	decoratorInterface, exists := lookupFunc(patternDecorator.Name)
 	if !exists {
 		return "", fmt.Errorf("pattern decorator @%s not found", patternDecorator.Name)
 	}
 
 	// Cast to the expected interface type
 	decorator, ok := decoratorInterface.(interface {
-		Execute(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *ExecutionResult
+		ExecuteGenerator(ctx GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *ExecutionResult
 	})
 	if !ok {
-		return "", fmt.Errorf("pattern decorator @%s does not implement expected Execute method", patternDecorator.Name)
+		return "", fmt.Errorf("pattern decorator @%s does not implement expected ExecuteGenerator method", patternDecorator.Name)
 	}
 
 	// Execute the decorator in generator mode to get the generated Go code
-	// Create a child context in generator mode to ensure proper code generation
-	generatorCtx := b.context.WithMode(GeneratorMode)
-	result := decorator.Execute(generatorCtx, patternDecorator.Args, patternDecorator.Patterns)
+	result := decorator.ExecuteGenerator(b.context, patternDecorator.Args, patternDecorator.Patterns)
 	
 	if result.Error != nil {
 		return "", fmt.Errorf("failed to generate code for @%s decorator: %w", patternDecorator.Name, result.Error)
@@ -655,20 +653,20 @@ func (b *ShellCodeBuilder) validateChain(elements []ChainElement) error {
 
 // getBaseName returns the base name for variable generation with descriptive naming
 func (b *ShellCodeBuilder) getBaseName() string {
-	b.context.shellCounter++
+	b.context.IncrementShellCounter()
 	
 	// Create a descriptive base name using camelCase convention
 	baseName := "command"
-	if b.context.currentCommand != "" {
+	if b.context.GetCurrentCommand() != "" {
 		// Convert to proper camelCase handling hyphens, underscores, and spaces
-		baseName = b.toCamelCase(b.context.currentCommand)
+		baseName = b.toCamelCase(b.context.GetCurrentCommand())
 	}
 	
 	// Use descriptive naming instead of just numbers
-	if b.context.shellCounter == 1 {
+	if b.context.GetShellCounter() == 1 {
 		return baseName
 	}
-	return fmt.Sprintf("%sStep%d", baseName, b.context.shellCounter)
+	return fmt.Sprintf("%sStep%d", baseName, b.context.GetShellCounter())
 }
 
 // formatParams formats parameters for Go code generation
@@ -723,4 +721,50 @@ func (b *ShellCodeBuilder) GetTemplateFunctions() template.FuncMap {
 			return "unknownCommand"
 		},
 	}
+}
+
+// EnvironmentCaptureTemplateData holds data for environment variable capture templates
+type EnvironmentCaptureTemplateData struct {
+	TrackedVars map[string]string // envVar -> defaultValue
+}
+
+// GenerateEnvironmentCaptureCode generates global environment variable capture code using templates
+func GenerateEnvironmentCaptureCode(trackedVars map[string]string) (string, error) {
+	// Return empty string if no environment variables were tracked
+	if len(trackedVars) == 0 {
+		return "", nil
+	}
+
+	templateData := EnvironmentCaptureTemplateData{
+		TrackedVars: trackedVars,
+	}
+
+	const envCaptureTemplate = `// Global environment variable capture
+var envContext = map[string]string{
+{{range $envVar, $defaultValue := .TrackedVars -}}
+	{{printf "%q" $envVar}}: func() string {
+		if val := os.Getenv({{printf "%q" $envVar}}); val != "" {
+			return val
+		}
+		{{if $defaultValue -}}
+		return {{printf "%q" $defaultValue}}
+		{{- else -}}
+		return ""
+		{{- end}}
+	}(),
+{{end}}}
+`
+
+	// Execute the template with our data
+	tmpl, err := template.New("envCapture").Parse(envCaptureTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse environment capture template: %w", err)
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute environment capture template: %w", err)
+	}
+
+	return result.String(), nil
 }

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
+	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
 // TestCommandsCLIGeneration tests that the actual commands.cli file from the project root
@@ -536,16 +538,17 @@ func TestCommandsCLIVariableResolution(t *testing.T) {
 
 	engine := New(program)
 
-	// Process variables into context
-	err = engine.processVariablesIntoContext(program)
+	// Create a context and initialize variables
+	ctx := execution.NewGeneratorContext(context.Background(), program)
+	err = ctx.InitializeVariables()
 	if err != nil {
-		t.Fatalf("Failed to process variables: %v", err)
+		t.Fatalf("Failed to initialize variables: %v", err)
 	}
 
 	// Check that key variables are properly resolved
 	keyVars := []string{"PROJECT", "GO_VERSION"}
 	for _, varName := range keyVars {
-		if value, exists := engine.ctx.GetVariable(varName); !exists {
+		if value, exists := ctx.GetVariable(varName); !exists {
 			t.Errorf("Variable '%s' not found in context", varName)
 		} else if value == "" {
 			t.Errorf("Variable '%s' has empty value", varName)

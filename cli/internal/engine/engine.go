@@ -31,38 +31,30 @@ type CommandGroups struct {
 
 // Engine provides a unified AST walker for both interpreter and generator modes
 type Engine struct {
-	ctx       *execution.ExecutionContext
+	program   *ast.Program
 	goVersion string // Go version for generated code (e.g., "1.24")
 }
 
-// New creates a new execution engine with the execution context
+// New creates a new execution engine
 func New(program *ast.Program) *Engine {
-	ctx := execution.NewExecutionContext(context.Background(), program)
-	engine := &Engine{
-		ctx:       ctx,
+	return &Engine{
+		program:   program,
 		goVersion: "1.24", // Default Go version
 	}
-	// Set up dependency injection for decorators
-	engine.setupDependencyInjection()
-	return engine
 }
 
 // NewWithGoVersion creates a new execution engine with specified Go version
 func NewWithGoVersion(program *ast.Program, goVersion string) *Engine {
-	ctx := execution.NewExecutionContext(context.Background(), program)
-	engine := &Engine{
-		ctx:       ctx,
+	return &Engine{
+		program:   program,
 		goVersion: goVersion,
 	}
-	// Set up dependency injection for decorators
-	engine.setupDependencyInjection()
-	return engine
 }
 
 // ExecuteCommand executes a single command in interpreter mode
 func (e *Engine) ExecuteCommand(command *ast.CommandDecl) (*CommandResult, error) {
-	// Set execution mode to interpreter
-	ctx := e.ctx.WithMode(execution.InterpreterMode)
+	// Create interpreter context
+	ctx := execution.NewInterpreterContext(context.Background(), e.program)
 
 	// Initialize variables if not already done
 	if err := ctx.InitializeVariables(); err != nil {
@@ -97,7 +89,7 @@ func (e *Engine) ExecuteCommand(command *ast.CommandDecl) (*CommandResult, error
 				return cmdResult, err
 			}
 
-			result := blockDecorator.Execute(ctx, c.Args, c.Content)
+			result := blockDecorator.ExecuteInterpreter(ctx, c.Args, c.Content)
 			if result.Error != nil {
 				err = fmt.Errorf("@%s decorator execution failed: %w", c.Name, result.Error)
 				cmdResult.Status = "failed"
@@ -117,8 +109,8 @@ func (e *Engine) ExecuteCommand(command *ast.CommandDecl) (*CommandResult, error
 
 // ExecuteCommandPlan generates an execution plan for a command without executing it
 func (e *Engine) ExecuteCommandPlan(command *ast.CommandDecl) (*plan.ExecutionPlan, error) {
-	// Set execution mode to plan mode
-	ctx := e.ctx.WithMode(execution.PlanMode)
+	// Create plan context
+	ctx := execution.NewPlanContext(context.Background(), e.program)
 
 	// Initialize variables if not already done
 	if err := ctx.InitializeVariables(); err != nil {
@@ -133,7 +125,7 @@ func (e *Engine) ExecuteCommandPlan(command *ast.CommandDecl) (*plan.ExecutionPl
 		switch c := content.(type) {
 		case *ast.ShellContent:
 			// Execute shell content in plan mode
-			result := ctx.ExecuteShell(c)
+			result := ctx.GenerateShellPlan(c)
 			if result.Error != nil {
 				return nil, fmt.Errorf("failed to create plan for shell content: %w", result.Error)
 			}
@@ -173,7 +165,7 @@ func (e *Engine) ExecuteCommandPlan(command *ast.CommandDecl) (*plan.ExecutionPl
 }
 
 // executeDecoratorPlan executes a decorator in plan mode
-func (e *Engine) executeDecoratorPlan(ctx *execution.ExecutionContext, decorator *ast.BlockDecorator) (*execution.ExecutionResult, error) {
+func (e *Engine) executeDecoratorPlan(ctx execution.PlanContext, decorator *ast.BlockDecorator) (*execution.ExecutionResult, error) {
 	// Look up the decorator in the registry
 	blockDecorator, err := decorators.GetBlock(decorator.Name)
 	if err != nil {
@@ -181,7 +173,7 @@ func (e *Engine) executeDecoratorPlan(ctx *execution.ExecutionContext, decorator
 	}
 
 	// Execute the decorator in plan mode
-	result := blockDecorator.Execute(ctx, decorator.Args, decorator.Content)
+	result := blockDecorator.ExecutePlan(ctx, decorator.Args, decorator.Content)
 	if result.Error != nil {
 		return nil, fmt.Errorf("@%s decorator plan execution failed: %w", decorator.Name, result.Error)
 	}
@@ -195,116 +187,6 @@ func (e *Engine) GenerateCode(program *ast.Program) (*GenerationResult, error) {
 	return e.generateCodeWithTemplate(program)
 }
 
-// setupDependencyInjection sets up dependency injection for the execution context
-func (e *Engine) setupDependencyInjection() {
-	// Set up value decorator lookup
-	e.ctx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
-		decorator, exists := decorators.GetValueDecorator(name)
-		return decorator, exists
-	})
-
-	// Set up action decorator lookup
-	e.ctx.SetActionDecoratorLookup(func(name string) (interface{}, bool) {
-		decorator, exists := decorators.GetActionDecorator(name)
-		return decorator, exists
-	})
-
-	// Set up block decorator lookup
-	e.ctx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
-		decorator, exists := decorators.GetBlockDecorator(name)
-		return decorator, exists
-	})
-
-	// Set up pattern decorator lookup
-	e.ctx.SetPatternDecoratorLookup(func(name string) (interface{}, bool) {
-		decorator, exists := decorators.GetPatternDecorator(name)
-		return decorator, exists
-	})
-
-	// Set up command content executor - this is used by ExecuteCommandContent
-	// This should only be called during InterpreterMode execution, not GeneratorMode
-	e.ctx.SetContentExecutor(func(content ast.CommandContent) error {
-		switch c := content.(type) {
-		case *ast.ShellContent:
-			// Only execute in InterpreterMode - during GeneratorMode this shouldn't be called
-			result := e.ctx.ExecuteShell(c)
-			return result.Error
-		default:
-			return fmt.Errorf("unsupported command content type: %T", content)
-		}
-	})
-
-	// Set up command executor for @cmd decorator
-	// This should only be called during InterpreterMode execution, not GeneratorMode
-	e.ctx.SetCommandExecutor(func(cmd *ast.CommandDecl) error {
-		// Execute the command content directly using the context
-		for _, content := range cmd.Body.Content {
-			if err := e.ctx.ExecuteCommandContent(content); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	// Set up command plan generator for @cmd decorator
-	e.ctx.SetCommandPlanGenerator(func(cmd *ast.CommandDecl) (*execution.ExecutionResult, error) {
-		// Create isolated plan-only context to prevent execution during plan generation
-		// Use Child() to inherit parent state but switch to PlanMode
-		// Child() already copies variables and function references
-		isolatedCtx := e.ctx.Child().WithMode(execution.PlanMode)
-
-		// Create plan elements by safely processing command content
-		var planElements []interface{}
-		for _, content := range cmd.Body.Content {
-			switch c := content.(type) {
-			case *ast.ShellContent:
-				// Process shell content in plan mode only (no execution)
-				planResult := isolatedCtx.ExecuteShell(c)
-				if planResult.Error != nil {
-					return &execution.ExecutionResult{
-						Mode:  execution.PlanMode,
-						Data:  nil,
-						Error: fmt.Errorf("failed to create plan for shell content: %w", planResult.Error),
-					}, nil
-				}
-				planElements = append(planElements, planResult.Data)
-			case *ast.ActionDecorator:
-				// CRITICAL: Create plan for action decorators without executing
-				planData := map[string]interface{}{
-					"type":        "action",
-					"command":     fmt.Sprintf("@%s(...)", c.Name),
-					"description": fmt.Sprintf("Execute @%s action decorator", c.Name),
-				}
-				planElements = append(planElements, planData)
-			case *ast.BlockDecorator:
-				// For block decorators, create plan element
-				planData := map[string]interface{}{
-					"type":        "block",
-					"command":     fmt.Sprintf("@%s{...}", c.Name),
-					"description": fmt.Sprintf("Execute @%s block decorator", c.Name),
-				}
-				planElements = append(planElements, planData)
-			default:
-				// Handle any other content types safely
-				planData := map[string]interface{}{
-					"type":        "unknown",
-					"command":     fmt.Sprintf("content: %T", c),
-					"description": fmt.Sprintf("Process content of type %T", c),
-				}
-				planElements = append(planElements, planData)
-			}
-		}
-
-		return &execution.ExecutionResult{
-			Mode:  execution.PlanMode,
-			Data:  planElements,
-			Error: nil,
-		}, nil
-	})
-
-	// Set up template functions for code generation
-	e.setupTemplateFunctions()
-}
 
 // WriteFiles writes the generated Go code and go.mod to the specified directory
 func (e *Engine) WriteFiles(result *GenerationResult, targetDir string, moduleName string) error {
@@ -328,50 +210,6 @@ func (e *Engine) WriteFiles(result *GenerationResult, targetDir string, moduleNa
 	return nil
 }
 
-// processVariablesIntoContext processes variables and variable groups into the execution context
-func (e *Engine) processVariablesIntoContext(program *ast.Program) error {
-	// Process individual variables
-	for _, variable := range program.Variables {
-		value, err := e.resolveVariableValue(variable.Value)
-		if err != nil {
-			return fmt.Errorf("failed to resolve variable %s: %w", variable.Name, err)
-		}
-		e.ctx.SetVariable(variable.Name, value)
-	}
-
-	// Process variable groups
-	for _, group := range program.VarGroups {
-		for _, variable := range group.Variables {
-			value, err := e.resolveVariableValue(variable.Value)
-			if err != nil {
-				return fmt.Errorf("failed to resolve variable %s in group: %w", variable.Name, err)
-			}
-			e.ctx.SetVariable(variable.Name, value)
-		}
-	}
-
-	return nil
-}
-
-// resolveVariableValue resolves a variable value from an expression
-func (e *Engine) resolveVariableValue(expr ast.Expression) (string, error) {
-	switch v := expr.(type) {
-	case *ast.StringLiteral:
-		return v.Value, nil
-	case *ast.NumberLiteral:
-		return v.Value, nil
-	case *ast.BooleanLiteral:
-		return fmt.Sprintf("%t", v.Value), nil
-	case *ast.Identifier:
-		// Handle variable references
-		if value, exists := e.ctx.GetVariable(v.Name); exists {
-			return value, nil
-		}
-		return "", fmt.Errorf("undefined variable: %s", v.Name)
-	default:
-		return "", fmt.Errorf("unsupported expression type: %T", expr)
-	}
-}
 
 // collectDecoratorImports collects import requirements from all decorators used in the program
 func (e *Engine) collectDecoratorImports(program *ast.Program, result *GenerationResult) error {
@@ -667,9 +505,9 @@ func (e *Engine) trackVariableUsageInBody(body *ast.CommandBody, usedVars map[st
 
 // generateShellCommandExpression generates a Go string expression for a shell command with variable expansion
 func (e *Engine) generateShellCommandExpression(content *ast.ShellContent) (string, error) {
-	// Use the unified shell processing approach
-	generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
-	result := generatorCtx.ExecuteShell(content)
+	// Create generator context for shell processing
+	generatorCtx := execution.NewGeneratorContext(context.Background(), e.program)
+	result := generatorCtx.GenerateShellCode(content)
 	if result.Error != nil {
 		return "", result.Error
 	}
@@ -698,7 +536,8 @@ func (e *Engine) extractShellCommand(shellContent *ast.ShellContent) string {
 			}
 
 			// Expand the decorator in interpreter mode to get actual value
-			result := decorator.Expand(e.ctx, p.Args)
+			interpreterCtx := execution.NewInterpreterContext(context.Background(), e.program)
+			result := decorator.ExpandInterpreter(interpreterCtx, p.Args)
 			if result.Error != nil {
 				// For now, show the error instead of silently skipping
 				command.WriteString(fmt.Sprintf("[ERROR: %v]", result.Error))
@@ -754,88 +593,6 @@ func (e *Engine) analyzeCommands(commands []ast.CommandDecl) CommandGroups {
 	return groups
 }
 
-// setupTemplateFunctions sets up template functions for the execution context
-func (e *Engine) setupTemplateFunctions() {
-	templateFuncs := map[string]interface{}{
-		"generateShellCode": func(content ast.CommandContent) string {
-			// Handle different types of command content
-			switch c := content.(type) {
-			case *ast.ShellContent:
-				code, err := e.ctx.GenerateShellCodeForTemplate(c)
-				if err != nil {
-					return fmt.Sprintf("return fmt.Errorf(\"shell generation error: %v\")", err)
-				}
-				return code
-			case *ast.BlockDecorator:
-				// Handle nested decorators by executing them in generator mode
-				decorator, err := decorators.GetBlock(c.Name)
-				if err != nil {
-					return fmt.Sprintf("return fmt.Errorf(\"block decorator @%s not found: %v\")", c.Name, err)
-				}
-
-				// Execute the decorator in generator mode to get the generated code
-				result := decorator.Execute(e.ctx, c.Args, c.Content)
-				if result.Error != nil {
-					return fmt.Sprintf("return fmt.Errorf(\"@%s decorator execution failed: %v\")", c.Name, result.Error)
-				}
-
-				// Return the generated code from the decorator
-				if code, ok := result.Data.(string); ok {
-					return code
-				}
-				return fmt.Sprintf("return fmt.Errorf(\"@%s decorator did not return code string\")", c.Name)
-			case *ast.ActionDecorator:
-				// Handle action decorators - these generate execution code
-				decorator, err := decorators.GetAction(c.Name)
-				if err != nil {
-					return fmt.Sprintf("return fmt.Errorf(\"action decorator @%s not found: %v\")", c.Name, err)
-				}
-
-				// Action decorators generate execution code
-				generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
-				result := decorator.Expand(generatorCtx, c.Args)
-				if result.Error != nil {
-					return fmt.Sprintf("return fmt.Errorf(\"@%s decorator execution failed: %v\")", c.Name, result.Error)
-				}
-
-				// Return the generated code from the decorator
-				if code, ok := result.Data.(string); ok {
-					return code
-				}
-				return fmt.Sprintf("return fmt.Errorf(\"@%s decorator did not return code string\")", c.Name)
-			default:
-				return fmt.Sprintf("return fmt.Errorf(\"unsupported command content type: %T\")", content)
-			}
-		},
-		"add": func(a, b int) int {
-			return a + b
-		},
-		"title": func(s string) string {
-			return strings.Title(s)
-		},
-		"hasSuffix": func(s, suffix string) bool {
-			return strings.HasSuffix(strings.TrimSpace(s), suffix)
-		},
-		"contains": func(s, substr string) bool {
-			return strings.Contains(s, substr)
-		},
-		"generateShellExpression": func(content *ast.ShellContent) string {
-			// Use unified shell processing in generator mode
-			generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
-			result := generatorCtx.ExecuteShell(content)
-			if result.Error != nil {
-				return fmt.Sprintf(`"error: %s"`, result.Error.Error())
-			}
-
-			if cmdExpr, ok := result.Data.(string); ok {
-				return cmdExpr
-			}
-
-			return fmt.Sprintf(`"invalid result type: %T"`, result.Data)
-		},
-	}
-	e.ctx.SetTemplateFunctions(templateFuncs)
-}
 
 // getDevcmdVersion attempts to determine the current devcmd version for go.mod generation
 func (e *Engine) getDevcmdVersion() string {
@@ -1292,8 +1049,8 @@ type ProcessGroupData struct {
 // generateCodeWithTemplate uses a template-based approach instead of fragile WriteString calls
 func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResult, error) {
 
-	// Set execution mode to generator
-	ctx := e.ctx.WithMode(execution.GeneratorMode)
+	// Create generator context
+	ctx := execution.NewGeneratorContext(context.Background(), program)
 
 	// Initialize variables in the context first (critical for @var decorator)
 	if err := ctx.InitializeVariables(); err != nil {
@@ -1369,7 +1126,8 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 
 	// Add variables to template data, only including used ones
 	for _, variable := range program.Variables {
-		value, err := e.resolveVariableValue(variable.Value)
+		// Resolve variable value (reimplemented from removed engine method)
+		value, err := e.resolveVariableValueSimple(variable.Value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve variable %s: %w", variable.Name, err)
 		}
@@ -1398,7 +1156,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 					commandSuffix = fmt.Sprintf("%s%d", cmd.Name, shellCommandIndex)
 				}
 				cmdCtx := ctx.WithCurrentCommand(commandSuffix)
-				execResult := cmdCtx.ExecuteShell(c)
+				execResult := cmdCtx.GenerateShellCode(c)
 				if execResult.Error != nil {
 					return nil, fmt.Errorf("failed to generate shell code for command %s: %w", cmd.Name, execResult.Error)
 				}
@@ -1422,7 +1180,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 				if err != nil {
 					return nil, fmt.Errorf("block decorator @%s not found for command %s: %w", c.Name, cmd.Name, err)
 				}
-				decoratorResult := blockDecorator.Execute(ctx, c.Args, c.Content)
+				decoratorResult := blockDecorator.ExecuteGenerator(ctx, c.Args, c.Content)
 				if decoratorResult.Error != nil {
 					return nil, fmt.Errorf("@%s decorator execution failed in command %s: %w", c.Name, cmd.Name, decoratorResult.Error)
 				}
@@ -1452,7 +1210,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 				if err != nil {
 					return nil, fmt.Errorf("pattern decorator @%s not found for command %s: %w", c.Name, cmd.Name, err)
 				}
-				decoratorResult := patternDecorator.Execute(ctx, c.Args, c.Patterns)
+				decoratorResult := patternDecorator.ExecuteGenerator(ctx, c.Args, c.Patterns)
 				if decoratorResult.Error != nil {
 					return nil, fmt.Errorf("@%s decorator execution failed in command %s: %w", c.Name, cmd.Name, decoratorResult.Error)
 				}
@@ -1475,10 +1233,9 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 				if err != nil {
 					return nil, fmt.Errorf("action decorator @%s not found for command %s: %w", c.Name, cmd.Name, err)
 				}
-				// CRITICAL FIX: Use GeneratorMode context for action decorators
-				// Use Child() to create a proper independent context, then set the mode
-				actionCtx := ctx.Child().WithMode(execution.GeneratorMode)
-				decoratorResult := actionDecorator.Expand(actionCtx, c.Args)
+				// Use Child() to create a proper independent context for action decorators
+				actionCtx := ctx.Child()
+				decoratorResult := actionDecorator.ExpandGenerator(actionCtx, c.Args)
 				if decoratorResult.Error != nil {
 					return nil, fmt.Errorf("@%s decorator execution failed in command %s: %w", c.Name, cmd.Name, decoratorResult.Error)
 				}
@@ -1533,7 +1290,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 						watchCommandString = e.extractShellCommand(c)
 					}
 
-					execResult := ctx.ExecuteShell(c)
+					execResult := ctx.GenerateShellCode(c)
 					if execResult.Error != nil {
 						return nil, fmt.Errorf("failed to generate shell code for watch command %s: %w", identifier, execResult.Error)
 					}
@@ -1548,7 +1305,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 					if err != nil {
 						return nil, fmt.Errorf("block decorator @%s not found for watch command %s: %w", c.Name, identifier, err)
 					}
-					decoratorResult := blockDecorator.Execute(ctx, c.Args, c.Content)
+					decoratorResult := blockDecorator.ExecuteGenerator(ctx, c.Args, c.Content)
 					if decoratorResult.Error != nil {
 						return nil, fmt.Errorf("@%s decorator execution failed in watch command %s: %w", c.Name, identifier, decoratorResult.Error)
 					}
@@ -1578,7 +1335,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 						}
 					}
 
-					execResult := ctx.ExecuteShell(c)
+					execResult := ctx.GenerateShellCode(c)
 					if execResult.Error != nil {
 						return nil, fmt.Errorf("failed to generate shell code for stop command %s: %w", identifier, execResult.Error)
 					}
@@ -1593,7 +1350,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 					if err != nil {
 						return nil, fmt.Errorf("block decorator @%s not found for stop command %s: %w", c.Name, identifier, err)
 					}
-					decoratorResult := blockDecorator.Execute(ctx, c.Args, c.Content)
+					decoratorResult := blockDecorator.ExecuteGenerator(ctx, c.Args, c.Content)
 					if decoratorResult.Error != nil {
 						return nil, fmt.Errorf("@%s decorator execution failed in stop command %s: %w", c.Name, identifier, decoratorResult.Error)
 					}
@@ -1653,8 +1410,13 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 	templateData.StandardImports = standardImports
 	templateData.ThirdPartyImports = thirdPartyImports
 
-	// Execute the template using context template functions
-	tmpl, err := template.New("mainCLI").Funcs(e.ctx.GetTemplateFunctions()).Parse(mainCLITemplate)
+	// Execute the template with basic functions
+	tmpl, err := template.New("mainCLI").Funcs(template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"title": func(s string) string { return strings.Title(s) },
+		"hasSuffix": func(s, suffix string) bool { return strings.HasSuffix(strings.TrimSpace(s), suffix) },
+		"contains": func(s, substr string) bool { return strings.Contains(s, substr) },
+	}).Parse(mainCLITemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse main CLI template: %w", err)
 	}
@@ -1664,8 +1426,22 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 		return nil, fmt.Errorf("failed to execute main CLI template: %w", err)
 	}
 
+	// Generate global environment capture code if any env vars were tracked
+	envVarCode, err := e.generateEnvironmentCaptureCode(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate environment capture code: %w", err)
+	}
+	
+	// Combine environment capture code with the main code
+	finalCode := strings.Builder{}
+	if envVarCode != "" {
+		finalCode.WriteString(envVarCode)
+		finalCode.WriteString("\n")
+	}
+	finalCode.WriteString(codeBuilder.String())
+
 	// Set the generated code
-	result.Code.WriteString(codeBuilder.String())
+	result.Code.WriteString(finalCode.String())
 
 	// Generate go.mod
 	if err := e.generateGoMod(result); err != nil {
@@ -1675,6 +1451,11 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 	return result, nil
 }
 
+// generateEnvironmentCaptureCode generates global environment variable capture code
+func (e *Engine) generateEnvironmentCaptureCode(ctx execution.GeneratorContext) (string, error) {
+	trackedVars := ctx.GetTrackedEnvironmentVariables()
+	return execution.GenerateEnvironmentCaptureCode(trackedVars)
+}
 
 // programUsesActionDecorators checks if the program uses ActionDecorator templates
 func (e *Engine) programUsesActionDecorators(program *ast.Program) bool {
@@ -1781,4 +1562,23 @@ func (e *Engine) commandUsesStringsInActionDecorators(content ast.CommandContent
 		}
 	}
 	return false
+}
+
+// resolveVariableValueSimple converts an AST expression to its string value (reimplemented from removed context method)
+func (e *Engine) resolveVariableValueSimple(expr ast.Expression) (string, error) {
+	switch v := expr.(type) {
+	case *ast.StringLiteral:
+		return v.Value, nil
+	case *ast.NumberLiteral:
+		return v.Value, nil
+	case *ast.BooleanLiteral:
+		if v.Value {
+			return "true", nil
+		}
+		return "false", nil
+	case *ast.DurationLiteral:
+		return v.Value, nil
+	default:
+		return "", fmt.Errorf("unsupported expression type: %T", expr)
+	}
 }

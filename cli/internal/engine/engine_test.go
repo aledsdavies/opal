@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
 	"github.com/aledsdavies/devcmd/core/ast"
+	"github.com/aledsdavies/devcmd/runtime/execution"
 
 	// Import builtins to register decorators
 	_ "github.com/aledsdavies/devcmd/cli/internal/builtins"
@@ -409,9 +411,7 @@ build: echo "Building"`
 		t.Fatal("Engine should not be nil")
 	}
 
-	if engine.ctx == nil {
-		t.Fatal("Engine context should not be nil")
-	}
+	// Context is now created as needed, not stored in engine
 
 	if engine.goVersion != "1.24" {
 		t.Errorf("Expected default Go version 1.24, got %s", engine.goVersion)
@@ -446,11 +446,13 @@ var DEBUG = true`
 		t.Fatalf("Failed to parse program: %v", err)
 	}
 
-	engine := New(program)
+	_ = New(program) // Create engine but test variable processing via context
 
-	err = engine.processVariablesIntoContext(program)
+	// Test variable processing
+	ctx := execution.NewGeneratorContext(context.Background(), program)
+	err = ctx.InitializeVariables()
 	if err != nil {
-		t.Fatalf("Failed to process variables: %v", err)
+		t.Fatalf("Failed to initialize variables: %v", err)
 	}
 
 	// Check variables were processed correctly
@@ -461,7 +463,7 @@ var DEBUG = true`
 	}
 
 	for name, expectedValue := range expectedVars {
-		if actualValue, exists := engine.ctx.GetVariable(name); !exists {
+		if actualValue, exists := ctx.GetVariable(name); !exists {
 			t.Errorf("Variable %s not found", name)
 		} else if actualValue != expectedValue {
 			t.Errorf("Variable %s: expected %s, got %s", name, expectedValue, actualValue)

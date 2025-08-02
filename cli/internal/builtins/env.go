@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/aledsdavies/devcmd/core/ast"
-	"github.com/aledsdavies/devcmd/core/plan"
 	"github.com/aledsdavies/devcmd/runtime/decorators"
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
@@ -40,19 +39,91 @@ func (e *EnvDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-// DecoratorType returns that this is a substitution decorator
-func (e *EnvDecorator) DecoratorType() execution.FunctionDecoratorType {
-	return execution.SubstitutionDecorator
+// ExpandInterpreter returns the captured environment variable value for interpreter mode
+func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	key, defaultValue := e.extractParameters(params)
+	if key == "" {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: fmt.Errorf("@env decorator requires an environment variable name"),
+		}
+	}
+
+	// Get the environment variable value from captured environment (deterministic)
+	value, exists := ctx.GetEnv(key)
+	
+	// Use captured value or default
+	if !exists || value == "" {
+		value = defaultValue
+	}
+
+	return &execution.ExecutionResult{
+		Data:  value, // Return the captured/default value
+		Error: nil,
+	}
 }
 
-// Validate checks if the decorator usage is correct during parsing
+// ExpandGenerator returns Go code that references captured environment for generator mode  
+func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	key, defaultValue := e.extractParameters(params)
+	if key == "" {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: fmt.Errorf("@env decorator requires an environment variable name"),
+		}
+	}
 
-// Expand provides unified expansion for all modes using the execution package
-func (e *EnvDecorator) Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	// Validate parameters first
+	// Track this environment variable for global capture generation
+	ctx.TrackEnvironmentVariable(key, defaultValue)
+	
+	// Generate Go code that references the captured environment
+	var goCode string
+	if defaultValue != "" {
+		// If default provided, use it as fallback: envContext["KEY"] or "default"
+		goCode = fmt.Sprintf(`func() string { if val, exists := envContext[%q]; exists && val != "" { return val }; return %q }()`, key, defaultValue)
+	} else {
+		// No default, just use captured value: envContext["KEY"]
+		goCode = fmt.Sprintf(`envContext[%q]`, key)
+	}
 
+	return &execution.ExecutionResult{
+		Data:  goCode, // Returns code that references the global captured environment
+		Error: nil,
+	}
+}
+
+// ExpandPlan returns description showing the captured environment value for plan mode
+func (e *EnvDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	key, defaultValue := e.extractParameters(params)
+	if key == "" {
+		return &execution.ExecutionResult{
+			Data:  "@env(<missing>)",
+			Error: nil,
+		}
+	}
+
+	// Get the environment variable value from captured environment (deterministic)
+	value, exists := ctx.GetEnv(key)
+	
+	var displayValue string
+	if exists && value != "" {
+		displayValue = fmt.Sprintf("@env(%s) → %q (captured)", key, value)
+	} else if defaultValue != "" {
+		displayValue = fmt.Sprintf("@env(%s) → %q (default)", key, defaultValue)
+	} else {
+		displayValue = fmt.Sprintf("@env(%s) → <unset>", key)
+	}
+
+	return &execution.ExecutionResult{
+		Data:  displayValue,
+		Error: nil,
+	}
+}
+
+// extractParameters extracts the environment variable key and default value from decorator parameters
+func (e *EnvDecorator) extractParameters(params []ast.NamedParameter) (key string, defaultValue string) {
 	// Get the environment variable key using helper
-	key := ast.GetStringParam(params, "key", "")
+	key = ast.GetStringParam(params, "key", "")
 	if key == "" && len(params) > 0 {
 		// Fallback to positional if no named parameter
 		switch v := params[0].Value.(type) {
@@ -63,96 +134,11 @@ func (e *EnvDecorator) Expand(ctx *execution.ExecutionContext, params []ast.Name
 			key = v.Name
 		}
 	}
-
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return e.executeInterpreter(ctx, key, params)
-	case execution.GeneratorMode:
-		return e.executeGenerator(ctx, key, params)
-	case execution.PlanMode:
-		return e.executePlan(ctx, key, params)
-	default:
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
-		}
-	}
-}
-
-// executeInterpreter gets environment variable value in interpreter mode
-func (e *EnvDecorator) executeInterpreter(ctx *execution.ExecutionContext, key string, params []ast.NamedParameter) *execution.ExecutionResult {
-	// Get the environment variable value from captured environment
-	value, exists := ctx.GetEnv(key)
-
-	// If not found and default provided, use default
-	if !exists || value == "" {
-		value = ast.GetStringParam(params, "default", "")
-	}
-
-	return &execution.ExecutionResult{
-		Mode:  execution.InterpreterMode,
-		Data:  value,
-		Error: nil,
-	}
-}
-
-// executeGenerator generates Go code for environment variable access
-func (e *EnvDecorator) executeGenerator(ctx *execution.ExecutionContext, key string, params []ast.NamedParameter) *execution.ExecutionResult {
-	// Get the environment variable value from captured environment at generation time
-	value, exists := ctx.GetEnv(key)
 	
 	// Get default value if provided
-	defaultValue := ast.GetStringParam(params, "default", "")
-
-	// Use captured value or default - generate literal string instead of runtime os.Getenv()
-	var finalValue string
-	if exists && value != "" {
-		finalValue = value
-	} else {
-		finalValue = defaultValue
-	}
-
-	// Generate quoted string literal of the captured/default value
-	code := fmt.Sprintf("%q", finalValue)
-
-	return &execution.ExecutionResult{
-		Mode:  execution.GeneratorMode,
-		Data:  code,
-		Error: nil,
-	}
-}
-
-// executePlan creates a plan element for dry-run mode
-func (e *EnvDecorator) executePlan(ctx *execution.ExecutionContext, key string, params []ast.NamedParameter) *execution.ExecutionResult {
-	// Get default value if provided
-	defaultValue := ast.GetStringParam(params, "default", "")
-
-	// Get the actual environment value from captured environment
-	var description string
-	actualValue, exists := ctx.GetEnv(key)
-	if exists && actualValue != "" {
-		description = fmt.Sprintf("Environment variable: $%s → %q", key, actualValue)
-	} else if defaultValue != "" {
-		description = fmt.Sprintf("Environment variable: $%s → %q (default)", key, defaultValue)
-	} else {
-		description = fmt.Sprintf("Environment variable: $%s → <unset>", key)
-	}
-
-	element := plan.Decorator("env").
-		WithType("function").
-		WithParameter("key", key).
-		WithDescription(description)
-
-	if defaultValue != "" {
-		element = element.WithParameter("default", defaultValue)
-	}
-
-	return &execution.ExecutionResult{
-		Mode:  execution.PlanMode,
-		Data:  element,
-		Error: nil,
-	}
+	defaultValue = ast.GetStringParam(params, "default", "")
+	
+	return key, defaultValue
 }
 
 // ImportRequirements returns the dependencies needed for code generation

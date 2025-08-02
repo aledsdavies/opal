@@ -1,8 +1,8 @@
 package decorators
 
 import (
+	"bytes"
 	"fmt"
-	"strings"
 	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
@@ -16,8 +16,15 @@ type WhenDecorator struct{}
 
 // Template for when execution code generation (unified contract: statement blocks)
 const whenExecutionTemplate = `// Pattern matching for variable: {{.VariableName}}
-// Use captured environment value resolved at generation time
-switch {{printf "%q" .ResolvedValue}} {
+// Get variable value from context or captured environment at runtime
+var {{.VariableName}}Value string
+if ctxValue, exists := variableContext[{{printf "%q" .VariableName}}]; exists {
+	{{.VariableName}}Value = ctxValue
+} else if envValue, exists := envContext[{{printf "%q" .VariableName}}]; exists {
+	{{.VariableName}}Value = envValue
+}
+
+switch {{.VariableName}}Value {
 {{range $pattern := .Patterns}}
 {{if $pattern.IsDefault}}
 default:
@@ -26,7 +33,7 @@ case {{printf "%q" $pattern.Name}}:
 {{end}}
 	// Execute commands for pattern: {{$pattern.Name}}
 	{{range $i, $cmd := $pattern.Commands}}
-	{{generateShellCode $cmd}}
+	{{$cmd}}
 	{{end}}
 {{end}}
 }`
@@ -35,14 +42,13 @@ case {{printf "%q" $pattern.Name}}:
 type WhenPatternData struct {
 	Name      string
 	IsDefault bool
-	Commands  []ast.CommandContent
+	Commands  []string // Generated shell code strings
 }
 
 // WhenTemplateData holds data for template execution
 type WhenTemplateData struct {
-	VariableName  string
-	ResolvedValue string // The actual resolved value from captured environment
-	Patterns      []WhenPatternData
+	VariableName string
+	Patterns     []WhenPatternData
 }
 
 // Name returns the decorator name
@@ -80,22 +86,53 @@ func (w *WhenDecorator) PatternSchema() decorators.PatternSchema {
 
 // Validate checks if the decorator usage is correct during parsing
 
-// Execute provides unified execution for all modes using the execution package
-func (w *WhenDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult {
-	// Validate parameters first
-	if len(params) == 0 {
+// ExecuteInterpreter executes pattern matching in interpreter mode
+func (w *WhenDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	varName, err := w.extractVariableName(params)
+	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
 			Data:  nil,
-			Error: fmt.Errorf("when decorator requires a 'variable' parameter"),
+			Error: err,
 		}
 	}
-	if len(params) > 1 {
+
+	return w.executeInterpreterImpl(ctx, varName, patterns)
+}
+
+// ExecuteGenerator generates Go code for pattern matching with runtime variable resolution
+func (w *WhenDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	varName, err := w.extractVariableName(params)
+	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("when decorator accepts exactly 1 parameter (variable), got %d", len(params)),
+			Data:  "",
+			Error: err,
 		}
+	}
+
+	return w.executeGeneratorImpl(ctx, varName, patterns)
+}
+
+// ExecutePlan creates a plan element for dry-run mode showing the path taken for current environment
+func (w *WhenDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	varName, err := w.extractVariableName(params)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: err,
+		}
+	}
+
+	return w.executePlanImpl(ctx, varName, patterns)
+}
+
+// extractVariableName extracts and validates the variable name parameter
+func (w *WhenDecorator) extractVariableName(params []ast.NamedParameter) (string, error) {
+	// Validate parameters first
+	if len(params) == 0 {
+		return "", fmt.Errorf("when decorator requires a 'variable' parameter")
+	}
+	if len(params) > 1 {
+		return "", fmt.Errorf("when decorator accepts exactly 1 parameter (variable), got %d", len(params))
 	}
 
 	// Get the variable name to match against
@@ -109,31 +146,14 @@ func (w *WhenDecorator) Execute(ctx *execution.ExecutionContext, params []ast.Na
 
 	// Check that we got a valid variable name
 	if varName == "" {
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("when decorator requires a valid 'variable' parameter"),
-		}
+		return "", fmt.Errorf("when decorator requires a valid 'variable' parameter")
 	}
 
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return w.executeInterpreter(ctx, varName, patterns)
-	case execution.GeneratorMode:
-		return w.executeGenerator(ctx, varName, patterns)
-	case execution.PlanMode:
-		return w.executePlan(ctx, varName, patterns)
-	default:
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
-		}
-	}
+	return varName, nil
 }
 
-// executeInterpreter executes pattern matching in interpreter mode
-func (w *WhenDecorator) executeInterpreter(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
+// executeInterpreterImpl executes pattern matching in interpreter mode
+func (w *WhenDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
 	// Get the variable value (check context first, then captured environment)
 	value := ""
 	if ctxValue, exists := ctx.GetVariable(varName); exists {
@@ -148,7 +168,6 @@ func (w *WhenDecorator) executeInterpreter(ctx *execution.ExecutionContext, varN
 			// Execute the commands in the matching pattern
 			if err := w.executeCommands(ctx, pattern.Commands); err != nil {
 				return &execution.ExecutionResult{
-					Mode:  execution.InterpreterMode,
 					Data:  nil,
 					Error: err,
 				}
@@ -159,23 +178,18 @@ func (w *WhenDecorator) executeInterpreter(ctx *execution.ExecutionContext, varN
 
 	// No pattern matched or execution succeeded
 	return &execution.ExecutionResult{
-		Mode:  execution.InterpreterMode,
 		Data:  nil,
 		Error: nil,
 	}
 }
 
-// executeGenerator generates Go code for pattern matching
-func (w *WhenDecorator) executeGenerator(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
-	// Resolve the variable value at generation time from captured environment
-	resolvedValue := ""
-	if ctxValue, exists := ctx.GetVariable(varName); exists {
-		resolvedValue = ctxValue
-	} else if envValue, exists := ctx.GetEnv(varName); exists {
-		resolvedValue = envValue
-	}
+// executeGeneratorImpl generates Go code for pattern matching with runtime variable resolution
+func (w *WhenDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	// Track the variable for global environment capture in generated code
+	// This ensures the variable is available in the generated binary's envContext
+	ctx.TrackEnvironmentVariable(varName, "")
 
-	// Convert patterns to template data
+	// Convert patterns to template data with generated shell code
 	var patternData []WhenPatternData
 	for _, pattern := range patterns {
 		patternStr := w.patternToString(pattern.Pattern)
@@ -184,49 +198,64 @@ func (w *WhenDecorator) executeGenerator(ctx *execution.ExecutionContext, varNam
 			isDefault = true
 		}
 
+		// Generate shell code for each command in the pattern
+		commandCodes := make([]string, len(pattern.Commands))
+		for j, cmd := range pattern.Commands {
+			switch c := cmd.(type) {
+			case *ast.ShellContent:
+				// Generate shell code using the execution context
+				result := ctx.GenerateShellCode(c)
+				if result.Error != nil {
+					return &execution.ExecutionResult{
+						Data:  "",
+						Error: fmt.Errorf("failed to generate shell code for pattern %s: %w", patternStr, result.Error),
+					}
+				}
+				commandCodes[j] = result.Data.(string)
+			default:
+				commandCodes[j] = fmt.Sprintf("// Unsupported command type: %T", cmd)
+			}
+		}
+
 		patternData = append(patternData, WhenPatternData{
 			Name:      patternStr,
 			IsDefault: isDefault,
-			Commands:  pattern.Commands,
+			Commands:  commandCodes,
 		})
 	}
 
-	// Prepare template data with resolved value
+	// Prepare template data for runtime variable resolution
 	templateData := WhenTemplateData{
-		VariableName:  varName,
-		ResolvedValue: resolvedValue,
-		Patterns:      patternData,
+		VariableName: varName,
+		Patterns:     patternData,
 	}
 
-	// Parse and execute template with context functions
-	tmpl, err := template.New("when").Funcs(ctx.GetTemplateFunctions()).Parse(whenExecutionTemplate)
+	// Parse and execute template
+	tmpl, err := template.New("when").Parse(whenExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
 			Data:  "",
 			Error: fmt.Errorf("failed to parse when template: %w", err),
 		}
 	}
 
-	var result strings.Builder
+	var result bytes.Buffer
 	if err := tmpl.Execute(&result, templateData); err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
 			Data:  "",
 			Error: fmt.Errorf("failed to execute when template: %w", err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.GeneratorMode,
 		Data:  result.String(),
 		Error: nil,
 	}
 }
 
-// executePlan creates a plan element for dry-run mode
-func (w *WhenDecorator) executePlan(ctx *execution.ExecutionContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
-	// Get current value from context or captured environment
+// executePlanImpl creates a plan element for dry-run mode showing the path taken for current environment
+func (w *WhenDecorator) executePlanImpl(ctx execution.PlanContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
+	// Get current value from context or captured environment to show which path would be taken
 	currentValue := ""
 	if value, exists := ctx.GetVariable(varName); exists {
 		currentValue = value
@@ -240,13 +269,10 @@ func (w *WhenDecorator) executePlan(ctx *execution.ExecutionContext, varName str
 
 	for _, pattern := range patterns {
 		patternStr := w.patternToString(pattern.Pattern)
-		if patternStr == currentValue {
+		if w.matchesPattern(currentValue, pattern.Pattern) {
 			selectedPattern = patternStr
 			selectedCommands = pattern.Commands
 			break
-		}
-		if patternStr == "default" {
-			selectedCommands = pattern.Commands
 		}
 	}
 
@@ -266,45 +292,48 @@ func (w *WhenDecorator) executePlan(ctx *execution.ExecutionContext, varName str
 		switch c := cmd.(type) {
 		case *ast.ShellContent:
 			// Create plan element for shell command
-			result := ctx.ExecuteShell(c)
+			result := ctx.GenerateShellPlan(c)
 			if result.Error != nil {
 				return &execution.ExecutionResult{
-					Mode:  execution.PlanMode,
 					Data:  nil,
 					Error: fmt.Errorf("failed to create plan for shell content: %w", result.Error),
 				}
 			}
 
-			// Extract command string from result
-			if planData, ok := result.Data.(map[string]interface{}); ok {
-				if cmdStr, ok := planData["command"].(string); ok {
-					childDesc := "Execute shell command"
-					if desc, ok := planData["description"].(string); ok {
-						childDesc = desc
-					}
-					childElement := plan.Command(cmdStr).WithDescription(childDesc)
-					element = element.WithChildren(childElement)
-				}
+			// Add child plan element
+			if childPlan, ok := result.Data.(*plan.ExecutionStep); ok {
+				// Convert ExecutionStep to a Command element for the plan
+				cmdElement := plan.Command(childPlan.Command).WithDescription(childPlan.Description)
+				element = element.WithChildren(cmdElement)
 			}
 		case *ast.BlockDecorator:
-			// For nested decorators, just add a placeholder - they will be handled by the engine
+			// For nested decorators, create a plan element
 			childElement := plan.Command(fmt.Sprintf("@%s{...}", c.Name)).WithDescription("Nested decorator")
+			element = element.WithChildren(childElement)
+		default:
+			// Unknown command type
+			childElement := plan.Command(fmt.Sprintf("Unknown command type: %T", cmd)).WithDescription("Unsupported command")
 			element = element.WithChildren(childElement)
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.PlanMode,
 		Data:  element,
 		Error: nil,
 	}
 }
 
 // executeCommands executes commands using the unified execution engine
-func (w *WhenDecorator) executeCommands(ctx *execution.ExecutionContext, commands []ast.CommandContent) error {
+func (w *WhenDecorator) executeCommands(ctx execution.InterpreterContext, commands []ast.CommandContent) error {
 	for _, cmd := range commands {
-		if err := ctx.ExecuteCommandContent(cmd); err != nil {
-			return err
+		switch c := cmd.(type) {
+		case *ast.ShellContent:
+			result := ctx.ExecuteShell(c)
+			if result.Error != nil {
+				return fmt.Errorf("failed to execute shell command: %w", result.Error)
+			}
+		default:
+			return fmt.Errorf("unsupported command type: %T", cmd)
 		}
 	}
 	return nil

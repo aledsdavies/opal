@@ -18,8 +18,18 @@ type ConfirmDecorator struct{}
 
 // Template for confirmation logic code generation (unified contract: statement blocks)
 const confirmExecutionTemplate = `// Confirmation execution setup
-{{if .SkipInCI}}// Check if we're in CI environment (resolved at generation time)
-if {{.IsCI}} {
+{{if .SkipInCI}}// Check if we're in CI environment (using captured environment)
+isCI := func() bool {
+	ciVars := []string{"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "TRAVIS", "CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER"}
+	for _, envVar := range ciVars {
+		if value, exists := envContext[envVar]; exists && value != "" {
+			return true
+		}
+	}
+	return false
+}()
+
+if isCI {
 	// Auto-confirm in CI and execute commands
 	fmt.Printf("CI environment detected - auto-confirming: {{.Message}}\n")
 } else {{{end}}
@@ -111,7 +121,7 @@ func (c *ConfirmDecorator) ImportRequirements() decorators.ImportRequirement {
 }
 
 // isCI checks if we're running in a CI environment using captured environment
-func (c *ConfirmDecorator) isCI(ctx *execution.ExecutionContext) bool {
+func (c *ConfirmDecorator) isCI(ctx execution.BaseContext) bool {
 	// Check common CI environment variables from captured environment
 	ciVars := []string{
 		"CI",                     // Most CI systems
@@ -133,35 +143,50 @@ func (c *ConfirmDecorator) isCI(ctx *execution.ExecutionContext) bool {
 	return false
 }
 
-// Execute provides unified execution for all modes using the execution package
-func (c *ConfirmDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	// Validate parameters first
+// trackCIEnvironmentVariables tracks CI environment variables for code generation
+func (c *ConfirmDecorator) trackCIEnvironmentVariables(ctx execution.GeneratorContext) {
+	// Track all CI environment variables so they're included in global envContext
+	ciVars := []string{
+		"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "TRAVIS",
+		"CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER",
+	}
 
-	// Parse parameters with defaults
+	for _, envVar := range ciVars {
+		ctx.TrackEnvironmentVariable(envVar, "")
+	}
+}
+
+// ExecuteInterpreter executes confirmation prompt in interpreter mode
+func (c *ConfirmDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	message, defaultYes, abortOnNo, caseSensitive, skipInCI := c.extractConfirmParams(params)
+	return c.executeInterpreterImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
+}
+
+// ExecuteGenerator generates Go code for confirmation logic
+func (c *ConfirmDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	message, defaultYes, abortOnNo, caseSensitive, skipInCI := c.extractConfirmParams(params)
+	return c.executeGeneratorImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
+}
+
+// ExecutePlan creates a plan element for dry-run mode
+func (c *ConfirmDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	message, defaultYes, abortOnNo, caseSensitive, skipInCI := c.extractConfirmParams(params)
+	return c.executePlanImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
+}
+
+// extractConfirmParams extracts and validates confirmation parameters
+func (c *ConfirmDecorator) extractConfirmParams(params []ast.NamedParameter) (string, bool, bool, bool, bool) {
 	message := ast.GetStringParam(params, "message", "Do you want to continue?")
 	defaultYes := ast.GetBoolParam(params, "defaultYes", false)
 	abortOnNo := ast.GetBoolParam(params, "abortOnNo", true)
 	caseSensitive := ast.GetBoolParam(params, "caseSensitive", false)
 	skipInCI := ast.GetBoolParam(params, "ci", true)
-
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return c.executeInterpreter(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
-	case execution.GeneratorMode:
-		return c.executeGenerator(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
-	case execution.PlanMode:
-		return c.executePlan(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
-	default:
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
-		}
-	}
+	
+	return message, defaultYes, abortOnNo, caseSensitive, skipInCI
 }
 
-// executeInterpreter executes confirmation prompt in interpreter mode
-func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
+// executeInterpreterImpl executes confirmation prompt in interpreter mode
+func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Check if we should skip confirmation in CI environment
 	if skipInCI && c.isCI(ctx) {
 		// Auto-confirm in CI and execute commands in child context
@@ -170,14 +195,12 @@ func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, m
 		for _, cmd := range content {
 			if err := confirmCtx.ExecuteCommandContent(cmd); err != nil {
 				return &execution.ExecutionResult{
-					Mode:  execution.InterpreterMode,
 					Data:  nil,
 					Error: fmt.Errorf("command execution failed: %w", err),
 				}
 			}
 		}
 		return &execution.ExecutionResult{
-			Mode:  execution.InterpreterMode,
 			Data:  nil,
 			Error: nil,
 		}
@@ -196,7 +219,6 @@ func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, m
 	response, err := reader.ReadString('\n')
 	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.InterpreterMode,
 			Data:  nil,
 			Error: fmt.Errorf("failed to read user input: %w", err),
 		}
@@ -220,14 +242,12 @@ func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, m
 	if !confirmed {
 		if abortOnNo {
 			return &execution.ExecutionResult{
-				Mode:  execution.InterpreterMode,
 				Data:  nil,
 				Error: fmt.Errorf("user cancelled execution"),
 			}
 		}
 		// User said no but don't abort - just skip execution
 		return &execution.ExecutionResult{
-			Mode:  execution.InterpreterMode,
 			Data:  nil,
 			Error: nil,
 		}
@@ -238,7 +258,6 @@ func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, m
 	for _, cmd := range content {
 		if err := confirmCtx.ExecuteCommandContent(cmd); err != nil {
 			return &execution.ExecutionResult{
-				Mode:  execution.InterpreterMode,
 				Data:  nil,
 				Error: fmt.Errorf("command execution failed: %w", err),
 			}
@@ -246,25 +265,25 @@ func (c *ConfirmDecorator) executeInterpreter(ctx *execution.ExecutionContext, m
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.InterpreterMode,
 		Data:  nil,
 		Error: nil,
 	}
 }
 
-// executeGenerator generates Go code for confirmation logic
-func (c *ConfirmDecorator) executeGenerator(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
+// executeGeneratorImpl generates Go code for confirmation logic
+func (c *ConfirmDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
+	// Track CI environment variables for deterministic behavior
+	if skipInCI {
+		c.trackCIEnvironmentVariables(ctx)
+	}
+	
 	// Create child context for isolated execution
 	confirmCtx := ctx.Child()
-	
-	// Check CI environment at generation time
-	isCI := c.isCI(ctx)
 
 	// Use template to generate the full confirmation logic
 	tmpl, err := template.New("confirmExecution").Funcs(confirmCtx.GetTemplateFunctions()).Parse(confirmExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
 			Data:  "",
 			Error: fmt.Errorf("failed to parse confirm template: %w", err),
 		}
@@ -276,7 +295,6 @@ func (c *ConfirmDecorator) executeGenerator(ctx *execution.ExecutionContext, mes
 		AbortOnNo     bool
 		CaseSensitive bool
 		SkipInCI      bool
-		IsCI          bool
 		Commands      []ast.CommandContent
 	}{
 		Message:       fmt.Sprintf("%q", message),
@@ -284,28 +302,25 @@ func (c *ConfirmDecorator) executeGenerator(ctx *execution.ExecutionContext, mes
 		AbortOnNo:     abortOnNo,
 		CaseSensitive: caseSensitive,
 		SkipInCI:      skipInCI,
-		IsCI:          isCI,
 		Commands:      content,
 	}
 
 	var result strings.Builder
 	if err := tmpl.Execute(&result, templateData); err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
 			Data:  "",
 			Error: fmt.Errorf("failed to execute confirm template: %w", err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.GeneratorMode,
 		Data:  result.String(),
 		Error: nil,
 	}
 }
 
-// executePlan creates a plan element for dry-run mode
-func (c *ConfirmDecorator) executePlan(ctx *execution.ExecutionContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
+// executePlanImpl creates a plan element for dry-run mode
+func (c *ConfirmDecorator) executePlanImpl(ctx execution.PlanContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Context-aware planning: check current environment
 	var description string
 
@@ -350,7 +365,6 @@ func (c *ConfirmDecorator) executePlan(ctx *execution.ExecutionContext, message 
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.PlanMode,
 		Data:  element,
 		Error: nil,
 	}

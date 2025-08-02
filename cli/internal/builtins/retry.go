@@ -91,34 +91,59 @@ func (r *RetryDecorator) ParameterSchema() []decorators.ParameterSchema {
 
 // Validate checks if the decorator usage is correct during parsing
 
-// Execute provides unified execution for all modes using the execution package
-func (r *RetryDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	// Validate parameters first
-
-	// Check parameter count (retry supports 1-2 parameters: attempts, and optionally delay)
-	if len(params) == 0 {
+// ExecuteInterpreter executes retry logic in interpreter mode
+func (r *RetryDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	maxAttempts, delay, err := r.extractRetryParams(params)
+	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
 			Data:  nil,
-			Error: fmt.Errorf("retry decorator requires an 'attempts' parameter"),
+			Error: err,
 		}
 	}
-	if len(params) > 2 {
+
+	return r.executeInterpreterImpl(ctx, maxAttempts, delay, content)
+}
+
+// ExecuteGenerator generates Go code for retry logic
+func (r *RetryDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	maxAttempts, delay, err := r.extractRetryParams(params)
+	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("retry decorator accepts at most 2 parameters (attempts, delay), got %d", len(params)),
+			Data:  "",
+			Error: err,
 		}
+	}
+
+	return r.executeGeneratorImpl(ctx, maxAttempts, delay, content)
+}
+
+// ExecutePlan creates a plan element for dry-run mode
+func (r *RetryDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	maxAttempts, delay, err := r.extractRetryParams(params)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: err,
+		}
+	}
+
+	return r.executePlanImpl(ctx, maxAttempts, delay, content)
+}
+
+// extractRetryParams extracts and validates retry parameters
+func (r *RetryDecorator) extractRetryParams(params []ast.NamedParameter) (int, time.Duration, error) {
+	// Check parameter count (retry supports 1-2 parameters: attempts, and optionally delay)
+	if len(params) == 0 {
+		return 0, 0, fmt.Errorf("retry decorator requires an 'attempts' parameter")
+	}
+	if len(params) > 2 {
+		return 0, 0, fmt.Errorf("retry decorator accepts at most 2 parameters (attempts, delay), got %d", len(params))
 	}
 
 	// Check that attempts parameter exists
 	attemptsParam := ast.FindParameter(params, "attempts")
 	if attemptsParam == nil {
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("retry decorator requires an 'attempts' parameter"),
-		}
+		return 0, 0, fmt.Errorf("retry decorator requires an 'attempts' parameter")
 	}
 
 	// Parse parameters
@@ -127,31 +152,14 @@ func (r *RetryDecorator) Execute(ctx *execution.ExecutionContext, params []ast.N
 
 	// Validate attempts is positive
 	if maxAttempts <= 0 {
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("retry attempts must be positive, got %d", maxAttempts),
-		}
+		return 0, 0, fmt.Errorf("retry attempts must be positive, got %d", maxAttempts)
 	}
 
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return r.executeInterpreter(ctx, maxAttempts, delay, content)
-	case execution.GeneratorMode:
-		return r.executeGenerator(ctx, maxAttempts, delay, content)
-	case execution.PlanMode:
-		return r.executePlan(ctx, maxAttempts, delay, content)
-	default:
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
-		}
-	}
+	return maxAttempts, delay, nil
 }
 
-// executeInterpreter executes retry logic in interpreter mode
-func (r *RetryDecorator) executeInterpreter(ctx *execution.ExecutionContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+// executeInterpreterImpl executes retry logic in interpreter mode
+func (r *RetryDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Create child context for each retry attempt
@@ -162,7 +170,6 @@ func (r *RetryDecorator) executeInterpreter(ctx *execution.ExecutionContext, max
 
 		if execErr == nil {
 			return &execution.ExecutionResult{
-				Mode:  execution.InterpreterMode,
 				Data:  nil,
 				Error: nil, // Success!
 			}
@@ -177,14 +184,13 @@ func (r *RetryDecorator) executeInterpreter(ctx *execution.ExecutionContext, max
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.InterpreterMode,
 		Data:  nil,
 		Error: fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr),
 	}
 }
 
-// executeGenerator generates Go code for retry logic
-func (r *RetryDecorator) executeGenerator(ctx *execution.ExecutionContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+// executeGeneratorImpl generates Go code for retry logic
+func (r *RetryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
 	// Create child context for isolated execution
 	retryCtx := ctx.Child()
 	
@@ -202,7 +208,6 @@ func (r *RetryDecorator) executeGenerator(ctx *execution.ExecutionContext, maxAt
 	tmpl, err := template.New("retry").Funcs(retryCtx.GetTemplateFunctions()).Parse(retryExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
 			Data:  "",
 			Error: fmt.Errorf("failed to parse retry template: %w", err),
 		}
@@ -211,21 +216,19 @@ func (r *RetryDecorator) executeGenerator(ctx *execution.ExecutionContext, maxAt
 	var result strings.Builder
 	if err := tmpl.Execute(&result, templateData); err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
 			Data:  "",
 			Error: fmt.Errorf("failed to execute retry template: %w", err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.GeneratorMode,
 		Data:  result.String(),
 		Error: nil,
 	}
 }
 
-// executePlan creates a plan element for dry-run mode
-func (r *RetryDecorator) executePlan(ctx *execution.ExecutionContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+// executePlanImpl creates a plan element for dry-run mode
+func (r *RetryDecorator) executePlanImpl(ctx execution.PlanContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
 	delayStr := delay.String()
 
 	description := fmt.Sprintf("Execute %d commands with up to %d attempts", len(content), maxAttempts)
@@ -247,10 +250,9 @@ func (r *RetryDecorator) executePlan(ctx *execution.ExecutionContext, maxAttempt
 		switch c := cmd.(type) {
 		case *ast.ShellContent:
 			// Create plan element for shell command
-			result := ctx.ExecuteShell(c)
+			result := ctx.GenerateShellPlan(c)
 			if result.Error != nil {
 				return &execution.ExecutionResult{
-					Mode:  execution.PlanMode,
 					Data:  nil,
 					Error: fmt.Errorf("failed to create plan for shell content: %w", result.Error),
 				}
@@ -275,14 +277,13 @@ func (r *RetryDecorator) executePlan(ctx *execution.ExecutionContext, maxAttempt
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.PlanMode,
 		Data:  element,
 		Error: nil,
 	}
 }
 
 // executeCommands executes commands using the unified execution engine
-func (r *RetryDecorator) executeCommands(ctx *execution.ExecutionContext, content []ast.CommandContent) error {
+func (r *RetryDecorator) executeCommands(ctx execution.InterpreterContext, content []ast.CommandContent) error {
 	for _, cmd := range content {
 		if err := ctx.ExecuteCommandContent(cmd); err != nil {
 			return err

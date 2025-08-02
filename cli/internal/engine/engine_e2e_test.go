@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"io"
 	"os"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
 	"github.com/aledsdavies/devcmd/core/ast"
+	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
 // TestEngine_EndToEndRealCommandsFile tests end-to-end functionality with real commands.cli
@@ -39,9 +41,10 @@ func TestEngine_EndToEndRealCommandsFile(t *testing.T) {
 
 	// Test interpreter mode (variable processing)
 	t.Run("interpreter_mode", func(t *testing.T) {
-		err := engine.processVariablesIntoContext(program)
+		ctx := execution.NewInterpreterContext(context.Background(), program)
+		err := ctx.InitializeVariables()
 		if err != nil {
-			t.Fatalf("Failed to process variables in interpreter mode: %v", err)
+			t.Fatalf("Failed to initialize variables in interpreter mode: %v", err)
 		}
 
 		// Verify key variables are processed correctly
@@ -51,7 +54,7 @@ func TestEngine_EndToEndRealCommandsFile(t *testing.T) {
 		}
 
 		for name, expectedValue := range expectedVars {
-			if actualValue, exists := engine.ctx.GetVariable(name); !exists {
+			if actualValue, exists := ctx.GetVariable(name); !exists {
 				t.Errorf("Variable %s not found in context", name)
 			} else if actualValue != expectedValue {
 				t.Errorf("Variable %s: expected %s, got %s", name, expectedValue, actualValue)
@@ -59,7 +62,7 @@ func TestEngine_EndToEndRealCommandsFile(t *testing.T) {
 		}
 
 		t.Logf("Successfully processed %d variables in interpreter mode",
-			len(engine.ctx.Variables))
+			len(program.Variables))
 	})
 
 	// Test generator mode (code generation)
@@ -254,9 +257,10 @@ debug: echo "Debug mode: @var(DEBUG)"`
 	engine := New(program)
 
 	// Test variable processing
-	err = engine.processVariablesIntoContext(program)
+	ctx := execution.NewGeneratorContext(context.Background(), program)
+	err = ctx.InitializeVariables()
 	if err != nil {
-		t.Fatalf("Failed to process variables: %v", err)
+		t.Fatalf("Failed to initialize variables: %v", err)
 	}
 
 	// Verify variables
@@ -267,7 +271,7 @@ debug: echo "Debug mode: @var(DEBUG)"`
 	}
 
 	for name, expectedValue := range expectedVars {
-		if actualValue, exists := engine.ctx.GetVariable(name); !exists {
+		if actualValue, exists := ctx.GetVariable(name); !exists {
 			t.Errorf("Variable %s not found", name)
 		} else if actualValue != expectedValue {
 			t.Errorf("Variable %s: expected %s, got %s", name, expectedValue, actualValue)

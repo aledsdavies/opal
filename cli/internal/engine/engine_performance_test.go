@@ -1,12 +1,14 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
+	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
 // BenchmarkEngine_Interpreter benchmarks interpreter mode performance
@@ -20,12 +22,13 @@ build: echo "Building on @var(HOST):@var(PORT)"`
 		b.Fatalf("Failed to parse program: %v", err)
 	}
 
-	engine := New(program)
+	_ = New(program) // Create engine but don't use it since we test context directly
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Test variable processing performance
-		_ = engine.processVariablesIntoContext(program)
+		ctx := execution.NewGeneratorContext(context.Background(), program)
+		_ = ctx.InitializeVariables()
 	}
 }
 

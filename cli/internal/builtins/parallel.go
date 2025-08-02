@@ -110,8 +110,8 @@ func (p *ParallelDecorator) ParameterSchema() []decorators.ParameterSchema {
 
 // Validate checks if the decorator usage is correct during parsing
 
-// Execute provides unified execution for all modes using the execution package
-func (p *ParallelDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+// ExecuteInterpreter executes commands concurrently in interpreter mode
+func (p *ParallelDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
 	// Parse parameters with defaults
 	concurrency := len(content) // Default: no limit (run all at once)
 	failOnFirstError := false   // Default: continue on errors
@@ -119,24 +119,35 @@ func (p *ParallelDecorator) Execute(ctx *execution.ExecutionContext, params []as
 	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
 	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
 
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return p.executeInterpreter(ctx, concurrency, failOnFirstError, content)
-	case execution.GeneratorMode:
-		return p.executeGenerator(ctx, concurrency, failOnFirstError, content)
-	case execution.PlanMode:
-		return p.executePlan(ctx, concurrency, failOnFirstError, content)
-	default:
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
-		}
-	}
+	return p.executeInterpreterImpl(ctx, concurrency, failOnFirstError, content)
 }
 
-// executeInterpreter executes commands concurrently in interpreter mode
-func (p *ParallelDecorator) executeInterpreter(ctx *execution.ExecutionContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
+// ExecuteGenerator generates Go code for parallel execution
+func (p *ParallelDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	// Parse parameters with defaults
+	concurrency := len(content) // Default: no limit (run all at once)
+	failOnFirstError := false   // Default: continue on errors
+
+	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
+	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
+
+	return p.executeGeneratorImpl(ctx, concurrency, failOnFirstError, content)
+}
+
+// ExecutePlan creates a plan element for dry-run mode
+func (p *ParallelDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	// Parse parameters with defaults
+	concurrency := len(content) // Default: no limit (run all at once)
+	failOnFirstError := false   // Default: continue on errors
+
+	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
+	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
+
+	return p.executePlanImpl(ctx, concurrency, failOnFirstError, content)
+}
+
+// executeInterpreterImpl executes commands concurrently in interpreter mode
+func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Create context for cancellation if failOnFirstError is true
 	execCtx := ctx
 	var cancel context.CancelFunc
@@ -156,7 +167,6 @@ func (p *ParallelDecorator) executeInterpreter(ctx *execution.ExecutionContext, 
 		select {
 		case <-execCtx.Done():
 			return &execution.ExecutionResult{
-				Mode:  execution.InterpreterMode,
 				Data:  nil,
 				Error: execCtx.Err(),
 			}
@@ -181,7 +191,7 @@ func (p *ParallelDecorator) executeInterpreter(ctx *execution.ExecutionContext, 
 
 			// Create isolated execution context for this parallel task
 			// This gives each task its own working directory state and environment
-			isolatedCtx := p.createIsolatedContext(execCtx)
+			isolatedCtx := p.createIsolatedInterpreterContext(execCtx)
 			
 			// Execute the command content in isolated environment
 			// Handle different content types appropriately
@@ -194,7 +204,7 @@ func (p *ParallelDecorator) executeInterpreter(ctx *execution.ExecutionContext, 
 					err = fmt.Errorf("block decorator @%s not found: %w", cmd.Name, lookupErr)
 				} else {
 					// Execute the block decorator with the isolated context
-					result := blockDecorator.Execute(isolatedCtx, cmd.Args, cmd.Content)
+					result := blockDecorator.ExecuteInterpreter(isolatedCtx, cmd.Args, cmd.Content)
 					err = result.Error
 				}
 			default:
@@ -230,14 +240,13 @@ func (p *ParallelDecorator) executeInterpreter(ctx *execution.ExecutionContext, 
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.InterpreterMode,
 		Data:  nil,
 		Error: finalError,
 	}
 }
 
-// executeGenerator generates Go code for parallel execution
-func (p *ParallelDecorator) executeGenerator(ctx *execution.ExecutionContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
+// executeGeneratorImpl generates Go code for parallel execution
+func (p *ParallelDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Pre-generate code for each command using the unified shell code builder
 	// This supports all command content types: ShellContent, BlockDecorator, PatternDecorator
 	var commandData []ParallelCommandData
@@ -247,7 +256,6 @@ func (p *ParallelDecorator) executeGenerator(ctx *execution.ExecutionContext, co
 		generatedCode, err := shellBuilder.GenerateShellCode(cmdContent)
 		if err != nil {
 			return &execution.ExecutionResult{
-				Mode:  execution.GeneratorMode,
 				Data:  "",
 				Error: fmt.Errorf("failed to generate code for parallel command: %w", err),
 			}
@@ -273,7 +281,6 @@ func (p *ParallelDecorator) executeGenerator(ctx *execution.ExecutionContext, co
 	tmpl, err := template.New("parallel").Parse(parallelExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
 			Data:  "",
 			Error: fmt.Errorf("failed to parse parallel template: %w", err),
 		}
@@ -282,21 +289,19 @@ func (p *ParallelDecorator) executeGenerator(ctx *execution.ExecutionContext, co
 	var result strings.Builder
 	if err := tmpl.Execute(&result, templateData); err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
 			Data:  "",
 			Error: fmt.Errorf("failed to execute parallel template: %w", err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.GeneratorMode,
 		Data:  result.String(),
 		Error: nil,
 	}
 }
 
-// executePlan creates a plan element for dry-run mode
-func (p *ParallelDecorator) executePlan(ctx *execution.ExecutionContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
+// executePlanImpl creates a plan element for dry-run mode
+func (p *ParallelDecorator) executePlanImpl(ctx execution.PlanContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
 	description := fmt.Sprintf("Execute %d commands concurrently", len(content))
 	if concurrency < len(content) {
 		description += fmt.Sprintf(" (max %d at a time)", concurrency)
@@ -323,10 +328,9 @@ func (p *ParallelDecorator) executePlan(ctx *execution.ExecutionContext, concurr
 		switch c := cmd.(type) {
 		case *ast.ShellContent:
 			// Create plan element for shell command
-			result := ctx.ExecuteShell(c)
+			result := ctx.GenerateShellPlan(c)
 			if result.Error != nil {
 				return &execution.ExecutionResult{
-					Mode:  execution.PlanMode,
 					Data:  nil,
 					Error: fmt.Errorf("failed to create plan for shell content: %w", result.Error),
 				}
@@ -352,7 +356,7 @@ func (p *ParallelDecorator) executePlan(ctx *execution.ExecutionContext, concurr
 				element = element.AddChild(childElement)
 			} else {
 				// Execute the nested decorator in plan mode
-				result := blockDecorator.Execute(ctx, c.Args, c.Content)
+				result := blockDecorator.ExecutePlan(ctx, c.Args, c.Content)
 				if result.Error != nil {
 					// Fallback to placeholder if plan execution fails
 					childElement := plan.Command(fmt.Sprintf("@%s{error}", c.Name)).WithDescription(fmt.Sprintf("Error in %s: %v", c.Name, result.Error))
@@ -370,15 +374,14 @@ func (p *ParallelDecorator) executePlan(ctx *execution.ExecutionContext, concurr
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.PlanMode,
 		Data:  element,
 		Error: nil,
 	}
 }
 
-// createIsolatedContext creates a copy of the execution context for isolated parallel execution
+// createIsolatedInterpreterContext creates a copy of the execution context for isolated parallel execution
 // Each parallel task gets its own context with independent working directory state
-func (p *ParallelDecorator) createIsolatedContext(parentCtx *execution.ExecutionContext) *execution.ExecutionContext {
+func (p *ParallelDecorator) createIsolatedInterpreterContext(parentCtx execution.InterpreterContext) execution.InterpreterContext {
 	// Use Child() to properly inherit all parent context properties including execution mode
 	// Child() already copies variables, execution mode, and all function references
 	return parentCtx.Child()

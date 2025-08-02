@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/aledsdavies/devcmd/core/ast"
-	"github.com/aledsdavies/devcmd/core/plan"
 	"github.com/aledsdavies/devcmd/runtime/decorators"
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
@@ -34,101 +33,99 @@ func (v *VarDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-// DecoratorType returns that this is a substitution decorator
-func (v *VarDecorator) DecoratorType() execution.FunctionDecoratorType {
-	return execution.SubstitutionDecorator
-}
 
-// Validate checks if the decorator usage is correct during parsing
-
-// Expand provides unified expansion for all modes using the execution package
-func (v *VarDecorator) Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	// Validate parameters first
-
-	// Get the variable name
-	var varName string
-	nameParam := ast.FindParameter(params, "name")
-	if nameParam == nil && len(params) > 0 {
-		nameParam = &params[0]
-	}
-	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
-		varName = ident.Name
-	}
-
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return v.executeInterpreter(ctx, varName)
-	case execution.GeneratorMode:
-		return v.executeGenerator(ctx, varName)
-	case execution.PlanMode:
-		return v.executePlan(ctx, varName)
-	default:
+// ExpandInterpreter returns the actual variable value for interpreter mode
+func (v *VarDecorator) ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	varName := v.extractVariableName(params)
+	if varName == "" {
 		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
 			Data:  nil,
-			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
+			Error: fmt.Errorf("@var decorator requires a variable name parameter"),
 		}
 	}
-}
 
-// executeInterpreter gets variable value in interpreter mode
-func (v *VarDecorator) executeInterpreter(ctx *execution.ExecutionContext, varName string) *execution.ExecutionResult {
-	// Look up the variable in the execution context
+	// Look up the variable value from the .cli file variables
 	if value, exists := ctx.GetVariable(varName); exists {
 		return &execution.ExecutionResult{
-			Mode:  execution.InterpreterMode,
-			Data:  value,
+			Data:  value, // Return the actual string value
 			Error: nil,
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Mode:  execution.InterpreterMode,
 		Data:  nil,
-		Error: fmt.Errorf("variable '%s' not defined", varName),
+		Error: fmt.Errorf("variable '%s' not defined in .cli file", varName),
 	}
 }
 
-// executeGenerator generates Go code for variable access
-func (v *VarDecorator) executeGenerator(ctx *execution.ExecutionContext, varName string) *execution.ExecutionResult {
-	// In generator mode, just return the Go variable name to reference the generated variable
-	// Don't resolve the value - just check if the variable exists by name
-	if _, exists := ctx.GetVariable(varName); exists {
-		// Return the variable name as a Go identifier (e.g., "VERSION" becomes "VERSION")
+// ExpandGenerator returns Go code that resolves the variable for generator mode
+func (v *VarDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	varName := v.extractVariableName(params)
+	if varName == "" {
 		return &execution.ExecutionResult{
-			Mode:  execution.GeneratorMode,
-			Data:  varName, // This references the Go variable by name
-			Error: nil,
+			Data:  "",
+			Error: fmt.Errorf("@var decorator requires a variable name parameter"),
 		}
 	}
 
-	return &execution.ExecutionResult{
-		Mode:  execution.GeneratorMode,
-		Data:  nil,
-		Error: fmt.Errorf("variable '%s' not defined", varName),
-	}
-}
-
-// executePlan creates a plan element for dry-run mode
-func (v *VarDecorator) executePlan(ctx *execution.ExecutionContext, varName string) *execution.ExecutionResult {
-	// Look up the variable in the execution context
-	var description string
-	if value, exists := ctx.GetVariable(varName); exists {
-		description = fmt.Sprintf("Variable resolution: ${%s} → %q", varName, value)
-	} else {
-		description = fmt.Sprintf("Variable resolution: ${%s} → <undefined>", varName)
+	// Check that the variable exists in the .cli file
+	if _, exists := ctx.GetVariable(varName); !exists {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: fmt.Errorf("variable '%s' not defined in .cli file", varName),
+		}
 	}
 
-	element := plan.Decorator("var").
-		WithType("function").
-		WithParameter("name", varName).
-		WithDescription(description)
-
+	// Generate Go code that references the variable
+	// The variable will be defined in the generated code as: varName := "value"
+	goCode := varName
+	
 	return &execution.ExecutionResult{
-		Mode:  execution.PlanMode,
-		Data:  element,
+		Data:  goCode, // Returns the Go variable name to be used in fmt.Sprintf
 		Error: nil,
 	}
+}
+
+// ExpandPlan returns description for dry-run display in plan mode
+func (v *VarDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	varName := v.extractVariableName(params)
+	if varName == "" {
+		return &execution.ExecutionResult{
+			Data:  fmt.Sprintf("@var(<missing>)"),
+			Error: nil,
+		}
+	}
+
+	// Look up the variable value for display
+	if value, exists := ctx.GetVariable(varName); exists {
+		return &execution.ExecutionResult{
+			Data:  fmt.Sprintf("@var(%s) → %q", varName, value),
+			Error: nil,
+		}
+	}
+
+	return &execution.ExecutionResult{
+		Data:  fmt.Sprintf("@var(%s) → <undefined>", varName),
+		Error: nil,
+	}
+}
+
+// extractVariableName extracts the variable name from decorator parameters
+func (v *VarDecorator) extractVariableName(params []ast.NamedParameter) string {
+	// Try to get the "name" parameter first
+	nameParam := ast.FindParameter(params, "name")
+	if nameParam == nil && len(params) > 0 {
+		// Fallback to first parameter if no "name" parameter
+		nameParam = &params[0]
+	}
+	
+	if nameParam != nil {
+		if ident, ok := nameParam.Value.(*ast.Identifier); ok {
+			return ident.Name
+		}
+	}
+	
+	return ""
 }
 
 // ImportRequirements returns the dependencies needed for code generation

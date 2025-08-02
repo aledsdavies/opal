@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
 	"github.com/aledsdavies/devcmd/core/ast"
+	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
 // ExecutionMode for comprehensive testing
@@ -132,8 +134,9 @@ var HOST = "localhost"`,
 
 // testInterpreterMode tests interpreter execution
 func testInterpreterMode(engine *Engine, program *ast.Program) (interface{}, error) {
-	// Initialize variables
-	if err := engine.processVariablesIntoContext(program); err != nil {
+	// Create interpreter context and initialize variables
+	ctx := execution.NewInterpreterContext(context.Background(), program)
+	if err := ctx.InitializeVariables(); err != nil {
 		return nil, err
 	}
 
@@ -154,7 +157,7 @@ func testInterpreterMode(engine *Engine, program *ast.Program) (interface{}, err
 	// Get only used variables from context
 	for _, variable := range program.Variables {
 		if usedVars[variable.Name] {
-			if value, exists := engine.ctx.GetVariable(variable.Name); exists {
+			if value, exists := ctx.GetVariable(variable.Name); exists {
 				execResult.Variables[variable.Name] = value
 			}
 		}
@@ -162,7 +165,7 @@ func testInterpreterMode(engine *Engine, program *ast.Program) (interface{}, err
 	for _, group := range program.VarGroups {
 		for _, variable := range group.Variables {
 			if usedVars[variable.Name] {
-				if value, exists := engine.ctx.GetVariable(variable.Name); exists {
+				if value, exists := ctx.GetVariable(variable.Name); exists {
 					execResult.Variables[variable.Name] = value
 				}
 			}
@@ -194,8 +197,9 @@ func testGeneratorMode(engine *Engine, program *ast.Program) (interface{}, error
 
 // testPlanMode tests plan generation
 func testPlanMode(engine *Engine, program *ast.Program) (interface{}, error) {
-	// Initialize variables
-	if err := engine.processVariablesIntoContext(program); err != nil {
+	// Create plan context and initialize variables
+	ctx := execution.NewPlanContext(context.Background(), program)
+	if err := ctx.InitializeVariables(); err != nil {
 		return nil, err
 	}
 
@@ -219,7 +223,7 @@ func testPlanMode(engine *Engine, program *ast.Program) (interface{}, error) {
 	// Get only used variables
 	for _, variable := range program.Variables {
 		if usedVars[variable.Name] {
-			if value, exists := engine.ctx.GetVariable(variable.Name); exists {
+			if value, exists := ctx.GetVariable(variable.Name); exists {
 				planResult.Variables[variable.Name] = value
 			}
 		}
@@ -227,7 +231,7 @@ func testPlanMode(engine *Engine, program *ast.Program) (interface{}, error) {
 	for _, group := range program.VarGroups {
 		for _, variable := range group.Variables {
 			if usedVars[variable.Name] {
-				if value, exists := engine.ctx.GetVariable(variable.Name); exists {
+				if value, exists := ctx.GetVariable(variable.Name); exists {
 					planResult.Variables[variable.Name] = value
 				}
 			}

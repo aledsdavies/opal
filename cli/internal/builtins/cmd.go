@@ -34,9 +34,19 @@ func (d *CmdDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-// DecoratorType returns that this is an execution decorator
-func (d *CmdDecorator) DecoratorType() execution.FunctionDecoratorType {
-	return execution.ExecutionDecorator
+// ExpandInterpreter executes the command reference returning output for shell chaining
+func (d *CmdDecorator) ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	return d.ExecuteInterpreter(ctx, params)
+}
+
+// ExpandGenerator generates Go code for action chaining
+func (d *CmdDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	return d.ExecuteGenerator(ctx, params)
+}
+
+// ExpandPlan creates a plan element for the command reference
+func (d *CmdDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	return d.ExecutePlan(ctx, params)
 }
 
 // ImportRequirements returns the dependencies needed for code generation
@@ -48,57 +58,65 @@ func (d *CmdDecorator) ImportRequirements() decorators.ImportRequirement {
 	}
 }
 
-// Expand provides unified execution for all modes
-func (d *CmdDecorator) Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	// Get the command name parameter using the same pattern as var decorator
-	var cmdName string
-	nameParam := ast.FindParameter(params, "name")
-	if nameParam == nil && len(params) > 0 {
-		nameParam = &params[0]
-	}
-
-	if nameParam == nil {
+// ExecuteInterpreter executes the command reference in interpreter mode
+func (d *CmdDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	cmdName, err := d.extractCommandName(params)
+	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
 			Data:  nil,
-			Error: fmt.Errorf("@cmd decorator requires a command name parameter"),
+			Error: err,
+		}
+	}
+	
+	// Execute the referenced command
+	if err := ctx.ExecuteCommand(cmdName); err != nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: fmt.Errorf("failed to execute command '%s': %w", cmdName, err),
 		}
 	}
 
-	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
-		cmdName = ident.Name
-	} else {
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("@cmd parameter must be an identifier, got %T", nameParam.Value),
-		}
-	}
-
-	switch ctx.Mode() {
-	case execution.PlanMode:
-		return d.executePlan(ctx, cmdName)
-	case execution.InterpreterMode:
-		return d.executeInterpreter(ctx, cmdName)
-	case execution.GeneratorMode:
-		return d.executeGenerator(ctx, cmdName)
-	default:
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("unsupported execution mode: %v", ctx.Mode()),
-		}
+	return &execution.ExecutionResult{
+		Data:  "true", // Return "true" for shell chaining
+		Error: nil,
 	}
 }
 
-// executePlan creates a plan element for the command reference
-func (d *CmdDecorator) executePlan(ctx *execution.ExecutionContext, cmdName string) *execution.ExecutionResult {
+// ExecuteGenerator generates Go code for the command reference
+func (d *CmdDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	cmdName, err := d.extractCommandName(params)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: err,
+		}
+	}
+	
+	// Generate function call that returns CommandResult for chaining
+	// This allows @cmd to be used both standalone and in action chains
+	functionName := strings.Title(toCamelCase(cmdName))
+	code := fmt.Sprintf("execute%s()", functionName)
+
+	return &execution.ExecutionResult{
+		Data:  code,
+		Error: nil,
+	}
+}
+
+// ExecutePlan creates a plan element for the command reference
+func (d *CmdDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult {
+	cmdName, err := d.extractCommandName(params)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: err,
+		}
+	}
 	
 	// Generate the plan for the referenced command
 	planResult, err := ctx.GenerateCommandPlan(cmdName)
 	if err != nil {
 		return &execution.ExecutionResult{
-			Mode:  execution.PlanMode,
 			Data:  nil,
 			Error: fmt.Errorf("failed to generate plan for command '%s': %w", cmdName, err),
 		}
@@ -108,51 +126,22 @@ func (d *CmdDecorator) executePlan(ctx *execution.ExecutionContext, cmdName stri
 	return planResult
 }
 
-// executeInterpreter executes the command reference in interpreter mode
-func (d *CmdDecorator) executeInterpreter(ctx *execution.ExecutionContext, cmdName string) *execution.ExecutionResult {
-	// SAFETY CHECK: This should only be called in InterpreterMode
-	if ctx.Mode() != execution.InterpreterMode {
-		return &execution.ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("executeInterpreter called in wrong mode: %v (expected InterpreterMode)", ctx.Mode()),
-		}
-	}
-	
-	// Execute the referenced command
-	err := ctx.ExecuteCommand(cmdName)
-	if err != nil {
-		return &execution.ExecutionResult{
-			Mode:  execution.InterpreterMode,
-			Data:  nil,
-			Error: fmt.Errorf("failed to execute command '%s': %w", cmdName, err),
-		}
+// extractCommandName extracts the command name from decorator parameters
+func (d *CmdDecorator) extractCommandName(params []ast.NamedParameter) (string, error) {
+	// Get the command name parameter using the same pattern as var decorator
+	nameParam := ast.FindParameter(params, "name")
+	if nameParam == nil && len(params) > 0 {
+		nameParam = &params[0]
 	}
 
-	return &execution.ExecutionResult{
-		Mode:  execution.InterpreterMode,
-		Data:  "true", // Return "true" for shell chaining
-		Error: nil,
+	if nameParam == nil {
+		return "", fmt.Errorf("@cmd decorator requires a command name parameter")
 	}
-}
 
-// executeGenerator generates Go code for the command reference
-func (d *CmdDecorator) executeGenerator(ctx *execution.ExecutionContext, cmdName string) *execution.ExecutionResult {
-	// CRITICAL FIX: In GeneratorMode, never call GenerateCommandPlan or any execution methods
-	// Just generate the Go code that will call the function at runtime
-	// This prevents the generation-time execution bug
-	
-	// Generate a simple function call that matches the engine's naming convention
-	functionName := strings.Title(toCamelCase(cmdName))
-	code := fmt.Sprintf(`result := execute%s()
-		if result.Failed() {
-			return result
-		}`, functionName)
-
-	return &execution.ExecutionResult{
-		Mode:  execution.GeneratorMode,
-		Data:  code,
-		Error: nil,
+	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
+		return ident.Name, nil
+	} else {
+		return "", fmt.Errorf("@cmd parameter must be an identifier, got %T", nameParam.Value)
 	}
 }
 

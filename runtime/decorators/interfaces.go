@@ -45,11 +45,14 @@ type Decorator interface {
 type ValueDecorator interface {
 	Decorator
 
-	// Expand returns a value that can be used in shell command composition
-	// - GeneratorMode: Returns Go code expression that evaluates to the value
-	// - InterpreterMode: Returns the actual runtime value
-	// - PlanMode: Returns description for dry-run display
-	Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult
+	// ExpandInterpreter returns the actual runtime value for interpreter mode
+	ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult
+	
+	// ExpandGenerator returns Go code expression that evaluates to the value for generator mode
+	ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult
+	
+	// ExpandPlan returns description for dry-run display in plan mode
+	ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult
 }
 
 // ActionDecorator represents decorators that execute commands with structured output
@@ -57,11 +60,14 @@ type ValueDecorator interface {
 type ActionDecorator interface {
 	Decorator
 
-	// Expand executes an action and returns structured result for chaining
-	// - GeneratorMode: Returns Go code that produces CommandResult
-	// - InterpreterMode: Executes and returns CommandResult
-	// - PlanMode: Returns description for dry-run display
-	Expand(ctx *execution.ExecutionContext, params []ast.NamedParameter) *execution.ExecutionResult
+	// ExpandInterpreter executes and returns CommandResult for interpreter mode
+	ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult
+	
+	// ExpandGenerator returns Go code that produces CommandResult for generator mode
+	ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult
+	
+	// ExpandPlan returns description for dry-run display in plan mode
+	ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult
 }
 
 // BlockDecorator represents decorators that modify command execution behavior
@@ -69,8 +75,14 @@ type ActionDecorator interface {
 type BlockDecorator interface {
 	Decorator
 
-	// Execute provides unified execution for all modes using the execution package
-	Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
+	// ExecuteInterpreter provides execution for interpreter mode
+	ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
+	
+	// ExecuteGenerator provides Go code generation for generator mode
+	ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
+	
+	// ExecutePlan provides plan generation for plan mode
+	ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
 }
 
 // PatternDecorator represents decorators that handle pattern matching
@@ -78,8 +90,14 @@ type BlockDecorator interface {
 type PatternDecorator interface {
 	Decorator
 
-	// Execute provides unified execution for all modes using the execution package
-	Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
+	// ExecuteInterpreter provides execution for interpreter mode
+	ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
+	
+	// ExecuteGenerator provides Go code generation for generator mode
+	ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
+	
+	// ExecutePlan provides plan generation for plan mode
+	ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
 
 	// PatternSchema defines what patterns this decorator accepts
 	PatternSchema() PatternSchema

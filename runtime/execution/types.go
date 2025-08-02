@@ -1,39 +1,22 @@
 package execution
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"text/template"
+	"time"
 
-// ExecutionMode represents the different modes of execution
-type ExecutionMode int
-
-const (
-	InterpreterMode ExecutionMode = iota // Run commands directly
-	GeneratorMode                        // Generate Go code for compilation
-	PlanMode                             // Generate execution plan for dry-run
+	"github.com/aledsdavies/devcmd/core/ast"
 )
 
-// String returns a string representation of the execution mode
-func (m ExecutionMode) String() string {
-	switch m {
-	case InterpreterMode:
-		return "interpreter"
-	case GeneratorMode:
-		return "generator"
-	case PlanMode:
-		return "plan"
-	default:
-		return "unknown"
-	}
-}
-
-// ExecutionResult represents the result of executing shell content in different modes
+// ExecutionResult represents the result of executing shell content
 type ExecutionResult struct {
-	// Mode is the execution mode that produced this result
-	Mode ExecutionMode
-
-	// Data contains the mode-specific result:
-	// - InterpreterMode: nil (execution happens directly)
-	// - GeneratorMode: string (Go code)
-	// - PlanMode: plan.PlanElement (plan element)
+	// Data contains the result:
+	// - InterpreterContext: nil (execution happens directly)
+	// - GeneratorContext: string (Go code)
+	// - PlanContext: plan.PlanElement (plan element)
 	Data interface{}
 
 	// Error contains any execution error
@@ -69,3 +52,139 @@ func (r CommandResult) Error() error {
 	}
 	return fmt.Errorf("exit code %d", r.ExitCode)
 }
+
+// ================================================================================================
+// MODE-SPECIFIC CONTEXT INTERFACES
+// ================================================================================================
+
+// BaseContext provides common functionality shared across all execution modes
+type BaseContext interface {
+	context.Context
+	
+	// Variable management
+	GetVariable(name string) (string, bool)
+	SetVariable(name, value string)
+	GetEnv(name string) (string, bool)
+	InitializeVariables() error
+	
+	// Program access
+	GetProgram() *ast.Program
+	GetWorkingDir() string
+	IsDebug() bool
+	IsDryRun() bool
+}
+
+// InterpreterContext provides functionality for direct command execution
+type InterpreterContext interface {
+	BaseContext
+	
+	// Direct execution - commands are run immediately
+	ExecuteShell(content *ast.ShellContent) *ExecutionResult
+	ExecuteCommandContent(content ast.CommandContent) error
+	ExecuteCommand(commandName string) error
+	
+	// Typed context management
+	Child() InterpreterContext
+	WithTimeout(timeout time.Duration) (InterpreterContext, context.CancelFunc)
+	WithCancel() (InterpreterContext, context.CancelFunc)
+	WithWorkingDir(workingDir string) InterpreterContext
+	WithCurrentCommand(commandName string) InterpreterContext
+}
+
+// GeneratorContext provides functionality for Go code generation
+type GeneratorContext interface {
+	BaseContext
+	
+	// Code generation - commands produce Go code strings
+	GenerateShellCode(content *ast.ShellContent) *ExecutionResult
+	GenerateDirectActionCode(content *ast.ShellContent) *ExecutionResult
+	GetTemplateFunctions() template.FuncMap
+	SetTemplateFunctions(funcs template.FuncMap)
+	
+	// Internal access for template generation (these should be minimized)
+	GetShellCounter() int
+	IncrementShellCounter()
+	GetCurrentCommand() string
+	GetBlockDecoratorLookup() func(name string) (interface{}, bool)
+	GetPatternDecoratorLookup() func(name string) (interface{}, bool)
+	ProcessValueDecoratorUnified(decorator *ast.ValueDecorator) (interface{}, error)
+	
+	// Environment variable tracking for global capture generation (names only)
+	TrackEnvironmentVariable(key, defaultValue string)
+	GetTrackedEnvironmentVariables() map[string]string // key -> defaultValue
+	
+	// Typed context management
+	Child() GeneratorContext
+	WithTimeout(timeout time.Duration) (GeneratorContext, context.CancelFunc)
+	WithCancel() (GeneratorContext, context.CancelFunc)
+	WithWorkingDir(workingDir string) GeneratorContext
+	WithCurrentCommand(commandName string) GeneratorContext
+}
+
+// PlanContext provides functionality for execution planning/dry-run
+type PlanContext interface {
+	BaseContext
+	
+	// Plan generation - commands produce plan elements for visualization
+	GenerateShellPlan(content *ast.ShellContent) *ExecutionResult
+	GenerateCommandPlan(commandName string) (*ExecutionResult, error)
+	
+	// Typed context management
+	Child() PlanContext
+	WithTimeout(timeout time.Duration) (PlanContext, context.CancelFunc)
+	WithCancel() (PlanContext, context.CancelFunc)
+	WithWorkingDir(workingDir string) PlanContext
+	WithCurrentCommand(commandName string) PlanContext
+}
+
+// ================================================================================================
+// TYPE-SAFE CONTEXT FACTORY FUNCTIONS
+// ================================================================================================
+
+// NewInterpreterContext creates a new interpreter execution context
+func NewInterpreterContext(ctx context.Context, program *ast.Program) InterpreterContext {
+	return &InterpreterExecutionContext{
+		BaseExecutionContext: newBaseContext(ctx, program),
+	}
+}
+
+// NewGeneratorContext creates a new generator execution context
+func NewGeneratorContext(ctx context.Context, program *ast.Program) GeneratorContext {
+	return &GeneratorExecutionContext{
+		BaseExecutionContext: newBaseContext(ctx, program),
+	}
+}
+
+// NewPlanContext creates a new plan execution context
+func NewPlanContext(ctx context.Context, program *ast.Program) PlanContext {
+	return &PlanExecutionContext{
+		BaseExecutionContext: newBaseContext(ctx, program),
+	}
+}
+
+// newBaseContext creates a new base context with captured environment variables
+func newBaseContext(ctx context.Context, program *ast.Program) *BaseExecutionContext {
+	// Capture environment variables for deterministic behavior
+	envMap := make(map[string]string)
+	for _, env := range os.Environ() {
+		if parts := strings.SplitN(env, "=", 2); len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	workingDir := "."
+	if wd, err := os.Getwd(); err == nil {
+		workingDir = wd
+	}
+
+	return &BaseExecutionContext{
+		Context:    ctx,
+		Program:    program,
+		Variables:  make(map[string]string),
+		env:        envMap,
+		WorkingDir: workingDir,
+		Debug:      false,
+		DryRun:     false,
+	}
+}
+
