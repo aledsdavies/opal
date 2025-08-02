@@ -91,11 +91,13 @@ func (v *VarDecorator) executeInterpreter(ctx *execution.ExecutionContext, varNa
 
 // executeGenerator generates Go code for variable access
 func (v *VarDecorator) executeGenerator(ctx *execution.ExecutionContext, varName string) *execution.ExecutionResult {
-	// Return the variable name to reference the generated variable
+	// In generator mode, just return the Go variable name to reference the generated variable
+	// Don't resolve the value - just check if the variable exists by name
 	if _, exists := ctx.GetVariable(varName); exists {
+		// Return the variable name as a Go identifier (e.g., "VERSION" becomes "VERSION")
 		return &execution.ExecutionResult{
 			Mode:  execution.GeneratorMode,
-			Data:  varName,
+			Data:  varName, // This references the Go variable by name
 			Error: nil,
 		}
 	}

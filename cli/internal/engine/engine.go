@@ -210,9 +210,11 @@ func (e *Engine) setupDependencyInjection() {
 	})
 
 	// Set up command content executor - this is used by ExecuteCommandContent
+	// This should only be called during InterpreterMode execution, not GeneratorMode
 	e.ctx.SetContentExecutor(func(content ast.CommandContent) error {
 		switch c := content.(type) {
 		case *ast.ShellContent:
+			// Only execute in InterpreterMode - during GeneratorMode this shouldn't be called
 			result := e.ctx.ExecuteShell(c)
 			return result.Error
 		default:
@@ -221,6 +223,7 @@ func (e *Engine) setupDependencyInjection() {
 	})
 
 	// Set up command executor for @cmd decorator
+	// This should only be called during InterpreterMode execution, not GeneratorMode
 	e.ctx.SetCommandExecutor(func(cmd *ast.CommandDecl) error {
 		// Execute the command content directly using the context
 		for _, content := range cmd.Body.Content {
@@ -233,25 +236,50 @@ func (e *Engine) setupDependencyInjection() {
 
 	// Set up command plan generator for @cmd decorator
 	e.ctx.SetCommandPlanGenerator(func(cmd *ast.CommandDecl) (*execution.ExecutionResult, error) {
-		// Create a plan for the command by executing its content in plan mode
-		planCtx := e.ctx.WithMode(execution.PlanMode)
+		// Create isolated plan-only context to prevent execution during plan generation
+		// Use Child() to inherit parent state but switch to PlanMode
+		// Child() already copies variables and function references
+		isolatedCtx := e.ctx.Child().WithMode(execution.PlanMode)
 
+		// Create plan elements by safely processing command content
 		var planElements []interface{}
 		for _, content := range cmd.Body.Content {
 			switch c := content.(type) {
 			case *ast.ShellContent:
-				result := planCtx.ExecuteShell(c)
-				if result.Error != nil {
+				// Process shell content in plan mode only (no execution)
+				planResult := isolatedCtx.ExecuteShell(c)
+				if planResult.Error != nil {
 					return &execution.ExecutionResult{
 						Mode:  execution.PlanMode,
 						Data:  nil,
-						Error: result.Error,
+						Error: fmt.Errorf("failed to create plan for shell content: %w", planResult.Error),
 					}, nil
 				}
-				if result.Data != nil {
-					planElements = append(planElements, result.Data)
+				planElements = append(planElements, planResult.Data)
+			case *ast.ActionDecorator:
+				// CRITICAL: Create plan for action decorators without executing
+				planData := map[string]interface{}{
+					"type":        "action",
+					"command":     fmt.Sprintf("@%s(...)", c.Name),
+					"description": fmt.Sprintf("Execute @%s action decorator", c.Name),
 				}
-				// Handle other content types as needed
+				planElements = append(planElements, planData)
+			case *ast.BlockDecorator:
+				// For block decorators, create plan element
+				planData := map[string]interface{}{
+					"type":        "block",
+					"command":     fmt.Sprintf("@%s{...}", c.Name),
+					"description": fmt.Sprintf("Execute @%s block decorator", c.Name),
+				}
+				planElements = append(planElements, planData)
+			default:
+				// Handle any other content types safely
+				planData := map[string]interface{}{
+					"type":        "unknown",
+					"command":     fmt.Sprintf("content: %T", c),
+					"description": fmt.Sprintf("Process content of type %T", c),
+				}
+				planElements = append(planElements, planData)
 			}
 		}
 
@@ -732,13 +760,13 @@ func (e *Engine) setupTemplateFunctions() {
 				if err != nil {
 					return fmt.Sprintf("return fmt.Errorf(\"block decorator @%s not found: %v\")", c.Name, err)
 				}
-				
+
 				// Execute the decorator in generator mode to get the generated code
 				result := decorator.Execute(e.ctx, c.Args, c.Content)
 				if result.Error != nil {
 					return fmt.Sprintf("return fmt.Errorf(\"@%s decorator execution failed: %v\")", c.Name, result.Error)
 				}
-				
+
 				// Return the generated code from the decorator
 				if code, ok := result.Data.(string); ok {
 					return code
@@ -750,14 +778,14 @@ func (e *Engine) setupTemplateFunctions() {
 				if err != nil {
 					return fmt.Sprintf("return fmt.Errorf(\"action decorator @%s not found: %v\")", c.Name, err)
 				}
-				
+
 				// Action decorators generate execution code
 				generatorCtx := e.ctx.WithMode(execution.GeneratorMode)
 				result := decorator.Expand(generatorCtx, c.Args)
 				if result.Error != nil {
 					return fmt.Sprintf("return fmt.Errorf(\"@%s decorator execution failed: %v\")", c.Name, result.Error)
 				}
-				
+
 				// Return the generated code from the decorator
 				if code, ok := result.Data.(string); ok {
 					return code
@@ -775,6 +803,9 @@ func (e *Engine) setupTemplateFunctions() {
 		},
 		"hasSuffix": func(s, suffix string) bool {
 			return strings.HasSuffix(strings.TrimSpace(s), suffix)
+		},
+		"contains": func(s, substr string) bool {
+			return strings.Contains(s, substr)
 		},
 		"generateShellExpression": func(content *ast.ShellContent) string {
 			// Use unified shell processing in generator mode
@@ -844,6 +875,26 @@ import (
 	{{end}}
 )
 
+// CommandResult represents the result of executing a command
+type CommandResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+// Failed returns true if the command failed (non-zero exit code)
+func (r CommandResult) Failed() bool {
+	return r.ExitCode != 0
+}
+
+// Error returns an error if the command failed
+func (r CommandResult) Error() error {
+	if r.ExitCode != 0 {
+		return fmt.Errorf("command failed with exit code %d: %s", r.ExitCode, r.Stderr)
+	}
+	return nil
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -870,9 +921,9 @@ func main() {
 
 	// Execution functions for commands
 	{{range .Commands}}
-	execute{{.FunctionName | title}} := func() error {
-		{{.ExecutionCode}}{{if not (hasSuffix .ExecutionCode "return")}}
-		return nil{{end}}
+	execute{{.FunctionName | title}} := func() CommandResult {
+		{{.ExecutionCode}}{{if not (contains .ExecutionCode "return CommandResult{")}}
+		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}{{end}}
 	}
 	{{end}}
 
@@ -892,8 +943,9 @@ func main() {
 		}
 		
 		// Normal execution - call the execution function
-		if err := execute{{.FunctionName | title}}(); err != nil {
-			handleCommandError("{{.Name}}", err)
+		result := execute{{.FunctionName | title}}()
+		if result.Failed() {
+			handleCommandError("{{.Name}}", result.Error())
 		}
 	}
 
@@ -1227,6 +1279,7 @@ type ProcessGroupData struct {
 
 // generateCodeWithTemplate uses a template-based approach instead of fragile WriteString calls
 func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResult, error) {
+
 	// Set execution mode to generator
 	ctx := e.ctx.WithMode(execution.GeneratorMode)
 
@@ -1252,6 +1305,13 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 	result.AddStandardImport("fmt")
 	result.AddStandardImport("os")
 	result.AddStandardImport("os/exec")
+	result.AddStandardImport("bytes")   // Needed for output capture
+	result.AddStandardImport("io")      // Needed for streaming output
+	
+	// Add strings import if ActionDecorator templates that use strings are used
+	if e.programUsesStringsInActionDecorators(program) {
+		result.AddStandardImport("strings") // Needed for ActionDecorator templates with string operations
+	}
 
 	// Add process management imports if we have process groups
 	if len(commandGroups.ProcessGroups) > 0 {
@@ -1310,11 +1370,13 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 
 	// Add regular commands to template data by executing them in generator mode
 	for _, cmd := range commandGroups.RegularCommands {
+
 		// Execute the command content using the execution context to get proper template-generated code
 		var executionCode strings.Builder
 		shellCommandIndex := 0
 
 		for _, content := range cmd.Body.Content {
+
 			// Execute each piece of content and collect the generated code
 			switch c := content.(type) {
 			case *ast.ShellContent:
@@ -1401,7 +1463,10 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 				if err != nil {
 					return nil, fmt.Errorf("action decorator @%s not found for command %s: %w", c.Name, cmd.Name, err)
 				}
-				decoratorResult := actionDecorator.Expand(ctx, c.Args)
+				// CRITICAL FIX: Use GeneratorMode context for action decorators
+				// Use Child() to create a proper independent context, then set the mode
+				actionCtx := ctx.Child().WithMode(execution.GeneratorMode)
+				decoratorResult := actionDecorator.Expand(actionCtx, c.Args)
 				if decoratorResult.Error != nil {
 					return nil, fmt.Errorf("@%s decorator execution failed in command %s: %w", c.Name, cmd.Name, decoratorResult.Error)
 				}
@@ -1596,4 +1661,112 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 	}
 
 	return result, nil
+}
+
+
+// programUsesActionDecorators checks if the program uses ActionDecorator templates
+func (e *Engine) programUsesActionDecorators(program *ast.Program) bool {
+	for _, cmd := range program.Commands {
+		for _, content := range cmd.Body.Content {
+			if e.commandUsesActionDecorators(content) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// programUsesStringsInActionDecorators checks if any command uses ActionDecorator templates that require strings import
+func (e *Engine) programUsesStringsInActionDecorators(program *ast.Program) bool {
+	for _, cmd := range program.Commands {
+		for _, content := range cmd.Body.Content {
+			if e.commandUsesStringsInActionDecorators(content) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// commandUsesActionDecorators checks if command content uses ActionDecorator templates
+func (e *Engine) commandUsesActionDecorators(content ast.CommandContent) bool {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		// Check for ActionDecorators
+		for _, part := range c.Parts {
+			if _, ok := part.(*ast.ActionDecorator); ok {
+				return true
+			}
+		}
+		// Check for shell operators that trigger ActionDecorator template usage
+		for _, part := range c.Parts {
+			if textPart, ok := part.(*ast.TextPart); ok {
+				text := textPart.Text
+				if strings.Contains(text, "&&") || strings.Contains(text, "||") || 
+				   strings.Contains(text, "|") || strings.Contains(text, ">>") {
+					return true
+				}
+			}
+		}
+	case *ast.BlockDecorator:
+		// Block decorators might contain ActionDecorators
+		for _, subContent := range c.Content {
+			if e.commandUsesActionDecorators(subContent) {
+				return true
+			}
+		}
+	case *ast.PatternDecorator:
+		// Pattern decorators might contain ActionDecorators
+		for _, pattern := range c.Patterns {
+			for _, command := range pattern.Commands {
+				if e.commandUsesActionDecorators(command) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// commandUsesStringsInActionDecorators checks if command content uses ActionDecorator templates that need strings import
+func (e *Engine) commandUsesStringsInActionDecorators(content ast.CommandContent) bool {
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		// Only shell operators and non-@cmd ActionDecorators need strings import
+		for _, part := range c.Parts {
+			if actionDec, ok := part.(*ast.ActionDecorator); ok {
+				// @cmd decorators don't need strings import - they just call other functions
+				if actionDec.Name != "cmd" {
+					return true
+				}
+			}
+		}
+		// Check for shell operators that actually need strings import (only pipes need strings.NewReader)
+		for _, part := range c.Parts {
+			if textPart, ok := part.(*ast.TextPart); ok {
+				text := textPart.Text
+				// Only pipe operators (|) need strings import for strings.NewReader
+				if strings.Contains(text, "|") && !strings.Contains(text, "||") {
+					return true
+				}
+			}
+		}
+	case *ast.BlockDecorator:
+		// Block decorators might contain ActionDecorators that need strings
+		for _, subContent := range c.Content {
+			if e.commandUsesStringsInActionDecorators(subContent) {
+				return true
+			}
+		}
+	case *ast.PatternDecorator:
+		// Pattern decorators might contain ActionDecorators that need strings
+		for _, pattern := range c.Patterns {
+			for _, command := range pattern.Commands {
+				if e.commandUsesStringsInActionDecorators(command) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

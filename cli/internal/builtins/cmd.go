@@ -42,7 +42,7 @@ func (d *CmdDecorator) DecoratorType() execution.FunctionDecoratorType {
 // ImportRequirements returns the dependencies needed for code generation
 func (d *CmdDecorator) ImportRequirements() decorators.ImportRequirement {
 	return decorators.ImportRequirement{
-		StandardLibrary: []string{"fmt"},
+		StandardLibrary: []string{"fmt", "bytes", "context", "os/exec", "os", "io"},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
 	}
@@ -93,6 +93,7 @@ func (d *CmdDecorator) Expand(ctx *execution.ExecutionContext, params []ast.Name
 
 // executePlan creates a plan element for the command reference
 func (d *CmdDecorator) executePlan(ctx *execution.ExecutionContext, cmdName string) *execution.ExecutionResult {
+	
 	// Generate the plan for the referenced command
 	planResult, err := ctx.GenerateCommandPlan(cmdName)
 	if err != nil {
@@ -109,6 +110,15 @@ func (d *CmdDecorator) executePlan(ctx *execution.ExecutionContext, cmdName stri
 
 // executeInterpreter executes the command reference in interpreter mode
 func (d *CmdDecorator) executeInterpreter(ctx *execution.ExecutionContext, cmdName string) *execution.ExecutionResult {
+	// SAFETY CHECK: This should only be called in InterpreterMode
+	if ctx.Mode() != execution.InterpreterMode {
+		return &execution.ExecutionResult{
+			Mode:  ctx.Mode(),
+			Data:  nil,
+			Error: fmt.Errorf("executeInterpreter called in wrong mode: %v (expected InterpreterMode)", ctx.Mode()),
+		}
+	}
+	
 	// Execute the referenced command
 	err := ctx.ExecuteCommand(cmdName)
 	if err != nil {
@@ -128,14 +138,16 @@ func (d *CmdDecorator) executeInterpreter(ctx *execution.ExecutionContext, cmdNa
 
 // executeGenerator generates Go code for the command reference
 func (d *CmdDecorator) executeGenerator(ctx *execution.ExecutionContext, cmdName string) *execution.ExecutionResult {
-	// Generate a proper error-handling function call
+	// CRITICAL FIX: In GeneratorMode, never call GenerateCommandPlan or any execution methods
+	// Just generate the Go code that will call the function at runtime
+	// This prevents the generation-time execution bug
+	
+	// Generate a simple function call that matches the engine's naming convention
 	functionName := strings.Title(toCamelCase(cmdName))
-	code := fmt.Sprintf(`func() error {
-		if err := execute%s(); err != nil {
-			return fmt.Errorf("referenced command '%s' failed: %%w", err)
-		}
-		return nil
-	}()`, functionName, cmdName)
+	code := fmt.Sprintf(`result := execute%s()
+		if result.Failed() {
+			return result
+		}`, functionName)
 
 	return &execution.ExecutionResult{
 		Mode:  execution.GeneratorMode,

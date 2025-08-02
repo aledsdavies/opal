@@ -16,71 +16,68 @@ import (
 // ParallelDecorator implements the @parallel decorator for concurrent command execution
 type ParallelDecorator struct{}
 
-// Template for parallel execution code generation (unified contract: statement blocks)
-const parallelExecutionTemplate = `// Parallel execution setup
-{{if .FailOnFirstError}}parallelCtx, cancelParallel := context.WithCancel(ctx)
-defer cancelParallel(){{end}}
-
-parallelSemaphore := make(chan struct{}, {{.Concurrency}})
-var parallelWg sync.WaitGroup
-parallelErrChan := make(chan error, {{.CommandCount}})
+// Template for parallel execution code generation (unified contract: statement blocks)  
+const parallelExecutionTemplate = `// Block decorator: @parallel
+// Parallel execution setup
+{
+	parallelSemaphore := make(chan struct{}, {{.Concurrency}})
+	var parallelWg sync.WaitGroup  
+	parallelErrChan := make(chan error, {{.CommandCount}})
 
 {{range $i, $cmd := .Commands}}
-// Parallel command {{$i}}
-parallelWg.Add(1)
-go func() {
-	defer parallelWg.Done()
-	
-	// Acquire semaphore
-	parallelSemaphore <- struct{}{}
-	defer func() { <-parallelSemaphore }()
+	// Parallel command {{$i}}
+	parallelWg.Add(1)
+	go func() {
+		defer parallelWg.Done()
+		
+		// Acquire semaphore
+		parallelSemaphore <- struct{}{}
+		defer func() { <-parallelSemaphore }()
 
-	{{if $.FailOnFirstError}}// Check cancellation
-	select {
-	case <-parallelCtx.Done():
-		parallelErrChan <- parallelCtx.Err()
-		return
-	default:
-	}{{end}}
-
-	// Execute command using template function
-	if err := func() error {
-		{{generateShellCode $cmd}}
-		return nil
-	}(); err != nil {
-		parallelErrChan <- err
-		return
-	}
-	parallelErrChan <- nil
-}()
+		// Execute actual command and capture result
+		commandResult := func() CommandResult {
+{{.GeneratedCode}}
+		}()
+		
+		if commandResult.Failed() {
+			parallelErrChan <- commandResult.Error()
+			return
+		}
+		parallelErrChan <- nil
+	}()
 {{end}}
 
-// Wait for parallel completion
-go func() {
-	parallelWg.Wait()
-	close(parallelErrChan)
-}()
+	// Wait for parallel completion
+	go func() {
+		parallelWg.Wait()
+		close(parallelErrChan)
+	}()
 
-// Collect parallel errors
-var parallelErrors []string
-for err := range parallelErrChan {
-	if err != nil {
-		parallelErrors = append(parallelErrors, err.Error())
-		{{if .FailOnFirstError}}cancelParallel() // Cancel remaining tasks
-		break{{end}}
+	// Collect parallel errors
+	var parallelErrors []string
+	for err := range parallelErrChan {
+		if err != nil {
+			parallelErrors = append(parallelErrors, err.Error())
+		}
+	}
+
+	if len(parallelErrors) > 0 {
+		return CommandResult{Stdout: "", Stderr: strings.Join(parallelErrors, "; "), ExitCode: 1}
 	}
 }
-
-if len(parallelErrors) > 0 {
-	return fmt.Errorf("parallel execution failed: %s", strings.Join(parallelErrors, "; "))
-}`
+return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}`
 
 // TemplateData holds data for template execution
 type ParallelTemplateData struct {
 	Concurrency      int
 	FailOnFirstError bool
 	CommandCount     int
-	Commands         []ast.CommandContent
+	Commands         []ParallelCommandData
+}
+
+// ParallelCommandData holds generated code for a single command within parallel block
+type ParallelCommandData struct {
+	GeneratedCode string
 }
 
 // Name returns the decorator name
@@ -241,16 +238,39 @@ func (p *ParallelDecorator) executeInterpreter(ctx *execution.ExecutionContext, 
 
 // executeGenerator generates Go code for parallel execution
 func (p *ParallelDecorator) executeGenerator(ctx *execution.ExecutionContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
-	// Prepare template data
+	// Pre-generate code for each command using the unified shell code builder
+	// This supports all command content types: ShellContent, BlockDecorator, PatternDecorator
+	var commandData []ParallelCommandData
+	for _, cmdContent := range content {
+		// Use the unified shell code builder to handle all command content types
+		shellBuilder := execution.NewShellCodeBuilder(ctx)
+		generatedCode, err := shellBuilder.GenerateShellCode(cmdContent)
+		if err != nil {
+			return &execution.ExecutionResult{
+				Mode:  execution.GeneratorMode,
+				Data:  "",
+				Error: fmt.Errorf("failed to generate code for parallel command: %w", err),
+			}
+		}
+		
+		// Process the generated code to ensure proper indentation for function context
+		// The generated code needs to be indented properly when placed inside the anonymous function
+		indentedCode := strings.ReplaceAll(generatedCode, "\n", "\n\t\t")
+		commandData = append(commandData, ParallelCommandData{
+			GeneratedCode: indentedCode,
+		})
+	}
+
+	// Prepare template data with pre-generated code
 	templateData := ParallelTemplateData{
 		Concurrency:      concurrency,
 		FailOnFirstError: failOnFirstError,
 		CommandCount:     len(content),
-		Commands:         content, // Pass raw AST content
+		Commands:         commandData,
 	}
 
-	// Parse and execute template with context functions
-	tmpl, err := template.New("parallel").Funcs(ctx.GetTemplateFunctions()).Parse(parallelExecutionTemplate)
+	// Parse and execute template (minimal template functions needed)
+	tmpl, err := template.New("parallel").Parse(parallelExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Mode:  execution.GeneratorMode,
@@ -359,49 +379,9 @@ func (p *ParallelDecorator) executePlan(ctx *execution.ExecutionContext, concurr
 // createIsolatedContext creates a copy of the execution context for isolated parallel execution
 // Each parallel task gets its own context with independent working directory state
 func (p *ParallelDecorator) createIsolatedContext(parentCtx *execution.ExecutionContext) *execution.ExecutionContext {
-	// Create a new execution context with the same program and parent context
-	isolatedCtx := execution.NewExecutionContext(parentCtx.Context, parentCtx.Program)
-	
-	// Copy the execution mode
-	isolatedCtx = isolatedCtx.WithMode(parentCtx.Mode())
-	
-	// Copy variables (each task gets the same variable values but independent state)
-	for name, value := range parentCtx.Variables {
-		isolatedCtx.SetVariable(name, value)
-	}
-	
-	
-	// Copy execution state
-	isolatedCtx.WorkingDir = parentCtx.WorkingDir
-	isolatedCtx.Debug = parentCtx.Debug
-	isolatedCtx.DryRun = parentCtx.DryRun
-	
-	// Copy the essential function references from parent context
-	// These allow the isolated context to execute commands and look up decorators
-	isolatedCtx.SetTemplateFunctions(parentCtx.GetTemplateFunctions())
-	
-	// Copy the function executors - we need to access the parent's function fields directly
-	// since the SetContentExecutor method expects a function, not the bound method
-	// This creates a closure that captures the parent's state
-	isolatedCtx.SetContentExecutor(func(content ast.CommandContent) error {
-		return parentCtx.ExecuteCommandContent(content)
-	})
-	
-	// Set up function decorator lookup by copying from parent
-	// Note: We can't easily access the parent's functionDecoratorLookup directly,
-	// but SetFunctionDecoratorLookup exists, so this should work through reflection or shared state
-	
-	// Copy the function executors that enable decorator execution
-	// These methods are always available on ExecutionContext, so we can set them directly
-	isolatedCtx.SetCommandExecutor(func(cmd *ast.CommandDecl) error {
-		return parentCtx.ExecuteCommand(cmd.Name)
-	})
-	
-	isolatedCtx.SetCommandPlanGenerator(func(cmd *ast.CommandDecl) (*execution.ExecutionResult, error) {
-		return parentCtx.GenerateCommandPlan(cmd.Name)
-	})
-	
-	return isolatedCtx
+	// Use Child() to properly inherit all parent context properties including execution mode
+	// Child() already copies variables, execution mode, and all function references
+	return parentCtx.Child()
 }
 
 // ImportRequirements returns the dependencies needed for code generation

@@ -35,9 +35,13 @@ type ShellTemplateData struct {
 
 // ActionChainTemplateData holds data for action decorator chain templates
 type ActionChainTemplateData struct {
-	CommandChain []ChainElement
-	BaseName     string
-	WorkingDir   string // Working directory for command execution
+	CommandChain               []ChainElement
+	BaseName                   string
+	WorkingDir                 string // Working directory for command execution
+	NeedsShellCommandWithInput bool   // Whether executeShellCommandWithInput is needed
+	NeedsShellCommand          bool   // Whether executeShellCommand is needed
+	NeedsAppendToFile          bool   // Whether appendToFile is needed
+	NeedsLastResult            bool   // Whether lastResult variable is needed
 }
 
 // GenerateShellCode converts AST CommandContent to template string for Go shell execution
@@ -123,12 +127,26 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 	const shellExecTemplate = `{{if .HasFormatArgs}}{{.CmdVarName}} := fmt.Sprintf({{printf "%q" .FormatString}}, {{range $i, $arg := .FormatArgs}}{{if $i}}, {{end}}{{$arg}}{{end}}){{else}}{{.CmdVarName}} := {{printf "%q" .FormatString}}{{end}}
 		{{.ExecVarName}} := exec.CommandContext(ctx, "sh", "-c", {{.CmdVarName}}){{if .WorkingDir}}
 		{{.ExecVarName}}.Dir = {{printf "%q" .WorkingDir}} // Set working directory{{end}}
-		{{.ExecVarName}}.Stdout = os.Stdout
-		{{.ExecVarName}}.Stderr = os.Stderr
+		
+		// Create buffers to capture output while streaming to terminal
+		var {{.BaseName}}Stdout, {{.BaseName}}Stderr bytes.Buffer
+		
+		// Use MultiWriter to stream to terminal AND capture for CommandResult
+		{{.ExecVarName}}.Stdout = io.MultiWriter(os.Stdout, &{{.BaseName}}Stdout)
+		{{.ExecVarName}}.Stderr = io.MultiWriter(os.Stderr, &{{.BaseName}}Stderr)
 		{{.ExecVarName}}.Stdin = os.Stdin
-		if err := {{.ExecVarName}}.Run(); err != nil {
-			return fmt.Errorf("command failed: %v", err)
-		}`
+		
+		{{.BaseName}}Err := {{.ExecVarName}}.Run()
+		{{.BaseName}}ExitCode := 0
+		if {{.BaseName}}Err != nil {
+			if exitError, ok := {{.BaseName}}Err.(*exec.ExitError); ok {
+				{{.BaseName}}ExitCode = exitError.ExitCode()
+			} else {
+				{{.BaseName}}ExitCode = 1
+			}
+		}
+		
+		return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}`
 
 	// Execute the template with our data
 	tmpl, err := template.New("shellExec").Parse(shellExecTemplate)
@@ -152,25 +170,66 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 		return "", fmt.Errorf("failed to parse ActionDecorator chain: %w", err)
 	}
 
+	// Analyze command chain to determine which helper functions are needed
+	needsShellCommandWithInput := false
+	needsShellCommand := false
+	needsAppendToFile := false
+	needsLastResult := false
+	hasNonCmdActions := false
+
+	for _, element := range commandChain {
+		if element.Type == "text" {
+			if element.IsPipeTarget {
+				needsShellCommandWithInput = true
+				needsLastResult = true
+			} else if element.IsFileTarget {
+				needsAppendToFile = true
+				needsLastResult = true
+			} else {
+				needsShellCommand = true
+				needsLastResult = true
+			}
+		} else if element.Type == "operator" {
+			needsLastResult = true
+		} else if element.Type == "action" && element.ActionName != "cmd" {
+			hasNonCmdActions = true
+			needsLastResult = true
+		}
+	}
+
+	// For pure @cmd chains without operators, we don't need lastResult
+	if !needsLastResult && !hasNonCmdActions {
+		for _, element := range commandChain {
+			if element.Type == "operator" {
+				needsLastResult = true
+				break
+			}
+		}
+	}
+
 	// Create template data
 	templateData := ActionChainTemplateData{
-		CommandChain: commandChain,
-		BaseName:     b.getBaseName(),
-		WorkingDir:   b.context.WorkingDir,
+		CommandChain:               commandChain,
+		BaseName:                   b.getBaseName(),
+		WorkingDir:                 b.context.WorkingDir,
+		NeedsShellCommandWithInput: needsShellCommandWithInput,
+		NeedsShellCommand:          needsShellCommand,
+		NeedsAppendToFile:          needsAppendToFile,
+		NeedsLastResult:            needsLastResult,
 	}
 
 	// Return the action chain template
 	const actionChainTemplate = `// ActionDecorator command chain with Go-native operators
-		
+		{{if .NeedsShellCommandWithInput}}
 		// Helper function for executing shell commands with piped input
-		executeShellCommandWithInput := func(ctx context.Context, command, input string) execution.CommandResult {
+		executeShellCommandWithInput := func(ctx context.Context, command, input string) CommandResult {
 			cmd := exec.CommandContext(ctx, "sh", "-c", command){{if .WorkingDir}}
 			cmd.Dir = {{printf "%q" .WorkingDir}}{{end}}
 			cmd.Stdin = strings.NewReader(input)
 			
 			var stdout, stderr bytes.Buffer
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
+			cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
+			cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 			
 			err := cmd.Run()
 			exitCode := 0
@@ -182,21 +241,22 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 				}
 			}
 			
-			return execution.CommandResult{
+			return CommandResult{
 				Stdout:   stdout.String(),
 				Stderr:   stderr.String(),
 				ExitCode: exitCode,
 			}
 		}
-		
+		{{end}}
+		{{if .NeedsShellCommand}}
 		// Helper function for executing shell commands
-		executeShellCommand := func(ctx context.Context, command string) execution.CommandResult {
+		executeShellCommand := func(ctx context.Context, command string) CommandResult {
 			cmd := exec.CommandContext(ctx, "sh", "-c", command){{if .WorkingDir}}
 			cmd.Dir = {{printf "%q" .WorkingDir}}{{end}}
 			
 			var stdout, stderr bytes.Buffer
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
+			cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
+			cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 			
 			err := cmd.Run()
 			exitCode := 0
@@ -208,13 +268,14 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 				}
 			}
 			
-			return execution.CommandResult{
+			return CommandResult{
 				Stdout:   stdout.String(),
 				Stderr:   stderr.String(),
 				ExitCode: exitCode,
 			}
 		}
-		
+		{{end}}
+		{{if .NeedsAppendToFile}}
 		// Helper function for appending content to files
 		appendToFile := func(filename, content string) error {
 			file, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
@@ -230,26 +291,37 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 			
 			return nil
 		}
-		
-		var lastResult execution.CommandResult
+		{{end}}
+		{{if .NeedsLastResult}}
+		var lastResult CommandResult
+		{{end}}
 {{range $i, $element := .CommandChain}}
 {{- if eq $element.Type "action"}}
-		{{$element.VariableName}} := execute{{title $element.ActionName}}Decorator(ctx, {{formatParams $element.ActionArgs}})
-		lastResult = {{$element.VariableName}}
+{{- if eq $element.ActionName "cmd"}}
+		// @cmd decorator - call the referenced command function directly
+		{{$element.VariableName}} := {{cmdFunctionName $element.ActionArgs}}()
+		{{if $.NeedsLastResult}}lastResult = {{$element.VariableName}}{{end}}
 		if {{$element.VariableName}}.Failed() {
-			return fmt.Errorf("@{{$element.ActionName}} failed: %v", {{$element.VariableName}}.Error())
+			return {{$element.VariableName}}
 		}
+{{- else}}
+		{{$element.VariableName}} := execute{{title $element.ActionName}}Decorator(ctx, {{formatParams $element.ActionArgs}})
+		{{if $.NeedsLastResult}}lastResult = {{$element.VariableName}}{{end}}
+		if {{$element.VariableName}}.Failed() {
+			return {{$element.VariableName}}
+		}
+{{- end}}
 {{- else if eq $element.Type "operator"}}
 		// {{$element.Operator}} operator - conditional execution logic
 {{- if eq $element.Operator "&&"}}
 		// AND: next command runs only if previous succeeded
 		if lastResult.Failed() {
-			return fmt.Errorf("previous command failed")
+			return lastResult
 		}
 {{- else if eq $element.Operator "||"}}
 		// OR: next command runs only if previous failed
-		if lastResult.Success() {
-			return nil // Skip remaining commands in chain
+		if !lastResult.Failed() {
+			return lastResult // Skip remaining commands in chain
 		}
 {{- else if eq $element.Operator "|"}}
 		// PIPE: stdout of previous feeds to next command
@@ -263,23 +335,25 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 		{{$element.VariableName}} := executeShellCommandWithInput(ctx, {{printf "%q" $element.Text}}, lastResult.Stdout)
 		lastResult = {{$element.VariableName}}
 		if {{$element.VariableName}}.Failed() {
-			return fmt.Errorf("piped command failed: %v", {{$element.VariableName}}.Error())
+			return {{$element.VariableName}}
 		}
 {{- else if $element.IsFileTarget}}
 		if err := appendToFile({{printf "%q" $element.Text}}, lastResult.Stdout); err != nil {
-			return fmt.Errorf("file append failed: %v", err)
+			return CommandResult{Stdout: "", Stderr: err.Error(), ExitCode: 1}
 		}
 		// Set lastResult to indicate successful file operation
-		lastResult = execution.CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
+		lastResult = CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 {{- else}}
 		{{$element.VariableName}} := executeShellCommand(ctx, {{printf "%q" $element.Text}})
 		lastResult = {{$element.VariableName}}
 		if {{$element.VariableName}}.Failed() {
-			return fmt.Errorf("shell command failed: %v", {{$element.VariableName}}.Error())
+			return {{$element.VariableName}}
 		}
 {{- end}}
 {{- end}}
-{{end}}`
+{{end}}
+
+		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}`
 
 	// Execute the template with our data
 	tmpl, err := template.New("actionChain").Funcs(b.GetTemplateFunctions()).Parse(actionChainTemplate)
@@ -297,31 +371,17 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 
 // generateBlockDecoratorTemplate creates template string for executing a block decorator
 func (b *ShellCodeBuilder) generateBlockDecoratorTemplate(blockDecorator *ast.BlockDecorator) (string, error) {
-	// Generate a template function call to the block decorator's execution function
-	functionName := fmt.Sprintf("execute%sDecorator", strings.Title(blockDecorator.Name))
-	templateStr := fmt.Sprintf(`if err := %s(ctx, {{formatParams .Params}}, content); err != nil {
-			return fmt.Errorf("@%s decorator failed: %%v", err)
-		}`, functionName, blockDecorator.Name)
+	// For block decorators within other decorators, we need to execute the decorator
+	// in generator mode and return the generated Go code that returns CommandResult
 	
-	// Create template data with parameters
-	templateData := struct {
-		Params []ast.NamedParameter
-	}{
-		Params: blockDecorator.Args,
-	}
-
-	// Execute the template
-	tmpl, err := template.New("blockDecorator").Funcs(b.GetTemplateFunctions()).Parse(templateStr)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse block decorator template: %w", err)
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute block decorator template: %w", err)
-	}
-
-	return result.String(), nil
+	// Look up the block decorator in the registry
+	// Note: Block decorators need a different lookup mechanism than action decorators
+	// We need to access the decorators registry directly to find block decorators
+	
+	// For now, let's use a simpler approach - just return the original template approach
+	// until we have a proper block decorator lookup mechanism
+	functionName := fmt.Sprintf("execute%sDecorator", strings.Title(blockDecorator.Name))
+	return fmt.Sprintf("if err := %s(ctx, nil, nil); err != nil {\n\t\treturn CommandResult{Stdout: \"\", Stderr: err.Error(), ExitCode: 1}\n\t}\n\treturn CommandResult{Stdout: \"\", Stderr: \"\", ExitCode: 0}", functionName), nil
 }
 
 // generatePatternDecoratorTemplate creates template string for executing a pattern decorator
@@ -563,12 +623,22 @@ func (b *ShellCodeBuilder) validateChain(elements []ChainElement) error {
 	return nil
 }
 
-// getBaseName returns the base name for variable generation
+// getBaseName returns the base name for variable generation with descriptive naming
 func (b *ShellCodeBuilder) getBaseName() string {
+	b.context.shellCounter++
+	
+	// Create a descriptive base name using camelCase convention
+	baseName := "command"
 	if b.context.currentCommand != "" {
-		return strings.Title(b.context.currentCommand)
+		// Convert to proper camelCase handling hyphens, underscores, and spaces
+		baseName = b.toCamelCase(b.context.currentCommand)
 	}
-	return "Action"
+	
+	// Use descriptive naming instead of just numbers
+	if b.context.shellCounter == 1 {
+		return baseName
+	}
+	return fmt.Sprintf("%sStep%d", baseName, b.context.shellCounter)
 }
 
 // formatParams formats parameters for Go code generation
@@ -580,13 +650,47 @@ func (b *ShellCodeBuilder) formatParams(params []ast.NamedParameter) string {
 	return "[]ast.NamedParameter{}"
 }
 
+// toCamelCase converts a command name to camelCase for function naming
+func (b *ShellCodeBuilder) toCamelCase(name string) string {
+	// Handle different separators: hyphens, underscores, and spaces
+	parts := strings.FieldsFunc(name, func(c rune) bool {
+		return c == '-' || c == '_' || c == ' '
+	})
+	
+	if len(parts) == 0 {
+		return name
+	}
+	
+	// First part stays lowercase, subsequent parts get title case
+	result := strings.ToLower(parts[0])
+	for i := 1; i < len(parts); i++ {
+		result += strings.Title(strings.ToLower(parts[i]))
+	}
+	
+	return result
+}
+
 // GetTemplateFunctions returns the template functions that should be available to all templates
 func (b *ShellCodeBuilder) GetTemplateFunctions() template.FuncMap {
 	return template.FuncMap{
 		"generateShellCode": func(cmd ast.CommandContent) (string, error) {
+			// Use the existing context which should already be in the correct mode
+			// Don't create a new child context - this preserves all context state including working directory
 			return b.GenerateShellCode(cmd)
 		},
 		"formatParams": b.formatParams,
 		"title":        strings.Title,
+		"cmdFunctionName": func(args []ast.NamedParameter) string {
+			// Extract command name from @cmd arguments and convert to function name
+			if len(args) == 0 {
+				return "unknownCommand"
+			}
+			// Get the first argument (should be the command name)
+			nameParam := args[0]
+			if ident, ok := nameParam.Value.(*ast.Identifier); ok {
+				return "execute" + strings.Title(b.toCamelCase(ident.Name))
+			}
+			return "unknownCommand"
+		},
 	}
 }

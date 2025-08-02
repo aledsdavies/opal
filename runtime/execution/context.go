@@ -68,6 +68,9 @@ type ExecutionContext struct {
 	// Current command name for generating meaningful variable names
 	currentCommand string
 
+	// Shell execution counter for unique variable naming
+	shellCounter int
+
 	// Template functions for code generation (populated by engine)
 	templateFunctions template.FuncMap
 
@@ -368,10 +371,9 @@ func formatParams(params []ast.NamedParameter) string {
 
 // executeShellPlan creates a plan element for shell execution
 func (c *ExecutionContext) executeShellPlan(content *ast.ShellContent) *ExecutionResult {
-	// Compose the command string for display using interpreter-style resolution
-	// This ensures variables are resolved to their actual values for the plan display
-	interpreterCtx := c.WithMode(InterpreterMode)
-	cmdStr, err := interpreterCtx.composeShellCommand(content)
+	// CRITICAL FIX: Don't use InterpreterMode for plan generation as it executes ActionDecorators
+	// Instead, create a plan-safe command string that doesn't execute anything
+	cmdStr, err := c.composeShellCommandForPlan(content)
 	if err != nil {
 		return &ExecutionResult{
 			Mode:  PlanMode,
@@ -409,6 +411,45 @@ func (c *ExecutionContext) composeShellCommand(content *ast.ShellContent) (strin
 			parts = append(parts, value)
 		} else {
 			return "", fmt.Errorf("shell part returned non-string result: %T", result)
+		}
+	}
+
+	return strings.Join(parts, ""), nil
+}
+
+// composeShellCommandForPlan composes shell command for plan display without executing ActionDecorators
+func (c *ExecutionContext) composeShellCommandForPlan(content *ast.ShellContent) (string, error) {
+	var parts []string
+
+	for _, part := range content.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			parts = append(parts, p.Text)
+		case *ast.ValueDecorator:
+			// For plan mode, resolve variables but don't execute anything
+			// Use the same logic as the value decorator but without execution
+			valueDecorator, exists := c.valueDecoratorLookup(p.Name)
+			if exists {
+				// Create a temporary interpreter context to resolve the value for display
+				tempCtx := c.Child().WithMode(InterpreterMode)
+				result := valueDecorator.(interface{ Expand(*ExecutionContext, []ast.NamedParameter) *ExecutionResult }).Expand(tempCtx, p.Args)
+				if result.Error == nil {
+					if value, ok := result.Data.(string); ok {
+						parts = append(parts, value)
+					} else {
+						parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
+					}
+				} else {
+					parts = append(parts, fmt.Sprintf("@%s(error)", p.Name))
+				}
+			} else {
+				parts = append(parts, fmt.Sprintf("@%s(undefined)", p.Name))
+			}
+		case *ast.ActionDecorator:
+			// For plan mode, just show the decorator syntax without executing
+			parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
+		default:
+			return "", fmt.Errorf("unsupported shell part type for plan: %T", part)
 		}
 	}
 
@@ -488,7 +529,15 @@ func (c *ExecutionContext) processActionDecoratorUnified(decorator *ast.ActionDe
 		return nil, fmt.Errorf("action decorator @%s not found in registry", decorator.Name)
 	}
 
-	result := actionDecorator.(interface{ Expand(*ExecutionContext, []ast.NamedParameter) *ExecutionResult }).Expand(c, decorator.Args)
+	// CRITICAL FIX: Ensure ActionDecorators are called with the correct context mode
+	// If we're in GeneratorMode, make sure we pass a GeneratorMode context
+	contextForExpansion := c
+	if c.mode == GeneratorMode {
+		// Use Child() to create a proper independent context in GeneratorMode
+		contextForExpansion = c.Child().WithMode(GeneratorMode)
+	}
+
+	result := actionDecorator.(interface{ Expand(*ExecutionContext, []ast.NamedParameter) *ExecutionResult }).Expand(contextForExpansion, decorator.Args)
 	if result.Error != nil {
 		return nil, fmt.Errorf("@%s decorator execution failed: %w", decorator.Name, result.Error)
 	}

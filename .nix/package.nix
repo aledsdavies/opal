@@ -9,13 +9,16 @@ pkgs.buildGoModule rec {
   modRoot = "cli"; # path to CLI module's go.mod
   subPackages = [ "." ]; # build the main package
 
-  # Turn off workspace mode for vendoring (required since Go 1.22)
+  # Disable workspace mode for both build and fetcher phases (required for buildGoModule)  
   env.GOWORK = "off";
   env.GOCACHE = "/tmp/go-cache";
   env.GOMODCACHE = "/tmp/go-mod-cache";
+  
+  # Force GOWORK=off in the modules fetcher step too (Go 1.22+ requirement)
+  overrideModAttrs = _: { env.GOWORK = "off"; };
 
-  # Vendor hash for Go module dependencies
-  vendorHash = "sha256-fxcLJ9rqMBwVWMK19FHa6dlOe+gbVrhoZltekOofO9w=";
+  # Vendor hash for CLI module dependencies
+  vendorHash = "sha256-zWIIhJXo77Nfw7tk4YtPAFSKL+leMIiHnAGKpVd5ARQ=";
 
   # Build with version info
   ldflags = [

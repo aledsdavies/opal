@@ -12,7 +12,7 @@ import (
 
 // Simple test decorators for examples
 
-// TestVarDecorator is a simple variable decorator for testing
+// TestVarDecorator is a simple variable decorator for testing (ValueDecorator)
 type TestVarDecorator struct{}
 
 func (v *TestVarDecorator) Name() string        { return "var" }
@@ -89,7 +89,12 @@ func (t *TestTimeoutDecorator) Execute(ctx *execution.ExecutionContext, params [
 
 	switch ctx.Mode() {
 	case execution.InterpreterMode:
-		// For testing, just simulate success
+		// Execute each command in the content
+		for _, cmd := range content {
+			if err := ctx.ExecuteCommandContent(cmd); err != nil {
+				return &execution.ExecutionResult{Mode: ctx.Mode(), Data: nil, Error: err}
+			}
+		}
 		return &execution.ExecutionResult{Mode: ctx.Mode(), Data: nil, Error: nil}
 	case execution.GeneratorMode:
 		code := fmt.Sprintf("// Timeout decorator with %s duration\n// Commands: %d", timeout, len(content))

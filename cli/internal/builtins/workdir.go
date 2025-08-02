@@ -16,19 +16,23 @@ import (
 const workdirExecutionTemplate = `// Workdir execution setup
 // Verify target directory exists
 if _, err := os.Stat({{.Path | printf "%q"}}); err != nil {
-	return fmt.Errorf("failed to access directory %s: %w", {{.Path | printf "%q"}}, err)
+	return CommandResult{Stdout: "", Stderr: fmt.Sprintf("failed to access directory %s: %v", {{.Path | printf "%q"}}, err), ExitCode: 1}
 }
 
 {{range $i, $cmd := .Commands}}
 // Execute workdir command {{add $i 1}} in directory {{$.Path}}
-// Commands executed with unified shell builder will automatically use the working directory
-{{generateShellCode $cmd}}
+{{.GeneratedCode}}
 {{end}}`
 
 // WorkdirTemplateData holds data for the workdir execution template
 type WorkdirTemplateData struct {
 	Path     string
-	Commands []ast.CommandContent
+	Commands []WorkdirCommandData
+}
+
+// WorkdirCommandData holds generated code for a single command within workdir
+type WorkdirCommandData struct {
+	GeneratedCode string
 }
 
 // WorkdirDecorator implements the @workdir decorator for changing working directory
@@ -210,14 +214,36 @@ func (d *WorkdirDecorator) executeGenerator(ctx *execution.ExecutionContext, pat
 	// This ensures all nested commands get the correct working directory
 	workdirCtx := ctx.Child().WithWorkingDir(path)
 	
-	// Prepare template data
+	// Pre-generate code for each command using the unified shell code builder
+	// This supports all command content types: ShellContent, BlockDecorator, PatternDecorator
+	var commandData []WorkdirCommandData
+	for _, cmdContent := range content {
+		// Use the unified shell code builder to handle all command content types
+		shellBuilder := execution.NewShellCodeBuilder(workdirCtx)
+		generatedCode, err := shellBuilder.GenerateShellCode(cmdContent)
+		if err != nil {
+			return &execution.ExecutionResult{
+				Mode:  execution.GeneratorMode,
+				Data:  "",
+				Error: fmt.Errorf("failed to generate code for workdir command: %w", err),
+			}
+		}
+		
+		commandData = append(commandData, WorkdirCommandData{
+			GeneratedCode: generatedCode,
+		})
+	}
+	
+	// Prepare template data with pre-generated code
 	templateData := WorkdirTemplateData{
 		Path:     path,
-		Commands: content,
+		Commands: commandData,
 	}
 
-	// Parse and execute template with workdir context functions
-	tmpl, err := template.New("workdir").Funcs(workdirCtx.GetTemplateFunctions()).Parse(workdirExecutionTemplate)
+	// Parse and execute template with basic functions
+	tmpl, err := template.New("workdir").Funcs(template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+	}).Parse(workdirExecutionTemplate)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Mode:  execution.GeneratorMode,
@@ -243,47 +269,11 @@ func (d *WorkdirDecorator) executeGenerator(ctx *execution.ExecutionContext, pat
 }
 
 // generateShellExpression generates a Go string expression for a shell command
+// This method is now DEPRECATED in favor of the unified shell template system
 func (d *WorkdirDecorator) generateShellExpression(ctx *execution.ExecutionContext, content *ast.ShellContent) (string, error) {
-	// Build Go expression parts for the command
-	var goExprParts []string
-
-	for _, part := range content.Parts {
-		switch p := part.(type) {
-		case *ast.TextPart:
-			// Plain text - add as quoted string
-			goExprParts = append(goExprParts, fmt.Sprintf("%q", p.Text))
-
-		case *ast.ValueDecorator:
-			// Check if function decorator lookup is available
-			if ctx == nil {
-				return "", fmt.Errorf("execution context not available for function decorator")
-			}
-
-			// For @var decorator, expand the variable
-			if p.Name == "var" && len(p.Args) > 0 {
-				if nameParam := ast.FindParameter(p.Args, "name"); nameParam != nil {
-					if str, ok := nameParam.Value.(*ast.StringLiteral); ok {
-						// Generate variable reference
-						goExprParts = append(goExprParts, str.Value)
-					}
-				}
-			} else {
-				return "", fmt.Errorf("unsupported function decorator @%s in workdir shell generation", p.Name)
-			}
-
-		default:
-			return "", fmt.Errorf("unsupported shell part type %T in workdir generator", part)
-		}
-	}
-
-	// Combine the parts with Go string concatenation
-	if len(goExprParts) == 0 {
-		return `""`, nil
-	} else if len(goExprParts) == 1 {
-		return goExprParts[0], nil
-	} else {
-		return strings.Join(goExprParts, " + "), nil
-	}
+	// Use the unified shell code generation system from ExecutionContext
+	// This properly handles @var expansion and all other decorators
+	return ctx.GenerateShellCodeForTemplate(content)
 }
 
 // init registers the workdir decorator

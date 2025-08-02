@@ -174,7 +174,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 			// Check that all @cmd() references have corresponding functions
 			cmdReferences := findCmdReferences(generatedCode)
 			cmdFunctions := findCmdFunctions(generatedCode)
-			
+
 			for _, ref := range cmdReferences {
 				if !contains(cmdFunctions, ref) {
 					t.Errorf("Generated code references function '%s()' but function is not defined", ref)
@@ -186,7 +186,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 				t.Error("Generated code uses os.Chdir - should use context-based execution instead")
 			}
 
-			t.Logf("Generated code validation passed - %d cmd references, %d cmd functions defined", 
+			t.Logf("Generated code validation passed - %d cmd references, %d cmd functions defined",
 				len(cmdReferences), len(cmdFunctions))
 		})
 
@@ -212,7 +212,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 			// Save the full generated code to a file for debugging
 			debugFile := filepath.Join(tempDir, "debug_generated_code.go")
 			_ = os.WriteFile(debugFile, []byte(generatedCode), 0644)
-			
+
 			t.Fatalf("Compilation failed: %v\nBuild output: %s\nDebug: Full generated code saved to %s\nGenerated code preview:\n%s",
 				err, string(buildOutput), debugFile, result.String()[:2000]+"...")
 		}
@@ -370,7 +370,7 @@ simple: {
 			description: "workdir decorator with shell commands",
 		},
 		{
-			name: "ParallelWithWorkdir", 
+			name: "ParallelWithWorkdir",
 			cliContent: `
 var PROJECT = "test"
 
@@ -504,8 +504,8 @@ main: {
 					// Save debug info
 					debugFile := filepath.Join(tempDir, "debug_code.go")
 					_ = os.WriteFile(debugFile, []byte(generatedCode), 0644)
-					
-					t.Fatalf("Compilation failed for %s: %v\nOutput: %s\nDebug file: %s", 
+
+					t.Fatalf("Compilation failed for %s: %v\nOutput: %s\nDebug file: %s",
 						tc.description, err, string(buildOutput), debugFile)
 				}
 

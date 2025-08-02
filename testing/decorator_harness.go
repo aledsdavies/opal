@@ -6,6 +6,7 @@ package testing
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"text/template"
 	"time"
@@ -214,17 +215,10 @@ func (h *DecoratorHarness) testFunctionDecoratorInMode(decorator interface{}, pa
 	ctx := h.createExecutionContext(mode)
 
 	// Use type assertion to call the appropriate decorator interface
-	if valueDec, ok := decorator.(decorators.ValueDecorator); ok {
+	if funcDec, ok := decorator.(decorators.ValueDecorator); ok {
 		// Get parameter schema from the decorator to convert params correctly
-		astParams := h.convertParamsUsingSchemaValue(params, valueDec)
-		result := valueDec.Expand(ctx, astParams)
-		return h.convertExecutionResult(result, mode)
-	}
-	
-	if actionDec, ok := decorator.(decorators.ActionDecorator); ok {
-		// Get parameter schema from the decorator to convert params correctly
-		astParams := h.convertParamsUsingSchemaAction(params, actionDec)
-		result := actionDec.Expand(ctx, astParams)
+		astParams := h.convertParamsUsingSchema(params, funcDec)
+		result := funcDec.Expand(ctx, astParams)
 		return h.convertExecutionResult(result, mode)
 	}
 
@@ -281,14 +275,28 @@ func (h *DecoratorHarness) createExecutionContext(mode ExecutionMode) *execution
 		VarGroups: []ast.VarGroup{},
 	}
 
+	// Set environment variables before creating context (they're captured immutably)
+	originalEnv := make(map[string]string)
+	for name, value := range h.env {
+		originalEnv[name] = os.Getenv(name)
+		os.Setenv(name, value)
+	}
+
 	ctx := execution.NewExecutionContext(context.Background(), program)
+
+	// Restore original environment
+	for name, originalValue := range originalEnv {
+		if originalValue == "" {
+			os.Unsetenv(name)
+		} else {
+			os.Setenv(name, originalValue)
+		}
+	}
 
 	// Set up variables
 	for name, value := range h.variables {
 		ctx.SetVariable(name, value)
 	}
-
-	// Environment is now immutable and set at context creation
 
 	// Configure context
 	ctx.WorkingDir = h.workingDir
@@ -461,22 +469,10 @@ func (h *DecoratorHarness) contentToString(content ast.CommandContent) string {
 				parts = append(parts, p.Text)
 			case *ast.ValueDecorator:
 				parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
-			case *ast.ActionDecorator:
-				parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
 			}
 		}
 		return strings.Join(parts, "")
 	default:
 		return fmt.Sprintf("<%T>", content)
 	}
-}
-
-// convertParamsUsingSchemaValue converts parameters for ValueDecorator
-func (h *DecoratorHarness) convertParamsUsingSchemaValue(params map[string]interface{}, decorator decorators.ValueDecorator) []ast.NamedParameter {
-	return h.convertParamsUsingSchema(params, decorator)
-}
-
-// convertParamsUsingSchemaAction converts parameters for ActionDecorator  
-func (h *DecoratorHarness) convertParamsUsingSchemaAction(params map[string]interface{}, decorator decorators.ActionDecorator) []ast.NamedParameter {
-	return h.convertParamsUsingSchema(params, decorator)
 }
