@@ -209,6 +209,18 @@ func (e *Engine) setupDependencyInjection() {
 		return decorator, exists
 	})
 
+	// Set up block decorator lookup
+	e.ctx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
+		decorator, exists := decorators.GetBlockDecorator(name)
+		return decorator, exists
+	})
+
+	// Set up pattern decorator lookup
+	e.ctx.SetPatternDecoratorLookup(func(name string) (interface{}, bool) {
+		decorator, exists := decorators.GetPatternDecorator(name)
+		return decorator, exists
+	})
+
 	// Set up command content executor - this is used by ExecuteCommandContent
 	// This should only be called during InterpreterMode execution, not GeneratorMode
 	e.ctx.SetContentExecutor(func(content ast.CommandContent) error {

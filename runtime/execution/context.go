@@ -71,6 +71,9 @@ type ExecutionContext struct {
 	// Shell execution counter for unique variable naming
 	shellCounter int
 
+	// Child context counter for unique variable naming across parallel contexts
+	childCounter int
+
 	// Template functions for code generation (populated by engine)
 	templateFunctions template.FuncMap
 
@@ -82,6 +85,12 @@ type ExecutionContext struct {
 	
 	// Action decorator lookup (populated by engine to avoid circular imports)
 	actionDecoratorLookup func(name string) (interface{}, bool)
+
+	// Block decorator lookup (populated by engine to avoid circular imports)
+	blockDecoratorLookup func(name string) (interface{}, bool)
+
+	// Pattern decorator lookup (populated by engine to avoid circular imports)
+	patternDecoratorLookup func(name string) (interface{}, bool)
 
 	// Command executor for executing full commands (populated by engine)
 	commandExecutor func(*ast.CommandDecl) error
@@ -165,6 +174,10 @@ func (c *ExecutionContext) WithCurrentCommand(commandName string) *ExecutionCont
 // Child creates a child context that inherits from the parent but can be modified independently
 // This is used by block and pattern decorators to create isolated execution environments
 func (c *ExecutionContext) Child() *ExecutionContext {
+	// Increment child counter to ensure unique variable naming across parallel contexts
+	c.childCounter++
+	childID := c.childCounter
+	
 	childCtx := &ExecutionContext{
 		Context:   c.Context,
 		Program:   c.Program,
@@ -178,11 +191,18 @@ func (c *ExecutionContext) Child() *ExecutionContext {
 		mode:          c.mode,
 		currentCommand: c.currentCommand,
 		
+		// Initialize unique counter space for this child to avoid variable name conflicts
+		// Each child gets a unique counter space based on parent's counter and child ID
+		shellCounter: c.shellCounter + (childID * 1000), // Give each child 1000 numbers of space
+		childCounter: 0, // Reset child counter for this context's children
+		
 		// Copy function references
 		templateFunctions:         c.templateFunctions,
 		contentExecutor:           c.contentExecutor,
 		valueDecoratorLookup:      c.valueDecoratorLookup,
 		actionDecoratorLookup:     c.actionDecoratorLookup,
+		blockDecoratorLookup:      c.blockDecoratorLookup,
+		patternDecoratorLookup:    c.patternDecoratorLookup,
 		commandExecutor:           c.commandExecutor,
 		commandPlanGenerator:      c.commandPlanGenerator,
 	}
@@ -650,6 +670,16 @@ func (c *ExecutionContext) SetValueDecoratorLookup(lookup func(name string) (int
 // SetActionDecoratorLookup sets the action decorator lookup (used by engine)
 func (c *ExecutionContext) SetActionDecoratorLookup(lookup func(name string) (interface{}, bool)) {
 	c.actionDecoratorLookup = lookup
+}
+
+// SetBlockDecoratorLookup sets the block decorator lookup (used by engine)
+func (c *ExecutionContext) SetBlockDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.blockDecoratorLookup = lookup
+}
+
+// SetPatternDecoratorLookup sets the pattern decorator lookup (used by engine)
+func (c *ExecutionContext) SetPatternDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.patternDecoratorLookup = lookup
 }
 
 // ExecuteCommand executes a full command by name (used by decorators like @cmd)

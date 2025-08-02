@@ -371,46 +371,76 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 
 // generateBlockDecoratorTemplate creates template string for executing a block decorator
 func (b *ShellCodeBuilder) generateBlockDecoratorTemplate(blockDecorator *ast.BlockDecorator) (string, error) {
-	// For block decorators within other decorators, we need to execute the decorator
-	// in generator mode and return the generated Go code that returns CommandResult
+	// Look up the block decorator using the dependency injection lookup to avoid circular imports
+	if b.context.blockDecoratorLookup == nil {
+		return "", fmt.Errorf("block decorator lookup not available (engine not properly initialized)")
+	}
 	
-	// Look up the block decorator in the registry
-	// Note: Block decorators need a different lookup mechanism than action decorators
-	// We need to access the decorators registry directly to find block decorators
+	decoratorInterface, exists := b.context.blockDecoratorLookup(blockDecorator.Name)
+	if !exists {
+		return "", fmt.Errorf("block decorator @%s not found", blockDecorator.Name)
+	}
+
+	// Cast to the expected interface type
+	decorator, ok := decoratorInterface.(interface {
+		Execute(ctx *ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *ExecutionResult
+	})
+	if !ok {
+		return "", fmt.Errorf("block decorator @%s does not implement expected Execute method", blockDecorator.Name)
+	}
+
+	// Execute the decorator in generator mode to get the generated Go code
+	// Create a child context in generator mode to ensure proper code generation
+	generatorCtx := b.context.WithMode(GeneratorMode)
+	result := decorator.Execute(generatorCtx, blockDecorator.Args, blockDecorator.Content)
 	
-	// For now, let's use a simpler approach - just return the original template approach
-	// until we have a proper block decorator lookup mechanism
-	functionName := fmt.Sprintf("execute%sDecorator", strings.Title(blockDecorator.Name))
-	return fmt.Sprintf("if err := %s(ctx, nil, nil); err != nil {\n\t\treturn CommandResult{Stdout: \"\", Stderr: err.Error(), ExitCode: 1}\n\t}\n\treturn CommandResult{Stdout: \"\", Stderr: \"\", ExitCode: 0}", functionName), nil
+	if result.Error != nil {
+		return "", fmt.Errorf("failed to generate code for @%s decorator: %w", blockDecorator.Name, result.Error)
+	}
+	
+	// The result should contain the generated Go code as a string
+	if generatedCode, ok := result.Data.(string); ok {
+		return generatedCode, nil
+	}
+	
+	return "", fmt.Errorf("@%s decorator returned unexpected data type for generator mode: %T", blockDecorator.Name, result.Data)
 }
 
 // generatePatternDecoratorTemplate creates template string for executing a pattern decorator
 func (b *ShellCodeBuilder) generatePatternDecoratorTemplate(patternDecorator *ast.PatternDecorator) (string, error) {
-	// Generate a template function call to the pattern decorator's execution function
-	functionName := fmt.Sprintf("execute%sDecorator", strings.Title(patternDecorator.Name))
-	templateStr := fmt.Sprintf(`if err := %s(ctx, {{formatParams .Params}}, patterns); err != nil {
-			return fmt.Errorf("@%s decorator failed: %%v", err)
-		}`, functionName, patternDecorator.Name)
+	// Look up the pattern decorator using the dependency injection lookup to avoid circular imports
+	if b.context.patternDecoratorLookup == nil {
+		return "", fmt.Errorf("pattern decorator lookup not available (engine not properly initialized)")
+	}
 	
-	// Create template data with parameters
-	templateData := struct {
-		Params []ast.NamedParameter
-	}{
-		Params: patternDecorator.Args,
+	decoratorInterface, exists := b.context.patternDecoratorLookup(patternDecorator.Name)
+	if !exists {
+		return "", fmt.Errorf("pattern decorator @%s not found", patternDecorator.Name)
 	}
 
-	// Execute the template
-	tmpl, err := template.New("patternDecorator").Funcs(b.GetTemplateFunctions()).Parse(templateStr)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse pattern decorator template: %w", err)
+	// Cast to the expected interface type
+	decorator, ok := decoratorInterface.(interface {
+		Execute(ctx *ExecutionContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *ExecutionResult
+	})
+	if !ok {
+		return "", fmt.Errorf("pattern decorator @%s does not implement expected Execute method", patternDecorator.Name)
 	}
 
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute pattern decorator template: %w", err)
+	// Execute the decorator in generator mode to get the generated Go code
+	// Create a child context in generator mode to ensure proper code generation
+	generatorCtx := b.context.WithMode(GeneratorMode)
+	result := decorator.Execute(generatorCtx, patternDecorator.Args, patternDecorator.Patterns)
+	
+	if result.Error != nil {
+		return "", fmt.Errorf("failed to generate code for @%s decorator: %w", patternDecorator.Name, result.Error)
 	}
-
-	return result.String(), nil
+	
+	// The result should contain the generated Go code as a string
+	if generatedCode, ok := result.Data.(string); ok {
+		return generatedCode, nil
+	}
+	
+	return "", fmt.Errorf("@%s decorator returned unexpected data type for generator mode: %T", patternDecorator.Name, result.Data)
 }
 
 // parseActionDecoratorChain parses shell content into a chain of commands and operators
