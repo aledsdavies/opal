@@ -242,7 +242,7 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 	const actionChainTemplate = `// ActionDecorator command chain with Go-native operators
 		{{if .NeedsShellCommandWithInput}}
 		// Helper function for executing shell commands with piped input
-		executeShellCommandWithInput := func(ctx context.Context, command, input string) CommandResult {
+		{{.BaseName}}ExecuteShellCommandWithInput := func(ctx context.Context, command, input string) CommandResult {
 			cmd := exec.CommandContext(ctx, "sh", "-c", command){{if .WorkingDir}}
 			cmd.Dir = {{printf "%q" .WorkingDir}}{{end}}
 			cmd.Stdin = strings.NewReader(input)
@@ -270,7 +270,7 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 		{{end}}
 		{{if .NeedsShellCommand}}
 		// Helper function for executing shell commands
-		executeShellCommand := func(ctx context.Context, command string) CommandResult {
+		{{.BaseName}}ExecuteShellCommand := func(ctx context.Context, command string) CommandResult {
 			cmd := exec.CommandContext(ctx, "sh", "-c", command){{if .WorkingDir}}
 			cmd.Dir = {{printf "%q" .WorkingDir}}{{end}}
 			
@@ -297,7 +297,7 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 		{{end}}
 		{{if .NeedsAppendToFile}}
 		// Helper function for appending content to files
-		appendToFile := func(filename, content string) error {
+		{{.BaseName}}AppendToFile := func(filename, content string) error {
 			file, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 			if err != nil {
 				return fmt.Errorf("failed to open file %s: %v", filename, err)
@@ -313,20 +313,20 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 		}
 		{{end}}
 		{{if .NeedsLastResult}}
-		var lastResult CommandResult
+		var {{.BaseName}}LastResult CommandResult
 		{{end}}
 {{range $i, $element := .CommandChain}}
 {{- if eq $element.Type "action"}}
 {{- if eq $element.ActionName "cmd"}}
 		// @cmd decorator - call the referenced command function directly
 		{{$element.VariableName}} := {{cmdFunctionName $element.ActionArgs}}()
-		{{if $.NeedsLastResult}}lastResult = {{$element.VariableName}}{{end}}
+		{{if $.NeedsLastResult}}{{$.BaseName}}LastResult = {{$element.VariableName}}{{end}}
 		if {{$element.VariableName}}.Failed() {
 			return {{$element.VariableName}}
 		}
 {{- else}}
 		{{$element.VariableName}} := execute{{title $element.ActionName}}Decorator(ctx, {{formatParams $element.ActionArgs}})
-		{{if $.NeedsLastResult}}lastResult = {{$element.VariableName}}{{end}}
+		{{if $.NeedsLastResult}}{{$.BaseName}}LastResult = {{$element.VariableName}}{{end}}
 		if {{$element.VariableName}}.Failed() {
 			return {{$element.VariableName}}
 		}
@@ -335,13 +335,13 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 		// {{$element.Operator}} operator - conditional execution logic
 {{- if eq $element.Operator "&&"}}
 		// AND: next command runs only if previous succeeded
-		if lastResult.Failed() {
-			return lastResult
+		if {{$.BaseName}}LastResult.Failed() {
+			return {{$.BaseName}}LastResult
 		}
 {{- else if eq $element.Operator "||"}}
 		// OR: next command runs only if previous failed
-		if !lastResult.Failed() {
-			return lastResult // Skip remaining commands in chain
+		if !{{$.BaseName}}LastResult.Failed() {
+			return {{$.BaseName}}LastResult // Skip remaining commands in chain
 		}
 {{- else if eq $element.Operator "|"}}
 		// PIPE: stdout of previous feeds to next command
@@ -352,26 +352,30 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 {{- end}}
 {{- else if eq $element.Type "text"}}
 {{- if $element.IsPipeTarget}}
-		{{$element.VariableName}} := executeShellCommandWithInput(ctx, {{printf "%q" $element.Text}}, lastResult.Stdout)
-		lastResult = {{$element.VariableName}}
+		{{$element.VariableName}} := {{$.BaseName}}ExecuteShellCommandWithInput(ctx, {{printf "%q" $element.Text}}, {{$.BaseName}}LastResult.Stdout)
+		{{$.BaseName}}LastResult = {{$element.VariableName}}
 		if {{$element.VariableName}}.Failed() {
 			return {{$element.VariableName}}
 		}
 {{- else if $element.IsFileTarget}}
-		if err := appendToFile({{printf "%q" $element.Text}}, lastResult.Stdout); err != nil {
+		if err := {{$.BaseName}}AppendToFile({{printf "%q" $element.Text}}, {{$.BaseName}}LastResult.Stdout); err != nil {
 			return CommandResult{Stdout: "", Stderr: err.Error(), ExitCode: 1}
 		}
 		// Set lastResult to indicate successful file operation
-		lastResult = CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
+		{{$.BaseName}}LastResult = CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 {{- else}}
-		{{$element.VariableName}} := executeShellCommand(ctx, {{printf "%q" $element.Text}})
-		lastResult = {{$element.VariableName}}
+		{{$element.VariableName}} := {{$.BaseName}}ExecuteShellCommand(ctx, {{printf "%q" $element.Text}})
+		{{$.BaseName}}LastResult = {{$element.VariableName}}
 		if {{$element.VariableName}}.Failed() {
 			return {{$element.VariableName}}
 		}
 {{- end}}
 {{- end}}
 {{end}}
+		{{if .NeedsLastResult}}
+		// Ensure variable is marked as used to avoid compiler warnings
+		_ = {{.BaseName}}LastResult
+		{{end}}
 
 		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}`
 

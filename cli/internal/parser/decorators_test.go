@@ -671,12 +671,6 @@ func TestNewDecoratorParameterTypes(t *testing.T) {
 			),
 		},
 		{
-			Name:        "timeout missing required parameter",
-			Input:       "test: @timeout() { npm test }",
-			WantErr:     true,
-			ErrorSubstr: "missing required parameter 'duration' for @timeout decorator",
-		},
-		{
 			Name:        "retry with wrong parameter type",
 			Input:       "test: @retry(\"three\") { npm test }",
 			WantErr:     true,

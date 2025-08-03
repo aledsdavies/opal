@@ -29,6 +29,15 @@ type ImportRequirement struct {
 	GoModules       map[string]string // Module dependencies for go.mod (module -> version)
 }
 
+// CommandDependencyProvider interface for decorators that reference other commands
+// This allows the code generator to determine proper function declaration order
+type CommandDependencyProvider interface {
+	// GetCommandDependencies returns the names of commands this decorator depends on
+	// Parameters: the decorator's parameters as provided in the AST
+	// Returns: slice of command names that must be declared before this decorator is used
+	GetCommandDependencies(params []ast.NamedParameter) []string
+}
+
 // Decorator is a union interface for all decorator types
 // Used for registry and common operations
 type Decorator interface {

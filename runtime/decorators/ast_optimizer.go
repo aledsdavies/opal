@@ -156,9 +156,15 @@ func (ao *ASTOptimizer) optimizeShellContent(ctx execution.GeneratorContext, she
 	resourceUsage := ao.estimateResourceUsage(cmdStr)
 	dependencies := ao.extractDependencies(cmdStr)
 	
-	// Create a basic operation for this shell content
+	// Generate proper shell execution code using the template system
+	shellBuilder := execution.NewShellCodeBuilder(ctx)
+	executionCode, err := shellBuilder.GenerateShellCode(shell)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate shell execution code: %w", err)
+	}
+	
 	operation := Operation{
-		Code: fmt.Sprintf("// Shell command: %s\nresult := runShellCommand(%q)", cmdStr, cmdStr),
+		Code: executionCode,
 	}
 	
 	return &OptimizedOperation{

@@ -34,6 +34,21 @@ func (d *CmdDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
+// GetCommandDependencies returns the command names this @cmd decorator depends on
+func (d *CmdDecorator) GetCommandDependencies(params []ast.NamedParameter) []string {
+	if len(params) == 0 {
+		return []string{}
+	}
+	
+	// Extract the command name from the first parameter
+	if ident, ok := params[0].Value.(*ast.Identifier); ok {
+		// Keep the original command name format (don't convert hyphens to underscores)
+		return []string{ident.Name}
+	}
+	
+	return []string{}
+}
+
 // ExpandInterpreter executes the command reference returning output for shell chaining
 func (d *CmdDecorator) ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
 	return d.ExecuteInterpreter(ctx, params)

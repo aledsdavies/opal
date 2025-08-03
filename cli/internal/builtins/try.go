@@ -170,7 +170,8 @@ func (t *TryDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, 
 // executeGeneratorImpl generates Go code for try-catch-finally logic using new utilities
 func (t *TryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, mainBranch, catchBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
 	// Convert main commands to operation
-	mainOperations, err := decorators.ConvertCommandsToOperations(ctx, mainBranch.Commands)
+	executor := decorators.NewCommandResultExecutor(ctx)
+	mainOperations, err := executor.ConvertCommandsToCommandResultOperations(mainBranch.Commands)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
@@ -190,7 +191,7 @@ func (t *TryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, main
 	// Convert catch commands to operation if they exist
 	var catchOp *decorators.Operation
 	if catchBranch != nil {
-		catchOperations, err := decorators.ConvertCommandsToOperations(ctx, catchBranch.Commands)
+		catchOperations, err := executor.ConvertCommandsToCommandResultOperations(catchBranch.Commands)
 		if err != nil {
 			return &execution.ExecutionResult{
 				Data:  "",
@@ -210,7 +211,7 @@ func (t *TryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, main
 	// Convert finally commands to operation if they exist
 	var finallyOp *decorators.Operation
 	if finallyBranch != nil {
-		finallyOperations, err := decorators.ConvertCommandsToOperations(ctx, finallyBranch.Commands)
+		finallyOperations, err := executor.ConvertCommandsToCommandResultOperations(finallyBranch.Commands)
 		if err != nil {
 			return &execution.ExecutionResult{
 				Data:  "",

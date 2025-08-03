@@ -406,12 +406,51 @@ full-deploy: {
 check: @cmd(build) || (echo "Build failed" && exit 1)
 ```
 
+#### Shell Chaining with ActionDecorators
+
+ActionDecorators support full shell chaining semantics with `&&`, `||`, `|`, and `>>` operators:
+
+```devcmd
+// AND chaining - next runs only if previous succeeds
+deploy: @cmd(build) && @cmd(test) && kubectl apply -f k8s/
+
+// OR chaining - next runs only if previous fails  
+verify: @cmd(test) || echo "Tests failed - check logs"
+
+// Pipe chaining - stdout feeds to next command
+logs: @cmd(get-logs) | grep ERROR | head -10
+
+// File append - stdout appends to file
+backup: @cmd(export-data) >> backup.txt
+```
+
+**Chaining Implementation**:
+- **Interpreter Mode**: Uses shell for native chaining execution
+- **Generator Mode**: Produces Go code with `CommandResult` logic that respects shell semantics
+- **Mixed Chaining**: ActionDecorators can be chained with regular shell commands
+- **Error Propagation**: Failed ActionDecorators properly terminate chains with `&&` or continue with `||`
+
+**Generated Code Example**:
+```go
+// devcmd: @cmd(build) && @cmd(test) || echo "failed"
+buildResult := executeBuild()
+if buildResult.Success() {
+    testResult := executeTest()
+    if testResult.Failed() {
+        return executeShellCommand("echo \"failed\"")
+    }
+    return testResult
+}
+return executeShellCommand("echo \"failed\"")
+```
+
 **Action Decorator Characteristics**:
 - Execute commands and return structured CommandResult objects
 - Can be standalone or chained with shell operators (&&, ||, |, >>)
-- Support Go-native conditional execution logic
+- Support Go-native conditional execution logic in generated code
 - Enable command composition and reusability
 - Support both positional and named parameters
+- Preserve shell chaining semantics across interpreter and generator modes
 
 **Standard Action Decorators**:
 - `@cmd(command)` - Execute another command defined in the same CLI

@@ -18,7 +18,7 @@ pkgs.buildGoModule rec {
   overrideModAttrs = _: { env.GOWORK = "off"; };
 
   # Vendor hash for CLI module dependencies
-  vendorHash = "sha256-zWIIhJXo77Nfw7tk4YtPAFSKL+leMIiHnAGKpVd5ARQ=";
+  vendorHash = "sha256-dgbRj2pP1Jf2ktqp4FI5pTkNj59vKmKPUPOYMVbYbU8=";
 
   # Build with version info
   ldflags = [

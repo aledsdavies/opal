@@ -56,7 +56,7 @@ func TestRetryDecorator_WithDelay(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("maxAttempts := 2", "500ms").
+		GeneratorCodeContains("maxAttempts := 2", "500 * time.Millisecond").
 		PlanSucceeds().
 		Validate()
 	
@@ -81,7 +81,7 @@ func TestRetryDecorator_DefaultDelay(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("1s"). // Should use default 1s delay
+		GeneratorCodeContains("1 * time.Second"). // Should use default 1s delay
 		PlanSucceeds().
 		Validate()
 	

@@ -238,6 +238,35 @@ func (ctb *CachedTemplateBuilder) BuildTemplate() (string, error) {
 	return result, nil
 }
 
+// BuildCommandResultTemplate builds a CommandResult template with caching
+func (ctb *CachedTemplateBuilder) BuildCommandResultTemplate() (string, error) {
+	if !ctb.enableCache {
+		return ctb.TemplateBuilder.BuildCommandResultTemplate()
+	}
+	
+	// Generate cache key with "CommandResult" suffix to differentiate
+	builderHash := ctb.generateBuilderHash()
+	cacheKey := keyGenerator.GenerateTemplateKey(ctb.decoratorName+"_CR", ctb.params, builderHash)
+	
+	// Check cache first
+	if cached, found := templateCache.Get(cacheKey); found {
+		if result, ok := cached.(string); ok {
+			return result, nil
+		}
+	}
+	
+	// Build template if not cached
+	result, err := ctb.TemplateBuilder.BuildCommandResultTemplate()
+	if err != nil {
+		return "", err
+	}
+	
+	// Cache the result
+	templateCache.Set(cacheKey, result)
+	
+	return result, nil
+}
+
 // generateBuilderHash creates a hash representing the current builder state
 func (ctb *CachedTemplateBuilder) generateBuilderHash() string {
 	// This is a simplified hash - in practice, you'd want to hash the actual builder state

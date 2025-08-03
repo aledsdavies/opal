@@ -47,11 +47,30 @@ func (tb *TemplateBuilder) WithTimeout(duration string, operation Operation) *Te
 	return tb
 }
 
+// WithTimeoutExpr adds timeout pattern with pre-validated Go duration expression
+func (tb *TemplateBuilder) WithTimeoutExpr(durationExpr string, operation Operation) *TemplateBuilder {
+	tb.addImports(PatternImports["TimeoutPattern"]...)
+	tb.variables["DurationExpr"] = durationExpr
+	tb.variables["Operation"] = operation
+	tb.patterns = append(tb.patterns, TimeoutPattern)
+	return tb
+}
+
 // WithRetry adds retry pattern around an operation
 func (tb *TemplateBuilder) WithRetry(maxAttempts int, delayDuration string, operation Operation) *TemplateBuilder {
 	tb.addImports(PatternImports["RetryPattern"]...)
 	tb.variables["MaxAttempts"] = maxAttempts
 	tb.variables["DelayDuration"] = delayDuration
+	tb.variables["Operation"] = operation
+	tb.patterns = append(tb.patterns, RetryPattern)
+	return tb
+}
+
+// WithRetryExpr adds retry pattern with pre-validated Go duration expression
+func (tb *TemplateBuilder) WithRetryExpr(maxAttempts int, delayExpr string, operation Operation) *TemplateBuilder {
+	tb.addImports(PatternImports["RetryPattern"]...)
+	tb.variables["MaxAttempts"] = maxAttempts
+	tb.variables["DelayExpr"] = delayExpr
 	tb.variables["Operation"] = operation
 	tb.patterns = append(tb.patterns, RetryPattern)
 	return tb
@@ -157,6 +176,25 @@ func (tb *TemplateBuilder) BuildTemplate() (string, error) {
 	}
 
 	return result.String(), nil
+}
+
+// BuildCommandResultTemplate builds a template that returns CommandResult instead of error
+// This wraps the error-based patterns to work in CLI generation context
+func (tb *TemplateBuilder) BuildCommandResultTemplate() (string, error) {
+	innerTemplate, err := tb.BuildTemplate()
+	if err != nil {
+		return "", err
+	}
+	
+	// Wrap the template so it returns CommandResult instead of error
+	wrappedTemplate := fmt.Sprintf(`{
+		if err := func() error %s; err != nil {
+			return CommandResult{Stdout: "", Stderr: err.Error(), ExitCode: 1}
+		}
+		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
+	}`, innerTemplate)
+	
+	return wrappedTemplate, nil
 }
 
 // GetRequiredImports returns the required imports for this template

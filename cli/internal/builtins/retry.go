@@ -149,7 +149,8 @@ func (r *RetryDecorator) executeInterpreterImpl(ctx execution.InterpreterContext
 // executeGeneratorImpl generates Go code for retry logic using new utilities
 func (r *RetryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
 	// Convert AST commands to a single operation containing all sequential commands
-	operations, err := decorators.ConvertCommandsToOperations(ctx, content)
+	executor := decorators.NewCommandResultExecutor(ctx)
+	operations, err := executor.ConvertCommandsToCommandResultOperations(content)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
@@ -186,9 +187,10 @@ func (r *RetryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, ma
 	// Create a single operation from the combined code and wrap with retry
 	operation := decorators.Operation{Code: combinedCode}
 	
-	// Use TemplateBuilder to create retry pattern
+	// Use TemplateBuilder to create retry pattern with pre-validated delay
 	builder := decorators.NewTemplateBuilder()
-	builder.WithRetry(maxAttempts, delay.String(), operation)
+	delayExpr := decorators.DurationToGoExpr(delay)
+	builder.WithRetryExpr(maxAttempts, delayExpr, operation)
 
 	// Build the template
 	generatedCode, err := builder.BuildTemplate()

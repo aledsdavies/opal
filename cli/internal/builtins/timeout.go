@@ -133,7 +133,8 @@ func (t *TimeoutDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 // executeGeneratorImpl generates Go code for timeout logic using new utilities
 func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
 	// Convert AST commands to a single operation containing all sequential commands
-	operations, err := decorators.ConvertCommandsToOperations(ctx, content)
+	executor := decorators.NewCommandResultExecutor(ctx)
+	operations, err := executor.ConvertCommandsToCommandResultOperations(content)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
@@ -170,9 +171,10 @@ func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 	// Create a single operation from the combined code and wrap with timeout
 	operation := decorators.Operation{Code: combinedCode}
 	
-	// Use TemplateBuilder to create timeout pattern
+	// Use TemplateBuilder to create timeout pattern with pre-validated duration
 	builder := decorators.NewTemplateBuilder()
-	builder.WithTimeout(timeout.String(), operation)
+	durationExpr := decorators.DurationToGoExpr(timeout)
+	builder.WithTimeoutExpr(durationExpr, operation)
 
 	// Build the template
 	generatedCode, err := builder.BuildTemplate()

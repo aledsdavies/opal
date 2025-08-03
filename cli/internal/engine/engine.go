@@ -183,8 +183,13 @@ func (e *Engine) executeDecoratorPlan(ctx execution.PlanContext, decorator *ast.
 
 // GenerateCode generates Go code for the entire program using template-based approach
 func (e *Engine) GenerateCode(program *ast.Program) (*GenerationResult, error) {
+	// Use the new template-based approach with default module name
+	return e.GenerateCodeWithModule(program, "")
+}
+
+func (e *Engine) GenerateCodeWithModule(program *ast.Program, moduleName string) (*GenerationResult, error) {
 	// Use the new template-based approach
-	return e.generateCodeWithTemplate(program)
+	return e.generateCodeWithTemplate(program, moduleName)
 }
 
 
@@ -196,14 +201,9 @@ func (e *Engine) WriteFiles(result *GenerationResult, targetDir string, moduleNa
 		return fmt.Errorf("failed to write main.go: %w", err)
 	}
 
-	// Write go.mod with custom module name
-	goModContent := result.GoModString()
-	if moduleName != "" && moduleName != "devcmd-generated" {
-		goModContent = strings.Replace(goModContent, "module devcmd-generated", "module "+moduleName, 1)
-	}
-
+	// Write go.mod
 	goModPath := filepath.Join(targetDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(result.GoModString()), 0o644); err != nil {
 		return fmt.Errorf("failed to write go.mod: %w", err)
 	}
 
@@ -326,15 +326,14 @@ func (e *Engine) addDecoratorImports(decoratorType, name string, result *Generat
 
 // generateGoMod creates the go.mod file content from collected dependencies
 // Go module template
-const goModTemplate = `module devcmd-generated
+const goModTemplate = `module {{.ModuleName}}
 
-go 1.21
+go {{.GoVersion}}
 
 require (
 	github.com/spf13/cobra v1.9.1{{if .NeedsDevcmd}}
-	github.com/aledsdavies/devcmd {{.DevcmdVersion}}{{end}}
-	{{range .Modules}}{{.Module}} {{.Version}}
-	{{end}}
+	github.com/aledsdavies/devcmd {{.DevcmdVersion}}{{end}}{{range .Modules}}
+	{{.Module}} {{.Version}}{{end}}
 )
 {{if and .NeedsDevcmd .IsLocalDev}}
 // Replace directive for local development
@@ -342,6 +341,8 @@ replace github.com/aledsdavies/devcmd => {{.LocalPath}}
 {{end}}`
 
 type GoModTemplateData struct {
+	ModuleName    string
+	GoVersion     string
 	NeedsDevcmd   bool
 	DevcmdVersion string
 	IsLocalDev    bool
@@ -354,7 +355,7 @@ type ModuleData struct {
 	Version string
 }
 
-func (e *Engine) generateGoMod(result *GenerationResult) error {
+func (e *Engine) generateGoMod(result *GenerationResult, moduleName string) error {
 	// Check if we need devcmd module (for plan DSL, etc.)
 	needsDevcmd := false
 	for module := range result.GoModules {
@@ -375,7 +376,14 @@ func (e *Engine) generateGoMod(result *GenerationResult) error {
 		}
 	}
 
+	// Use provided module name or fallback to default
+	if moduleName == "" {
+		moduleName = "devcmd-generated"
+	}
+	
 	templateData := GoModTemplateData{
+		ModuleName:    moduleName,
+		GoVersion:     e.goVersion,
 		NeedsDevcmd:   needsDevcmd,
 		DevcmdVersion: e.getDevcmdVersion(),
 		IsLocalDev:    e.isLocalDevelopment(),
@@ -553,6 +561,131 @@ func (e *Engine) extractShellCommand(shellContent *ast.ShellContent) string {
 	return strings.TrimSpace(command.String())
 }
 
+// sortCommandsByDependencies sorts commands using topological sort to ensure dependencies are declared first
+func (e *Engine) sortCommandsByDependencies(commands []*ast.CommandDecl) ([]*ast.CommandDecl, error) {
+	// Build dependency graph
+	dependencies := make(map[string][]string) // command -> list of commands it depends on
+	commandMap := make(map[string]*ast.CommandDecl)
+	
+	// Initialize maps
+	for _, cmd := range commands {
+		dependencies[cmd.Name] = []string{}
+		commandMap[cmd.Name] = cmd
+	}
+	
+	// Scan each command for decorator dependencies
+	for _, cmd := range commands {
+		deps := e.findCommandDependencies(cmd)
+		dependencies[cmd.Name] = deps
+	}
+	
+	// Topological sort using Kahn's algorithm
+	sorted := []*ast.CommandDecl{}
+	inDegree := make(map[string]int)
+	
+	// Calculate in-degrees (number of dependencies each command has)
+	for cmd, deps := range dependencies {
+		inDegree[cmd] = len(deps) // Count how many commands this one depends on
+	}
+	
+	// Queue commands with no dependencies
+	queue := []string{}
+	for cmd, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, cmd)
+		}
+	}
+	
+	// Process queue
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		
+		sorted = append(sorted, commandMap[current])
+		
+		// Reduce in-degree for commands that depend on the current command
+		for cmd, deps := range dependencies {
+			for _, dep := range deps {
+				if dep == current {
+					inDegree[cmd]--
+					if inDegree[cmd] == 0 {
+						queue = append(queue, cmd)
+					}
+				}
+			}
+		}
+	}
+	
+	// Check for circular dependencies
+	if len(sorted) != len(commands) {
+		return nil, fmt.Errorf("circular dependency detected in command declarations")
+	}
+	
+	return sorted, nil
+}
+
+// findCommandDependencies scans a command for decorator dependencies using CommandDependencyProvider interface
+func (e *Engine) findCommandDependencies(cmd *ast.CommandDecl) []string {
+	dependencies := []string{}
+	
+	for _, content := range cmd.Body.Content {
+		deps := e.scanContentForDependencies(content)
+		dependencies = append(dependencies, deps...)
+	}
+	
+	return dependencies
+}
+
+// scanContentForDependencies recursively scans command content for dependencies using decorator interfaces
+func (e *Engine) scanContentForDependencies(content ast.CommandContent) []string {
+	dependencies := []string{}
+	
+	switch c := content.(type) {
+	case *ast.ShellContent:
+		for _, part := range c.Parts {
+			if actionDec, ok := part.(*ast.ActionDecorator); ok {
+				// Check if this decorator implements CommandDependencyProvider
+				if decoratorInterface, err := decorators.GetAction(actionDec.Name); err == nil {
+					if depProvider, ok := decoratorInterface.(decorators.CommandDependencyProvider); ok {
+						deps := depProvider.GetCommandDependencies(actionDec.Args)
+						dependencies = append(dependencies, deps...)
+					}
+				}
+			}
+		}
+	case *ast.BlockDecorator:
+		// Check if block decorator implements CommandDependencyProvider
+		if decoratorInterface, err := decorators.GetBlock(c.Name); err == nil {
+			if depProvider, ok := decoratorInterface.(decorators.CommandDependencyProvider); ok {
+				deps := depProvider.GetCommandDependencies(c.Args)
+				dependencies = append(dependencies, deps...)
+			}
+		}
+		// Recursively scan content
+		for _, innerContent := range c.Content {
+			deps := e.scanContentForDependencies(innerContent)
+			dependencies = append(dependencies, deps...)
+		}
+	case *ast.PatternDecorator:
+		// Check if pattern decorator implements CommandDependencyProvider
+		if decoratorInterface, err := decorators.GetPattern(c.Name); err == nil {
+			if depProvider, ok := decoratorInterface.(decorators.CommandDependencyProvider); ok {
+				deps := depProvider.GetCommandDependencies(c.Args)
+				dependencies = append(dependencies, deps...)
+			}
+		}
+		// Recursively scan patterns
+		for _, pattern := range c.Patterns {
+			for _, innerContent := range pattern.Commands {
+				deps := e.scanContentForDependencies(innerContent)
+				dependencies = append(dependencies, deps...)
+			}
+		}
+	}
+	
+	return dependencies
+}
+
 // analyzeCommands groups watch/stop commands and separates regular commands
 func (e *Engine) analyzeCommands(commands []ast.CommandDecl) CommandGroups {
 	groups := CommandGroups{
@@ -644,25 +777,7 @@ import (
 	{{end}}
 )
 
-// CommandResult represents the result of executing a command
-type CommandResult struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
-}
-
-// Failed returns true if the command failed (non-zero exit code)
-func (r CommandResult) Failed() bool {
-	return r.ExitCode != 0
-}
-
-// Error returns an error if the command failed
-func (r CommandResult) Error() error {
-	if r.ExitCode != 0 {
-		return fmt.Errorf("command failed with exit code %d: %s", r.ExitCode, r.Stderr)
-	}
-	return nil
-}
+{{.CommandResultDef}}
 
 func main() {
 	ctx := context.Background()
@@ -714,7 +829,7 @@ func main() {
 		// Normal execution - call the execution function
 		result := execute{{.FunctionName | title}}()
 		if result.Failed() {
-			handleCommandError("{{.Name}}", result.Error())
+			handleCommandError("{{.Name}}", result.ToError())
 		}
 	}
 
@@ -1008,11 +1123,12 @@ func main() {
 
 // Template data structures
 type CLITemplateData struct {
-	StandardImports   []string
-	ThirdPartyImports []string
-	Variables         []VariableData
-	Commands          []CommandData
-	ProcessGroups     []ProcessGroupData
+	StandardImports     []string
+	ThirdPartyImports   []string
+	Variables           []VariableData
+	Commands            []CommandData
+	ProcessGroups       []ProcessGroupData
+	CommandResultDef    string // Inline CommandResult definition
 }
 
 type VariableData struct {
@@ -1047,7 +1163,7 @@ type ProcessGroupData struct {
 }
 
 // generateCodeWithTemplate uses a template-based approach instead of fragile WriteString calls
-func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResult, error) {
+func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName string) (*GenerationResult, error) {
 
 	// Create generator context with decorator lookups
 	ctx := e.CreateGeneratorContext(context.Background(), program)
@@ -1099,6 +1215,11 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 	// Add cobra for CLI generation (always needed for generated CLIs)
 	result.AddThirdPartyImport("github.com/spf13/cobra")
 
+	// Validate @cmd decorator references before code generation
+	if err := e.validateCommandReferences(program); err != nil {
+		return nil, err
+	}
+
 	// Convert import maps to slices for template
 	var standardImports []string
 	for imp := range result.StandardImports {
@@ -1116,6 +1237,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 		Variables:         []VariableData{},
 		Commands:          []CommandData{},
 		ProcessGroups:     []ProcessGroupData{},
+		CommandResultDef:  decorators.GenerateCommandResultDefinition(),
 	}
 
 	// Track which variables are used across all commands
@@ -1138,8 +1260,14 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 		})
 	}
 
+	// Sort commands by dependencies to ensure proper declaration order
+	sortedCommands, err := e.sortCommandsByDependencies(commandGroups.RegularCommands)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sort commands by dependencies: %w", err)
+	}
+
 	// Add regular commands to template data by executing them in generator mode
-	for _, cmd := range commandGroups.RegularCommands {
+	for _, cmd := range sortedCommands {
 
 		// Execute the command content using the execution context to get proper template-generated code
 		var executionCode strings.Builder
@@ -1444,7 +1572,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResu
 	result.Code.WriteString(finalCode.String())
 
 	// Generate go.mod
-	if err := e.generateGoMod(result); err != nil {
+	if err := e.generateGoMod(result, moduleName); err != nil {
 		return nil, fmt.Errorf("failed to generate go.mod: %w", err)
 	}
 
@@ -1622,4 +1750,87 @@ func (e *Engine) CreateGeneratorContext(ctx context.Context, program *ast.Progra
 	generatorCtx := execution.NewGeneratorContext(ctx, program)
 	e.setupDecoratorLookups(generatorCtx)
 	return generatorCtx
+}
+
+// validateCommandReferences validates that all @cmd decorator references point to existing commands
+func (e *Engine) validateCommandReferences(program *ast.Program) error {
+	// Build a map of available commands for quick lookup
+	availableCommands := make(map[string]bool)
+	for _, cmd := range program.Commands {
+		availableCommands[cmd.Name] = true
+	}
+
+	// Recursively validate all @cmd references in the program
+	for _, cmd := range program.Commands {
+		if err := e.validateCmdReferencesInCommand(&cmd, availableCommands); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateCmdReferencesInCommand validates @cmd references within a single command
+func (e *Engine) validateCmdReferencesInCommand(cmd *ast.CommandDecl, availableCommands map[string]bool) error {
+	for _, content := range cmd.Body.Content {
+		if err := e.validateCmdReferencesInContent(content, availableCommands); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateCmdReferencesInContent validates @cmd references within command content
+func (e *Engine) validateCmdReferencesInContent(content ast.CommandContent, availableCommands map[string]bool) error {
+	switch c := content.(type) {
+	case *ast.ActionDecorator:
+		if c.Name == "cmd" {
+			// Extract the command name from @cmd decorator parameters
+			cmdName, err := e.extractCmdDecoratorName(c.Args)
+			if err != nil {
+				return fmt.Errorf("invalid @cmd decorator: %w", err)
+			}
+			
+			// Check if the referenced command exists
+			if !availableCommands[cmdName] {
+				return fmt.Errorf("@cmd decorator references non-existent command '%s'", cmdName)
+			}
+		}
+	case *ast.BlockDecorator:
+		// Recursively validate content within block decorators
+		for _, nestedContent := range c.Content {
+			if err := e.validateCmdReferencesInContent(nestedContent, availableCommands); err != nil {
+				return err
+			}
+		}
+	case *ast.PatternDecorator:
+		// Recursively validate content within pattern decorator branches
+		for _, pattern := range c.Patterns {
+			for _, nestedContent := range pattern.Commands {
+				if err := e.validateCmdReferencesInContent(nestedContent, availableCommands); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// extractCmdDecoratorName extracts the command name from @cmd decorator parameters
+func (e *Engine) extractCmdDecoratorName(params []ast.NamedParameter) (string, error) {
+	// Use the same logic as the CmdDecorator's extractCommandName method
+	nameParam := ast.FindParameter(params, "name")
+	if nameParam == nil && len(params) > 0 {
+		nameParam = &params[0]
+	}
+
+	if nameParam == nil {
+		return "", fmt.Errorf("@cmd decorator requires a command name parameter")
+	}
+
+	if ident, ok := nameParam.Value.(*ast.Identifier); ok {
+		return ident.Name, nil
+	} else {
+		return "", fmt.Errorf("@cmd parameter must be an identifier, got %T", nameParam.Value)
+	}
 }

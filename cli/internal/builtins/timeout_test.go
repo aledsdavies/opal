@@ -26,7 +26,7 @@ func TestTimeoutDecorator_Basic(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
-		GeneratorCodeContainsfWithContext("timeout duration", `time.ParseDuration("%s")`, "5s").
+		GeneratorCodeContainsfWithContext("timeout duration", `duration := %s // Pre-validated duration`, "5 * time.Second").
 		GeneratorCodeContainsWithContext("context cancellation", "context.WithTimeout").
 		GeneratorCodeContainsWithContext("timeout handling", "select {", "case <-ctx.Done():").
 		PlanSucceeds().
@@ -80,7 +80,7 @@ func TestTimeoutDecorator_ShortTimeout(t *testing.T) {
 	// Note: Interpreter might fail due to timeout, but generator and plan should work
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
-		GeneratorCodeContains("100ms").
+		GeneratorCodeContains("100 * time.Millisecond").
 		PlanSucceeds().
 		Validate()
 	

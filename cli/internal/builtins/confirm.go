@@ -306,7 +306,8 @@ func (c *ConfirmDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 	}
 	
 	// Convert commands to operations using the utility
-	operations, err := decorators.ConvertCommandsToOperations(ctx, content)
+	executor := decorators.NewCommandResultExecutor(ctx)
+	operations, err := executor.ConvertCommandsToCommandResultOperations(content)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",

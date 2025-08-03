@@ -224,20 +224,15 @@ func (p *ParallelDecorator) executeGeneratorImpl(ctx execution.GeneratorContext,
 	optimizer := decorators.GetASTOptimizer()
 	optimizedSequence, err := optimizer.OptimizeCommandSequence(ctx, content)
 	if err != nil {
-		// Fall back to basic conversion
-		operations, err := decorators.ConvertCommandsToOperations(ctx, content)
+		// Use generator utilities for consistent CommandResult handling
+		executor := decorators.NewCommandResultExecutor(ctx)
+		operations, err := executor.ConvertCommandsToCommandResultOperations(content)
 		if err != nil {
 			return execution.NewFormattedErrorResult("failed to convert commands to operations: %w", err)
 		}
 		
-		// Use cached template builder
-		builder := decorators.NewCachedTemplateBuilder("parallel", []ast.NamedParameter{
-			{Name: "concurrency", Value: &ast.NumberLiteral{Value: fmt.Sprintf("%d", concurrency)}},
-		})
-		builder.WithConcurrentExecution(concurrency, operations)
-
-		// Build the template
-		generatedCode, err := builder.BuildTemplate()
+		// Generate concurrent execution with proper CommandResult handling
+		generatedCode, err := executor.GenerateConcurrentExecution(operations, concurrency)
 		if err != nil {
 			return &execution.ExecutionResult{
 				Data:  "",
@@ -262,13 +257,9 @@ func (p *ParallelDecorator) executeGeneratorImpl(ctx execution.GeneratorContext,
 	
 	var generatedCode string
 	err = perfExecutor.Execute(func() error {
-		builder := decorators.NewCachedTemplateBuilder("parallel", []ast.NamedParameter{
-			{Name: "concurrency", Value: &ast.NumberLiteral{Value: fmt.Sprintf("%d", concurrency)}},
-		})
-		builder.WithConcurrentExecution(concurrency, operations)
-
-		// Build the template
-		code, buildErr := builder.BuildTemplate()
+		// Use generator utilities for consistent CommandResult handling
+		executor := decorators.NewCommandResultExecutor(ctx)
+		code, buildErr := executor.GenerateConcurrentExecution(operations, concurrency)
 		if buildErr != nil {
 			return buildErr
 		}

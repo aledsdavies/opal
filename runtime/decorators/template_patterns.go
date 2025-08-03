@@ -1,5 +1,10 @@
 package decorators
 
+import (
+	"fmt"
+	"time"
+)
+
 // Generic Go code patterns for resource management that any decorator can use
 // These are building blocks, not decorator-specific templates
 
@@ -21,16 +26,16 @@ const (
 		defer func() { <-semaphore }()
 
 		// Execute operation with panic recovery
-		if err := func() (err error) {
+		result := func() (result CommandResult) {
 			defer func() {
 				if r := recover(); r != nil {
-					err = fmt.Errorf("panic in operation {{$i}}: %v", r)
+					result = CommandResult{Stdout: "", Stderr: fmt.Sprintf("panic in operation {{$i}}: %v", r), ExitCode: 1}
 				}
 			}()
 			{{.Code}}
-			return nil
-		}(); err != nil {
-			errChan <- err
+		}()
+		if result.Failed() {
+			errChan <- fmt.Errorf(result.Stderr)
 			return
 		}
 		errChan <- nil
@@ -46,17 +51,15 @@ const (
 		}
 	}
 	if len(errors) > 0 {
-		return fmt.Errorf("concurrent execution failed: %s", strings.Join(errors, "; "))
+		return CommandResult{Stdout: "", Stderr: strings.Join(errors, "; "), ExitCode: 1}
 	}
+	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 }`
 
 	// TimeoutPattern - Generic timeout wrapper for any operation
-	// Variables: .Duration (string), .Operation.Code
+	// Variables: .DurationExpr (string) - idiomatic Go time expression like "30 * time.Second"
 	TimeoutPattern = `{
-	duration, err := time.ParseDuration({{printf "%q" .Duration}})
-	if err != nil {
-		return fmt.Errorf("invalid duration '%s': %w", {{printf "%q" .Duration}}, err)
-	}
+	duration := {{.DurationExpr}} // Pre-validated duration
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
@@ -77,11 +80,11 @@ const (
 		default:
 		}
 
-		if err := func() error {
+		result := func() (result CommandResult) {
 			{{.Operation.Code}}
-			return nil
-		}(); err != nil {
-			done <- err
+		}()
+		if result.Failed() {
+			done <- fmt.Errorf(result.Stderr)
 			return
 		}
 		done <- nil
@@ -89,9 +92,12 @@ const (
 
 	select {
 	case err := <-done:
-		return err
+		if err != nil {
+			return CommandResult{Stdout: "", Stderr: err.Error(), ExitCode: 1}
+		}
+		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 	case <-ctx.Done():
-		return fmt.Errorf("operation timed out after %s", duration)
+		return CommandResult{Stdout: "", Stderr: fmt.Sprintf("operation timed out after %s", duration), ExitCode: 124}
 	}
 }`
 
@@ -100,33 +106,31 @@ const (
 	RetryPattern = `{
 	// Retry logic with {{.MaxAttempts}} attempts
 	maxAttempts := {{.MaxAttempts}}
-	delay, err := time.ParseDuration({{printf "%q" .DelayDuration}})
-	if err != nil {
-		return fmt.Errorf("invalid delay duration '%s': %w", {{printf "%q" .DelayDuration}}, err)
-	}
+	delay := {{.DelayExpr}} // Pre-validated delay duration
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if err := func() (err error) {
+		result := func() (result CommandResult) {
 			defer func() {
 				if r := recover(); r != nil {
-					err = fmt.Errorf("panic in attempt %d: %v", attempt, r)
+					result = CommandResult{Stdout: "", Stderr: fmt.Sprintf("panic in attempt %d: %v", attempt, r), ExitCode: 1}
 				}
 			}()
 			{{.Operation.Code}}
-			return nil
-		}(); err == nil {
+		}()
+		if result.Success() {
 			break
 		} else {
-			lastErr = err
+			lastErr = fmt.Errorf(result.Stderr)
 			if attempt < maxAttempts {
 				time.Sleep(delay)
 			}
 		}
 	}
 	if lastErr != nil {
-		return fmt.Errorf("all %d attempts failed, last error: %w", maxAttempts, lastErr)
+		return CommandResult{Stdout: "", Stderr: fmt.Sprintf("all %d attempts failed, last error: %v", maxAttempts, lastErr), ExitCode: 1}
 	}
+	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 }`
 
 	// CancellableOperationPattern - Generic cancellable operation
@@ -135,36 +139,32 @@ const (
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	done := make(chan error, 1)
+	done := make(chan CommandResult, 1)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				done <- fmt.Errorf("panic during execution: %v", r)
+				done <- CommandResult{Stdout: "", Stderr: fmt.Sprintf("panic during execution: %v", r), ExitCode: 1}
 			}
 		}()
 
 		select {
 		case <-ctx.Done():
-			done <- ctx.Err()
+			done <- CommandResult{Stdout: "", Stderr: ctx.Err().Error(), ExitCode: 1}
 			return
 		default:
 		}
 
-		if err := func() error {
+		result := func() (result CommandResult) {
 			{{.Operation.Code}}
-			return nil
-		}(); err != nil {
-			done <- err
-			return
-		}
-		done <- nil
+		}()
+		done <- result
 	}()
 
 	select {
-	case err := <-done:
-		return err
+	case result := <-done:
+		return result
 	case <-ctx.Done():
-		return ctx.Err()
+		return CommandResult{Stdout: "", Stderr: ctx.Err().Error(), ExitCode: 1}
 	}
 }`
 
@@ -173,18 +173,20 @@ const (
 	SequentialExecutionPattern = `{
 	{{range $i, $op := .Operations}}
 	// Execute operation {{$i}}
-	if err := func() (err error) {
+	result{{$i}} := func() (result CommandResult) {
 		defer func() {
 			if r := recover(); r != nil {
-				err = fmt.Errorf("panic in operation {{$i}}: %v", r)
+				result = CommandResult{Stdout: "", Stderr: fmt.Sprintf("panic in operation {{$i}}: %v", r), ExitCode: 1}
 			}
 		}()
+		
 		{{.Code}}
-		return nil
-	}(); err != nil {
-		{{if $.StopOnError}}return fmt.Errorf("operation {{$i}} failed: %w", err){{else}}// Continue on error{{end}}
+	}()
+	if result{{$i}}.Failed() {
+		{{if $.StopOnError}}return result{{$i}}{{else}}// Continue on error{{end}}
 	}
 	{{end}}
+	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 }`
 
 	// ConditionalExecutionPattern - Generic conditional execution
@@ -195,20 +197,21 @@ const (
 	}()
 
 	if shouldExecute {
-		if err := func() error {
+		result := func() (result CommandResult) {
 			{{.ThenOperation.Code}}
-			return nil
-		}(); err != nil {
-			return err
+		}()
+		if result.Failed() {
+			return result
 		}
 	}{{if .ElseOperation}} else {
-		if err := func() error {
+		result := func() (result CommandResult) {
 			{{.ElseOperation.Code}}
-			return nil
-		}(); err != nil {
-			return err
+		}()
+		if result.Failed() {
+			return result
 		}
 	}{{end}}
+	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 }`
 
 	// ResourceCleanupPattern - Generic resource cleanup with defer
@@ -223,12 +226,13 @@ const (
 	}()
 
 	// Execute operation
-	if err := func() error {
+	result := func() (result CommandResult) {
 		{{.Operation.Code}}
-		return nil
-	}(); err != nil {
-		return err
+	}()
+	if result.Failed() {
+		return result
 	}
+	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 }`
 
 	// ErrorCollectionPattern - Generic error collection from multiple operations
@@ -238,26 +242,27 @@ const (
 	
 	{{range $i, $op := .Operations}}
 	// Execute operation {{$i}}
-	if err := func() (err error) {
+	result{{$i}} := func() (result CommandResult) {
 		defer func() {
 			if r := recover(); r != nil {
-				err = fmt.Errorf("panic in operation {{$i}}: %v", r)
+				result = CommandResult{Stdout: "", Stderr: fmt.Sprintf("panic in operation {{$i}}: %v", r), ExitCode: 1}
 			}
 		}()
 		{{.Code}}
-		return nil
-	}(); err != nil {
-		errors = append(errors, err)
-		{{if not $.ContinueOnError}}return err{{end}}
+	}()
+	if result{{$i}}.Failed() {
+		errors = append(errors, fmt.Errorf(result{{$i}}.Stderr))
+		{{if not $.ContinueOnError}}return CommandResult{Stdout: "", Stderr: result{{$i}}.Stderr, ExitCode: 1}{{end}}
 	}
 	{{end}}
 
 	if len(errors) > 0 {
 		if len(errors) == 1 {
-			return errors[0]
+			return CommandResult{Stdout: "", Stderr: errors[0].Error(), ExitCode: 1}
 		}
-		return fmt.Errorf("multiple errors occurred: %v", errors)
+		return CommandResult{Stdout: "", Stderr: fmt.Sprintf("multiple errors occurred: %v", errors), ExitCode: 1}
 	}
+	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 }`
 
 	// TryCatchFinallyPattern - Generic try-catch-finally pattern
@@ -268,19 +273,17 @@ const (
 	var tryFinallyErr error
 
 	// Execute main block
-	tryMainErr = func() error {
-		{{.MainOperation.Code}}
-		return nil
-	}()
+	mainResult := {{.MainOperation.Code}}
+	if mainResult.Failed() {
+		tryMainErr = fmt.Errorf(mainResult.Stderr)
+	}
 
 	{{if .HasCatch}}
 	// Execute catch block if main failed
 	if tryMainErr != nil {
-		tryCatchErr = func() error {
-			{{.CatchOperation.Code}}
-			return nil
-		}()
-		if tryCatchErr != nil {
+		catchResult := {{.CatchOperation.Code}}
+		if catchResult.Failed() {
+			tryCatchErr = fmt.Errorf(catchResult.Stderr)
 			fmt.Fprintf(os.Stderr, "Catch block failed: %v\n", tryCatchErr)
 		}
 	}
@@ -288,27 +291,50 @@ const (
 
 	{{if .HasFinally}}
 	// Always execute finally block regardless of main/catch success
-	tryFinallyErr = func() error {
-		{{.FinallyOperation.Code}}
-		return nil
-	}()
-	if tryFinallyErr != nil {
+	finallyResult := {{.FinallyOperation.Code}}
+	if finallyResult.Failed() {
+		tryFinallyErr = fmt.Errorf(finallyResult.Stderr)
 		fmt.Fprintf(os.Stderr, "Finally block failed: %v\n", tryFinallyErr)
 	}
 	{{end}}
 
 	// Return the most significant error: main error takes precedence
 	if tryMainErr != nil {
-		return fmt.Errorf("main block failed: %w", tryMainErr)
+		return CommandResult{Stdout: "", Stderr: fmt.Sprintf("main block failed: %v", tryMainErr), ExitCode: 1}
 	}
 	if tryCatchErr != nil {
-		return fmt.Errorf("catch block failed: %w", tryCatchErr)
+		return CommandResult{Stdout: "", Stderr: fmt.Sprintf("catch block failed: %v", tryCatchErr), ExitCode: 1}
 	}
 	if tryFinallyErr != nil {
-		return fmt.Errorf("finally block failed: %w", tryFinallyErr)
+		return CommandResult{Stdout: "", Stderr: fmt.Sprintf("finally block failed: %v", tryFinallyErr), ExitCode: 1}
 	}
+	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 }`
 )
+
+// DurationToGoExpr converts a time.Duration to idiomatic Go time expression
+func DurationToGoExpr(d time.Duration) string {
+	// Handle common durations idiomatically
+	switch {
+	case d == 0:
+		return "0"
+	case d < time.Microsecond:
+		return fmt.Sprintf("%d * time.Nanosecond", d.Nanoseconds())
+	case d < time.Millisecond && d%time.Microsecond == 0:
+		return fmt.Sprintf("%d * time.Microsecond", d.Microseconds())
+	case d < time.Second && d%time.Millisecond == 0:
+		return fmt.Sprintf("%d * time.Millisecond", d.Milliseconds())
+	case d < time.Minute && d%time.Second == 0:
+		return fmt.Sprintf("%d * time.Second", int64(d.Seconds()))
+	case d < time.Hour && d%time.Minute == 0:
+		return fmt.Sprintf("%d * time.Minute", int64(d.Minutes()))
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%d * time.Hour", int64(d.Hours()))
+	default:
+		// For complex durations, use nanoseconds but with proper type
+		return fmt.Sprintf("time.Duration(%d)", d.Nanoseconds())
+	}
+}
 
 // Common import groups that patterns can reference
 var (

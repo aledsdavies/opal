@@ -228,7 +228,8 @@ func (d *WorkdirDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 	workdirCtx := ctx.Child().WithWorkingDir(path)
 	
 	// Convert commands to operations using the workdir context
-	operations, err := decorators.ConvertCommandsToOperations(workdirCtx, content)
+	executor := decorators.NewCommandResultExecutor(workdirCtx)
+	operations, err := executor.ConvertCommandsToCommandResultOperations(content)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
