@@ -132,28 +132,29 @@ func (r *RetryDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.Nam
 
 // extractRetryParams extracts and validates retry parameters
 func (r *RetryDecorator) extractRetryParams(params []ast.NamedParameter) (int, time.Duration, error) {
-	// Check parameter count (retry supports 1-2 parameters: attempts, and optionally delay)
-	if len(params) == 0 {
-		return 0, 0, fmt.Errorf("retry decorator requires an 'attempts' parameter")
-	}
-	if len(params) > 2 {
-		return 0, 0, fmt.Errorf("retry decorator accepts at most 2 parameters (attempts, delay), got %d", len(params))
+	// Use centralized validation
+	if err := decorators.ValidateParameterCount(params, 1, 2, "retry"); err != nil {
+		return 0, 0, err
 	}
 
-	// Check that attempts parameter exists
-	attemptsParam := ast.FindParameter(params, "attempts")
-	if attemptsParam == nil {
-		return 0, 0, fmt.Errorf("retry decorator requires an 'attempts' parameter")
+	// Validate parameter schema compliance
+	if err := decorators.ValidateSchemaCompliance(params, r.ParameterSchema(), "retry"); err != nil {
+		return 0, 0, err
 	}
 
-	// Parse parameters
+	// Validate attempts parameter is positive
+	if err := decorators.ValidatePositiveInteger(params, "attempts", "retry"); err != nil {
+		return 0, 0, err
+	}
+
+	// Validate delay parameter if present (1ms to 1 hour range)
+	if err := decorators.ValidateDuration(params, "delay", 1*time.Millisecond, 1*time.Hour, "retry"); err != nil {
+		return 0, 0, err
+	}
+
+	// Parse parameters (validation passed, so these should be safe)
 	maxAttempts := ast.GetIntParam(params, "attempts", 3)
 	delay := ast.GetDurationParam(params, "delay", 1*time.Second)
-
-	// Validate attempts is positive
-	if maxAttempts <= 0 {
-		return 0, 0, fmt.Errorf("retry attempts must be positive, got %d", maxAttempts)
-	}
 
 	return maxAttempts, delay, nil
 }

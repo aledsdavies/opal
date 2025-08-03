@@ -158,31 +158,65 @@ func (c *ConfirmDecorator) trackCIEnvironmentVariables(ctx execution.GeneratorCo
 
 // ExecuteInterpreter executes confirmation prompt in interpreter mode
 func (c *ConfirmDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	message, defaultYes, abortOnNo, caseSensitive, skipInCI := c.extractConfirmParams(params)
+	message, defaultYes, abortOnNo, caseSensitive, skipInCI, err := c.extractConfirmParams(params)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: fmt.Errorf("confirm parameter error: %w", err),
+		}
+	}
 	return c.executeInterpreterImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
 }
 
 // ExecuteGenerator generates Go code for confirmation logic
 func (c *ConfirmDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	message, defaultYes, abortOnNo, caseSensitive, skipInCI := c.extractConfirmParams(params)
+	message, defaultYes, abortOnNo, caseSensitive, skipInCI, err := c.extractConfirmParams(params)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: fmt.Errorf("confirm parameter error: %w", err),
+		}
+	}
 	return c.executeGeneratorImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
 }
 
 // ExecutePlan creates a plan element for dry-run mode
 func (c *ConfirmDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	message, defaultYes, abortOnNo, caseSensitive, skipInCI := c.extractConfirmParams(params)
+	message, defaultYes, abortOnNo, caseSensitive, skipInCI, err := c.extractConfirmParams(params)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: fmt.Errorf("confirm parameter error: %w", err),
+		}
+	}
 	return c.executePlanImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
 }
 
 // extractConfirmParams extracts and validates confirmation parameters
-func (c *ConfirmDecorator) extractConfirmParams(params []ast.NamedParameter) (string, bool, bool, bool, bool) {
+func (c *ConfirmDecorator) extractConfirmParams(params []ast.NamedParameter) (string, bool, bool, bool, bool, error) {
+	// Use centralized validation
+	if err := decorators.ValidateParameterCount(params, 0, 5, "confirm"); err != nil {
+		return "", false, false, false, false, err
+	}
+
+	// Validate parameter schema compliance
+	if err := decorators.ValidateSchemaCompliance(params, c.ParameterSchema(), "confirm"); err != nil {
+		return "", false, false, false, false, err
+	}
+
+	// Validate string content for message parameter (no shell injection concerns here)
+	if err := decorators.ValidateStringContent(params, "message", "confirm"); err != nil {
+		return "", false, false, false, false, err
+	}
+
+	// Parse parameters (validation passed, so these should be safe)
 	message := ast.GetStringParam(params, "message", "Do you want to continue?")
 	defaultYes := ast.GetBoolParam(params, "defaultYes", false)
 	abortOnNo := ast.GetBoolParam(params, "abortOnNo", true)
 	caseSensitive := ast.GetBoolParam(params, "caseSensitive", false)
 	skipInCI := ast.GetBoolParam(params, "ci", true)
 	
-	return message, defaultYes, abortOnNo, caseSensitive, skipInCI
+	return message, defaultYes, abortOnNo, caseSensitive, skipInCI, nil
 }
 
 // executeInterpreterImpl executes confirmation prompt in interpreter mode

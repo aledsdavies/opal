@@ -47,11 +47,11 @@ func (e *EnvDecorator) ParameterSchema() []decorators.ParameterSchema {
 
 // ExpandInterpreter returns the captured environment variable value for interpreter mode
 func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	key, defaultValue, allowEmpty := e.extractParameters(params)
-	if key == "" {
+	key, defaultValue, allowEmpty, err := e.extractParameters(params)
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  nil,
-			Error: fmt.Errorf("@env decorator requires an environment variable name"),
+			Error: fmt.Errorf("env parameter error: %w", err),
 		}
 	}
 
@@ -71,11 +71,11 @@ func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 
 // ExpandGenerator returns Go code that references captured environment for generator mode  
 func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	key, defaultValue, allowEmpty := e.extractParameters(params)
-	if key == "" {
+	key, defaultValue, allowEmpty, err := e.extractParameters(params)
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("@env decorator requires an environment variable name"),
+			Error: fmt.Errorf("env parameter error: %w", err),
 		}
 	}
 
@@ -105,11 +105,11 @@ func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []
 
 // ExpandPlan returns description showing the captured environment value for plan mode
 func (e *EnvDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	key, defaultValue, allowEmpty := e.extractParameters(params)
-	if key == "" {
+	key, defaultValue, allowEmpty, err := e.extractParameters(params)
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  nil,
-			Error: fmt.Errorf("@env decorator requires an environment variable name"),
+			Error: fmt.Errorf("env parameter error: %w", err),
 		}
 	}
 
@@ -135,8 +135,23 @@ func (e *EnvDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedP
 }
 
 // extractParameters extracts the environment variable key and default value from decorator parameters
-func (e *EnvDecorator) extractParameters(params []ast.NamedParameter) (key string, defaultValue string, allowEmpty bool) {
-	// Get the environment variable key using helper
+func (e *EnvDecorator) extractParameters(params []ast.NamedParameter) (key string, defaultValue string, allowEmpty bool, err error) {
+	// Use centralized validation
+	if err := decorators.ValidateParameterCount(params, 1, 3, "env"); err != nil {
+		return "", "", false, err
+	}
+
+	// Validate parameter schema compliance
+	if err := decorators.ValidateSchemaCompliance(params, e.ParameterSchema(), "env"); err != nil {
+		return "", "", false, err
+	}
+
+	// Validate environment variable name if present
+	if err := decorators.ValidateEnvironmentVariableName(params, "key", "env"); err != nil {
+		return "", "", false, err
+	}
+
+	// Parse parameters (validation passed, so these should be safe)
 	key = ast.GetStringParam(params, "key", "")
 	if key == "" && len(params) > 0 {
 		// Fallback to positional if no named parameter
@@ -149,13 +164,18 @@ func (e *EnvDecorator) extractParameters(params []ast.NamedParameter) (key strin
 		}
 	}
 	
+	// Additional check for empty key (shouldn't happen after validation)
+	if key == "" {
+		return "", "", false, fmt.Errorf("@env decorator requires a valid environment variable name")
+	}
+	
 	// Get default value if provided
 	defaultValue = ast.GetStringParam(params, "default", "")
 	
 	// Get allowEmpty flag (defaults to false for backward compatibility)
 	allowEmpty = ast.GetBoolParam(params, "allowEmpty", false)
 	
-	return key, defaultValue, allowEmpty
+	return key, defaultValue, allowEmpty, nil
 }
 
 // ImportRequirements returns the dependencies needed for code generation

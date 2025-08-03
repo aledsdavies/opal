@@ -158,7 +158,26 @@ func (p *ParallelDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.
 
 // extractParallelParams extracts and validates parallel parameters
 func (p *ParallelDecorator) extractParallelParams(params []ast.NamedParameter, contentLength int) (int, bool, error) {
-	// Parse parameters with defaults
+	// Use centralized validation
+	if err := decorators.ValidateParameterCount(params, 0, 3, "parallel"); err != nil {
+		return 0, false, err
+	}
+
+	// Validate parameter schema compliance
+	if err := decorators.ValidateSchemaCompliance(params, p.ParameterSchema(), "parallel"); err != nil {
+		return 0, false, err
+	}
+
+	// Validate concurrency parameter if present (positive integer)
+	if err := decorators.ValidatePositiveInteger(params, "concurrency", "parallel"); err != nil {
+		// ValidatePositiveInteger returns error if parameter is invalid, but not if missing
+		// Check if the parameter exists first
+		if ast.FindParameter(params, "concurrency") != nil {
+			return 0, false, err
+		}
+	}
+
+	// Parse parameters with defaults (validation passed, so these should be safe)
 	defaultConcurrency := contentLength
 	if defaultConcurrency == 0 {
 		defaultConcurrency = 1 // Always have a positive default
@@ -167,11 +186,6 @@ func (p *ParallelDecorator) extractParallelParams(params []ast.NamedParameter, c
 	concurrency := ast.GetIntParam(params, "concurrency", defaultConcurrency)
 	failOnFirstError := ast.GetBoolParam(params, "failOnFirstError", false)
 	uncapped := ast.GetBoolParam(params, "uncapped", false)
-
-	// Validate concurrency parameter
-	if concurrency <= 0 {
-		return 0, false, fmt.Errorf("concurrency must be positive, got %d", concurrency)
-	}
 
 	// Apply intelligent CPU-based concurrency capping for production robustness
 	// This prevents resource exhaustion on systems with limited CPU cores

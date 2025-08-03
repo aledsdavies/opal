@@ -36,11 +36,11 @@ func (v *VarDecorator) ParameterSchema() []decorators.ParameterSchema {
 
 // ExpandInterpreter returns the actual variable value for interpreter mode
 func (v *VarDecorator) ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	varName := v.extractVariableName(params)
-	if varName == "" {
+	varName, err := v.extractVariableName(params)
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  nil,
-			Error: fmt.Errorf("@var decorator requires a variable name parameter"),
+			Error: fmt.Errorf("var parameter error: %w", err),
 		}
 	}
 
@@ -60,11 +60,11 @@ func (v *VarDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 
 // ExpandGenerator returns Go code that resolves the variable for generator mode
 func (v *VarDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	varName := v.extractVariableName(params)
-	if varName == "" {
+	varName, err := v.extractVariableName(params)
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("@var decorator requires a variable name parameter"),
+			Error: fmt.Errorf("var parameter error: %w", err),
 		}
 	}
 
@@ -83,11 +83,11 @@ func (v *VarDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []
 
 // ExpandPlan returns description for dry-run display in plan mode
 func (v *VarDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	varName := v.extractVariableName(params)
-	if varName == "" {
+	varName, err := v.extractVariableName(params)
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  nil,
-			Error: fmt.Errorf("@var decorator requires a variable name parameter"),
+			Error: fmt.Errorf("var parameter error: %w", err),
 		}
 	}
 
@@ -106,7 +106,18 @@ func (v *VarDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedP
 }
 
 // extractVariableName extracts the variable name from decorator parameters
-func (v *VarDecorator) extractVariableName(params []ast.NamedParameter) string {
+func (v *VarDecorator) extractVariableName(params []ast.NamedParameter) (string, error) {
+	// Use centralized validation
+	if err := decorators.ValidateParameterCount(params, 1, 1, "var"); err != nil {
+		return "", err
+	}
+
+	// Validate parameter schema compliance
+	if err := decorators.ValidateSchemaCompliance(params, v.ParameterSchema(), "var"); err != nil {
+		return "", err
+	}
+
+	// Parse parameters (validation passed, so these should be safe)
 	// Try to get the "name" parameter first
 	nameParam := ast.FindParameter(params, "name")
 	if nameParam == nil && len(params) > 0 {
@@ -116,11 +127,11 @@ func (v *VarDecorator) extractVariableName(params []ast.NamedParameter) string {
 	
 	if nameParam != nil {
 		if ident, ok := nameParam.Value.(*ast.Identifier); ok {
-			return ident.Name
+			return ident.Name, nil
 		}
 	}
 	
-	return ""
+	return "", fmt.Errorf("@var decorator requires a valid identifier parameter")
 }
 
 // ImportRequirements returns the dependencies needed for code generation

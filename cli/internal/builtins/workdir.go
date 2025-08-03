@@ -124,27 +124,23 @@ func (d *WorkdirDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.N
 
 // extractWorkdirParams extracts and validates workdir parameters
 func (d *WorkdirDecorator) extractWorkdirParams(params []ast.NamedParameter) (string, bool, error) {
-	if len(params) == 0 {
-		return "", false, fmt.Errorf("workdir requires a path parameter")
+	// Use centralized validation
+	if err := decorators.ValidateParameterCount(params, 1, 2, "workdir"); err != nil {
+		return "", false, err
 	}
 
-	pathParam := ast.FindParameter(params, "path")
-	if pathParam == nil && len(params) > 0 {
-		pathParam = &params[0]
+	// Validate parameter schema compliance
+	if err := decorators.ValidateSchemaCompliance(params, d.ParameterSchema(), "workdir"); err != nil {
+		return "", false, err
 	}
 
-	if pathParam == nil {
-		return "", false, fmt.Errorf("workdir requires a path parameter")
+	// Validate path safety (no directory traversal, etc.)
+	if err := decorators.ValidatePathSafety(params, "path", "workdir"); err != nil {
+		return "", false, err
 	}
 
-	var path string
-	if str, ok := pathParam.Value.(*ast.StringLiteral); ok {
-		path = str.Value
-	} else {
-		return "", false, fmt.Errorf("workdir path must be a string literal, got %T", pathParam.Value)
-	}
-
-	// Get createIfNotExists parameter (default: false)
+	// Parse parameters (validation passed, so these should be safe)
+	path := ast.GetStringParam(params, "path", "")
 	createIfNotExists := ast.GetBoolParam(params, "createIfNotExists", false)
 
 	return path, createIfNotExists, nil

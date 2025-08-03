@@ -127,24 +127,20 @@ func (w *WhenDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.Name
 
 // extractVariableName extracts and validates the variable name parameter
 func (w *WhenDecorator) extractVariableName(params []ast.NamedParameter) (string, error) {
-	// Validate parameters first
-	if len(params) == 0 {
-		return "", fmt.Errorf("when decorator requires a 'variable' parameter")
-	}
-	if len(params) > 1 {
-		return "", fmt.Errorf("when decorator accepts exactly 1 parameter (variable), got %d", len(params))
+	// Use centralized validation
+	if err := decorators.ValidateParameterCount(params, 1, 1, "when"); err != nil {
+		return "", err
 	}
 
-	// Get the variable name to match against
+	// Validate parameter schema compliance
+	if err := decorators.ValidateSchemaCompliance(params, w.ParameterSchema(), "when"); err != nil {
+		return "", err
+	}
+
+	// Parse parameters (validation passed, so these should be safe)
 	varName := ast.GetStringParam(params, "variable", "")
-	if varName == "" && len(params) > 0 {
-		// Fallback to positional if no named parameter
-		if varLiteral, ok := params[0].Value.(*ast.StringLiteral); ok {
-			varName = varLiteral.Value
-		}
-	}
-
-	// Check that we got a valid variable name
+	
+	// Additional check for empty variable name (shouldn't happen after validation)
 	if varName == "" {
 		return "", fmt.Errorf("when decorator requires a valid 'variable' parameter")
 	}

@@ -82,24 +82,24 @@ func (t *TimeoutDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.N
 
 // extractTimeout extracts and validates the timeout duration from parameters
 func (t *TimeoutDecorator) extractTimeout(params []ast.NamedParameter) (time.Duration, error) {
-	durationParam := ast.FindParameter(params, "duration")
-	if durationParam == nil && len(params) > 0 {
-		durationParam = &params[0]
+	// Use centralized validation
+	if err := decorators.ValidateParameterCount(params, 0, 1, "timeout"); err != nil {
+		return 0, err
 	}
-	if durationParam != nil {
-		if durLit, ok := durationParam.Value.(*ast.DurationLiteral); ok {
-			timeout, err := time.ParseDuration(durLit.Value)
-			if err != nil {
-				return 0, fmt.Errorf("invalid duration '%s': %w", durLit.Value, err)
-			}
-			return timeout, nil
-		} else {
-			return 0, fmt.Errorf("duration parameter must be a duration literal")
-		}
-	} else {
-		// Default timeout is 30 seconds
-		return 30 * time.Second, nil
+
+	// Validate parameter schema compliance
+	if err := decorators.ValidateSchemaCompliance(params, t.ParameterSchema(), "timeout"); err != nil {
+		return 0, err
 	}
+
+	// Validate duration parameter if present (1ms to 24 hours range)
+	if err := decorators.ValidateDuration(params, "duration", 1*time.Millisecond, 24*time.Hour, "timeout"); err != nil {
+		return 0, err
+	}
+
+	// Parse parameters (validation passed, so these should be safe)
+	// If no duration parameter provided, use default of 30 seconds
+	return ast.GetDurationParam(params, "duration", 30*time.Second), nil
 }
 
 // executeInterpreterImpl executes commands with timeout in interpreter mode
