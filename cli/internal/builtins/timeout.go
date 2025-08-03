@@ -2,8 +2,6 @@ package decorators
 
 import (
 	"fmt"
-	"strings"
-	"text/template"
 	"time"
 
 	"github.com/aledsdavies/devcmd/core/ast"
@@ -96,165 +94,97 @@ func (t *TimeoutDecorator) extractTimeout(params []ast.NamedParameter) (time.Dur
 	if err := decorators.ValidateDuration(params, "duration", 1*time.Millisecond, 24*time.Hour, "timeout"); err != nil {
 		return 0, err
 	}
+	
+	// Enhanced security validation for timeout safety
+	if err := decorators.ValidateTimeoutSafety(params, "duration", 24*time.Hour, "timeout"); err != nil {
+		return 0, err
+	}
 
 	// Parse parameters (validation passed, so these should be safe)
 	// If no duration parameter provided, use default of 30 seconds
 	return ast.GetDurationParam(params, "duration", 30*time.Second), nil
 }
 
-// executeInterpreterImpl executes commands with timeout in interpreter mode
+// executeInterpreterImpl executes commands with timeout in interpreter mode using utilities
 func (t *TimeoutDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
-	// Create context with timeout
-	timeoutCtx, cancel := ctx.WithTimeout(timeout)
-	defer cancel()
+	// Create TimeoutExecutor with specified timeout
+	timeoutExecutor := decorators.NewTimeoutExecutor(timeout)
+	defer timeoutExecutor.Cleanup()
 
-	// Create a channel to signal completion
-	done := make(chan error, 1)
+	// Execute all commands within the timeout using the utility
+	err := timeoutExecutor.Execute(func() error {
+		// Execute commands sequentially with isolated context
+		childCtx := ctx.Child()
+		
+		// Use CommandExecutor utility to handle all commands
+		commandExecutor := decorators.NewCommandExecutor()
+		defer commandExecutor.Cleanup()
+		
+		return commandExecutor.ExecuteCommandsWithInterpreter(childCtx, content)
+	})
 
-	// Execute commands in a goroutine
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				done <- fmt.Errorf("panic during execution: %v", r)
-			}
-		}()
+	return &execution.ExecutionResult{
+		Data:  nil,
+		Error: err,
+	}
+}
 
-		// Execute commands using the unified execution engine
-		for _, cmd := range content {
-			// Check for cancellation before each command
-			select {
-			case <-timeoutCtx.Done():
-				done <- timeoutCtx.Err()
-				return
-			default:
-			}
 
-			// Execute the command content directly
-			switch c := cmd.(type) {
-			case *ast.ShellContent:
-				result := timeoutCtx.ExecuteShell(c)
-				if result.Error != nil {
-					done <- result.Error
-					return
-				}
-			default:
-				done <- fmt.Errorf("unsupported command content type in timeout: %T", cmd)
-				return
-			}
-		}
-		done <- nil
-	}()
-
-	// Wait for either completion or timeout
-	select {
-	case err := <-done:
-		if err != nil {
-			return &execution.ExecutionResult{
-				Data:  nil,
-				Error: fmt.Errorf("command execution failed: %w", err),
-			}
-		}
+// executeGeneratorImpl generates Go code for timeout logic using new utilities
+func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+	// Convert AST commands to a single operation containing all sequential commands
+	operations, err := decorators.ConvertCommandsToOperations(ctx, content)
+	if err != nil {
 		return &execution.ExecutionResult{
-			Data:  nil,
+			Data:  "",
+			Error: fmt.Errorf("failed to convert commands to operations: %w", err),
+		}
+	}
+
+	// Combine all operations into a single sequential operation for timeout wrapping
+	if len(operations) == 0 {
+		return &execution.ExecutionResult{
+			Data:  "// No operations to execute",
 			Error: nil,
 		}
-	case <-timeoutCtx.Done():
-		return &execution.ExecutionResult{
-			Data:  nil,
-			Error: fmt.Errorf("command execution timed out after %s", timeout),
+	}
+
+	var combinedCode string
+	if len(operations) == 1 {
+		combinedCode = operations[0].Code
+	} else {
+		// Use TemplateBuilder to create sequential execution, then wrap with timeout
+		sequentialBuilder := decorators.NewTemplateBuilder()
+		sequentialBuilder.WithSequentialExecution(operations, true) // Stop on error
+		
+		sequentialCode, err := sequentialBuilder.BuildTemplate()
+		if err != nil {
+			return &execution.ExecutionResult{
+				Data:  "",
+				Error: fmt.Errorf("failed to build sequential template: %w", err),
+			}
 		}
-	}
-}
-
-// Template for timeout execution code generation (unified contract: statement blocks)
-const timeoutExecutionTemplate = `// Timeout execution setup
-timeoutDuration, err := time.ParseDuration({{printf "%q" .Timeout}})
-if err != nil {
-	return fmt.Errorf("invalid timeout duration '{{.Timeout}}': %w", err)
-}
-
-timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), timeoutDuration)
-defer timeoutCancel()
-
-timeoutDone := make(chan error, 1)
-
-go func() {
-	defer func() {
-		if r := recover(); r != nil {
-			timeoutDone <- fmt.Errorf("panic during execution: %v", r)
-		}
-	}()
-
-	// Execute commands in timeout context
-	{{range $i, $cmd := .Commands}}
-	// Check for timeout cancellation before command {{add $i 1}}
-	select {
-	case <-timeoutCtx.Done():
-		timeoutDone <- timeoutCtx.Err()
-		return
-	default:
+		combinedCode = sequentialCode
 	}
 
-	// Execute timeout command {{add $i 1}}
-	if err := func() error {
-		{{generateShellCode $cmd}}
-		return nil
-	}(); err != nil {
-		timeoutDone <- err
-		return
-	}
-	{{end}}
-
-	timeoutDone <- nil
-}()
-
-select {
-case err := <-timeoutDone:
-	if err != nil {
-		return fmt.Errorf("command execution failed: %w", err)
-	}
-case <-timeoutCtx.Done():
-	return fmt.Errorf("command execution timed out after {{.Timeout}}")
-}`
-
-// TimeoutTemplateData holds data for template execution
-type TimeoutTemplateData struct {
-	Timeout  string
-	Commands []ast.CommandContent
-}
-
-// executeGeneratorImpl generates Go code for timeout logic using templates
-func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
-	// Create child context for isolated execution
-	timeoutCtx := ctx.Child()
+	// Create a single operation from the combined code and wrap with timeout
+	operation := decorators.Operation{Code: combinedCode}
 	
-	// Prepare template data
-	templateData := TimeoutTemplateData{
-		Timeout:  timeout.String(),
-		Commands: content,
-	}
+	// Use TemplateBuilder to create timeout pattern
+	builder := decorators.NewTemplateBuilder()
+	builder.WithTimeout(timeout.String(), operation)
 
-	// Parse and execute template with child context functions and add helper function
-	tmpl, err := template.New("timeout").Funcs(template.FuncMap{
-		"add": func(a, b int) int { return a + b },
-	}).Funcs(timeoutCtx.GetTemplateFunctions()).Parse(timeoutExecutionTemplate)
+	// Build the template
+	generatedCode, err := builder.BuildTemplate()
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("failed to parse timeout template: %w", err),
-		}
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to execute timeout template: %w", err),
+			Error: fmt.Errorf("failed to build timeout template: %w", err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Data:  result.String(),
+		Data:  generatedCode,
 		Error: nil,
 	}
 }
@@ -310,7 +240,7 @@ func (t *TimeoutDecorator) executePlanImpl(ctx execution.PlanContext, timeout ti
 // ImportRequirements returns the dependencies needed for code generation
 func (t *TimeoutDecorator) ImportRequirements() decorators.ImportRequirement {
 	return decorators.ImportRequirement{
-		StandardLibrary: []string{"time", "context", "fmt"}, // Timeout needs time and context packages
+		StandardLibrary: []string{"context", "fmt", "time"}, // Required by TimeoutPattern
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
 	}

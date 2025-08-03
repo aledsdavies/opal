@@ -1,10 +1,8 @@
 package decorators
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
-	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/core/plan"
@@ -15,68 +13,6 @@ import (
 // TryDecorator implements the @try decorator for error handling with pattern matching
 type TryDecorator struct{}
 
-// Template for try execution code generation (unified contract: statement blocks)
-const tryExecutionTemplate = `// Try-catch-finally execution with proper error handling
-var tryMainErr error
-var tryCatchErr error
-var tryFinallyErr error
-
-// Execute main block
-tryMainErr = func() error {
-	{{range $i, $cmd := .MainCommands}}
-	{{$cmd}}
-	{{end}}
-	return nil
-}()
-
-{{if .HasCatchBranch}}
-// Execute catch block if main failed
-if tryMainErr != nil {
-	tryCatchErr = func() error {
-		{{range $i, $cmd := .CatchCommands}}
-		{{$cmd}}
-		{{end}}
-		return nil
-	}()
-	if tryCatchErr != nil {
-		fmt.Fprintf(os.Stderr, "Catch block failed: %v\n", tryCatchErr)
-	}
-}
-{{end}}
-
-{{if .HasFinallyBranch}}
-// Always execute finally block regardless of main/catch success
-tryFinallyErr = func() error {
-	{{range $i, $cmd := .FinallyCommands}}
-	{{$cmd}}
-	{{end}}
-	return nil
-}()
-if tryFinallyErr != nil {
-	fmt.Fprintf(os.Stderr, "Finally block failed: %v\n", tryFinallyErr)
-}
-{{end}}
-
-// Return the most significant error: main error takes precedence over catch/finally errors
-if tryMainErr != nil {
-	return fmt.Errorf("main block failed: %w", tryMainErr)
-}
-if tryCatchErr != nil {
-	return fmt.Errorf("catch block failed: %w", tryCatchErr)
-}
-if tryFinallyErr != nil {
-	return fmt.Errorf("finally block failed: %w", tryFinallyErr)
-}
-return nil`
-
-// TryTemplateData holds data for template execution
-type TryTemplateData struct {
-	MainCommands     []string // Generated shell code strings
-	CatchCommands    []string // Generated shell code strings
-	FinallyCommands  []string // Generated shell code strings
-	HasCatchBranch   bool
-	HasFinallyBranch bool
-}
 
 // Name returns the decorator name
 func (t *TryDecorator) Name() string {
@@ -182,23 +118,27 @@ func (t *TryDecorator) validateAndExtractPatterns(params []ast.NamedParameter, p
 	return mainBranch, catchBranch, finallyBranch, nil
 }
 
-// executeInterpreterImpl executes try-catch-finally in interpreter mode with proper isolation
+// executeInterpreterImpl executes try-catch-finally in interpreter mode using utilities
 func (t *TryDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, mainBranch, catchBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
+	var mainErr, catchErr, finallyErr error
+
+	// Create CommandExecutor for executing commands
+	commandExecutor := decorators.NewCommandExecutor()
+	defer commandExecutor.Cleanup()
+
 	// Execute main block
-	mainErr := t.executeCommands(ctx, mainBranch.Commands)
+	mainErr = commandExecutor.ExecuteCommandsWithInterpreter(ctx.Child(), mainBranch.Commands)
 
 	// Execute catch block if main failed and catch pattern exists
-	var catchErr error
 	if mainErr != nil && catchBranch != nil {
 		// Catch block executes in isolated context
-		catchErr = t.executeCommands(ctx, catchBranch.Commands)
+		catchErr = commandExecutor.ExecuteCommandsWithInterpreter(ctx.Child(), catchBranch.Commands)
 	}
 
 	// Always execute finally block if it exists, regardless of main/catch success
-	var finallyErr error
 	if finallyBranch != nil {
 		// Finally block executes in isolated context
-		finallyErr = t.executeCommands(ctx, finallyBranch.Commands)
+		finallyErr = commandExecutor.ExecuteCommandsWithInterpreter(ctx.Child(), finallyBranch.Commands)
 	}
 
 	// Return the most significant error: main error takes precedence
@@ -227,69 +167,81 @@ func (t *TryDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, 
 	}
 }
 
-// executeGeneratorImpl generates Go code for try-catch-finally logic with proper error handling
+// executeGeneratorImpl generates Go code for try-catch-finally logic using new utilities
 func (t *TryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, mainBranch, catchBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
-	// Generate shell code for main commands
-	mainCommands, err := t.generateCommandsCode(ctx, mainBranch.Commands)
+	// Convert main commands to operation
+	mainOperations, err := decorators.ConvertCommandsToOperations(ctx, mainBranch.Commands)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("failed to generate main commands: %w", err),
+			Error: fmt.Errorf("failed to convert main commands: %w", err),
 		}
 	}
 
-	// Generate shell code for catch commands if they exist
-	var catchCommands []string
+	// Combine main operations into single operation
+	mainOp, err := t.combineOperations(mainOperations)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: fmt.Errorf("failed to combine main operations: %w", err),
+		}
+	}
+
+	// Convert catch commands to operation if they exist
+	var catchOp *decorators.Operation
 	if catchBranch != nil {
-		catchCommands, err = t.generateCommandsCode(ctx, catchBranch.Commands)
+		catchOperations, err := decorators.ConvertCommandsToOperations(ctx, catchBranch.Commands)
 		if err != nil {
 			return &execution.ExecutionResult{
 				Data:  "",
-				Error: fmt.Errorf("failed to generate catch commands: %w", err),
+				Error: fmt.Errorf("failed to convert catch commands: %w", err),
 			}
 		}
+		combinedCatch, err := t.combineOperations(catchOperations)
+		if err != nil {
+			return &execution.ExecutionResult{
+				Data:  "",
+				Error: fmt.Errorf("failed to combine catch operations: %w", err),
+			}
+		}
+		catchOp = &combinedCatch
 	}
 
-	// Generate shell code for finally commands if they exist
-	var finallyCommands []string
+	// Convert finally commands to operation if they exist
+	var finallyOp *decorators.Operation
 	if finallyBranch != nil {
-		finallyCommands, err = t.generateCommandsCode(ctx, finallyBranch.Commands)
+		finallyOperations, err := decorators.ConvertCommandsToOperations(ctx, finallyBranch.Commands)
 		if err != nil {
 			return &execution.ExecutionResult{
 				Data:  "",
-				Error: fmt.Errorf("failed to generate finally commands: %w", err),
+				Error: fmt.Errorf("failed to convert finally commands: %w", err),
 			}
 		}
+		combinedFinally, err := t.combineOperations(finallyOperations)
+		if err != nil {
+			return &execution.ExecutionResult{
+				Data:  "",
+				Error: fmt.Errorf("failed to combine finally operations: %w", err),
+			}
+		}
+		finallyOp = &combinedFinally
 	}
 
-	// Prepare template data
-	templateData := TryTemplateData{
-		MainCommands:     mainCommands,
-		CatchCommands:    catchCommands,
-		FinallyCommands:  finallyCommands,
-		HasCatchBranch:   catchBranch != nil,
-		HasFinallyBranch: finallyBranch != nil,
-	}
+	// Use TemplateBuilder to create try-catch-finally pattern
+	builder := decorators.NewTemplateBuilder()
+	builder.WithTryCatchFinally(mainOp, catchOp, finallyOp)
 
-	// Parse and execute template
-	tmpl, err := template.New("try").Parse(tryExecutionTemplate)
+	// Build the template
+	generatedCode, err := builder.BuildTemplate()
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("failed to parse try template: %w", err),
-		}
-	}
-
-	var result bytes.Buffer
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to execute try template: %w", err),
+			Error: fmt.Errorf("failed to build try-catch-finally template: %w", err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Data:  result.String(),
+		Data:  generatedCode,
 		Error: nil,
 	}
 }
@@ -422,38 +374,26 @@ func (t *TryDecorator) executePlanImpl(ctx execution.PlanContext, mainBranch, ca
 	}
 }
 
-// executeCommands executes commands using the unified execution engine
-func (t *TryDecorator) executeCommands(ctx execution.InterpreterContext, commands []ast.CommandContent) error {
-	for _, cmd := range commands {
-		switch c := cmd.(type) {
-		case *ast.ShellContent:
-			result := ctx.ExecuteShell(c)
-			if result.Error != nil {
-				return fmt.Errorf("shell command failed: %w", result.Error)
-			}
-		default:
-			return fmt.Errorf("unsupported command type: %T", cmd)
-		}
+// combineOperations combines multiple operations into a single sequential operation
+func (t *TryDecorator) combineOperations(operations []decorators.Operation) (decorators.Operation, error) {
+	if len(operations) == 0 {
+		return decorators.Operation{Code: "// No operations"}, nil
 	}
-	return nil
-}
+	
+	if len(operations) == 1 {
+		return operations[0], nil
+	}
 
-// generateCommandsCode generates Go code for a list of commands
-func (t *TryDecorator) generateCommandsCode(ctx execution.GeneratorContext, commands []ast.CommandContent) ([]string, error) {
-	result := make([]string, len(commands))
-	for i, cmd := range commands {
-		switch c := cmd.(type) {
-		case *ast.ShellContent:
-			shellResult := ctx.GenerateShellCode(c)
-			if shellResult.Error != nil {
-				return nil, fmt.Errorf("failed to generate shell code: %w", shellResult.Error)
-			}
-			result[i] = shellResult.Data.(string)
-		default:
-			result[i] = fmt.Sprintf("// Unsupported command type: %T", cmd)
-		}
+	// Use TemplateBuilder to create sequential execution for multiple operations
+	builder := decorators.NewTemplateBuilder()
+	builder.WithSequentialExecution(operations, true) // Stop on error
+	
+	code, err := builder.BuildTemplate()
+	if err != nil {
+		return decorators.Operation{}, fmt.Errorf("failed to combine operations: %w", err)
 	}
-	return result, nil
+	
+	return decorators.Operation{Code: code}, nil
 }
 
 // patternToString converts a pattern to its string representation
@@ -469,7 +409,7 @@ func (t *TryDecorator) patternToString(pattern ast.Pattern) string {
 // ImportRequirements returns the dependencies needed for code generation
 func (t *TryDecorator) ImportRequirements() decorators.ImportRequirement {
 	return decorators.ImportRequirement{
-		StandardLibrary: []string{"fmt", "os"}, // Try decorator needs fmt and os for error handling
+		StandardLibrary: []string{"fmt", "os"}, // Required by TryCatchFinallyPattern
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
 	}

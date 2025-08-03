@@ -2,8 +2,6 @@ package decorators
 
 import (
 	"fmt"
-	"strings"
-	"text/template"
 	"time"
 
 	"github.com/aledsdavies/devcmd/core/ast"
@@ -15,51 +13,6 @@ import (
 // RetryDecorator implements the @retry decorator for retrying failed command execution
 type RetryDecorator struct{}
 
-// Template for retry execution code generation (unified contract: statement blocks)
-const retryExecutionTemplate = `// Retry execution setup
-maxAttempts := {{.MaxAttempts}}
-delay, err := time.ParseDuration({{printf "%q" .Delay}})
-if err != nil {
-	return fmt.Errorf("invalid retry delay '{{.Delay}}': %w", err)
-}
-
-var lastErr error
-for attempt := 1; attempt <= maxAttempts; attempt++ {
-	fmt.Printf("Retry attempt %d/%d\n", attempt, maxAttempts)
-
-	// Execute commands in child context
-	execErr := func() error {
-		{{range $i, $cmd := .Commands}}
-		{{generateShellCode $cmd}}
-		{{end}}
-		return nil
-	}()
-
-	if execErr == nil {
-		fmt.Printf("Commands succeeded on attempt %d\n", attempt)
-		break
-	}
-
-	lastErr = execErr
-	fmt.Printf("Attempt %d failed: %v\n", attempt, execErr)
-
-	// Don't delay after the last attempt
-	if attempt < maxAttempts {
-		fmt.Printf("Waiting %s before next attempt...\n", delay)
-		time.Sleep(delay)
-	}
-}
-
-if lastErr != nil {
-	return fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr)
-}`
-
-// RetryTemplateData holds data for template execution
-type RetryTemplateData struct {
-	MaxAttempts int
-	Delay       string
-	Commands    []ast.CommandContent
-}
 
 // Name returns the decorator name
 func (r *RetryDecorator) Name() string {
@@ -146,9 +99,19 @@ func (r *RetryDecorator) extractRetryParams(params []ast.NamedParameter) (int, t
 	if err := decorators.ValidatePositiveInteger(params, "attempts", "retry"); err != nil {
 		return 0, 0, err
 	}
+	
+	// Enhanced security validation for attempts to prevent resource exhaustion
+	if err := decorators.ValidateResourceLimits(params, "attempts", 100, "retry"); err != nil {
+		return 0, 0, err
+	}
 
 	// Validate delay parameter if present (1ms to 1 hour range)
 	if err := decorators.ValidateDuration(params, "delay", 1*time.Millisecond, 1*time.Hour, "retry"); err != nil {
+		return 0, 0, err
+	}
+	
+	// Enhanced security validation for timeout safety
+	if err := decorators.ValidateTimeoutSafety(params, "delay", 1*time.Hour, "retry"); err != nil {
 		return 0, 0, err
 	}
 
@@ -159,71 +122,85 @@ func (r *RetryDecorator) extractRetryParams(params []ast.NamedParameter) (int, t
 	return maxAttempts, delay, nil
 }
 
-// executeInterpreterImpl executes retry logic in interpreter mode
+// executeInterpreterImpl executes retry logic in interpreter mode using utilities
 func (r *RetryDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Create child context for each retry attempt
-		retryCtx := ctx.Child()
+	// Create RetryExecutor with specified attempts and delay
+	retryExecutor := decorators.NewRetryExecutor(maxAttempts, delay)
+	defer retryExecutor.Cleanup()
+
+	// Execute all commands within the retry logic using the utility
+	err := retryExecutor.Execute(func() error {
+		// Execute commands sequentially with isolated context
+		childCtx := ctx.Child()
 		
-		// Execute commands using the unified execution engine
-		execErr := r.executeCommands(retryCtx, content)
-
-		if execErr == nil {
-			return &execution.ExecutionResult{
-				Data:  nil,
-				Error: nil, // Success!
-			}
-		}
-
-		lastErr = execErr
-
-		// Don't delay after the last attempt
-		if attempt < maxAttempts {
-			time.Sleep(delay)
-		}
-	}
+		// Use CommandExecutor utility to handle all commands
+		commandExecutor := decorators.NewCommandExecutor()
+		defer commandExecutor.Cleanup()
+		
+		return commandExecutor.ExecuteCommandsWithInterpreter(childCtx, content)
+	})
 
 	return &execution.ExecutionResult{
 		Data:  nil,
-		Error: fmt.Errorf("all %d retry attempts failed, last error: %w", maxAttempts, lastErr),
+		Error: err,
 	}
 }
 
-// executeGeneratorImpl generates Go code for retry logic
+// executeGeneratorImpl generates Go code for retry logic using new utilities
 func (r *RetryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, maxAttempts int, delay time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
-	// Create child context for isolated execution
-	retryCtx := ctx.Child()
-	
-	// Parse delay for code generation
-	defaultDelay := delay.String()
-
-	// Prepare template data
-	templateData := RetryTemplateData{
-		MaxAttempts: maxAttempts,
-		Delay:       defaultDelay,
-		Commands:    content,
-	}
-
-	// Parse and execute template with child context functions
-	tmpl, err := template.New("retry").Funcs(retryCtx.GetTemplateFunctions()).Parse(retryExecutionTemplate)
+	// Convert AST commands to a single operation containing all sequential commands
+	operations, err := decorators.ConvertCommandsToOperations(ctx, content)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("failed to parse retry template: %w", err),
+			Error: fmt.Errorf("failed to convert commands to operations: %w", err),
 		}
 	}
 
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
+	// Combine all operations into a single sequential operation for retry wrapping
+	if len(operations) == 0 {
+		return &execution.ExecutionResult{
+			Data:  "// No operations to execute",
+			Error: nil,
+		}
+	}
+
+	var combinedCode string
+	if len(operations) == 1 {
+		combinedCode = operations[0].Code
+	} else {
+		// Use TemplateBuilder to create sequential execution, then wrap with retry
+		sequentialBuilder := decorators.NewTemplateBuilder()
+		sequentialBuilder.WithSequentialExecution(operations, true) // Stop on error
+		
+		sequentialCode, err := sequentialBuilder.BuildTemplate()
+		if err != nil {
+			return &execution.ExecutionResult{
+				Data:  "",
+				Error: fmt.Errorf("failed to build sequential template: %w", err),
+			}
+		}
+		combinedCode = sequentialCode
+	}
+
+	// Create a single operation from the combined code and wrap with retry
+	operation := decorators.Operation{Code: combinedCode}
+	
+	// Use TemplateBuilder to create retry pattern
+	builder := decorators.NewTemplateBuilder()
+	builder.WithRetry(maxAttempts, delay.String(), operation)
+
+	// Build the template
+	generatedCode, err := builder.BuildTemplate()
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("failed to execute retry template: %w", err),
+			Error: fmt.Errorf("failed to build retry template: %w", err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Data:  result.String(),
+		Data:  generatedCode,
 		Error: nil,
 	}
 }
@@ -283,26 +260,10 @@ func (r *RetryDecorator) executePlanImpl(ctx execution.PlanContext, maxAttempts 
 	}
 }
 
-// executeCommands executes commands using direct execution
-func (r *RetryDecorator) executeCommands(ctx execution.InterpreterContext, content []ast.CommandContent) error {
-	for _, cmd := range content {
-		switch c := cmd.(type) {
-		case *ast.ShellContent:
-			result := ctx.ExecuteShell(c)
-			if result.Error != nil {
-				return result.Error
-			}
-		default:
-			return fmt.Errorf("unsupported command content type in retry: %T", cmd)
-		}
-	}
-	return nil
-}
-
 // ImportRequirements returns the dependencies needed for code generation
 func (r *RetryDecorator) ImportRequirements() decorators.ImportRequirement {
 	return decorators.ImportRequirement{
-		StandardLibrary: []string{"time", "fmt"}, // Retry needs time for delays and fmt for errors
+		StandardLibrary: []string{"fmt", "time"}, // Required by RetryPattern
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
 	}

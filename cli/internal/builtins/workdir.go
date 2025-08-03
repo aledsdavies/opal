@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/core/plan"
@@ -12,36 +11,6 @@ import (
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
-// workdirExecutionTemplate generates Go code for workdir execution (unified contract: statement blocks)
-const workdirExecutionTemplate = `// Workdir execution setup
-{{if .CreateIfNotExists}}
-// Create directory if it doesn't exist
-if err := os.MkdirAll({{.Path | printf "%q"}}, 0755); err != nil {
-	return CommandResult{Stdout: "", Stderr: fmt.Sprintf("failed to create directory %s: %v", {{.Path | printf "%q"}}, err), ExitCode: 1}
-}
-{{else}}
-// Verify target directory exists
-if _, err := os.Stat({{.Path | printf "%q"}}); err != nil {
-	return CommandResult{Stdout: "", Stderr: fmt.Sprintf("failed to access directory %s: %v", {{.Path | printf "%q"}}, err), ExitCode: 1}
-}
-{{end}}
-
-{{range $i, $cmd := .Commands}}
-// Execute workdir command {{add $i 1}} in directory {{$.Path}}
-{{.GeneratedCode}}
-{{end}}`
-
-// WorkdirTemplateData holds data for the workdir execution template
-type WorkdirTemplateData struct {
-	Path             string
-	CreateIfNotExists bool
-	Commands         []WorkdirCommandData
-}
-
-// WorkdirCommandData holds generated code for a single command within workdir
-type WorkdirCommandData struct {
-	GeneratedCode string
-}
 
 // WorkdirDecorator implements the @workdir decorator for changing working directory
 type WorkdirDecorator struct{}
@@ -76,11 +45,7 @@ func (d *WorkdirDecorator) ParameterSchema() []decorators.ParameterSchema {
 
 // ImportRequirements returns the dependencies needed for code generation
 func (d *WorkdirDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
-		StandardLibrary: []string{"os", "fmt"},
-		ThirdParty:      []string{},
-		GoModules:       map[string]string{},
-	}
+	return decorators.RequiresFileSystem() // Uses ResourceCleanupPattern + os operations
 }
 
 // ExecuteInterpreter executes workdir in interpreter mode
@@ -134,8 +99,14 @@ func (d *WorkdirDecorator) extractWorkdirParams(params []ast.NamedParameter) (st
 		return "", false, err
 	}
 
-	// Validate path safety (no directory traversal, etc.)
+	// Enhanced security validation for path safety (no directory traversal, etc.)
 	if err := decorators.ValidatePathSafety(params, "path", "workdir"); err != nil {
+		return "", false, err
+	}
+	
+	// Perform comprehensive security validation for all parameters
+	_, err := decorators.PerformComprehensiveSecurityValidation(params, d.ParameterSchema(), "workdir")
+	if err != nil {
 		return "", false, err
 	}
 
@@ -207,7 +178,7 @@ func (d *WorkdirDecorator) executePlanImpl(path string, createIfNotExists bool, 
 	}
 }
 
-// executeInterpreterImpl executes the workdir in interpreter mode
+// executeInterpreterImpl executes the workdir in interpreter mode using utilities
 func (d *WorkdirDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, path string, createIfNotExists bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Handle directory creation or verification
 	if createIfNotExists {
@@ -232,102 +203,94 @@ func (d *WorkdirDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	// This ensures isolated execution without affecting global process directory
 	workdirCtx := ctx.WithWorkingDir(path)
 
-	// Execute the content in the new directory context
-	var executionError error
-	for i, cmdContent := range content {
-		// Execute all content types using direct execution with workdir context
-		switch c := cmdContent.(type) {
-		case *ast.ShellContent:
-			result := workdirCtx.ExecuteShell(c)
-			if result.Error != nil {
-				executionError = fmt.Errorf("command %d failed in directory %s: %w", i+1, path, result.Error)
-				break
-			}
-		default:
-			executionError = fmt.Errorf("unsupported command content type in workdir: %T", cmdContent)
-			break
-		}
-	}
+	// Use CommandExecutor utility to handle command execution
+	commandExecutor := decorators.NewCommandExecutor()
+	defer commandExecutor.Cleanup()
 
-	// No need to restore directory - we never changed the global process directory
-	// The original context remains unchanged
-
-	// Return execution error if any
-	if executionError != nil {
+	// Execute all commands in the workdir context
+	err := commandExecutor.ExecuteCommandsWithInterpreter(workdirCtx, content)
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  nil,
-			Error: executionError,
+			Error: fmt.Errorf("execution failed in directory %s: %w", path, err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Data:  "",
+		Data:  nil,
 		Error: nil,
 	}
 }
 
-// executeGeneratorImpl generates Go code for the workdir decorator using templates
+// executeGeneratorImpl generates Go code for the workdir decorator using new utilities
 func (d *WorkdirDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, path string, createIfNotExists bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Create a child context with the working directory set
-	// This ensures all nested commands get the correct working directory
 	workdirCtx := ctx.Child().WithWorkingDir(path)
 	
-	// Pre-generate code for each command using the unified shell code builder
-	// This supports all command content types: ShellContent, BlockDecorator, PatternDecorator
-	var commandData []WorkdirCommandData
-	for _, cmdContent := range content {
-		// Use the unified shell code builder to handle all command content types
-		shellBuilder := execution.NewShellCodeBuilder(workdirCtx)
-		generatedCode, err := shellBuilder.GenerateShellCode(cmdContent)
-		if err != nil {
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("failed to generate code for workdir command: %w", err),
-			}
-		}
-		
-		commandData = append(commandData, WorkdirCommandData{
-			GeneratedCode: generatedCode,
-		})
-	}
-	
-	// Prepare template data with pre-generated code
-	templateData := WorkdirTemplateData{
-		Path:             path,
-		CreateIfNotExists: createIfNotExists,
-		Commands:         commandData,
-	}
-
-	// Parse and execute template with basic functions
-	tmpl, err := template.New("workdir").Funcs(template.FuncMap{
-		"add": func(a, b int) int { return a + b },
-	}).Parse(workdirExecutionTemplate)
+	// Convert commands to operations using the workdir context
+	operations, err := decorators.ConvertCommandsToOperations(workdirCtx, content)
 	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("failed to parse workdir template: %w", err),
+			Error: fmt.Errorf("failed to convert commands to operations: %w", err),
 		}
 	}
 
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
+	// Combine all operations into a single sequential operation
+	var combinedCode string
+	if len(operations) == 0 {
+		combinedCode = "// No operations to execute"
+	} else if len(operations) == 1 {
+		combinedCode = operations[0].Code
+	} else {
+		// Use TemplateBuilder to create sequential execution
+		sequentialBuilder := decorators.NewTemplateBuilder()
+		sequentialBuilder.WithSequentialExecution(operations, true) // Stop on error
+		
+		sequentialCode, err := sequentialBuilder.BuildTemplate()
+		if err != nil {
+			return &execution.ExecutionResult{
+				Data:  "",
+				Error: fmt.Errorf("failed to build sequential template: %w", err),
+			}
+		}
+		combinedCode = sequentialCode
+	}
+
+	// Create setup code for directory creation/verification
+	var setupCode string
+	if createIfNotExists {
+		setupCode = fmt.Sprintf(`// Create directory if it doesn't exist
+if err := os.MkdirAll(%q, 0755); err != nil {
+	return CommandResult{Stdout: "", Stderr: fmt.Sprintf("failed to create directory %s: %%v", %q, err), ExitCode: 1}
+}`, path, path, path)
+	} else {
+		setupCode = fmt.Sprintf(`// Verify target directory exists
+if _, err := os.Stat(%q); err != nil {
+	return CommandResult{Stdout: "", Stderr: fmt.Sprintf("failed to access directory %s: %%v", %q, err), ExitCode: 1}
+}`, path, path, path)
+	}
+
+	// Create operation from combined code
+	operation := decorators.Operation{Code: combinedCode}
+	
+	// Use TemplateBuilder to create resource cleanup pattern
+	builder := decorators.NewTemplateBuilder()
+	builder.WithResourceCleanup(setupCode, operation, "// No cleanup needed - working directory changes are isolated")
+
+	// Build the template
+	generatedCode, err := builder.BuildTemplate()
+	if err != nil {
 		return &execution.ExecutionResult{
 			Data:  "",
-			Error: fmt.Errorf("failed to execute workdir template: %w", err),
+			Error: fmt.Errorf("failed to build workdir template: %w", err),
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Data:  result.String(),
+		Data:  generatedCode,
 		Error: nil,
 	}
-}
-
-// generateShellExpression generates a Go string expression for a shell command
-// This method is now DEPRECATED in favor of the unified shell template system
-func (d *WorkdirDecorator) generateShellExpression(ctx execution.GeneratorContext, content *ast.ShellContent) (string, error) {
-	// This method is deprecated - use the unified shell generation system
-	return "", fmt.Errorf("generateShellExpression is deprecated - use GenerateShellCode directly")
 }
 
 // init registers the workdir decorator

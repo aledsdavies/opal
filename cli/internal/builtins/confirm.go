@@ -115,9 +115,12 @@ func (c *ConfirmDecorator) ParameterSchema() []decorators.ParameterSchema {
 
 // ImportRequirements returns the dependencies needed for code generation
 func (c *ConfirmDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
-		StandardLibrary: []string{"bufio", "fmt", "os", "strings"},
-	}
+	return decorators.StandardImportRequirement(
+		decorators.CoreImports,         // fmt
+		decorators.FileSystemImports,   // os
+		decorators.StringImports,       // strings  
+		[]string{"bufio"},              // For user input reading
+	)
 }
 
 // isCI checks if we're running in a CI environment using captured environment
@@ -219,33 +222,21 @@ func (c *ConfirmDecorator) extractConfirmParams(params []ast.NamedParameter) (st
 	return message, defaultYes, abortOnNo, caseSensitive, skipInCI, nil
 }
 
-// executeInterpreterImpl executes confirmation prompt in interpreter mode
+// executeInterpreterImpl executes confirmation prompt in interpreter mode using utilities
 func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Check if we should skip confirmation in CI environment
 	if skipInCI && c.isCI(ctx) {
 		// Auto-confirm in CI and execute commands in child context
 		fmt.Printf("CI environment detected - auto-confirming: %s\n", message)
-		confirmCtx := ctx.Child()
-		for _, cmd := range content {
-			switch c := cmd.(type) {
-			case *ast.ShellContent:
-				result := confirmCtx.ExecuteShell(c)
-				if result.Error != nil {
-					return &execution.ExecutionResult{
-						Data:  nil,
-						Error: fmt.Errorf("command execution failed: %w", result.Error),
-					}
-				}
-			default:
-				return &execution.ExecutionResult{
-					Data:  nil,
-					Error: fmt.Errorf("unsupported command content type in confirm: %T", cmd),
-				}
-			}
-		}
+		
+		// Use CommandExecutor utility to handle command execution
+		commandExecutor := decorators.NewCommandExecutor()
+		defer commandExecutor.Cleanup()
+		
+		err := commandExecutor.ExecuteCommandsWithInterpreter(ctx.Child(), content)
 		return &execution.ExecutionResult{
 			Data:  nil,
-			Error: nil,
+			Error: err,
 		}
 	}
 
@@ -296,39 +287,33 @@ func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 		}
 	}
 
-	// User confirmed, execute the commands in child context
-	confirmCtx := ctx.Child()
-	for _, cmd := range content {
-		switch c := cmd.(type) {
-		case *ast.ShellContent:
-			result := confirmCtx.ExecuteShell(c)
-			if result.Error != nil {
-				return &execution.ExecutionResult{
-					Data:  nil,
-					Error: fmt.Errorf("command execution failed: %w", result.Error),
-				}
-			}
-		default:
-			return &execution.ExecutionResult{
-				Data:  nil,
-				Error: fmt.Errorf("unsupported command content type in confirm: %T", cmd),
-			}
-		}
-	}
-
+	// User confirmed, execute the commands in child context using CommandExecutor utility
+	commandExecutor := decorators.NewCommandExecutor()
+	defer commandExecutor.Cleanup()
+	
+	err = commandExecutor.ExecuteCommandsWithInterpreter(ctx.Child(), content)
 	return &execution.ExecutionResult{
 		Data:  nil,
-		Error: nil,
+		Error: err,
 	}
 }
 
-// executeGeneratorImpl generates Go code for confirmation logic
+// executeGeneratorImpl generates Go code for confirmation logic using new utilities
 func (c *ConfirmDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
 	// Track CI environment variables for deterministic behavior
 	if skipInCI {
 		c.trackCIEnvironmentVariables(ctx)
 	}
 	
+	// Convert commands to operations using the utility
+	operations, err := decorators.ConvertCommandsToOperations(ctx, content)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: fmt.Errorf("failed to convert commands to operations: %w", err),
+		}
+	}
+
 	// Create child context for isolated execution
 	confirmCtx := ctx.Child()
 
@@ -348,13 +333,15 @@ func (c *ConfirmDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 		CaseSensitive bool
 		SkipInCI      bool
 		Commands      []ast.CommandContent
+		Operations    []decorators.Operation
 	}{
 		Message:       message,
 		DefaultYes:    defaultYes,
 		AbortOnNo:     abortOnNo,
 		CaseSensitive: caseSensitive,
 		SkipInCI:      skipInCI,
-		Commands:      content,
+		Commands:      content,      // Keep for backward compatibility with existing template
+		Operations:    operations,   // New operations for potential future enhancements
 	}
 
 	var result strings.Builder

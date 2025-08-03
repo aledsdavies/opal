@@ -111,11 +111,11 @@ func TestWorkdirDecorator_RelativePath(t *testing.T) {
 			{Name: "path", Value: &ast.StringLiteral{Value: "../"}},
 		}, content)
 	
+	// Relative paths with .. are now blocked for security (directory traversal)
 	errors := decoratortesting.Assert(result).
-		InterpreterSucceeds().
-		GeneratorSucceeds().
-		GeneratorCodeContains("../").
-		PlanSucceeds().
+		InterpreterFails("directory traversal").
+		GeneratorFails("directory traversal").
+		PlanFails("directory traversal").
 		Validate()
 	
 	if len(errors) > 0 {
@@ -217,9 +217,9 @@ func TestWorkdirDecorator_InvalidParameters(t *testing.T) {
 		TestBlockDecorator([]ast.NamedParameter{}, content)
 	
 	errors := decoratortesting.Assert(result).
-		InterpreterFails("path").
-		GeneratorFails("path").
-		PlanFails("path").
+		InterpreterFails("requires at least 1 parameter").
+		GeneratorFails("requires at least 1 parameter").
+		PlanFails("requires at least 1 parameter").
 		Validate()
 	
 	if len(errors) > 0 {
@@ -240,11 +240,10 @@ func TestWorkdirDecorator_EmptyPath(t *testing.T) {
 			{Name: "path", Value: &ast.StringLiteral{Value: ""}},
 		}, content)
 	
-	// Empty path passes parameter validation but fails during execution
+	// Empty path now fails during parameter validation (which is better!)
 	errors := decoratortesting.Assert(result).
-		GeneratorSucceeds().
-		GeneratorCodeContains("os.Stat").
-		PlanSucceeds().
+		GeneratorFails("path").
+		PlanFails("path").
 		Validate()
 	
 	if len(errors) > 0 {

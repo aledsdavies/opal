@@ -189,3 +189,29 @@ func newBaseContext(ctx context.Context, program *ast.Program) *BaseExecutionCon
 	}
 }
 
+// Helper functions for standardized ExecutionResult creation
+
+// NewSuccessResult creates a successful ExecutionResult with the given data
+func NewSuccessResult(data interface{}) *ExecutionResult {
+	return &ExecutionResult{
+		Data:  data,
+		Error: nil,
+	}
+}
+
+// NewErrorResult creates a failed ExecutionResult with the given error
+func NewErrorResult(err error) *ExecutionResult {
+	return &ExecutionResult{
+		Data:  nil,
+		Error: err,
+	}
+}
+
+// NewFormattedErrorResult creates a failed ExecutionResult with a formatted error message
+func NewFormattedErrorResult(format string, args ...interface{}) *ExecutionResult {
+	return &ExecutionResult{
+		Data:  nil,
+		Error: fmt.Errorf(format, args...),
+	}
+}
+

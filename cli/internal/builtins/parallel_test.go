@@ -27,7 +27,7 @@ func TestParallelDecorator_Basic(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
-		GeneratorCodeContains("parallelWg", "sync.WaitGroup", "go func()").
+		GeneratorCodeContains("wg", "sync.WaitGroup", "go func()").
 		PlanSucceeds().
 		PlanReturnsElement("parallel").
 		CompletesWithin("1s").
@@ -59,7 +59,7 @@ func TestParallelDecorator_ConcurrencyLimit(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("parallelSemaphore", "make(chan struct{}, 2)").
+		GeneratorCodeContains("semaphore", "make(chan struct{}, 2)").
 		PlanSucceeds().
 		PlanReturnsElement("parallel").
 		Validate()
@@ -222,9 +222,9 @@ func TestParallelDecorator_InvalidParameters(t *testing.T) {
 	
 	// Parallel decorator should reject negative concurrency values
 	errors := decoratortesting.Assert(result).
-		InterpreterFails("concurrency must be positive").
-		GeneratorFails("concurrency must be positive").
-		PlanFails("concurrency must be positive").
+		InterpreterFails("must be positive").
+		GeneratorFails("must be positive").
+		PlanFails("must be positive").
 		Validate()
 	
 	if len(errors) > 0 {
@@ -308,7 +308,7 @@ func TestParallelDecorator_ErrorHandling(t *testing.T) {
 	// Note: Interpreter might fail due to command failures, but generator and plan should work
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
-		GeneratorCodeContains("parallelErrors", "parallelErrChan").
+		GeneratorCodeContains("errors", "errChan").
 		PlanSucceeds().
 		Validate()
 	

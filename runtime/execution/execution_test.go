@@ -13,24 +13,16 @@ import (
 // Mock ValueDecorator for testing
 type mockVarDecorator struct{}
 
-func (m *mockVarDecorator) Expand(ctx *ExecutionContext, params []ast.NamedParameter) *ExecutionResult {
+func (m *mockVarDecorator) Expand(ctx GeneratorContext, params []ast.NamedParameter) *ExecutionResult {
 	if len(params) == 0 {
-		return &ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("@var decorator requires variable name"),
-		}
+		return NewFormattedErrorResult("@var decorator requires variable name")
 	}
 
 	var varName string
 	if ident, ok := params[0].Value.(*ast.Identifier); ok {
 		varName = ident.Name
 	} else {
-		return &ExecutionResult{
-			Mode:  ctx.Mode(),
-			Data:  nil,
-			Error: fmt.Errorf("@var decorator requires identifier argument"),
-		}
+		return NewFormattedErrorResult("@var decorator requires identifier argument")
 	}
 
 	switch ctx.Mode() {

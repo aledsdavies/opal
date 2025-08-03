@@ -8,4 +8,5 @@ require (
 )
 
 replace github.com/aledsdavies/devcmd/core => ../core
+
 replace github.com/aledsdavies/devcmd/runtime => ../runtime

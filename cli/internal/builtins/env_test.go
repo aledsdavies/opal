@@ -138,9 +138,9 @@ func TestEnvDecorator_NoParameter(t *testing.T) {
 		TestValueDecorator([]ast.NamedParameter{})
 	
 	errors := decoratortesting.Assert(result).
-		InterpreterFails("environment variable name").
-		GeneratorFails("environment variable name").
-		PlanFails("environment variable name").
+		InterpreterFails("requires at least 1 parameter").
+		GeneratorFails("requires at least 1 parameter").
+		PlanFails("requires at least 1 parameter").
 		Validate()
 	
 	if len(errors) > 0 {
