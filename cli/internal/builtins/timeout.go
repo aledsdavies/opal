@@ -3,6 +3,7 @@ package decorators
 import (
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/aledsdavies/devcmd/core/ast"
@@ -165,18 +166,14 @@ func (t *TimeoutDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	}
 }
 
-// executeGeneratorImpl generates Go code for timeout logic using a simpler approach
-func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
-	// Generate simpler Go code that doesn't rely on complex template functions
-	var codeBuilder strings.Builder
-	
-	codeBuilder.WriteString(fmt.Sprintf(`// Timeout execution setup
-timeoutDuration, err := time.ParseDuration("%s")
+// Template for timeout execution code generation (unified contract: statement blocks)
+const timeoutExecutionTemplate = `// Timeout execution setup
+timeoutDuration, err := time.ParseDuration({{printf "%q" .Timeout}})
 if err != nil {
-	return fmt.Errorf("invalid timeout duration '%s': %%w", err)
+	return fmt.Errorf("invalid timeout duration '{{.Timeout}}': %w", err)
 }
 
-timeoutCtx, timeoutCancel := context.WithTimeout(ctx, timeoutDuration)
+timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), timeoutDuration)
 defer timeoutCancel()
 
 timeoutDone := make(chan error, 1)
@@ -184,15 +181,13 @@ timeoutDone := make(chan error, 1)
 go func() {
 	defer func() {
 		if r := recover(); r != nil {
-			timeoutDone <- fmt.Errorf("panic during execution: %%v", r)
+			timeoutDone <- fmt.Errorf("panic during execution: %v", r)
 		}
 	}()
 
-`, timeout.String(), timeout.String()))
-
-	// Generate code for each command
-	for i, cmd := range content {
-		codeBuilder.WriteString(fmt.Sprintf(`	// Check for timeout cancellation before command %d
+	// Execute commands in timeout context
+	{{range $i, $cmd := .Commands}}
+	// Check for timeout cancellation before command {{add $i 1}}
 	select {
 	case <-timeoutCtx.Done():
 		timeoutDone <- timeoutCtx.Err()
@@ -200,52 +195,66 @@ go func() {
 	default:
 	}
 
-	// Execute timeout command %d
+	// Execute timeout command {{add $i 1}}
 	if err := func() error {
-`, i, i))
-
-		// Handle different types of command content
-		switch c := cmd.(type) {
-		case *ast.ShellContent:
-			// Generate shell execution code directly
-			result := ctx.GenerateShellCode(c)
-			if result.Error != nil {
-				return &execution.ExecutionResult{
-					Data:  "",
-					Error: fmt.Errorf("failed to generate shell code: %w", result.Error),
-				}
-			}
-			codeBuilder.WriteString(fmt.Sprintf("		%s\n", result.Data))
-		default:
-			// For other content types (like BlockDecorator), generate a placeholder
-			// In a full implementation, this would need proper decorator registry support
-			codeBuilder.WriteString(fmt.Sprintf("		// TODO: Handle %T content type\n", cmd))
-			codeBuilder.WriteString("		// This would require decorator registry integration\n")
-		}
-
-		codeBuilder.WriteString(`		return nil
+		{{generateShellCode $cmd}}
+		return nil
 	}(); err != nil {
 		timeoutDone <- err
 		return
 	}
-`)
-	}
+	{{end}}
 
-	codeBuilder.WriteString(fmt.Sprintf(`
 	timeoutDone <- nil
 }()
 
 select {
 case err := <-timeoutDone:
 	if err != nil {
-		return fmt.Errorf("command execution failed: %%w", err)
+		return fmt.Errorf("command execution failed: %w", err)
 	}
 case <-timeoutCtx.Done():
-	return fmt.Errorf("command execution timed out after %s")
-}`, timeout.String()))
+	return fmt.Errorf("command execution timed out after {{.Timeout}}")
+}`
+
+// TimeoutTemplateData holds data for template execution
+type TimeoutTemplateData struct {
+	Timeout  string
+	Commands []ast.CommandContent
+}
+
+// executeGeneratorImpl generates Go code for timeout logic using templates
+func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
+	// Create child context for isolated execution
+	timeoutCtx := ctx.Child()
+	
+	// Prepare template data
+	templateData := TimeoutTemplateData{
+		Timeout:  timeout.String(),
+		Commands: content,
+	}
+
+	// Parse and execute template with child context functions and add helper function
+	tmpl, err := template.New("timeout").Funcs(template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+	}).Funcs(timeoutCtx.GetTemplateFunctions()).Parse(timeoutExecutionTemplate)
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: fmt.Errorf("failed to parse timeout template: %w", err),
+		}
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: fmt.Errorf("failed to execute timeout template: %w", err),
+		}
+	}
 
 	return &execution.ExecutionResult{
-		Data:  codeBuilder.String(),
+		Data:  result.String(),
 		Error: nil,
 	}
 }

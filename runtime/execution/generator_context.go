@@ -12,6 +12,10 @@ import (
 // GeneratorExecutionContext implements GeneratorContext for Go code generation
 type GeneratorExecutionContext struct {
 	*BaseExecutionContext
+	
+	// Decorator lookup functions (set by engine during initialization)
+	blockDecoratorLookup   func(name string) (interface{}, bool)
+	patternDecoratorLookup func(name string) (interface{}, bool)
 }
 
 
@@ -89,20 +93,32 @@ func (c *GeneratorExecutionContext) GetCurrentCommand() string {
 
 // GetBlockDecoratorLookup returns the block decorator lookup function
 func (c *GeneratorExecutionContext) GetBlockDecoratorLookup() func(name string) (interface{}, bool) {
-	// Block decorators are now accessed directly through the registry
-	return nil
+	// Block decorators are looked up through dependency injection to avoid import cycles
+	// This will be set by the engine during initialization
+	return c.blockDecoratorLookup
 }
 
 // GetPatternDecoratorLookup returns the pattern decorator lookup function
 func (c *GeneratorExecutionContext) GetPatternDecoratorLookup() func(name string) (interface{}, bool) {
-	// Pattern decorators are now accessed directly through the registry
-	return nil
+	// Pattern decorators are looked up through dependency injection to avoid import cycles
+	// This will be set by the engine during initialization
+	return c.patternDecoratorLookup
 }
 
 // ProcessValueDecoratorUnified handles value decorators in generator mode
 func (c *GeneratorExecutionContext) ProcessValueDecoratorUnified(decorator *ast.ValueDecorator) (interface{}, error) {
 	// Value decorators are now accessed directly through the registry
 	return nil, fmt.Errorf("ProcessValueDecoratorUnified is deprecated - use decorator registry directly")
+}
+
+// SetBlockDecoratorLookup sets the block decorator lookup function (called by engine during setup)
+func (c *GeneratorExecutionContext) SetBlockDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.blockDecoratorLookup = lookup
+}
+
+// SetPatternDecoratorLookup sets the pattern decorator lookup function (called by engine during setup)
+func (c *GeneratorExecutionContext) SetPatternDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.patternDecoratorLookup = lookup
 }
 
 // TrackEnvironmentVariable tracks an environment variable for global capture generation
@@ -158,6 +174,9 @@ func (c *GeneratorExecutionContext) Child() GeneratorContext {
 	
 	return &GeneratorExecutionContext{
 		BaseExecutionContext: childBase,
+		// Copy immutable configuration from parent to child
+		blockDecoratorLookup:   c.blockDecoratorLookup,
+		patternDecoratorLookup: c.patternDecoratorLookup,
 	}
 }
 

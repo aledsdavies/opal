@@ -3,6 +3,7 @@ package decorators
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"text/template"
@@ -97,13 +98,19 @@ func (p *ParallelDecorator) ParameterSchema() []decorators.ParameterSchema {
 			Name:        "concurrency",
 			Type:        ast.NumberType,
 			Required:    false,
-			Description: "Maximum number of commands to run concurrently (default: unlimited)",
+			Description: "Maximum number of commands to run concurrently (default: CPU cores * 2, capped for safety)",
 		},
 		{
 			Name:        "failOnFirstError",
 			Type:        ast.BooleanType,
 			Required:    false,
 			Description: "Cancel remaining tasks on first error (default: false)",
+		},
+		{
+			Name:        "uncapped",
+			Type:        ast.BooleanType,
+			Required:    false,
+			Description: "Disable CPU-based concurrency capping (default: false, use with caution)",
 		},
 	}
 }
@@ -112,38 +119,74 @@ func (p *ParallelDecorator) ParameterSchema() []decorators.ParameterSchema {
 
 // ExecuteInterpreter executes commands concurrently in interpreter mode
 func (p *ParallelDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	// Parse parameters with defaults
-	concurrency := len(content) // Default: no limit (run all at once)
-	failOnFirstError := false   // Default: continue on errors
-
-	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
-	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
+	concurrency, failOnFirstError, err := p.extractParallelParams(params, len(content))
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: err,
+		}
+	}
 
 	return p.executeInterpreterImpl(ctx, concurrency, failOnFirstError, content)
 }
 
 // ExecuteGenerator generates Go code for parallel execution
 func (p *ParallelDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	// Parse parameters with defaults
-	concurrency := len(content) // Default: no limit (run all at once)
-	failOnFirstError := false   // Default: continue on errors
-
-	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
-	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
+	concurrency, failOnFirstError, err := p.extractParallelParams(params, len(content))
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  "",
+			Error: err,
+		}
+	}
 
 	return p.executeGeneratorImpl(ctx, concurrency, failOnFirstError, content)
 }
 
 // ExecutePlan creates a plan element for dry-run mode
 func (p *ParallelDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	// Parse parameters with defaults
-	concurrency := len(content) // Default: no limit (run all at once)
-	failOnFirstError := false   // Default: continue on errors
-
-	concurrency = ast.GetIntParam(params, "concurrency", concurrency)
-	failOnFirstError = ast.GetBoolParam(params, "failOnFirstError", failOnFirstError)
+	concurrency, failOnFirstError, err := p.extractParallelParams(params, len(content))
+	if err != nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: err,
+		}
+	}
 
 	return p.executePlanImpl(ctx, concurrency, failOnFirstError, content)
+}
+
+// extractParallelParams extracts and validates parallel parameters
+func (p *ParallelDecorator) extractParallelParams(params []ast.NamedParameter, contentLength int) (int, bool, error) {
+	// Parse parameters with defaults
+	defaultConcurrency := contentLength
+	if defaultConcurrency == 0 {
+		defaultConcurrency = 1 // Always have a positive default
+	}
+	
+	concurrency := ast.GetIntParam(params, "concurrency", defaultConcurrency)
+	failOnFirstError := ast.GetBoolParam(params, "failOnFirstError", false)
+	uncapped := ast.GetBoolParam(params, "uncapped", false)
+
+	// Validate concurrency parameter
+	if concurrency <= 0 {
+		return 0, false, fmt.Errorf("concurrency must be positive, got %d", concurrency)
+	}
+
+	// Apply intelligent CPU-based concurrency capping for production robustness
+	// This prevents resource exhaustion on systems with limited CPU cores
+	if !uncapped {
+		cpuCount := runtime.NumCPU()
+		maxRecommendedConcurrency := cpuCount * 2 // Allow some over-subscription for I/O bound tasks
+		
+		if concurrency > maxRecommendedConcurrency {
+			// Cap concurrency but don't error - just limit to reasonable bounds
+			// This provides good defaults while still allowing explicit override via uncapped=true
+			concurrency = maxRecommendedConcurrency
+		}
+	}
+
+	return concurrency, failOnFirstError, nil
 }
 
 // executeInterpreterImpl executes commands concurrently in interpreter mode
@@ -208,8 +251,14 @@ func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterCont
 					err = result.Error
 				}
 			default:
-				// For other content types (like ShellContent), use the standard executor
-				err = isolatedCtx.ExecuteCommandContent(command)
+				// For other content types (like ShellContent), use direct execution
+				switch c := command.(type) {
+				case *ast.ShellContent:
+					result := isolatedCtx.ExecuteShell(c)
+					err = result.Error
+				default:
+					err = fmt.Errorf("unsupported command content type in parallel: %T", command)
+				}
 			}
 			
 			errChan <- err

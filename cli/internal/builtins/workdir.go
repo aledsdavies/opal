@@ -239,11 +239,16 @@ func (d *WorkdirDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	// Execute the content in the new directory context
 	var executionError error
 	for i, cmdContent := range content {
-		// Execute all content types using the unified executor with workdir context
-		err := workdirCtx.ExecuteCommandContent(cmdContent)
-		
-		if err != nil {
-			executionError = fmt.Errorf("command %d failed in directory %s: %w", i+1, path, err)
+		// Execute all content types using direct execution with workdir context
+		switch c := cmdContent.(type) {
+		case *ast.ShellContent:
+			result := workdirCtx.ExecuteShell(c)
+			if result.Error != nil {
+				executionError = fmt.Errorf("command %d failed in directory %s: %w", i+1, path, result.Error)
+				break
+			}
+		default:
+			executionError = fmt.Errorf("unsupported command content type in workdir: %T", cmdContent)
 			break
 		}
 	}

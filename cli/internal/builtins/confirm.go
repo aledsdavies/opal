@@ -31,10 +31,10 @@ isCI := func() bool {
 
 if isCI {
 	// Auto-confirm in CI and execute commands
-	fmt.Printf("CI environment detected - auto-confirming: {{.Message}}\n")
-} else {{{end}}
-	// Display the confirmation message
-	fmt.Print({{.Message}})
+	fmt.Printf("CI environment detected - auto-confirming: %s\n", {{printf "%q" .Message}})
+} else {
+{{end}}	// Display the confirmation message
+	fmt.Print({{printf "%q" .Message}})
 	{{if .DefaultYes}}fmt.Print(" [Y/n]: "){{else}}fmt.Print(" [y/N]: "){{end}}
 	
 	// Read user input
@@ -193,10 +193,19 @@ func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 		fmt.Printf("CI environment detected - auto-confirming: %s\n", message)
 		confirmCtx := ctx.Child()
 		for _, cmd := range content {
-			if err := confirmCtx.ExecuteCommandContent(cmd); err != nil {
+			switch c := cmd.(type) {
+			case *ast.ShellContent:
+				result := confirmCtx.ExecuteShell(c)
+				if result.Error != nil {
+					return &execution.ExecutionResult{
+						Data:  nil,
+						Error: fmt.Errorf("command execution failed: %w", result.Error),
+					}
+				}
+			default:
 				return &execution.ExecutionResult{
 					Data:  nil,
-					Error: fmt.Errorf("command execution failed: %w", err),
+					Error: fmt.Errorf("unsupported command content type in confirm: %T", cmd),
 				}
 			}
 		}
@@ -256,10 +265,19 @@ func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	// User confirmed, execute the commands in child context
 	confirmCtx := ctx.Child()
 	for _, cmd := range content {
-		if err := confirmCtx.ExecuteCommandContent(cmd); err != nil {
+		switch c := cmd.(type) {
+		case *ast.ShellContent:
+			result := confirmCtx.ExecuteShell(c)
+			if result.Error != nil {
+				return &execution.ExecutionResult{
+					Data:  nil,
+					Error: fmt.Errorf("command execution failed: %w", result.Error),
+				}
+			}
+		default:
 			return &execution.ExecutionResult{
 				Data:  nil,
-				Error: fmt.Errorf("command execution failed: %w", err),
+				Error: fmt.Errorf("unsupported command content type in confirm: %T", cmd),
 			}
 		}
 	}
@@ -297,7 +315,7 @@ func (c *ConfirmDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 		SkipInCI      bool
 		Commands      []ast.CommandContent
 	}{
-		Message:       fmt.Sprintf("%q", message),
+		Message:       message,
 		DefaultYes:    defaultYes,
 		AbortOnNo:     abortOnNo,
 		CaseSensitive: caseSensitive,

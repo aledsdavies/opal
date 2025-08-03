@@ -400,6 +400,10 @@ func (d *DecoratorTestSuite) createInterpreterContext() execution.InterpreterCon
 func (d *DecoratorTestSuite) createGeneratorContext() execution.GeneratorContext {
 	ctx := execution.NewGeneratorContext(context.Background(), d.program)
 	
+	// CRITICAL: Set up decorator lookup functions FIRST, before any other operations
+	// This ensures they're available when template functions are created
+	d.setupDecoratorLookups(ctx)
+	
 	// Set up variables
 	for name, value := range d.variables {
 		ctx.SetVariable(name, value)
@@ -490,4 +494,28 @@ func (d *DecoratorTestSuite) validateCrossModeConsistency(result *ValidationResu
 	// - Parameter handling consistency
 	// - Error condition consistency  
 	// - Data type consistency where applicable
+}
+
+// setupDecoratorLookups configures decorator registry access for testing nested decorators
+func (d *DecoratorTestSuite) setupDecoratorLookups(ctx execution.GeneratorContext) {
+	// Cast to the concrete type to access the setup methods
+	if generatorCtx, ok := ctx.(*execution.GeneratorExecutionContext); ok {
+		// Set up block decorator lookup function using the decorator registry
+		generatorCtx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetBlock(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+		
+		// Set up pattern decorator lookup function using the decorator registry
+		generatorCtx.SetPatternDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetPattern(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+	}
 }

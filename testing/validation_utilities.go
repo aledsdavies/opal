@@ -431,3 +431,14 @@ func ContainsAll(text string, substrings []string) bool {
 	}
 	return true
 }
+
+// RandomString generates a random string of specified length for test isolation
+func RandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		// Use a simple deterministic approach for tests to avoid importing crypto/rand
+		b[i] = charset[(i*7+length*3)%len(charset)]
+	}
+	return string(b)
+}

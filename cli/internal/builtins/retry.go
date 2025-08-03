@@ -282,11 +282,17 @@ func (r *RetryDecorator) executePlanImpl(ctx execution.PlanContext, maxAttempts 
 	}
 }
 
-// executeCommands executes commands using the unified execution engine
+// executeCommands executes commands using direct execution
 func (r *RetryDecorator) executeCommands(ctx execution.InterpreterContext, content []ast.CommandContent) error {
 	for _, cmd := range content {
-		if err := ctx.ExecuteCommandContent(cmd); err != nil {
-			return err
+		switch c := cmd.(type) {
+		case *ast.ShellContent:
+			result := ctx.ExecuteShell(c)
+			if result.Error != nil {
+				return result.Error
+			}
+		default:
+			return fmt.Errorf("unsupported command content type in retry: %T", cmd)
 		}
 	}
 	return nil
