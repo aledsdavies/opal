@@ -34,14 +34,20 @@ func (e *EnvDecorator) ParameterSchema() []decorators.ParameterSchema {
 			Name:        "default",
 			Type:        ast.StringType,
 			Required:    false,
-			Description: "Default value if environment variable is not set",
+			Description: "Default value if environment variable is not set or empty",
+		},
+		{
+			Name:        "allowEmpty",
+			Type:        ast.BooleanType,
+			Required:    false,
+			Description: "If true, empty string values are preserved instead of using default",
 		},
 	}
 }
 
 // ExpandInterpreter returns the captured environment variable value for interpreter mode
 func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	key, defaultValue := e.extractParameters(params)
+	key, defaultValue, allowEmpty := e.extractParameters(params)
 	if key == "" {
 		return &execution.ExecutionResult{
 			Data:  nil,
@@ -52,8 +58,8 @@ func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 	// Get the environment variable value from captured environment (deterministic)
 	value, exists := ctx.GetEnv(key)
 	
-	// Use captured value or default
-	if !exists || value == "" {
+	// Use captured value or default based on allowEmpty flag
+	if !exists || (!allowEmpty && value == "") {
 		value = defaultValue
 	}
 
@@ -65,7 +71,7 @@ func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 
 // ExpandGenerator returns Go code that references captured environment for generator mode  
 func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	key, defaultValue := e.extractParameters(params)
+	key, defaultValue, allowEmpty := e.extractParameters(params)
 	if key == "" {
 		return &execution.ExecutionResult{
 			Data:  "",
@@ -79,8 +85,13 @@ func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []
 	// Generate Go code that references the captured environment
 	var goCode string
 	if defaultValue != "" {
-		// If default provided, use it as fallback: envContext["KEY"] or "default"
-		goCode = fmt.Sprintf(`func() string { if val, exists := envContext[%q]; exists && val != "" { return val }; return %q }()`, key, defaultValue)
+		if allowEmpty {
+			// If allowEmpty=true, only use default if not exists: envContext["KEY"] or "default"
+			goCode = fmt.Sprintf(`func() string { if val, exists := envContext[%q]; exists { return val }; return %q }()`, key, defaultValue)
+		} else {
+			// Default behavior: use default if not exists or empty: envContext["KEY"] or "default"
+			goCode = fmt.Sprintf(`func() string { if val, exists := envContext[%q]; exists && val != "" { return val }; return %q }()`, key, defaultValue)
+		}
 	} else {
 		// No default, just use captured value: envContext["KEY"]
 		goCode = fmt.Sprintf(`envContext[%q]`, key)
@@ -94,11 +105,11 @@ func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []
 
 // ExpandPlan returns description showing the captured environment value for plan mode
 func (e *EnvDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	key, defaultValue := e.extractParameters(params)
+	key, defaultValue, allowEmpty := e.extractParameters(params)
 	if key == "" {
 		return &execution.ExecutionResult{
-			Data:  "@env(<missing>)",
-			Error: nil,
+			Data:  nil,
+			Error: fmt.Errorf("@env decorator requires an environment variable name"),
 		}
 	}
 
@@ -106,12 +117,15 @@ func (e *EnvDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedP
 	value, exists := ctx.GetEnv(key)
 	
 	var displayValue string
-	if exists && value != "" {
-		displayValue = fmt.Sprintf("@env(%s) → %q (captured)", key, value)
-	} else if defaultValue != "" {
-		displayValue = fmt.Sprintf("@env(%s) → %q (default)", key, defaultValue)
+	// Apply same logic as interpreter mode for consistency
+	if !exists || (!allowEmpty && value == "") {
+		if defaultValue != "" {
+			displayValue = fmt.Sprintf("@env(%s) → %q (default)", key, defaultValue)
+		} else {
+			displayValue = fmt.Sprintf("@env(%s) → <unset>", key)
+		}
 	} else {
-		displayValue = fmt.Sprintf("@env(%s) → <unset>", key)
+		displayValue = fmt.Sprintf("@env(%s) → %q (captured)", key, value)
 	}
 
 	return &execution.ExecutionResult{
@@ -121,7 +135,7 @@ func (e *EnvDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedP
 }
 
 // extractParameters extracts the environment variable key and default value from decorator parameters
-func (e *EnvDecorator) extractParameters(params []ast.NamedParameter) (key string, defaultValue string) {
+func (e *EnvDecorator) extractParameters(params []ast.NamedParameter) (key string, defaultValue string, allowEmpty bool) {
 	// Get the environment variable key using helper
 	key = ast.GetStringParam(params, "key", "")
 	if key == "" && len(params) > 0 {
@@ -138,7 +152,10 @@ func (e *EnvDecorator) extractParameters(params []ast.NamedParameter) (key strin
 	// Get default value if provided
 	defaultValue = ast.GetStringParam(params, "default", "")
 	
-	return key, defaultValue
+	// Get allowEmpty flag (defaults to false for backward compatibility)
+	allowEmpty = ast.GetBoolParam(params, "allowEmpty", false)
+	
+	return key, defaultValue, allowEmpty
 }
 
 // ImportRequirements returns the dependencies needed for code generation

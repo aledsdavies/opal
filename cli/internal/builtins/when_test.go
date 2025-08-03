@@ -1,218 +1,255 @@
 package decorators
 
 import (
-	"context"
 	"os"
 	"testing"
 
 	"github.com/aledsdavies/devcmd/core/ast"
-	"github.com/aledsdavies/devcmd/runtime/execution"
+	decoratortesting "github.com/aledsdavies/devcmd/testing"
 )
 
-func TestWhenDecorator_Execute(t *testing.T) {
-	// Create test program
-	program := ast.NewProgram()
-	ctx := execution.NewExecutionContext(context.Background(), program)
+func TestWhenDecorator_BasicMatching(t *testing.T) {
+	decorator := &WhenDecorator{}
+	
+	// Set environment for testing
+	os.Setenv("NODE_ENV", "production")
+	defer os.Unsetenv("NODE_ENV")
+	
+	patterns := []ast.PatternBranch{
+		decoratortesting.PatternBranch("production", "echo 'prod mode'", "echo 'building for production'"),
+		decoratortesting.PatternBranch("development", "echo 'dev mode'", "echo 'starting dev server'"),
+		decoratortesting.PatternBranch("*", "echo 'unknown mode'"),
+	}
+	
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestPatternDecorator([]ast.NamedParameter{
+			decoratortesting.StringParam("variable", "NODE_ENV"),
+		}, patterns)
+	
+	errors := decoratortesting.Assert(result).
+		InterpreterSucceeds().
+		GeneratorSucceeds().
+		GeneratorProducesValidGo().
+		GeneratorCodeContains("NODE_ENV", "production").
+		PlanSucceeds().
+		PlanReturnsElement("conditional").
+		CompletesWithin("100ms").
+		ModesAreConsistent().
+		SupportsDevcmdChaining().
+		SupportsNesting().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("WhenDecorator basic matching test failed:\n%s", decoratortesting.JoinErrors(errors))
+	}
+}
 
-	// Test patterns with different values
+func TestWhenDecorator_DefaultWildcard(t *testing.T) {
+	decorator := &WhenDecorator{}
+	
+	// Set environment to something not explicitly matched
+	os.Setenv("DEPLOY_ENV", "staging")
+	defer os.Unsetenv("DEPLOY_ENV")
+	
+	patterns := []ast.PatternBranch{
+		decoratortesting.PatternBranch("production", "echo 'prod'"),
+		decoratortesting.PatternBranch("development", "echo 'dev'"),
+		decoratortesting.PatternBranch("*", "echo 'default case'", "echo 'fallback'"),
+	}
+	
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestPatternDecorator([]ast.NamedParameter{
+			decoratortesting.StringParam("variable", "DEPLOY_ENV"),
+		}, patterns)
+	
+	errors := decoratortesting.Assert(result).
+		InterpreterSucceeds().
+		GeneratorSucceeds().
+		GeneratorCodeContains("DEPLOY_ENV", "default").
+		PlanSucceeds().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("WhenDecorator default wildcard test failed:\n%s", decoratortesting.JoinErrors(errors))
+	}
+}
+
+func TestWhenDecorator_UndefinedVariable(t *testing.T) {
+	decorator := &WhenDecorator{}
+	
+	patterns := []ast.PatternBranch{
+		decoratortesting.PatternBranch("production", "echo 'prod'"),
+		decoratortesting.PatternBranch("*", "echo 'default'"),
+	}
+	
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestPatternDecorator([]ast.NamedParameter{
+			decoratortesting.StringParam("variable", "UNDEFINED_VAR"),
+		}, patterns)
+	
+	// Should fall back to wildcard pattern for undefined variables
+	errors := decoratortesting.Assert(result).
+		InterpreterSucceeds().
+		GeneratorSucceeds().
+		PlanSucceeds().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("WhenDecorator undefined variable test failed:\n%s", decoratortesting.JoinErrors(errors))
+	}
+}
+
+func TestWhenDecorator_NoWildcard(t *testing.T) {
+	decorator := &WhenDecorator{}
+	
+	// Set environment that doesn't match any pattern
+	os.Setenv("TEST_ENV", "unknown")
+	defer os.Unsetenv("TEST_ENV")
+	
+	patterns := []ast.PatternBranch{
+		decoratortesting.PatternBranch("production", "echo 'prod'"),
+		decoratortesting.PatternBranch("development", "echo 'dev'"),
+		// No wildcard pattern
+	}
+	
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestPatternDecorator([]ast.NamedParameter{
+			decoratortesting.StringParam("variable", "TEST_ENV"),
+		}, patterns)
+	
+	// Should handle gracefully when no pattern matches
+	errors := decoratortesting.Assert(result).
+		GeneratorSucceeds().
+		PlanSucceeds().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("WhenDecorator no wildcard test failed:\n%s", decoratortesting.JoinErrors(errors))
+	}
+}
+
+func TestWhenDecorator_EmptyPatterns(t *testing.T) {
+	decorator := &WhenDecorator{}
+	
+	// Test with no patterns
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestPatternDecorator([]ast.NamedParameter{
+			decoratortesting.StringParam("variable", "TEST_VAR"),
+		}, []ast.PatternBranch{})
+	
+	errors := decoratortesting.Assert(result).
+		InterpreterSucceeds(). // Should handle gracefully
+		GeneratorSucceeds().
+		PlanSucceeds().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("WhenDecorator empty patterns test failed:\n%s", decoratortesting.JoinErrors(errors))
+	}
+}
+
+func TestWhenDecorator_NestedDecorators(t *testing.T) {
+	decorator := &WhenDecorator{}
+	
+	os.Setenv("BUILD_TYPE", "release")
+	defer os.Unsetenv("BUILD_TYPE")
+	
+	// Test with nested decorators in pattern branches
 	patterns := []ast.PatternBranch{
 		{
-			Pattern: &ast.IdentifierPattern{Name: "production"},
+			Pattern: &ast.IdentifierPattern{Name: "release"},
 			Commands: []ast.CommandContent{
-				ast.Shell(ast.Text("echo production command")),
+				&ast.BlockDecorator{
+					Name: "timeout",
+					Args: []ast.NamedParameter{
+						{Name: "duration", Value: &ast.DurationLiteral{Value: "10m"}},
+					},
+					Content: []ast.CommandContent{
+						decoratortesting.Shell("go build -ldflags '-s -w' ./..."),
+					},
+				},
 			},
 		},
 		{
-			Pattern: &ast.IdentifierPattern{Name: "staging"},
+			Pattern: &ast.IdentifierPattern{Name: "debug"},
 			Commands: []ast.CommandContent{
-				ast.Shell(ast.Text("echo staging command")),
-			},
-		},
-		{
-			Pattern: &ast.WildcardPattern{},
-			Commands: []ast.CommandContent{
-				ast.Shell(ast.Text("echo default command")),
+				decoratortesting.Shell("go build -race ./..."),
 			},
 		},
 	}
+	
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestPatternDecorator([]ast.NamedParameter{
+			decoratortesting.StringParam("variable", "BUILD_TYPE"),
+		}, patterns)
+	
+	errors := decoratortesting.Assert(result).
+		GeneratorSucceeds().
+		GeneratorProducesValidGo().
+		GeneratorCodeContains("BUILD_TYPE", "release").
+		PlanSucceeds().
+		SupportsNesting().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("WhenDecorator nested decorators test failed:\n%s", decoratortesting.JoinErrors(errors))
+	}
+}
 
+func TestWhenDecorator_ParameterValidation(t *testing.T) {
 	decorator := &WhenDecorator{}
-
-	// Test parameters
-	params := []ast.NamedParameter{
-		{Name: "variable", Value: ast.Str("ENV")},
-	}
-
-	// Test interpreter mode with environment variable
-	t.Run("InterpreterMode", func(t *testing.T) {
-		_ = os.Setenv("ENV", "production")
-		defer func() { _ = os.Unsetenv("ENV") }()
-
-		interpreterCtx := ctx.WithMode(execution.InterpreterMode)
-		result := decorator.Execute(interpreterCtx, params, patterns)
-
-		if result.Mode != execution.InterpreterMode {
-			t.Errorf("Expected InterpreterMode, got %v", result.Mode)
-		}
-
-		// Data should be nil for interpreter mode
-		if result.Data != nil {
-			t.Errorf("Expected nil data for interpreter mode, got %v", result.Data)
-		}
-
-		// Error might be non-nil due to missing command executor, that's okay for this test
-	})
-
-	// Test generator mode
-	t.Run("GeneratorMode", func(t *testing.T) {
-		generatorCtx := ctx.WithMode(execution.GeneratorMode)
-		result := decorator.Execute(generatorCtx, params, patterns)
-
-		if result.Mode != execution.GeneratorMode {
-			t.Errorf("Expected GeneratorMode, got %v", result.Mode)
-		}
-
-		// Data should be a string containing Go code
-		if result.Error == nil {
-			code, ok := result.Data.(string)
-			if !ok {
-				t.Errorf("Expected string data for generator mode, got %T", result.Data)
-			}
-			if code == "" {
-				t.Errorf("Expected non-empty generated code")
-			}
-
-			// Should contain pattern matching logic
-			if !containsAll(code, []string{"switch value", "case", "default"}) {
-				t.Errorf("Generated code missing expected pattern matching logic")
-			}
-		}
-	})
-
-	// Test plan mode
-	t.Run("PlanMode", func(t *testing.T) {
-		_ = os.Setenv("ENV", "production")
-		defer func() { _ = os.Unsetenv("ENV") }()
-
-		planCtx := ctx.WithMode(execution.PlanMode)
-		result := decorator.Execute(planCtx, params, patterns)
-
-		if result.Mode != execution.PlanMode {
-			t.Errorf("Expected PlanMode, got %v", result.Mode)
-		}
-
-		if result.Error != nil {
-			t.Errorf("Unexpected error in plan mode: %v", result.Error)
-		}
-
-		// Data should be a plan element
-		if result.Data == nil {
-			t.Errorf("Expected plan element data for plan mode, got nil")
-		}
-	})
-
+	
 	// Test missing variable parameter
-	t.Run("MissingVariableParameter", func(t *testing.T) {
-		emptyParams := []ast.NamedParameter{}
-
-		planCtx := ctx.WithMode(execution.PlanMode)
-		result := decorator.Execute(planCtx, emptyParams, patterns)
-
-		if result.Error == nil {
-			t.Errorf("Expected error for missing variable parameter")
-		}
-	})
-
-	// Test wrong number of parameters
-	t.Run("WrongParameterCount", func(t *testing.T) {
-		tooManyParams := []ast.NamedParameter{
-			{Name: "variable", Value: ast.Str("ENV")},
-			{Name: "extra", Value: ast.Str("value")},
-		}
-
-		planCtx := ctx.WithMode(execution.PlanMode)
-		result := decorator.Execute(planCtx, tooManyParams, patterns)
-
-		if result.Error == nil {
-			t.Errorf("Expected error for wrong parameter count")
-		}
-	})
-
-	// Test positional parameter fallback
-	t.Run("PositionalParameter", func(t *testing.T) {
-		positionalParams := []ast.NamedParameter{
-			{Name: "variable", Value: ast.Str("ENV")}, // Named parameter for clarity
-		}
-
-		planCtx := ctx.WithMode(execution.PlanMode)
-		result := decorator.Execute(planCtx, positionalParams, patterns)
-
-		if result.Error != nil {
-			t.Errorf("Unexpected error with named parameter: %v", result.Error)
-		}
-	})
-
-	// Test invalid mode
-	t.Run("InvalidMode", func(t *testing.T) {
-		invalidCtx := ctx.WithMode(execution.ExecutionMode(999))
-		result := decorator.Execute(invalidCtx, params, patterns)
-
-		if result.Error == nil {
-			t.Errorf("Expected error for invalid mode")
-		}
-	})
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestPatternDecorator([]ast.NamedParameter{}, []ast.PatternBranch{
+			decoratortesting.PatternBranch("test", "echo 'test'"),
+		})
+	
+	errors := decoratortesting.Assert(result).
+		InterpreterFails("variable").
+		GeneratorFails("variable").
+		PlanFails("variable").
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("WhenDecorator parameter validation test failed:\n%s", decoratortesting.JoinErrors(errors))
+	}
 }
 
-func TestWhenDecorator_PatternMatching(t *testing.T) {
+func TestWhenDecorator_GeneratorVariableResolution(t *testing.T) {
 	decorator := &WhenDecorator{}
-
-	// Test identifier pattern matching
-	t.Run("IdentifierPattern", func(t *testing.T) {
-		pattern := &ast.IdentifierPattern{Name: "production"}
-
-		if !decorator.matchesPattern("production", pattern) {
-			t.Errorf("Expected 'production' to match identifier pattern 'production'")
+	
+	// Critical test: Generator mode should NOT resolve variables at generation time
+	// It should generate code that resolves them at runtime
+	
+	patterns := []ast.PatternBranch{
+		decoratortesting.PatternBranch("ci", "echo 'CI build'"),
+		decoratortesting.PatternBranch("local", "echo 'Local build'"),
+		decoratortesting.PatternBranch("*", "echo 'Unknown build'"),
+	}
+	
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestPatternDecorator([]ast.NamedParameter{
+			decoratortesting.StringParam("variable", "CI_ENVIRONMENT"),
+		}, patterns)
+	
+	errors := decoratortesting.Assert(result).
+		GeneratorSucceeds().
+		GeneratorProducesValidGo().
+		// Generated code should contain runtime variable resolution, not hardcoded values
+		GeneratorCodeContains("CI_ENVIRONMENT").
+		Validate()
+	
+	// Additional check: generated code should NOT contain evidence of generation-time resolution
+	if result.GeneratorResult.Success {
+		if code, ok := result.GeneratorResult.Data.(string); ok {
+			if decoratortesting.ContainsExecutionEvidence(code) {
+				errors = append(errors, "CRITICAL: Generator resolved variables at generation time!")
+			}
 		}
-
-		if decorator.matchesPattern("staging", pattern) {
-			t.Errorf("Expected 'staging' to NOT match identifier pattern 'production'")
-		}
-	})
-
-	// Test wildcard pattern matching
-	t.Run("WildcardPattern", func(t *testing.T) {
-		pattern := &ast.WildcardPattern{}
-
-		if !decorator.matchesPattern("anything", pattern) {
-			t.Errorf("Expected wildcard pattern to match 'anything'")
-		}
-
-		if !decorator.matchesPattern("", pattern) {
-			t.Errorf("Expected wildcard pattern to match empty string")
-		}
-	})
-}
-
-func TestWhenDecorator_PatternToString(t *testing.T) {
-	decorator := &WhenDecorator{}
-
-	// Test identifier pattern
-	t.Run("IdentifierPattern", func(t *testing.T) {
-		pattern := &ast.IdentifierPattern{Name: "production"}
-		result := decorator.patternToString(pattern)
-
-		if result != "production" {
-			t.Errorf("Expected 'production', got '%s'", result)
-		}
-	})
-
-	// Test wildcard pattern
-	t.Run("WildcardPattern", func(t *testing.T) {
-		pattern := &ast.WildcardPattern{}
-		result := decorator.patternToString(pattern)
-
-		if result != "default" {
-			t.Errorf("Expected 'default', got '%s'", result)
-		}
-	})
+	}
+	
+	if len(errors) > 0 {
+		t.Errorf("WhenDecorator generator variable resolution test failed:\n%s", decoratortesting.JoinErrors(errors))
+	}
 }

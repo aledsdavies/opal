@@ -1,207 +1,161 @@
 package decorators
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/aledsdavies/devcmd/core/ast"
-	"github.com/aledsdavies/devcmd/runtime/execution"
+	decoratortesting "github.com/aledsdavies/devcmd/testing"
 )
 
-// TestCmdDecorator_ModeIsolation ensures @cmd decorator never executes in wrong modes
-func TestCmdDecorator_ModeIsolation(t *testing.T) {
-	tests := []struct {
-		name           string
-		mode           execution.ExecutionMode
-		shouldExecute  bool
-		expectedResult string
-	}{
-		{
-			name:           "interpreter_mode_executes",
-			mode:           execution.InterpreterMode,
-			shouldExecute:  true,
-			expectedResult: "", // Will fail/succeed based on command existence
-		},
-		{
-			name:           "generator_mode_generates_code",
-			mode:           execution.GeneratorMode,
-			shouldExecute:  false,
-			expectedResult: "execute", // Should contain execute function call
-		},
-		{
-			name:           "plan_mode_creates_plan",
-			mode:           execution.PlanMode,
-			shouldExecute:  false,
-			expectedResult: "", // Should return plan data
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create a simple program with helper and main commands
-			program := &ast.Program{
-				Commands: []ast.CommandDecl{
-					{
-						Name: "helper",
-						Body: ast.CommandBody{
-							Content: []ast.CommandContent{
-								&ast.ShellContent{
-									Parts: []ast.ShellPart{
-										&ast.TextPart{Text: "echo 'EXECUTION_DETECTED'"},
-									},
-								},
-							},
-						},
-					},
-					{
-						Name: "main",
-						Body: ast.CommandBody{
-							Content: []ast.CommandContent{
-								&ast.ActionDecorator{
-									Name: "cmd",
-									Args: []ast.NamedParameter{
-										{Value: &ast.Identifier{Name: "helper"}},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
-
-			// Create execution context
-			ctx := execution.NewExecutionContext(nil, program)
-			ctx = ctx.WithMode(tt.mode)
-
-			// Initialize variables 
-			if err := ctx.InitializeVariables(); err != nil {
-				t.Fatalf("Failed to initialize variables: %v", err)
-			}
-
-			// Create the @cmd decorator
-			decorator := &CmdDecorator{}
-
-			// Test the decorator in the specified mode
-			params := []ast.NamedParameter{
-				{Value: &ast.Identifier{Name: "helper"}},
-			}
-
-			result := decorator.Expand(ctx, params)
-
-			// Verify behavior based on mode
-			switch tt.mode {
-			case execution.GeneratorMode:
-				if result.Error != nil {
-					t.Errorf("Generator mode should not error: %v", result.Error)
-				}
-				if result.Data == nil {
-					t.Error("Generator mode should return generated code")
-				}
-				if code, ok := result.Data.(string); ok {
-					if !strings.Contains(code, tt.expectedResult) {
-						t.Errorf("Generated code should contain %q, got: %s", tt.expectedResult, code)
-					}
-					// Most importantly - should not execute the command
-					if strings.Contains(code, "EXECUTION_DETECTED") {
-						t.Error("CRITICAL: Generator mode executed the command!")
-					}
-				}
-
-			case execution.PlanMode:
-				if result.Error != nil {
-					t.Errorf("Plan mode should not error: %v", result.Error)
-				}
-				// Plan mode should return plan data, not execute
-				if result.Data == nil {
-					t.Error("Plan mode should return plan data")
-				}
-
-			case execution.InterpreterMode:
-				// Interpreter mode may error if command doesn't exist - that's ok
-				// The key is that it should attempt execution
-				if result.Error != nil && !strings.Contains(result.Error.Error(), "not found") &&
-				   !strings.Contains(result.Error.Error(), "failed to execute") {
-					t.Errorf("Unexpected error in interpreter mode: %v", result.Error)
-				}
-			}
+func TestCmdDecorator_Basic(t *testing.T) {
+	decorator := &CmdDecorator{}
+	
+	// Test basic functionality
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		WithCommand("test_cmd", "echo 'hello from test_cmd'").
+		TestActionDecorator([]ast.NamedParameter{
+			decoratortesting.IdentifierParam("", "test_cmd"),
 		})
+	
+	// Validate results across all modes
+	errors := decoratortesting.Assert(result).
+		InterpreterSucceeds().
+		GeneratorSucceeds().
+		GeneratorProducesValidGo().
+		GeneratorCodeContains("execute").
+		PlanSucceeds().
+		PlanReturnsElement("command").
+		CompletesWithin("100ms").
+		ModesAreConsistent().
+		SupportsDevcmdChaining().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("CmdDecorator basic test failed with %d errors:\n%s", len(errors), decoratortesting.JoinErrors(errors))
 	}
 }
 
-// TestCmdDecorator_NoExecutionDuringGeneration is a safety test that must always pass
-func TestCmdDecorator_NoExecutionDuringGeneration(t *testing.T) {
-	// This test ensures @cmd decorators never execute commands during code generation
-	// Create a program that would have obvious side effects if executed
-	program := &ast.Program{
-		Commands: []ast.CommandDecl{
-			{
-				Name: "dangerous",
-				Body: ast.CommandBody{
-					Content: []ast.CommandContent{
-						&ast.ShellContent{
-							Parts: []ast.ShellPart{
-								&ast.TextPart{Text: "echo 'DANGER: Command was executed!' && touch EXECUTION_DETECTED"},
-							},
-						},
-					},
-				},
-			},
-			{
-				Name: "caller",
-				Body: ast.CommandBody{
-					Content: []ast.CommandContent{
-						&ast.ActionDecorator{
-							Name: "cmd",
-							Args: []ast.NamedParameter{
-								{Value: &ast.Identifier{Name: "dangerous"}},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	// Test in generator mode (used during code generation)
-	ctx := execution.NewExecutionContext(nil, program)
-	ctx = ctx.WithMode(execution.GeneratorMode)
-
-	if err := ctx.InitializeVariables(); err != nil {
-		t.Fatalf("Failed to initialize variables: %v", err)
-	}
-
+func TestCmdDecorator_InvalidCommand(t *testing.T) {
 	decorator := &CmdDecorator{}
-	params := []ast.NamedParameter{
-		{Value: &ast.Identifier{Name: "dangerous"}},
+	
+	// Test with non-existent command
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestActionDecorator([]ast.NamedParameter{
+			decoratortesting.IdentifierParam("", "NON_EXISTENT_COMMAND"),
+		})
+	
+	// All modes should fail for invalid command
+	errors := decoratortesting.Assert(result).
+		InterpreterFails("not found").
+		GeneratorSucceeds().  // Generator can still produce code
+		GeneratorProducesValidGo().
+		PlanFails("not found").  // Plan should also fail for invalid command
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("CmdDecorator invalid command test failed with %d errors:\n%s", len(errors), decoratortesting.JoinErrors(errors))
 	}
+}
 
-	// This should generate code, NOT execute the dangerous command
-	result := decorator.Expand(ctx, params)
-
-	if result.Error != nil {
-		t.Fatalf("Generator mode failed: %v", result.Error)
+func TestCmdDecorator_ParameterValidation(t *testing.T) {
+	decorator := &CmdDecorator{}
+	
+	// Test with missing required parameter
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		TestActionDecorator([]ast.NamedParameter{})
+	
+	// All modes should fail due to missing parameter
+	errors := decoratortesting.Assert(result).
+		InterpreterFails("command name parameter").
+		GeneratorFails("command name parameter").
+		PlanFails("command name parameter").
+		ValidatesParameters(decorator, []ast.NamedParameter{}).
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("CmdDecorator parameter validation test failed with %d errors:\n%s", len(errors), decoratortesting.JoinErrors(errors))
 	}
+}
 
-	if result.Data == nil {
-		t.Fatal("Generator mode should return generated code")
+func TestCmdDecorator_ChainedExecution(t *testing.T) {
+	decorator := &CmdDecorator{}
+	
+	// Test that cmd decorator can be used in chained scenarios
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		WithCommand("chain_cmd", "echo 'chain test'", "echo 'second line'").
+		TestActionDecorator([]ast.NamedParameter{
+			decoratortesting.IdentifierParam("", "chain_cmd"),
+		})
+	
+	errors := decoratortesting.Assert(result).
+		GeneratorSucceeds().
+		GeneratorProducesValidGo().
+		SupportsDevcmdChaining().
+		SupportsNesting().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("CmdDecorator chaining test failed with %d errors:\n%s", len(errors), decoratortesting.JoinErrors(errors))
 	}
+}
 
-	// Verify it generated code (not executed)
-	code, ok := result.Data.(string)
-	if !ok {
-		t.Fatalf("Expected string code, got %T", result.Data)
+func TestCmdDecorator_ModeIsolation(t *testing.T) {
+	decorator := &CmdDecorator{}
+	
+	// Critical test: ensure generator mode NEVER executes commands
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		WithCommand("dangerous_cmd", "echo 'EXECUTION_DETECTED: This should never run in generator mode'").
+		TestActionDecorator([]ast.NamedParameter{
+			decoratortesting.IdentifierParam("", "dangerous_cmd"),
+		})
+	
+	// Generator mode should produce code but never execute
+	errors := decoratortesting.Assert(result).
+		GeneratorSucceeds().
+		GeneratorProducesValidGo().
+		Validate()
+	
+	// Additional check: generated code should contain function call, not execution
+	if result.GeneratorResult.Success {
+		if code, ok := result.GeneratorResult.Data.(string); ok {
+			if decoratortesting.ContainsExecutionEvidence(code) {
+				errors = append(errors, "CRITICAL: Generator mode contains evidence of command execution!")
+			}
+		}
 	}
-
-	// Should generate function call code
-	if !strings.Contains(code, "execute") {
-		t.Errorf("Generated code should contain function call, got: %s", code)
+	
+	if len(errors) > 0 {
+		t.Errorf("CmdDecorator mode isolation test failed with %d errors:\n%s", len(errors), decoratortesting.JoinErrors(errors))
 	}
+}
 
-	// CRITICAL: Should never contain evidence of execution
-	if strings.Contains(code, "DANGER: Command was executed!") ||
-	   strings.Contains(code, "EXECUTION_DETECTED") {
-		t.Fatal("CRITICAL: @cmd decorator executed command during generation!")
+func TestCmdDecorator_ComprehensiveValidation(t *testing.T) {
+	decorator := &CmdDecorator{}
+	
+	// Comprehensive test covering all aspects
+	result := decoratortesting.NewDecoratorTest(t, decorator).
+		WithCommand("comprehensive_cmd", "echo 'comprehensive test'", "pwd", "echo 'done'").
+		WithVariable("ARG", "test").
+		WithEnv("PATH", "/usr/bin").
+		TestActionDecorator([]ast.NamedParameter{
+			decoratortesting.IdentifierParam("", "comprehensive_cmd"),
+		})
+	
+	errors := decoratortesting.Assert(result).
+		InterpreterSucceeds().
+		GeneratorSucceeds().
+		GeneratorProducesValidGo().
+		GeneratorCodeContains("execute", "Comprehensive").
+		PlanSucceeds().
+		PlanReturnsElement("command").
+		CompletesWithin("500ms").
+		ModesAreConsistent().
+		ValidatesParameters(decorator, nil).
+		SupportsDevcmdChaining().
+		SupportsNesting().
+		Validate()
+	
+	if len(errors) > 0 {
+		t.Errorf("CmdDecorator comprehensive validation failed with %d errors:\n%s", len(errors), decoratortesting.JoinErrors(errors))
 	}
-
-	t.Logf("✅ @cmd decorator correctly generated code without execution: %s", code)
 }

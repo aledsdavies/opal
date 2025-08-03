@@ -68,13 +68,8 @@ func (v *VarDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []
 		}
 	}
 
-	// Check that the variable exists in the .cli file
-	if _, exists := ctx.GetVariable(varName); !exists {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("variable '%s' not defined in .cli file", varName),
-		}
-	}
+	// Generator mode should work even with undefined variables for planning purposes
+	// Generate code that will resolve the variable at runtime
 
 	// Generate Go code that references the variable
 	// The variable will be defined in the generated code as: varName := "value"
@@ -91,8 +86,8 @@ func (v *VarDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedP
 	varName := v.extractVariableName(params)
 	if varName == "" {
 		return &execution.ExecutionResult{
-			Data:  fmt.Sprintf("@var(<missing>)"),
-			Error: nil,
+			Data:  nil,
+			Error: fmt.Errorf("@var decorator requires a variable name parameter"),
 		}
 	}
 

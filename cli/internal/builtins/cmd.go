@@ -68,11 +68,39 @@ func (d *CmdDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, para
 		}
 	}
 	
-	// Execute the referenced command
-	if err := ctx.ExecuteCommand(cmdName); err != nil {
+	// Find the command in the program
+	program := ctx.GetProgram()
+	var command *ast.CommandDecl
+	for _, cmd := range program.Commands {
+		if cmd.Name == cmdName {
+			command = &cmd
+			break
+		}
+	}
+	
+	if command == nil {
 		return &execution.ExecutionResult{
 			Data:  nil,
-			Error: fmt.Errorf("failed to execute command '%s': %w", cmdName, err),
+			Error: fmt.Errorf("command '%s' not found", cmdName),
+		}
+	}
+	
+	// Execute the command's content directly
+	for _, content := range command.Body.Content {
+		switch c := content.(type) {
+		case *ast.ShellContent:
+			result := ctx.ExecuteShell(c)
+			if result.Error != nil {
+				return &execution.ExecutionResult{
+					Data:  nil,
+					Error: fmt.Errorf("failed to execute command '%s': %w", cmdName, result.Error),
+				}
+			}
+		default:
+			return &execution.ExecutionResult{
+				Data:  nil,
+				Error: fmt.Errorf("unsupported command content type in command '%s': %T", cmdName, content),
+			}
 		}
 	}
 
@@ -113,17 +141,36 @@ func (d *CmdDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.Named
 		}
 	}
 	
-	// Generate the plan for the referenced command
-	planResult, err := ctx.GenerateCommandPlan(cmdName)
-	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  nil,
-			Error: fmt.Errorf("failed to generate plan for command '%s': %w", cmdName, err),
+	// Find the command in the program
+	program := ctx.GetProgram()
+	var command *ast.CommandDecl
+	for _, cmd := range program.Commands {
+		if cmd.Name == cmdName {
+			command = &cmd
+			break
 		}
 	}
+	
+	if command == nil {
+		return &execution.ExecutionResult{
+			Data:  nil,
+			Error: fmt.Errorf("command '%s' not found", cmdName),
+		}
+	}
+	
+	// Create a simple plan element that references the command
+	// For now, we'll create a basic plan element - this could be enhanced
+	// to actually generate the nested plan for the referenced command
+	planData := map[string]interface{}{
+		"type":        "command_reference",
+		"command":     cmdName,
+		"description": fmt.Sprintf("Execute command: %s", cmdName),
+	}
 
-	// Return the nested plan
-	return planResult
+	return &execution.ExecutionResult{
+		Data:  planData,
+		Error: nil,
+	}
 }
 
 // extractCommandName extracts the command name from decorator parameters

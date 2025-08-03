@@ -178,13 +178,14 @@ func newBaseContext(ctx context.Context, program *ast.Program) *BaseExecutionCon
 	}
 
 	return &BaseExecutionContext{
-		Context:    ctx,
-		Program:    program,
-		Variables:  make(map[string]string),
-		env:        envMap,
-		WorkingDir: workingDir,
-		Debug:      false,
-		DryRun:     false,
+		Context:        ctx,
+		Program:        program,
+		Variables:      make(map[string]string),
+		env:            envMap,
+		WorkingDir:     workingDir,
+		Debug:          false,
+		DryRun:         false,
+		trackedEnvVars: make(map[string]string),
 	}
 }
 
