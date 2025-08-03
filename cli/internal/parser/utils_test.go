@@ -22,9 +22,6 @@ func init() {
 
 // Test-only decorator implementations
 
-// ConfirmDecorator is now implemented in the real decorators package
-// Test removed since we have a real implementation
-
 // DebounceDecorator - test implementation
 type DebounceDecorator struct{}
 
@@ -39,17 +36,16 @@ func (d *DebounceDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-func (d *DebounceDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return &execution.ExecutionResult{Mode: execution.InterpreterMode, Data: nil, Error: nil}
-	case execution.GeneratorMode:
-		return &execution.ExecutionResult{Mode: execution.GeneratorMode, Data: "// debounce", Error: nil}
-	case execution.PlanMode:
-		return &execution.ExecutionResult{Mode: execution.PlanMode, Data: nil, Error: nil}
-	default:
-		return &execution.ExecutionResult{Mode: ctx.Mode(), Data: nil, Error: fmt.Errorf("unsupported mode")}
-	}
+func (d *DebounceDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
+}
+
+func (d *DebounceDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult("// debounce")
+}
+
+func (d *DebounceDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
 }
 
 func (d *DebounceDecorator) ImportRequirements() decorators.ImportRequirement {
@@ -67,17 +63,16 @@ func (c *CwdDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-func (c *CwdDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return &execution.ExecutionResult{Mode: execution.InterpreterMode, Data: nil, Error: nil}
-	case execution.GeneratorMode:
-		return &execution.ExecutionResult{Mode: execution.GeneratorMode, Data: "// cwd", Error: nil}
-	case execution.PlanMode:
-		return &execution.ExecutionResult{Mode: execution.PlanMode, Data: nil, Error: nil}
-	default:
-		return &execution.ExecutionResult{Mode: ctx.Mode(), Data: nil, Error: fmt.Errorf("unsupported mode")}
-	}
+func (c *CwdDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
+}
+
+func (c *CwdDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult("// cwd")
+}
+
+func (c *CwdDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
 }
 
 func (c *CwdDecorator) ImportRequirements() decorators.ImportRequirement {
@@ -98,17 +93,16 @@ func (w *WatchFilesDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-func (w *WatchFilesDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return &execution.ExecutionResult{Mode: execution.InterpreterMode, Data: nil, Error: nil}
-	case execution.GeneratorMode:
-		return &execution.ExecutionResult{Mode: execution.GeneratorMode, Data: "// watch-files", Error: nil}
-	case execution.PlanMode:
-		return &execution.ExecutionResult{Mode: execution.PlanMode, Data: nil, Error: nil}
-	default:
-		return &execution.ExecutionResult{Mode: ctx.Mode(), Data: nil, Error: fmt.Errorf("unsupported mode")}
-	}
+func (w *WatchFilesDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
+}
+
+func (w *WatchFilesDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult("// watch-files")
+}
+
+func (w *WatchFilesDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
 }
 
 func (w *WatchFilesDecorator) ImportRequirements() decorators.ImportRequirement {
@@ -129,17 +123,16 @@ func (o *OffsetDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-func (o *OffsetDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return &execution.ExecutionResult{Mode: execution.InterpreterMode, Data: nil, Error: nil}
-	case execution.GeneratorMode:
-		return &execution.ExecutionResult{Mode: execution.GeneratorMode, Data: "// offset", Error: nil}
-	case execution.PlanMode:
-		return &execution.ExecutionResult{Mode: execution.PlanMode, Data: nil, Error: nil}
-	default:
-		return &execution.ExecutionResult{Mode: ctx.Mode(), Data: nil, Error: fmt.Errorf("unsupported mode")}
-	}
+func (o *OffsetDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
+}
+
+func (o *OffsetDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult("// offset")
+}
+
+func (o *OffsetDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
 }
 
 func (o *OffsetDecorator) ImportRequirements() decorators.ImportRequirement {
@@ -160,17 +153,16 @@ func (f *FactorDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-func (f *FactorDecorator) Execute(ctx *execution.ExecutionContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
-	switch ctx.Mode() {
-	case execution.InterpreterMode:
-		return &execution.ExecutionResult{Mode: execution.InterpreterMode, Data: nil, Error: nil}
-	case execution.GeneratorMode:
-		return &execution.ExecutionResult{Mode: execution.GeneratorMode, Data: "// factor", Error: nil}
-	case execution.PlanMode:
-		return &execution.ExecutionResult{Mode: execution.PlanMode, Data: nil, Error: nil}
-	default:
-		return &execution.ExecutionResult{Mode: ctx.Mode(), Data: nil, Error: fmt.Errorf("unsupported mode")}
-	}
+func (f *FactorDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
+}
+
+func (f *FactorDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult("// factor")
+}
+
+func (f *FactorDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+	return execution.NewSuccessResult(nil)
 }
 
 func (f *FactorDecorator) ImportRequirements() decorators.ImportRequirement {

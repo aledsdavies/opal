@@ -505,8 +505,8 @@ func (e *Engine) trackVariableUsageInBody(body *ast.CommandBody, usedVars map[st
 
 // generateShellCommandExpression generates a Go string expression for a shell command with variable expansion
 func (e *Engine) generateShellCommandExpression(content *ast.ShellContent) (string, error) {
-	// Create generator context for shell processing
-	generatorCtx := execution.NewGeneratorContext(context.Background(), e.program)
+	// Create generator context for shell processing with decorator lookups
+	generatorCtx := e.CreateGeneratorContext(context.Background(), e.program)
 	result := generatorCtx.GenerateShellCode(content)
 	if result.Error != nil {
 		return "", result.Error
@@ -1049,8 +1049,8 @@ type ProcessGroupData struct {
 // generateCodeWithTemplate uses a template-based approach instead of fragile WriteString calls
 func (e *Engine) generateCodeWithTemplate(program *ast.Program) (*GenerationResult, error) {
 
-	// Create generator context
-	ctx := execution.NewGeneratorContext(context.Background(), program)
+	// Create generator context with decorator lookups
+	ctx := e.CreateGeneratorContext(context.Background(), program)
 
 	// Initialize variables in the context first (critical for @var decorator)
 	if err := ctx.InitializeVariables(); err != nil {
@@ -1581,4 +1581,45 @@ func (e *Engine) resolveVariableValueSimple(expr ast.Expression) (string, error)
 	default:
 		return "", fmt.Errorf("unsupported expression type: %T", expr)
 	}
+}
+
+// setupDecoratorLookups configures decorator registry access for GeneratorContext
+// This is required for template generation to work with nested decorators
+func (e *Engine) setupDecoratorLookups(ctx execution.GeneratorContext) {
+	// Cast to the concrete type to access the setup methods
+	if generatorCtx, ok := ctx.(*execution.GeneratorExecutionContext); ok {
+		// Set up block decorator lookup function using the decorator registry
+		generatorCtx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetBlock(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+		
+		// Set up pattern decorator lookup function using the decorator registry
+		generatorCtx.SetPatternDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetPattern(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+		
+		// Set up value decorator lookup function using the decorator registry
+		generatorCtx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetValue(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+	}
+}
+
+// CreateGeneratorContext creates a properly initialized GeneratorContext with decorator lookups
+func (e *Engine) CreateGeneratorContext(ctx context.Context, program *ast.Program) execution.GeneratorContext {
+	generatorCtx := execution.NewGeneratorContext(ctx, program)
+	e.setupDecoratorLookups(generatorCtx)
+	return generatorCtx
 }

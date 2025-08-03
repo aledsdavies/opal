@@ -104,9 +104,9 @@ func TestVarDecorator_NoParameter(t *testing.T) {
 		TestValueDecorator([]ast.NamedParameter{})
 	
 	errors := decoratortesting.Assert(result).
-		InterpreterFails("variable name parameter").
-		GeneratorFails("variable name parameter").
-		PlanFails("variable name parameter").
+		InterpreterFails("requires exactly 1 parameter").
+		GeneratorFails("requires exactly 1 parameter").
+		PlanFails("requires exactly 1 parameter").
 		Validate()
 	
 	if len(errors) > 0 {

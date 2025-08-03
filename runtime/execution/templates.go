@@ -94,15 +94,35 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 			formatParts = append(formatParts, p.Text)
 		case *ast.ValueDecorator:
 			formatParts = append(formatParts, "%s")
-			// Call the ValueDecorator to get the proper generated code
-			result, err := b.context.ProcessValueDecoratorUnified(p)
-			if err != nil {
-				return "", fmt.Errorf("failed to process value decorator @%s: %w", p.Name, err)
+			// Look up the value decorator using the dependency injection lookup to avoid circular imports
+			lookupFunc := b.context.GetValueDecoratorLookup()
+			if lookupFunc == nil {
+				return "", fmt.Errorf("value decorator lookup not available (engine not properly initialized)")
 			}
-			if code, ok := result.(string); ok {
+			
+			decoratorInterface, exists := lookupFunc(p.Name)
+			if !exists {
+				return "", fmt.Errorf("value decorator @%s not found", p.Name)
+			}
+
+			// Cast to the expected interface type
+			decorator, ok := decoratorInterface.(interface {
+				ExpandGenerator(ctx GeneratorContext, params []ast.NamedParameter) *ExecutionResult
+			})
+			if !ok {
+				return "", fmt.Errorf("value decorator @%s does not implement expected ExpandGenerator method", p.Name)
+			}
+			
+			// Call ExpandGenerator to get the Go code expression
+			result := decorator.ExpandGenerator(b.context, p.Args)
+			if result.Error != nil {
+				return "", fmt.Errorf("failed to process value decorator @%s: %w", p.Name, result.Error)
+			}
+			
+			if code, ok := result.Data.(string); ok {
 				formatArgs = append(formatArgs, code)
 			} else {
-				return "", fmt.Errorf("value decorator @%s returned non-string result: %T", p.Name, result)
+				return "", fmt.Errorf("value decorator @%s returned non-string result: %T", p.Name, result.Data)
 			}
 		default:
 			return "", fmt.Errorf("unsupported shell part type: %T", part)

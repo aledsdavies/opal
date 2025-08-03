@@ -25,7 +25,8 @@ func TestRetryDecorator_Basic(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
-		GeneratorCodeContains("maxAttempts := 3", "retry", "attempt").
+		GeneratorCodeContainsf("maxAttempts := %d", 3).
+		GeneratorCodeContains("for attempt :=", "time.Sleep", "lastErr").
 		PlanSucceeds().
 		PlanReturnsElement("retry").
 		CompletesWithin("1s").
@@ -131,7 +132,7 @@ func TestRetryDecorator_FailingCommand(t *testing.T) {
 	// Note: Interpreter will fail after all retries, but generator and plan should work
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
-		GeneratorCodeContains("all %d retry attempts failed").
+		GeneratorCodeContains("all %d attempts failed").
 		PlanSucceeds().
 		Validate()
 	
@@ -212,9 +213,9 @@ func TestRetryDecorator_InvalidParameters(t *testing.T) {
 		TestBlockDecorator([]ast.NamedParameter{}, content)
 	
 	errors := decoratortesting.Assert(result).
-		InterpreterFails("attempts").
-		GeneratorFails("attempts").
-		PlanFails("attempts").
+		InterpreterFails("requires at least 1 parameter").
+		GeneratorFails("requires at least 1 parameter").
+		PlanFails("requires at least 1 parameter").
 		Validate()
 	
 	if len(errors) > 0 {
@@ -284,12 +285,11 @@ func TestRetryDecorator_InvalidDelay(t *testing.T) {
 			{Name: "delay", Value: &ast.StringLiteral{Value: "invalid"}},
 		}, content)
 	
-	// The retry decorator likely uses default duration for invalid values
+	// Invalid delay should cause validation failure
 	errors := decoratortesting.Assert(result).
-		InterpreterSucceeds().
-		GeneratorSucceeds().
-		GeneratorCodeContains("1s"). // Should fall back to default 1s
-		PlanSucceeds().
+		InterpreterFails("must be of type duration").
+		GeneratorFails("must be of type duration").
+		PlanFails("must be of type duration").
 		Validate()
 	
 	if len(errors) > 0 {
@@ -420,7 +420,8 @@ func TestRetryDecorator_ErrorRecoveryScenario(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
-		GeneratorCodeContains("retry", "attempt", "100ms").
+		GeneratorCodeContainsf("maxAttempts := %d", 3).
+		GeneratorCodeContains("100ms", "time.Sleep").
 		PlanSucceeds().
 		SupportsDevcmdChaining().
 		Validate()

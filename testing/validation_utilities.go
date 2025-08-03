@@ -107,6 +107,11 @@ func (v *ValidationAssertions) GeneratorProducesValidGo() *ValidationAssertions 
 
 // GeneratorCodeContains validates that generated code contains expected strings
 func (v *ValidationAssertions) GeneratorCodeContains(expectedStrings ...string) *ValidationAssertions {
+	return v.GeneratorCodeContainsWithContext("", expectedStrings...)
+}
+
+// GeneratorCodeContainsWithContext validates that generated code contains expected strings with optional context message
+func (v *ValidationAssertions) GeneratorCodeContainsWithContext(context string, expectedStrings ...string) *ValidationAssertions {
 	if !v.result.GeneratorResult.Success {
 		return v
 	}
@@ -119,12 +124,49 @@ func (v *ValidationAssertions) GeneratorCodeContains(expectedStrings ...string) 
 	
 	for _, expected := range expectedStrings {
 		if !strings.Contains(code, expected) {
-			v.errors = append(v.errors, fmt.Sprintf("Generated code should contain %q\nCode:\n%s", expected, code))
+			errorMsg := fmt.Sprintf("Generated code should contain %q", expected)
+			if context != "" {
+				errorMsg = fmt.Sprintf("%s (%s)", errorMsg, context)
+			}
+			errorMsg += fmt.Sprintf("\nCode:\n%s", code)
+			v.errors = append(v.errors, errorMsg)
 		}
 	}
 	
 	return v
 }
+
+// GeneratorCodeContainsf validates that generated code contains formatted strings
+func (v *ValidationAssertions) GeneratorCodeContainsf(format string, args ...interface{}) *ValidationAssertions {
+	expected := fmt.Sprintf(format, args...)
+	return v.GeneratorCodeContains(expected)
+}
+
+// GeneratorCodeContainsfWithContext validates that generated code contains formatted strings with context
+func (v *ValidationAssertions) GeneratorCodeContainsfWithContext(context string, format string, args ...interface{}) *ValidationAssertions {
+	expected := fmt.Sprintf(format, args...)
+	return v.GeneratorCodeContainsWithContext(context, expected)
+}
+
+// GeneratorImplementsPattern validates that generated code implements a semantic pattern
+func (v *ValidationAssertions) GeneratorImplementsPattern(pattern CodePattern) *ValidationAssertions {
+	if !v.result.GeneratorResult.Success {
+		return v
+	}
+	
+	code, ok := v.result.GeneratorResult.Data.(string)
+	if !ok {
+		v.errors = append(v.errors, "Generator should return string")
+		return v
+	}
+	
+	if !pattern.Matches(code) {
+		v.errors = append(v.errors, fmt.Sprintf("Generated code should implement %s\nCode:\n%s", pattern.Description(), code))
+	}
+	
+	return v
+}
+
 
 // GeneratorTracksEnvVars validates that generator mode properly tracks environment variables
 func (v *ValidationAssertions) GeneratorTracksEnvVars(expectedVars ...string) *ValidationAssertions {

@@ -26,7 +26,9 @@ func TestTimeoutDecorator_Basic(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
-		GeneratorCodeContains("timeout", "5s").
+		GeneratorCodeContainsfWithContext("timeout duration", `time.ParseDuration("%s")`, "5s").
+		GeneratorCodeContainsWithContext("context cancellation", "context.WithTimeout").
+		GeneratorCodeContainsWithContext("timeout handling", "select {", "case <-ctx.Done():").
 		PlanSucceeds().
 		PlanReturnsElement("timeout").
 		CompletesWithin("1s").

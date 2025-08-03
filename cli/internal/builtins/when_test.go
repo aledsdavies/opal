@@ -206,9 +206,9 @@ func TestWhenDecorator_ParameterValidation(t *testing.T) {
 		})
 	
 	errors := decoratortesting.Assert(result).
-		InterpreterFails("variable").
-		GeneratorFails("variable").
-		PlanFails("variable").
+		InterpreterFails("requires exactly 1 parameter").
+		GeneratorFails("requires exactly 1 parameter").
+		PlanFails("requires exactly 1 parameter").
 		Validate()
 	
 	if len(errors) > 0 {

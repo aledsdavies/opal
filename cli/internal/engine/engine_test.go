@@ -11,7 +11,6 @@ import (
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
 	"github.com/aledsdavies/devcmd/core/ast"
-	"github.com/aledsdavies/devcmd/runtime/execution"
 
 	// Import builtins to register decorators
 	_ "github.com/aledsdavies/devcmd/cli/internal/builtins"
@@ -446,10 +445,10 @@ var DEBUG = true`
 		t.Fatalf("Failed to parse program: %v", err)
 	}
 
-	_ = New(program) // Create engine but test variable processing via context
+	engine := New(program) // Create engine for testing variable processing
 
-	// Test variable processing
-	ctx := execution.NewGeneratorContext(context.Background(), program)
+	// Test variable processing with decorator lookups
+	ctx := engine.CreateGeneratorContext(context.Background(), program)
 	err = ctx.InitializeVariables()
 	if err != nil {
 		t.Fatalf("Failed to initialize variables: %v", err)

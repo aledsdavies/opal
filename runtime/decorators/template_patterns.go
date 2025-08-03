@@ -98,6 +98,7 @@ const (
 	// RetryPattern - Generic retry wrapper for any operation
 	// Variables: .MaxAttempts, .DelayDuration (string), .Operation.Code
 	RetryPattern = `{
+	// Retry logic with {{.MaxAttempts}} attempts
 	maxAttempts := {{.MaxAttempts}}
 	delay, err := time.ParseDuration({{printf "%q" .DelayDuration}})
 	if err != nil {

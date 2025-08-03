@@ -43,6 +43,13 @@ func ValidateParameterType(paramName string, paramValue ast.Expression, expected
 		default:
 			return fmt.Errorf("@%s '%s' parameter must be of type boolean", decoratorName, paramName)
 		}
+	case ast.IdentifierType:
+		switch paramValue.(type) {
+		case *ast.Identifier:
+			return nil
+		default:
+			return fmt.Errorf("@%s '%s' parameter must be an identifier", decoratorName, paramName)
+		}
 	default:
 		return fmt.Errorf("@%s '%s' parameter has unsupported type %v", decoratorName, paramName, expectedType)
 	}
@@ -641,8 +648,14 @@ func PerformComprehensiveSecurityValidation(params []ast.NamedParameter, schema 
 
 // ValidateSchemaCompliance validates parameters against a decorator's parameter schema
 func ValidateSchemaCompliance(params []ast.NamedParameter, schema []ParameterSchema, decoratorName string) error {
+	// First, resolve positional parameters to named parameters based on schema
+	resolvedParams, err := ResolvePositionalParameters(params, schema)
+	if err != nil {
+		return fmt.Errorf("@%s parameter resolution error: %w", decoratorName, err)
+	}
+
 	// Check for unknown parameters
-	for _, param := range params {
+	for _, param := range resolvedParams {
 		found := false
 		for _, schemaParam := range schema {
 			if schemaParam.Name == param.Name {
@@ -655,14 +668,14 @@ func ValidateSchemaCompliance(params []ast.NamedParameter, schema []ParameterSch
 		}
 	}
 
-	// Validate required parameters and types
+	// Validate required parameters and types using resolved parameters
 	for _, schemaParam := range schema {
 		if schemaParam.Required {
-			if err := ValidateRequiredParameter(params, schemaParam.Name, schemaParam.Type, decoratorName); err != nil {
+			if err := ValidateRequiredParameter(resolvedParams, schemaParam.Name, schemaParam.Type, decoratorName); err != nil {
 				return err
 			}
 		} else {
-			if err := ValidateOptionalParameter(params, schemaParam.Name, schemaParam.Type, decoratorName); err != nil {
+			if err := ValidateOptionalParameter(resolvedParams, schemaParam.Name, schemaParam.Type, decoratorName); err != nil {
 				return err
 			}
 		}

@@ -31,8 +31,8 @@ func (t *TimeoutDecorator) ParameterSchema() []decorators.ParameterSchema {
 		{
 			Name:        "duration",
 			Type:        ast.DurationType,
-			Required:    true,
-			Description: "Maximum execution time (e.g., '30s', '5m', '1h')",
+			Required:    false,
+			Description: "Maximum execution time (e.g., '30s', '5m', '1h'), defaults to 30s",
 		},
 	}
 }
@@ -80,7 +80,7 @@ func (t *TimeoutDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.N
 
 // extractTimeout extracts and validates the timeout duration from parameters
 func (t *TimeoutDecorator) extractTimeout(params []ast.NamedParameter) (time.Duration, error) {
-	// Use centralized validation
+	// Use centralized validation - allows 0 to 1 parameters for optional duration
 	if err := decorators.ValidateParameterCount(params, 0, 1, "timeout"); err != nil {
 		return 0, err
 	}

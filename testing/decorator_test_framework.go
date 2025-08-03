@@ -517,5 +517,14 @@ func (d *DecoratorTestSuite) setupDecoratorLookups(ctx execution.GeneratorContex
 			}
 			return decorator, true
 		})
+		
+		// Set up value decorator lookup function using the decorator registry
+		generatorCtx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetValue(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
 	}
 }

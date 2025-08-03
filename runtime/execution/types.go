@@ -107,7 +107,7 @@ type GeneratorContext interface {
 	GetCurrentCommand() string
 	GetBlockDecoratorLookup() func(name string) (interface{}, bool)
 	GetPatternDecoratorLookup() func(name string) (interface{}, bool)
-	ProcessValueDecoratorUnified(decorator *ast.ValueDecorator) (interface{}, error)
+	GetValueDecoratorLookup() func(name string) (interface{}, bool)
 	
 	// Environment variable tracking for global capture generation (names only)
 	TrackEnvironmentVariable(key, defaultValue string)

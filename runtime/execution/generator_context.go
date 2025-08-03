@@ -16,6 +16,7 @@ type GeneratorExecutionContext struct {
 	// Decorator lookup functions (set by engine during initialization)
 	blockDecoratorLookup   func(name string) (interface{}, bool)
 	patternDecoratorLookup func(name string) (interface{}, bool)
+	valueDecoratorLookup   func(name string) (interface{}, bool)
 }
 
 
@@ -105,11 +106,13 @@ func (c *GeneratorExecutionContext) GetPatternDecoratorLookup() func(name string
 	return c.patternDecoratorLookup
 }
 
-// ProcessValueDecoratorUnified handles value decorators in generator mode
-func (c *GeneratorExecutionContext) ProcessValueDecoratorUnified(decorator *ast.ValueDecorator) (interface{}, error) {
-	// Value decorators are now accessed directly through the registry
-	return nil, fmt.Errorf("ProcessValueDecoratorUnified is deprecated - use decorator registry directly")
+// GetValueDecoratorLookup returns the value decorator lookup function
+func (c *GeneratorExecutionContext) GetValueDecoratorLookup() func(name string) (interface{}, bool) {
+	// Value decorators are looked up through dependency injection to avoid import cycles
+	// This will be set by the engine during initialization
+	return c.valueDecoratorLookup
 }
+
 
 // SetBlockDecoratorLookup sets the block decorator lookup function (called by engine during setup)
 func (c *GeneratorExecutionContext) SetBlockDecoratorLookup(lookup func(name string) (interface{}, bool)) {
@@ -119,6 +122,11 @@ func (c *GeneratorExecutionContext) SetBlockDecoratorLookup(lookup func(name str
 // SetPatternDecoratorLookup sets the pattern decorator lookup function (called by engine during setup)
 func (c *GeneratorExecutionContext) SetPatternDecoratorLookup(lookup func(name string) (interface{}, bool)) {
 	c.patternDecoratorLookup = lookup
+}
+
+// SetValueDecoratorLookup sets the value decorator lookup function (called by engine during setup)
+func (c *GeneratorExecutionContext) SetValueDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.valueDecoratorLookup = lookup
 }
 
 // TrackEnvironmentVariable tracks an environment variable for global capture generation
@@ -177,6 +185,7 @@ func (c *GeneratorExecutionContext) Child() GeneratorContext {
 		// Copy immutable configuration from parent to child
 		blockDecoratorLookup:   c.blockDecoratorLookup,
 		patternDecoratorLookup: c.patternDecoratorLookup,
+		valueDecoratorLookup:   c.valueDecoratorLookup,
 	}
 }
 
@@ -185,7 +194,13 @@ func (c *GeneratorExecutionContext) WithTimeout(timeout time.Duration) (Generato
 	ctx, cancel := context.WithTimeout(c.Context, timeout)
 	newBase := *c.BaseExecutionContext
 	newBase.Context = ctx
-	return &GeneratorExecutionContext{BaseExecutionContext: &newBase}, cancel
+	return &GeneratorExecutionContext{
+		BaseExecutionContext: &newBase,
+		// Copy decorator lookups from parent
+		blockDecoratorLookup:   c.blockDecoratorLookup,
+		patternDecoratorLookup: c.patternDecoratorLookup,
+		valueDecoratorLookup:   c.valueDecoratorLookup,
+	}, cancel
 }
 
 // WithCancel creates a new generator context with cancellation
@@ -193,20 +208,38 @@ func (c *GeneratorExecutionContext) WithCancel() (GeneratorContext, context.Canc
 	ctx, cancel := context.WithCancel(c.Context)
 	newBase := *c.BaseExecutionContext
 	newBase.Context = ctx
-	return &GeneratorExecutionContext{BaseExecutionContext: &newBase}, cancel
+	return &GeneratorExecutionContext{
+		BaseExecutionContext: &newBase,
+		// Copy decorator lookups from parent
+		blockDecoratorLookup:   c.blockDecoratorLookup,
+		patternDecoratorLookup: c.patternDecoratorLookup,
+		valueDecoratorLookup:   c.valueDecoratorLookup,
+	}, cancel
 }
 
 // WithWorkingDir creates a new generator context with the specified working directory
 func (c *GeneratorExecutionContext) WithWorkingDir(workingDir string) GeneratorContext {
 	newBase := *c.BaseExecutionContext
 	newBase.WorkingDir = workingDir
-	return &GeneratorExecutionContext{BaseExecutionContext: &newBase}
+	return &GeneratorExecutionContext{
+		BaseExecutionContext: &newBase,
+		// Copy decorator lookups from parent
+		blockDecoratorLookup:   c.blockDecoratorLookup,
+		patternDecoratorLookup: c.patternDecoratorLookup,
+		valueDecoratorLookup:   c.valueDecoratorLookup,
+	}
 }
 
 // WithCurrentCommand creates a new generator context with the specified current command name
 func (c *GeneratorExecutionContext) WithCurrentCommand(commandName string) GeneratorContext {
 	newBase := *c.BaseExecutionContext
 	newBase.currentCommand = commandName
-	return &GeneratorExecutionContext{BaseExecutionContext: &newBase}
+	return &GeneratorExecutionContext{
+		BaseExecutionContext: &newBase,
+		// Copy decorator lookups from parent
+		blockDecoratorLookup:   c.blockDecoratorLookup,
+		patternDecoratorLookup: c.patternDecoratorLookup,
+		valueDecoratorLookup:   c.valueDecoratorLookup,
+	}
 }
 

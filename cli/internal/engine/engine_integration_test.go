@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
-	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
 // TestEngineIntegration tests end-to-end engine functionality
@@ -125,8 +124,8 @@ test: echo "Testing on @var(HOST)"
 
 	engine := New(program)
 
-	// Test variable processing
-	ctx := execution.NewGeneratorContext(context.Background(), program)
+	// Test variable processing with decorator lookups
+	ctx := engine.CreateGeneratorContext(context.Background(), program)
 	err = ctx.InitializeVariables()
 	if err != nil {
 		t.Fatalf("Failed to initialize variables: %v", err)
