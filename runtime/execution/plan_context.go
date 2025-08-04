@@ -12,6 +12,9 @@ import (
 // PlanExecutionContext implements PlanContext for execution planning/dry-run
 type PlanExecutionContext struct {
 	*BaseExecutionContext
+	
+	// Environment variable tracking for planning interpreter behavior
+	trackedEnvVars map[string]string
 }
 
 
@@ -54,6 +57,27 @@ func (c *PlanExecutionContext) GenerateCommandPlan(commandName string) (*Executi
 	}, nil
 }
 
+// TrackEnvironmentVariable tracks an environment variable for plan consistency
+func (c *PlanExecutionContext) TrackEnvironmentVariable(key, defaultValue string) {
+	if c.trackedEnvVars == nil {
+		c.trackedEnvVars = make(map[string]string)
+	}
+	c.trackedEnvVars[key] = defaultValue
+}
+
+// GetTrackedEnvironmentVariables returns all tracked environment variables
+func (c *PlanExecutionContext) GetTrackedEnvironmentVariables() map[string]string {
+	if c.trackedEnvVars == nil {
+		return make(map[string]string)
+	}
+	// Return a copy to prevent external modifications
+	result := make(map[string]string)
+	for k, v := range c.trackedEnvVars {
+		result[k] = v
+	}
+	return result
+}
+
 // ================================================================================================
 // CONTEXT MANAGEMENT WITH TYPE SAFETY
 // ================================================================================================
@@ -80,9 +104,6 @@ func (c *PlanExecutionContext) Child() PlanContext {
 		// Each child gets a unique counter space based on parent's counter and child ID
 		shellCounter: c.shellCounter + (childID * 1000), // Give each child 1000 numbers of space
 		childCounter: 0, // Reset child counter for this context's children
-		
-		// Environment variable tracking for generators
-		trackedEnvVars: make(map[string]string),
 	}
 	
 	// Copy variables (child gets its own copy)
@@ -92,6 +113,7 @@ func (c *PlanExecutionContext) Child() PlanContext {
 	
 	return &PlanExecutionContext{
 		BaseExecutionContext: childBase,
+		trackedEnvVars:       make(map[string]string),
 	}
 }
 

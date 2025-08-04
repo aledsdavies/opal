@@ -30,14 +30,13 @@ type ShellTemplateData struct {
 	ExecVarName     string
 	BaseName        string
 	CommandString   string
-	WorkingDir      string // Working directory for command execution
+	NeedsReturn     bool  // Whether to include return statement for success case
 }
 
 // ActionChainTemplateData holds data for action decorator chain templates
 type ActionChainTemplateData struct {
 	CommandChain               []ChainElement
 	BaseName                   string
-	WorkingDir                 string // Working directory for command execution
 	NeedsShellCommandWithInput bool   // Whether executeShellCommandWithInput is needed
 	NeedsShellCommand          bool   // Whether executeShellCommand is needed
 	NeedsAppendToFile          bool   // Whether appendToFile is needed
@@ -59,31 +58,36 @@ func (b *ShellCodeBuilder) GenerateShellCode(cmd ast.CommandContent) (string, er
 	}
 }
 
+// GenerateShellCodeWithReturn converts AST CommandContent to template string with return statements
+// This is used when the generated code needs to return a CommandResult value
+func (b *ShellCodeBuilder) GenerateShellCodeWithReturn(cmd ast.CommandContent) (string, error) {
+	switch c := cmd.(type) {
+	case *ast.ShellContent:
+		return b.GenerateShellExecutionTemplateWithReturn(c)
+	case *ast.BlockDecorator:
+		return b.generateBlockDecoratorTemplate(c)
+	case *ast.PatternDecorator:
+		return b.generatePatternDecoratorTemplate(c)
+	default:
+		return "", fmt.Errorf("unsupported command content type for shell generation: %T", cmd)
+	}
+}
+
 // GenerateShellExecutionTemplate creates template string for executing shell content
 func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellContent) (string, error) {
 	var formatParts []string
 	var formatArgs []string
 	var hasActionDecorators bool
 
-	// First pass: check for ActionDecorators or shell operators
-	var hasShellOperators bool
+	// First pass: check for ActionDecorators
 	for _, part := range content.Parts {
 		if _, ok := part.(*ast.ActionDecorator); ok {
 			hasActionDecorators = true
 			break
 		}
-		if textPart, ok := part.(*ast.TextPart); ok {
-			// Check if text contains shell operators
-			text := strings.TrimSpace(textPart.Text)
-			if strings.Contains(text, "&&") || strings.Contains(text, "||") || 
-			   strings.Contains(text, "|") || strings.Contains(text, ">>") {
-				hasShellOperators = true
-			}
-		}
 	}
 
-	if hasActionDecorators || hasShellOperators {
-		// Generate direct ActionDecorator execution template
+	if hasActionDecorators {
 		return b.GenerateDirectActionTemplate(content)
 	}
 
@@ -91,6 +95,12 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 	for _, part := range content.Parts {
 		switch p := part.(type) {
 		case *ast.TextPart:
+			// Check if this TextPart contains multiple commands that should be sequential
+			// This handles cases where the lexer/parser combines multiple line commands
+			if strings.Contains(p.Text, "; ") {
+				// This is a combined command that should be split into sequential execution
+				return b.generateSequentialExecutionTemplate(p.Text)
+			}
 			formatParts = append(formatParts, p.Text)
 		case *ast.ValueDecorator:
 			formatParts = append(formatParts, "%s")
@@ -140,13 +150,13 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 		CmdVarName:    fmt.Sprintf("%sCmdStr", baseName),
 		ExecVarName:   fmt.Sprintf("%sExecCmd", baseName),
 		BaseName:      baseName,
-		WorkingDir:    b.context.GetWorkingDir(), // Include working directory from context
+		NeedsReturn:   false, // Default: no return for sequential commands
 	}
 
 	// Return the shell execution template
 	const shellExecTemplate = `{{if .HasFormatArgs}}{{.CmdVarName}} := fmt.Sprintf({{printf "%q" .FormatString}}, {{range $i, $arg := .FormatArgs}}{{if $i}}, {{end}}{{$arg}}{{end}}){{else}}{{.CmdVarName}} := {{printf "%q" .FormatString}}{{end}}
-		{{.ExecVarName}} := exec.CommandContext(ctx, "sh", "-c", {{.CmdVarName}}){{if .WorkingDir}}
-		{{.ExecVarName}}.Dir = {{printf "%q" .WorkingDir}} // Set working directory{{end}}
+		{{.ExecVarName}} := exec.CommandContext(ctx, "sh", "-c", {{.CmdVarName}})
+		{{.ExecVarName}}.Dir = ctx.WorkingDir
 		
 		// Create buffers to capture output while streaming to terminal
 		var {{.BaseName}}Stdout, {{.BaseName}}Stderr bytes.Buffer
@@ -166,9 +176,122 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 			}
 		}
 		
-		return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}`
+		// Check for command failure and exit early if it failed
+		if {{.BaseName}}ExitCode != 0 {
+			return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}
+		}{{if .NeedsReturn}}
+		return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}{{end}}`
 
 	// Execute the template with our data
+	tmpl, err := template.New("shellExec").Parse(shellExecTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse shell execution template: %w", err)
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute shell execution template: %w", err)
+	}
+
+	return result.String(), nil
+}
+
+// GenerateShellExecutionTemplateWithReturn creates template string for executing shell content with return statement
+// This is used when shell execution is within a function that expects a CommandResult return value
+func (b *ShellCodeBuilder) GenerateShellExecutionTemplateWithReturn(content *ast.ShellContent) (string, error) {
+	return b.generateShellExecutionTemplateInternal(content, true)
+}
+
+// generateShellExecutionTemplateInternal is the internal implementation that accepts a needsReturn parameter
+func (b *ShellCodeBuilder) generateShellExecutionTemplateInternal(content *ast.ShellContent, needsReturn bool) (string, error) {
+	var formatParts []string
+	var formatArgs []string
+
+	// Check for ActionDecorators
+	for _, part := range content.Parts {
+		if _, ok := part.(*ast.ActionDecorator); ok {
+			return b.GenerateDirectActionTemplate(content)
+		}
+	}
+
+	// Build format string and arguments for shell command
+	for _, part := range content.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			if strings.Contains(p.Text, "; ") {
+				return b.generateSequentialExecutionTemplate(p.Text)
+			}
+			formatParts = append(formatParts, p.Text)
+		case *ast.ValueDecorator:
+			formatParts = append(formatParts, "%s")
+			lookupFunc := b.context.GetValueDecoratorLookup()
+			if lookupFunc == nil {
+				return "", fmt.Errorf("value decorator lookup not available (engine not properly initialized)")
+			}
+			decoratorInterface, exists := lookupFunc(p.Name)
+			if !exists {
+				return "", fmt.Errorf("value decorator @%s not found", p.Name)
+			}
+			valueDecorator, ok := decoratorInterface.(interface {
+				ExpandGenerator(ctx GeneratorContext, params []ast.NamedParameter) *ExecutionResult
+			})
+			if !ok {
+				return "", fmt.Errorf("value decorator @%s does not implement ExpandGenerator method", p.Name)
+			}
+			result := valueDecorator.ExpandGenerator(b.context, p.Args)
+			if result.Error != nil {
+				return "", fmt.Errorf("failed to expand value decorator @%s: %w", p.Name, result.Error)
+			}
+			if value, ok := result.Data.(string); ok {
+				formatArgs = append(formatArgs, value)
+			} else {
+				return "", fmt.Errorf("value decorator @%s returned non-string result: %T", p.Name, result.Data)
+			}
+		default:
+			return "", fmt.Errorf("unsupported shell part type for shell generation: %T", part)
+		}
+	}
+
+	baseName := b.getBaseName()
+
+	templateData := ShellTemplateData{
+		FormatString:  strings.Join(formatParts, ""),
+		FormatArgs:    formatArgs,
+		HasFormatArgs: len(formatArgs) > 0,
+		CmdVarName:    fmt.Sprintf("%sCmdStr", baseName),
+		ExecVarName:   fmt.Sprintf("%sExecCmd", baseName),
+		BaseName:      baseName,
+		NeedsReturn:   needsReturn,
+	}
+
+	const shellExecTemplate = `{{if .HasFormatArgs}}{{.CmdVarName}} := fmt.Sprintf({{printf "%q" .FormatString}}, {{range $i, $arg := .FormatArgs}}{{if $i}}, {{end}}{{$arg}}{{end}}){{else}}{{.CmdVarName}} := {{printf "%q" .FormatString}}{{end}}
+		{{.ExecVarName}} := exec.CommandContext(ctx, "sh", "-c", {{.CmdVarName}})
+		{{.ExecVarName}}.Dir = ctx.WorkingDir
+		
+		// Create buffers to capture output while streaming to terminal
+		var {{.BaseName}}Stdout, {{.BaseName}}Stderr bytes.Buffer
+		
+		// Use MultiWriter to stream to terminal AND capture for CommandResult
+		{{.ExecVarName}}.Stdout = io.MultiWriter(os.Stdout, &{{.BaseName}}Stdout)
+		{{.ExecVarName}}.Stderr = io.MultiWriter(os.Stderr, &{{.BaseName}}Stderr)
+		{{.ExecVarName}}.Stdin = os.Stdin
+		
+		{{.BaseName}}Err := {{.ExecVarName}}.Run()
+		{{.BaseName}}ExitCode := 0
+		if {{.BaseName}}Err != nil {
+			if exitError, ok := {{.BaseName}}Err.(*exec.ExitError); ok {
+				{{.BaseName}}ExitCode = exitError.ExitCode()
+			} else {
+				{{.BaseName}}ExitCode = 1
+			}
+		}
+		
+		// Check for command failure and exit early if it failed
+		if {{.BaseName}}ExitCode != 0 {
+			return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}
+		}{{if .NeedsReturn}}
+		return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}{{end}}`
+
 	tmpl, err := template.New("shellExec").Parse(shellExecTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse shell execution template: %w", err)
@@ -231,7 +354,6 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 	templateData := ActionChainTemplateData{
 		CommandChain:               commandChain,
 		BaseName:                   b.getBaseName(),
-		WorkingDir:                 b.context.GetWorkingDir(),
 		NeedsShellCommandWithInput: needsShellCommandWithInput,
 		NeedsShellCommand:          needsShellCommand,
 		NeedsAppendToFile:          needsAppendToFile,
@@ -242,9 +364,9 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 	const actionChainTemplate = `// ActionDecorator command chain with Go-native operators
 		{{if .NeedsShellCommandWithInput}}
 		// Helper function for executing shell commands with piped input
-		{{.BaseName}}ExecuteShellCommandWithInput := func(ctx context.Context, command, input string) CommandResult {
-			cmd := exec.CommandContext(ctx, "sh", "-c", command){{if .WorkingDir}}
-			cmd.Dir = {{printf "%q" .WorkingDir}}{{end}}
+		{{.BaseName}}ExecuteShellCommandWithInput := func(execCtx ExecutionContext, command, input string) CommandResult {
+			cmd := exec.CommandContext(execCtx.Context, "sh", "-c", command)
+			cmd.Dir = execCtx.WorkingDir
 			cmd.Stdin = strings.NewReader(input)
 			
 			var stdout, stderr bytes.Buffer
@@ -270,9 +392,9 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 		{{end}}
 		{{if .NeedsShellCommand}}
 		// Helper function for executing shell commands
-		{{.BaseName}}ExecuteShellCommand := func(ctx context.Context, command string) CommandResult {
-			cmd := exec.CommandContext(ctx, "sh", "-c", command){{if .WorkingDir}}
-			cmd.Dir = {{printf "%q" .WorkingDir}}{{end}}
+		{{.BaseName}}ExecuteShellCommand := func(execCtx ExecutionContext, command string) CommandResult {
+			cmd := exec.CommandContext(execCtx.Context, "sh", "-c", command)
+			cmd.Dir = execCtx.WorkingDir
 			
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
@@ -377,7 +499,7 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 		_ = {{.BaseName}}LastResult
 		{{end}}
 
-		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}`
+		// Note: No automatic return for successful completion - continue to next command`
 
 	// Execute the template with our data
 	tmpl, err := template.New("actionChain").Funcs(b.GetTemplateFunctions()).Parse(actionChainTemplate)
@@ -747,48 +869,62 @@ func (b *ShellCodeBuilder) GetTemplateFunctions() template.FuncMap {
 	}
 }
 
-// EnvironmentCaptureTemplateData holds data for environment variable capture templates
-type EnvironmentCaptureTemplateData struct {
-	TrackedVars map[string]string // envVar -> defaultValue
-}
 
-// GenerateEnvironmentCaptureCode generates global environment variable capture code using templates
-func GenerateEnvironmentCaptureCode(trackedVars map[string]string) (string, error) {
-	// Return empty string if no environment variables were tracked
-	if len(trackedVars) == 0 {
-		return "", nil
+// generateSequentialExecutionTemplate handles combined commands that should execute sequentially
+func (b *ShellCodeBuilder) generateSequentialExecutionTemplate(combinedText string) (string, error) {
+	// Split the combined commands on semicolons
+	commands := strings.Split(combinedText, ";")
+	if len(commands) <= 1 {
+		// Not actually combined, fall back to normal processing
+		return "", fmt.Errorf("text does not contain combined commands")
 	}
 
-	templateData := EnvironmentCaptureTemplateData{
-		TrackedVars: trackedVars,
-	}
+	var templateParts []string
+	baseName := b.getBaseName()
 
-	const envCaptureTemplate = `// Global environment variable capture
-var envContext = map[string]string{
-{{range $envVar, $defaultValue := .TrackedVars -}}
-	{{printf "%q" $envVar}}: func() string {
-		if val := os.Getenv({{printf "%q" $envVar}}); val != "" {
-			return val
+	for i, cmd := range commands {
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			continue
 		}
-		{{if $defaultValue -}}
-		return {{printf "%q" $defaultValue}}
-		{{- else -}}
-		return ""
-		{{- end}}
-	}(),
-{{end}}}
-`
 
-	// Execute the template with our data
-	tmpl, err := template.New("envCapture").Parse(envCaptureTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse environment capture template: %w", err)
+		stepName := fmt.Sprintf("%sStep%d", baseName, i+1)
+		
+		// Generate execution block for this command
+		templatePart := fmt.Sprintf(`%sCmdStr := %q
+		%sExecCmd := exec.CommandContext(ctx, "sh", "-c", %sCmdStr)
+		%sExecCmd.Dir = %q // Set working directory
+		
+		// Create buffers to capture output while streaming to terminal
+		var %sStdout, %sStderr bytes.Buffer
+		
+		// Use MultiWriter to stream to terminal AND capture for CommandResult
+		%sExecCmd.Stdout = io.MultiWriter(os.Stdout, &%sStdout)
+		%sExecCmd.Stderr = io.MultiWriter(os.Stderr, &%sStderr)
+		%sExecCmd.Stdin = os.Stdin
+		
+		%sErr := %sExecCmd.Run()
+		%sExitCode := 0
+		if %sErr != nil {
+			if exitError, ok := %sErr.(*exec.ExitError); ok {
+				%sExitCode = exitError.ExitCode()
+			} else {
+				%sExitCode = 1
+			}
+		}
+		
+		// Check for command failure and exit early if it failed
+		if %sExitCode != 0 {
+			return CommandResult{Stdout: %sStdout.String(), Stderr: %sStderr.String(), ExitCode: %sExitCode}
+		}`,
+			stepName, cmd, stepName, stepName, stepName, b.context.GetWorkingDir(),
+			stepName, stepName,
+			stepName, stepName, stepName, stepName, stepName,
+			stepName, stepName, stepName, stepName, stepName, stepName, stepName,
+			stepName, stepName, stepName, stepName)
+		
+		templateParts = append(templateParts, templatePart)
 	}
 
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute environment capture template: %w", err)
-	}
-
-	return result.String(), nil
+	return strings.Join(templateParts, "\n\n"), nil
 }

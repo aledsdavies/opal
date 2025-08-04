@@ -14,6 +14,11 @@ import (
 // InterpreterExecutionContext implements InterpreterContext for direct command execution
 type InterpreterExecutionContext struct {
 	*BaseExecutionContext
+	
+	// Environment variable tracking for interpreter execution
+	// Maps env var name -> default value (empty string if no default)
+	// These are captured at command start to prevent changes during execution
+	trackedEnvVars map[string]string
 }
 
 
@@ -89,9 +94,6 @@ func (c *InterpreterExecutionContext) Child() InterpreterContext {
 		// Each child gets a unique counter space based on parent's counter and child ID
 		shellCounter: c.shellCounter + (childID * 1000), // Give each child 1000 numbers of space
 		childCounter: 0, // Reset child counter for this context's children
-		
-		// Environment variable tracking for generators
-		trackedEnvVars: make(map[string]string),
 	}
 	
 	// Copy variables (child gets its own copy)
@@ -101,6 +103,7 @@ func (c *InterpreterExecutionContext) Child() InterpreterContext {
 	
 	return &InterpreterExecutionContext{
 		BaseExecutionContext: childBase,
+		trackedEnvVars:       make(map[string]string),
 	}
 }
 
@@ -177,8 +180,61 @@ func (c *InterpreterExecutionContext) processShellPart(part ast.ShellPart) (inte
 
 // processValueDecorator handles value decorators in interpreter mode
 func (c *InterpreterExecutionContext) processValueDecorator(decorator *ast.ValueDecorator) (interface{}, error) {
-	// This method is deprecated - use direct decorator registry access
-	return nil, fmt.Errorf("processValueDecorator is deprecated - use decorator registry directly")
+	// Use the value decorator lookup to get the decorator from the registry
+	lookupFunc := c.GetValueDecoratorLookup()
+	if lookupFunc == nil {
+		return nil, fmt.Errorf("value decorator lookup not available (engine not properly initialized)")
+	}
+	
+	decoratorInterface, exists := lookupFunc(decorator.Name)
+	if !exists {
+		return nil, fmt.Errorf("value decorator @%s not found", decorator.Name)
+	}
+
+	// Cast to the expected interface type for interpreter mode
+	valueDecorator, ok := decoratorInterface.(interface {
+		ExpandInterpreter(ctx InterpreterContext, params []ast.NamedParameter) *ExecutionResult
+	})
+	if !ok {
+		return nil, fmt.Errorf("value decorator @%s does not implement expected ExpandInterpreter method", decorator.Name)
+	}
+	
+	// Call ExpandInterpreter to get the expanded value
+	result := valueDecorator.ExpandInterpreter(c, decorator.Args)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to expand value decorator @%s: %w", decorator.Name, result.Error)
+	}
+	
+	// Return the expanded value
+	return result.Data, nil
+}
+
+// GetValueDecoratorLookup returns the value decorator lookup function for interpreter mode
+func (c *InterpreterExecutionContext) GetValueDecoratorLookup() func(name string) (interface{}, bool) {
+	// Value decorators are looked up through dependency injection to avoid import cycles
+	// This will be set by the engine during initialization  
+	return c.valueDecoratorLookup
+}
+
+// TrackEnvironmentVariable tracks an environment variable for consistent access during execution
+func (c *InterpreterExecutionContext) TrackEnvironmentVariable(key, defaultValue string) {
+	if c.trackedEnvVars == nil {
+		c.trackedEnvVars = make(map[string]string)
+	}
+	c.trackedEnvVars[key] = defaultValue
+}
+
+// GetTrackedEnvironmentVariables returns all tracked environment variables
+func (c *InterpreterExecutionContext) GetTrackedEnvironmentVariables() map[string]string {
+	if c.trackedEnvVars == nil {
+		return make(map[string]string)
+	}
+	// Return a copy to prevent external modifications
+	result := make(map[string]string)
+	for k, v := range c.trackedEnvVars {
+		result[k] = v
+	}
+	return result
 }
 
 // processActionDecorator handles action decorators in interpreter mode

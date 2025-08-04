@@ -47,16 +47,20 @@ type BaseExecutionContext struct {
 
 	// Current command name for generating meaningful variable names
 	currentCommand string
+	
+	// Decorator lookup functions (set by engine during initialization)
+	valueDecoratorLookup func(name string) (interface{}, bool)
 
 	// Shell execution counter for unique variable naming
 	shellCounter int
 
 	// Child context counter for unique variable naming across parallel contexts
 	childCounter int
+}
 
-	// Environment variable tracking for global capture generation (GeneratorMode only)
-	// Maps env var name -> default value (empty string if no default)
-	trackedEnvVars map[string]string
+// SetValueDecoratorLookup sets the value decorator lookup function (called by engine during setup)
+func (c *BaseExecutionContext) SetValueDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.valueDecoratorLookup = lookup
 }
 
 // newBaseExecutionContext creates a new base execution context
@@ -91,7 +95,6 @@ func newBaseExecutionContext(parent context.Context, program *ast.Program) *Base
 		WorkingDir:     workingDir,
 		Debug:          false,
 		DryRun:         false,
-		trackedEnvVars: make(map[string]string), // For tracking env vars in GeneratorMode
 	}
 }
 

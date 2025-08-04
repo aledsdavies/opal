@@ -129,20 +129,20 @@ func (c *GeneratorExecutionContext) SetValueDecoratorLookup(lookup func(name str
 	c.valueDecoratorLookup = lookup
 }
 
-// TrackEnvironmentVariable tracks an environment variable for global capture generation
-func (c *GeneratorExecutionContext) TrackEnvironmentVariable(key, defaultValue string) {
-	c.trackedEnvVars[key] = defaultValue
+// TrackEnvironmentVariableReference tracks which env vars are referenced for code generation
+func (c *GeneratorExecutionContext) TrackEnvironmentVariableReference(key, defaultValue string) {
+	// For now, generator context doesn't store these - they're handled by decorators
+	// This method exists to satisfy calls from builtin decorators
 }
 
-// GetTrackedEnvironmentVariables returns all tracked environment variables with their defaults
-func (c *GeneratorExecutionContext) GetTrackedEnvironmentVariables() map[string]string {
-	// Return a copy to prevent external modification
-	result := make(map[string]string)
-	for key, defaultValue := range c.trackedEnvVars {
-		result[key] = defaultValue
-	}
-	return result
+// GetTrackedEnvironmentVariableReferences returns env var references for template generation  
+func (c *GeneratorExecutionContext) GetTrackedEnvironmentVariableReferences() map[string]string {
+	// For now, return empty - the actual env var tracking happens in the engine
+	// via decorator calls during code generation
+	return make(map[string]string)
 }
+
+
 
 // ================================================================================================
 // CONTEXT MANAGEMENT WITH TYPE SAFETY
@@ -170,9 +170,6 @@ func (c *GeneratorExecutionContext) Child() GeneratorContext {
 		// Each child gets a unique counter space based on parent's counter and child ID
 		shellCounter: c.shellCounter + (childID * 1000), // Give each child 1000 numbers of space
 		childCounter: 0, // Reset child counter for this context's children
-		
-		// Environment variable tracking for generators
-		trackedEnvVars: make(map[string]string),
 	}
 	
 	// Copy variables (child gets its own copy)

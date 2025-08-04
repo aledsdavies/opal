@@ -22,7 +22,7 @@ const confirmExecutionTemplate = `// Confirmation execution setup
 isCI := func() bool {
 	ciVars := []string{"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "TRAVIS", "CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER"}
 	for _, envVar := range ciVars {
-		if value, exists := envContext[envVar]; exists && value != "" {
+		if value, exists := ctx.EnvContext[envVar]; exists && value != "" {
 			return true
 		}
 	}
@@ -155,7 +155,7 @@ func (c *ConfirmDecorator) trackCIEnvironmentVariables(ctx execution.GeneratorCo
 	}
 
 	for _, envVar := range ciVars {
-		ctx.TrackEnvironmentVariable(envVar, "")
+		ctx.TrackEnvironmentVariableReference(envVar, "")
 	}
 }
 

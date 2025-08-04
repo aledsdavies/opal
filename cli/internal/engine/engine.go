@@ -53,8 +53,8 @@ func NewWithGoVersion(program *ast.Program, goVersion string) *Engine {
 
 // ExecuteCommand executes a single command in interpreter mode
 func (e *Engine) ExecuteCommand(command *ast.CommandDecl) (*CommandResult, error) {
-	// Create interpreter context
-	ctx := execution.NewInterpreterContext(context.Background(), e.program)
+	// Create interpreter context with proper decorator setup
+	ctx := e.CreateInterpreterContext(context.Background(), e.program)
 
 	// Initialize variables if not already done
 	if err := ctx.InitializeVariables(); err != nil {
@@ -779,8 +779,44 @@ import (
 
 {{.CommandResultDef}}
 
+// ExecutionContext provides runtime context for generated CLI commands
+type ExecutionContext struct {
+	context.Context
+	WorkingDir string            // Current working directory 
+	EnvContext map[string]string // Environment variables (replaces global envContext)
+}
+
+// WithWorkingDir creates a new context with a different working directory
+func (ctx ExecutionContext) WithWorkingDir(dir string) ExecutionContext {
+	return ExecutionContext{
+		Context:    ctx.Context,
+		WorkingDir: dir,
+		EnvContext: ctx.EnvContext,
+	}
+}
+
 func main() {
-	ctx := context.Background()
+	// Initialize working directory from runtime
+	workingDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get current working directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize execution context
+	execCtx := ExecutionContext{
+		Context:    context.Background(),
+		WorkingDir: workingDir,
+		EnvContext: map[string]string{
+			{{$trackedVars := .TrackedEnvVars}}{{range $envVar, $defaultValue := $trackedVars}}{{printf "%q" $envVar}}: func() string {
+				if val := os.Getenv({{printf "%q" $envVar}}); val != "" {
+					return val
+				}
+				{{if $defaultValue}}return {{printf "%q" $defaultValue}}{{else}}return ""{{end}}
+			}(),
+			{{end}}
+		},
+	}
 
 	// Variables
 	{{range .Variables}}{{if .Used}}{{.Name}} := {{.Value}}
@@ -805,9 +841,9 @@ func main() {
 
 	// Execution functions for commands
 	{{range .Commands}}
-	execute{{.FunctionName | title}} := func() CommandResult {
-		{{.ExecutionCode}}{{if not (contains .ExecutionCode "return CommandResult{")}}
-		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}{{end}}
+	execute{{.FunctionName | title}} := func(ctx ExecutionContext) CommandResult {
+		{{.ExecutionCode}}
+		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 	}
 	{{end}}
 
@@ -827,7 +863,7 @@ func main() {
 		}
 		
 		// Normal execution - call the execution function
-		result := execute{{.FunctionName | title}}()
+		result := execute{{.FunctionName | title}}(execCtx)
 		if result.Failed() {
 			handleCommandError("{{.Name}}", result.ToError())
 		}
@@ -1129,6 +1165,7 @@ type CLITemplateData struct {
 	Commands            []CommandData
 	ProcessGroups       []ProcessGroupData
 	CommandResultDef    string // Inline CommandResult definition
+	TrackedEnvVars      map[string]string // Environment variables for ExecutionContext
 }
 
 type VariableData struct {
@@ -1238,6 +1275,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 		Commands:          []CommandData{},
 		ProcessGroups:     []ProcessGroupData{},
 		CommandResultDef:  decorators.GenerateCommandResultDefinition(),
+		TrackedEnvVars:    ctx.GetTrackedEnvironmentVariableReferences(),
 	}
 
 	// Track which variables are used across all commands
@@ -1284,6 +1322,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 					commandSuffix = fmt.Sprintf("%s%d", cmd.Name, shellCommandIndex)
 				}
 				cmdCtx := ctx.WithCurrentCommand(commandSuffix)
+				
 				execResult := cmdCtx.GenerateShellCode(c)
 				if execResult.Error != nil {
 					return nil, fmt.Errorf("failed to generate shell code for command %s: %w", cmd.Name, execResult.Error)
@@ -1376,6 +1415,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 				return nil, fmt.Errorf("unsupported command content type %T in command %s", content, cmd.Name)
 			}
 		}
+
 
 		// Generate execution plan for this command (both colored and no-color versions)
 		executionPlan := ""
@@ -1554,22 +1594,8 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 		return nil, fmt.Errorf("failed to execute main CLI template: %w", err)
 	}
 
-	// Generate global environment capture code if any env vars were tracked
-	envVarCode, err := e.generateEnvironmentCaptureCode(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate environment capture code: %w", err)
-	}
-	
-	// Combine environment capture code with the main code
-	finalCode := strings.Builder{}
-	if envVarCode != "" {
-		finalCode.WriteString(envVarCode)
-		finalCode.WriteString("\n")
-	}
-	finalCode.WriteString(codeBuilder.String())
-
 	// Set the generated code
-	result.Code.WriteString(finalCode.String())
+	result.Code.WriteString(codeBuilder.String())
 
 	// Generate go.mod
 	if err := e.generateGoMod(result, moduleName); err != nil {
@@ -1579,11 +1605,6 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 	return result, nil
 }
 
-// generateEnvironmentCaptureCode generates global environment variable capture code
-func (e *Engine) generateEnvironmentCaptureCode(ctx execution.GeneratorContext) (string, error) {
-	trackedVars := ctx.GetTrackedEnvironmentVariables()
-	return execution.GenerateEnvironmentCaptureCode(trackedVars)
-}
 
 // programUsesActionDecorators checks if the program uses ActionDecorator templates
 func (e *Engine) programUsesActionDecorators(program *ast.Program) bool {
@@ -1745,11 +1766,34 @@ func (e *Engine) setupDecoratorLookups(ctx execution.GeneratorContext) {
 	}
 }
 
+// setupInterpreterDecoratorLookups configures decorator registry access for InterpreterContext
+// This is required for interpreter mode to work with decorators properly
+func (e *Engine) setupInterpreterDecoratorLookups(ctx execution.InterpreterContext) {
+	// Cast to the concrete type to access the setup methods
+	if interpreterCtx, ok := ctx.(*execution.InterpreterExecutionContext); ok {
+		// Set up value decorator lookup function using the decorator registry
+		interpreterCtx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetValue(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+	}
+}
+
 // CreateGeneratorContext creates a properly initialized GeneratorContext with decorator lookups
 func (e *Engine) CreateGeneratorContext(ctx context.Context, program *ast.Program) execution.GeneratorContext {
 	generatorCtx := execution.NewGeneratorContext(ctx, program)
 	e.setupDecoratorLookups(generatorCtx)
 	return generatorCtx
+}
+
+// CreateInterpreterContext creates a properly initialized InterpreterContext with decorator lookups
+func (e *Engine) CreateInterpreterContext(ctx context.Context, program *ast.Program) execution.InterpreterContext {
+	interpreterCtx := execution.NewInterpreterContext(ctx, program)
+	e.setupInterpreterDecoratorLookups(interpreterCtx)
+	return interpreterCtx
 }
 
 // validateCommandReferences validates that all @cmd decorator references point to existing commands

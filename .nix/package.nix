@@ -17,8 +17,8 @@ pkgs.buildGoModule rec {
   # Force GOWORK=off in the modules fetcher step too (Go 1.22+ requirement)
   overrideModAttrs = _: { env.GOWORK = "off"; };
 
-  # Vendor hash for CLI module dependencies
-  vendorHash = "sha256-dgbRj2pP1Jf2ktqp4FI5pTkNj59vKmKPUPOYMVbYbU8=";
+  # Vendor hash for CLI module dependencies  
+  vendorHash = "sha256-5el+4EYvfYG6t9uBNpRCBrRfevgHYxFDMIxTltn1w18=";
 
   # Build with version info
   ldflags = [

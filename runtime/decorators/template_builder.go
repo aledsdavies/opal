@@ -217,7 +217,7 @@ func ConvertCommandsToOperations(ctx execution.GeneratorContext, commands []ast.
 	shellBuilder := execution.NewShellCodeBuilder(ctx)
 
 	for i, cmd := range commands {
-		code, err := shellBuilder.GenerateShellCode(cmd)
+		code, err := shellBuilder.GenerateShellCodeWithReturn(cmd)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate code for command %d: %w", i, err)
 		}

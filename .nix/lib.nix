@@ -75,7 +75,7 @@ rec {
 
       # Get devcmd binary with better error handling
       devcmdBin =
-        if self != null then self.packages.${system}.default
+        if self != null then self.packages.${system}.devcmd or self.packages.${system}.default
         else throw "Self reference required for CLI generation. Cannot build '${name}' without devcmd parser.";
 
       # Simplified approach: Use devcmd build to handle everything
@@ -106,11 +106,17 @@ rec {
           exit 1
         fi
         
+        # Verify devcmd binary exists and is executable
+        if [[ ! -x "${devcmdBin}/bin/devcmd" ]]; then
+          echo "❌ Error: devcmd binary not found or not executable at ${devcmdBin}/bin/devcmd"
+          exit 1
+        fi
+        
         # Use devcmd build to handle generation, module management, and compilation
         ${devcmdBin}/bin/devcmd build \
           --file "${commandsSrc}" \
           --binary "${binaryName}" \
-          --output "$BINARY_PATH"
+          -o "$BINARY_PATH"
         
         # Cache the result
         echo "$CONTENT_HASH" > "$HASH_FILE"

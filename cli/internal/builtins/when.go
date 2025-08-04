@@ -20,7 +20,7 @@ const whenExecutionTemplate = `// Pattern matching for variable: {{.VariableName
 var {{.VariableName}}Value string
 if ctxValue, exists := variableContext[{{printf "%q" .VariableName}}]; exists {
 	{{.VariableName}}Value = ctxValue
-} else if envValue, exists := envContext[{{printf "%q" .VariableName}}]; exists {
+} else if envValue, exists := ctx.EnvContext[{{printf "%q" .VariableName}}]; exists {
 	{{.VariableName}}Value = envValue
 }
 
@@ -183,7 +183,7 @@ func (w *WhenDecorator) executeInterpreterImpl(ctx execution.InterpreterContext,
 func (w *WhenDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
 	// Track the variable for global environment capture in generated code
 	// This ensures the variable is available in the generated binary's envContext
-	ctx.TrackEnvironmentVariable(varName, "")
+	ctx.TrackEnvironmentVariableReference(varName, "")
 
 	// Convert patterns to template data with generated shell code
 	var patternData []WhenPatternData

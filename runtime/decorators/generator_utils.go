@@ -84,7 +84,7 @@ func (cre *CommandResultExecutor) ConvertCommandsToCommandResultOperations(comma
 	shellBuilder := execution.NewShellCodeBuilder(cre.ctx)
 
 	for i, cmd := range commands {
-		code, err := shellBuilder.GenerateShellCode(cmd)
+		code, err := shellBuilder.GenerateShellCodeWithReturn(cmd)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate code for command %d: %w", i, err)
 		}
@@ -200,7 +200,7 @@ func (crcb *CommandResultChainBuilder) AddShellCommand(command string) *CommandR
 		},
 	}
 	
-	code, err := shellBuilder.GenerateShellCode(shellContent)
+	code, err := shellBuilder.GenerateShellCodeWithReturn(shellContent)
 	if err != nil {
 		// Add error handling operation
 		code = fmt.Sprintf(`return CommandResult{Stdout: "", Stderr: "failed to generate shell command: %s", ExitCode: 1}`, err.Error())

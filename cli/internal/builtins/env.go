@@ -80,21 +80,21 @@ func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []
 	}
 
 	// Track this environment variable for global capture generation
-	ctx.TrackEnvironmentVariable(key, defaultValue)
+	ctx.TrackEnvironmentVariableReference(key, defaultValue)
 	
 	// Generate Go code that references the captured environment
 	var goCode string
 	if defaultValue != "" {
 		if allowEmpty {
-			// If allowEmpty=true, only use default if not exists: envContext["KEY"] or "default"
-			goCode = fmt.Sprintf(`func() string { if val, exists := envContext[%q]; exists { return val }; return %q }()`, key, defaultValue)
+			// If allowEmpty=true, only use default if not exists: ctx.EnvContext["KEY"] or "default"
+			goCode = fmt.Sprintf(`func() string { if val, exists := ctx.EnvContext[%q]; exists { return val }; return %q }()`, key, defaultValue)
 		} else {
-			// Default behavior: use default if not exists or empty: envContext["KEY"] or "default"
-			goCode = fmt.Sprintf(`func() string { if val, exists := envContext[%q]; exists && val != "" { return val }; return %q }()`, key, defaultValue)
+			// Default behavior: use default if not exists or empty: ctx.EnvContext["KEY"] or "default"
+			goCode = fmt.Sprintf(`func() string { if val, exists := ctx.EnvContext[%q]; exists && val != "" { return val }; return %q }()`, key, defaultValue)
 		}
 	} else {
-		// No default, just use captured value: envContext["KEY"]
-		goCode = fmt.Sprintf(`envContext[%q]`, key)
+		// No default, just use captured value: ctx.EnvContext["KEY"]
+		goCode = fmt.Sprintf(`ctx.EnvContext[%q]`, key)
 	}
 
 	return &execution.ExecutionResult{

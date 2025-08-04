@@ -83,6 +83,13 @@ type InterpreterContext interface {
 	ExecuteCommandContent(content ast.CommandContent) error
 	ExecuteCommand(commandName string) error
 	
+	// Decorator lookups (needed for interpreter mode decorator processing)
+	GetValueDecoratorLookup() func(name string) (interface{}, bool)
+	
+	// Environment variable tracking for runtime consistency
+	TrackEnvironmentVariable(key, defaultValue string)
+	GetTrackedEnvironmentVariables() map[string]string
+	
 	// Typed context management
 	Child() InterpreterContext
 	WithTimeout(timeout time.Duration) (InterpreterContext, context.CancelFunc)
@@ -109,9 +116,9 @@ type GeneratorContext interface {
 	GetPatternDecoratorLookup() func(name string) (interface{}, bool)
 	GetValueDecoratorLookup() func(name string) (interface{}, bool)
 	
-	// Environment variable tracking for global capture generation (names only)
-	TrackEnvironmentVariable(key, defaultValue string)
-	GetTrackedEnvironmentVariables() map[string]string // key -> defaultValue
+	// Environment variable reference tracking for code generation
+	TrackEnvironmentVariableReference(key, defaultValue string)
+	GetTrackedEnvironmentVariableReferences() map[string]string
 	
 	// Typed context management
 	Child() GeneratorContext
@@ -129,6 +136,10 @@ type PlanContext interface {
 	GenerateShellPlan(content *ast.ShellContent) *ExecutionResult
 	GenerateCommandPlan(commandName string) (*ExecutionResult, error)
 	
+	// Environment variable tracking for planning interpreter behavior
+	TrackEnvironmentVariable(key, defaultValue string)
+	GetTrackedEnvironmentVariables() map[string]string
+	
 	// Typed context management
 	Child() PlanContext
 	WithTimeout(timeout time.Duration) (PlanContext, context.CancelFunc)
@@ -145,6 +156,7 @@ type PlanContext interface {
 func NewInterpreterContext(ctx context.Context, program *ast.Program) InterpreterContext {
 	return &InterpreterExecutionContext{
 		BaseExecutionContext: newBaseContext(ctx, program),
+		trackedEnvVars:       make(map[string]string),
 	}
 }
 
@@ -159,6 +171,7 @@ func NewGeneratorContext(ctx context.Context, program *ast.Program) GeneratorCon
 func NewPlanContext(ctx context.Context, program *ast.Program) PlanContext {
 	return &PlanExecutionContext{
 		BaseExecutionContext: newBaseContext(ctx, program),
+		trackedEnvVars:       make(map[string]string),
 	}
 }
 
@@ -185,7 +198,6 @@ func newBaseContext(ctx context.Context, program *ast.Program) *BaseExecutionCon
 		WorkingDir:     workingDir,
 		Debug:          false,
 		DryRun:         false,
-		trackedEnvVars: make(map[string]string),
 	}
 }
 

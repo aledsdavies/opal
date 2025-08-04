@@ -158,7 +158,7 @@ func (ao *ASTOptimizer) optimizeShellContent(ctx execution.GeneratorContext, she
 	
 	// Generate proper shell execution code using the template system
 	shellBuilder := execution.NewShellCodeBuilder(ctx)
-	executionCode, err := shellBuilder.GenerateShellCode(shell)
+	executionCode, err := shellBuilder.GenerateShellCodeWithReturn(shell)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate shell execution code: %w", err)
 	}

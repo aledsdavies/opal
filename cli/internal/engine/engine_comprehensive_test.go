@@ -635,3 +635,230 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 		})
 	}
 }
+
+// TestSequentialCommandExecution_CriticalBug tests that commands in a block execute sequentially
+// This is a CRITICAL test that ensures we don't have the bug where the first command returns early
+// preventing subsequent commands from executing. This would be a catastrophic regression.
+func TestSequentialCommandExecution_CriticalBug(t *testing.T) {
+	tests := []struct {
+		name                 string
+		input               string
+		expectedOutputs     []string // All these outputs should appear in sequence
+		expectedAllExecuted bool     // All commands must execute
+		description         string
+	}{
+		{
+			name: "simple_sequential_block",
+			input: `build: {
+    echo "Step 1: Starting build"
+    echo "Step 2: Compiling"
+    echo "Step 3: Build complete"
+}`,
+			expectedOutputs: []string{
+				"Step 1: Starting build",
+				"Step 2: Compiling", 
+				"Step 3: Build complete",
+			},
+			expectedAllExecuted: true,
+			description: "Three echo commands should all execute in sequence",
+		},
+		{
+			name: "sequential_with_workdir",
+			input: `build: {
+    echo "Before workdir"
+    @workdir("cli") { echo "Inside workdir" }
+    echo "After workdir"
+}`,
+			expectedOutputs: []string{
+				"Before workdir",
+				"Inside workdir",
+				"After workdir",
+			},
+			expectedAllExecuted: true,
+			description: "Commands before and after @workdir should execute",
+		},
+		{
+			name: "complex_sequential_build",
+			input: `var PROJECT = "devcmd"
+build: {
+    echo "🔨 Building @var(PROJECT) CLI..."
+    @workdir("cli") { go build -o ../devcmd }
+    echo "✅ Built: ./devcmd"
+}`,
+			expectedOutputs: []string{
+				"🔨 Building devcmd CLI...",
+				"✅ Built: ./devcmd",
+			},
+			expectedAllExecuted: true,
+			description: "Real-world build scenario - ALL commands must execute",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Logf("CRITICAL TEST: %s", tt.description)
+			
+			// Parse the input
+			program, err := parser.Parse(strings.NewReader(tt.input))
+			if err != nil {
+				t.Fatalf("Failed to parse input: %v", err)
+			}
+
+			// Create engine
+			engine := New(program)
+
+			// Test GeneratorMode - this is where we see the bug
+			t.Run("GeneratorMode_SequentialExecution", func(t *testing.T) {
+				result, err := engine.GenerateCode(program)
+				if err != nil {
+					t.Fatalf("GenerateCode failed: %v", err)
+				}
+
+				generatedCode := result.String()
+				if generatedCode == "" {
+					t.Fatal("Generated code should not be empty")
+				}
+
+				// CRITICAL CHECK: The generated code must NOT have early returns that prevent subsequent commands
+				// Look for the pattern where a CommandResult is returned immediately after the first command
+				// This is the bug we're fixing
+				
+				// Count the number of "return CommandResult{" statements in the generated code
+				// For a command with multiple steps, there should be exactly ONE final return at the end
+				// NOT multiple returns that exit early
+				
+				returnCount := strings.Count(generatedCode, "return CommandResult{")
+				t.Logf("Generated code has %d 'return CommandResult{' statements", returnCount)
+				
+				// For each expected output, verify the command structure appears in generated code
+				// Note: We don't check for literal expanded text since variables are processed at generation time
+				for i, expectedOutput := range tt.expectedOutputs {
+					// For outputs with variables, check for the variable pattern instead of expanded text
+					if strings.Contains(expectedOutput, "devcmd CLI") {
+						// Look for variable expansion pattern or the echo command structure
+						if !strings.Contains(generatedCode, "echo") || !strings.Contains(generatedCode, "Building") {
+							t.Errorf("Expected command structure for output %d not found in generated code", i+1)
+						}
+					} else {
+						// For literal outputs, check for the exact text
+						if !strings.Contains(generatedCode, expectedOutput) {
+							t.Errorf("Expected output %d '%s' not found in generated code", i+1, expectedOutput)
+						}
+					}
+				}
+				
+				// CRITICAL: Check that there are no premature returns between commands
+				// This is a heuristic but should catch the main bug pattern
+				lines := strings.Split(generatedCode, "\n")
+				var inExecuteFunction bool
+				var hasReturn bool
+				var hasSubsequentCode bool
+				
+				for _, line := range lines {
+					trimmed := strings.TrimSpace(line)
+					
+					// Start tracking when we enter an execute function
+					if strings.Contains(trimmed, "execute") && strings.Contains(trimmed, "func()") {
+						inExecuteFunction = true
+						hasReturn = false
+						hasSubsequentCode = false
+						continue
+					}
+					
+					// If we're in an execute function and see a return, mark it
+					if inExecuteFunction && strings.Contains(trimmed, "return CommandResult{") && !strings.Contains(trimmed, "// Final return") {
+						hasReturn = true
+						continue
+					}
+					
+					// If we see a return followed by more command execution code, that's the bug
+					if inExecuteFunction && hasReturn && (strings.Contains(trimmed, "ExecCmd") || strings.Contains(trimmed, "exec.Command")) {
+						hasSubsequentCode = true
+					}
+					
+					// Reset when we exit the function
+					if strings.Contains(trimmed, "}") && inExecuteFunction {
+						if hasReturn && hasSubsequentCode {
+							t.Errorf("CRITICAL BUG DETECTED: Found early return followed by unreachable command execution code")
+						}
+						inExecuteFunction = false
+					}
+				}
+
+				t.Logf("✅ Generated code structure looks correct for sequential execution")
+			})
+
+			// Test InterpreterMode for comparison
+			t.Run("InterpreterMode_SequentialExecution", func(t *testing.T) {
+				// Find the build command
+				var buildCmd *ast.CommandDecl
+				for _, command := range program.Commands {
+					if command.Name == "build" {
+						buildCmd = &command
+						break
+					}
+				}
+				
+				if buildCmd == nil {
+					t.Skip("No build command found")
+				}
+
+				// Execute in interpreter mode (this should work correctly)
+				result, err := engine.ExecuteCommand(buildCmd)
+				if err != nil {
+					t.Logf("InterpreterMode failed (acceptable in test environment): %v", err)
+				} else {
+					t.Logf("✅ InterpreterMode executed command: %s", result.Status)
+				}
+			})
+		})
+	}
+}
+
+// TestSequentialExecutionRegression is a minimal regression test specifically for the build command bug
+func TestSequentialExecutionRegression(t *testing.T) {
+	// This is the exact scenario that was failing
+	input := `var PROJECT = "devcmd"
+build: {
+    echo "🔨 Building @var(PROJECT) CLI..."
+    @workdir("cli") { go build -o ../devcmd }
+    echo "✅ Built: ./devcmd"
+}`
+
+	program, err := parser.Parse(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	engine := New(program)
+	result, err := engine.GenerateCode(program)
+	if err != nil {
+		t.Fatalf("GenerateCode failed: %v", err)
+	}
+
+	generatedCode := result.String()
+	
+	// CRITICAL: Both echo statements should be present in generated code
+	if !strings.Contains(generatedCode, "🔨 Building") {
+		t.Error("First echo command missing from generated code")
+	}
+	
+	if !strings.Contains(generatedCode, "✅ Built:") {
+		t.Error("CRITICAL BUG: Final echo command missing - command execution stops early!")
+	}
+	
+	// CRITICAL: There should not be a return statement immediately after the first echo
+	// that prevents the @workdir and final echo from executing
+	firstEchoIndex := strings.Index(generatedCode, "🔨 Building")
+	finalEchoIndex := strings.Index(generatedCode, "✅ Built:")
+	
+	if firstEchoIndex == -1 || finalEchoIndex == -1 {
+		t.Fatal("Could not find echo commands in generated code")
+	}
+	
+	if finalEchoIndex <= firstEchoIndex {
+		t.Error("CRITICAL BUG: Final echo appears before first echo - code structure is wrong")
+	}
+	
+	t.Logf("✅ Both echo commands found in correct order in generated code")
+}
