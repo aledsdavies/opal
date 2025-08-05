@@ -155,32 +155,13 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 
 	// Return the shell execution template
 	const shellExecTemplate = `{{if .HasFormatArgs}}{{.CmdVarName}} := fmt.Sprintf({{printf "%q" .FormatString}}, {{range $i, $arg := .FormatArgs}}{{if $i}}, {{end}}{{$arg}}{{end}}){{else}}{{.CmdVarName}} := {{printf "%q" .FormatString}}{{end}}
-		{{.ExecVarName}} := exec.CommandContext(ctx, "sh", "-c", {{.CmdVarName}})
-		{{.ExecVarName}}.Dir = ctx.WorkingDir
-		
-		// Create buffers to capture output while streaming to terminal
-		var {{.BaseName}}Stdout, {{.BaseName}}Stderr bytes.Buffer
-		
-		// Use MultiWriter to stream to terminal AND capture for CommandResult
-		{{.ExecVarName}}.Stdout = io.MultiWriter(os.Stdout, &{{.BaseName}}Stdout)
-		{{.ExecVarName}}.Stderr = io.MultiWriter(os.Stderr, &{{.BaseName}}Stderr)
-		{{.ExecVarName}}.Stdin = os.Stdin
-		
-		{{.BaseName}}Err := {{.ExecVarName}}.Run()
-		{{.BaseName}}ExitCode := 0
-		if {{.BaseName}}Err != nil {
-			if exitError, ok := {{.BaseName}}Err.(*exec.ExitError); ok {
-				{{.BaseName}}ExitCode = exitError.ExitCode()
-			} else {
-				{{.BaseName}}ExitCode = 1
-			}
-		}
+		{{.BaseName}}Result := executeShellCommand(ctx, {{.CmdVarName}})
 		
 		// Check for command failure and exit early if it failed
-		if {{.BaseName}}ExitCode != 0 {
-			return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}
+		if {{.BaseName}}Result.Failed() {
+			return {{.BaseName}}Result
 		}{{if .NeedsReturn}}
-		return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}{{end}}`
+		return {{.BaseName}}Result{{end}}`
 
 	// Execute the template with our data
 	tmpl, err := template.New("shellExec").Parse(shellExecTemplate)
@@ -265,32 +246,13 @@ func (b *ShellCodeBuilder) generateShellExecutionTemplateInternal(content *ast.S
 	}
 
 	const shellExecTemplate = `{{if .HasFormatArgs}}{{.CmdVarName}} := fmt.Sprintf({{printf "%q" .FormatString}}, {{range $i, $arg := .FormatArgs}}{{if $i}}, {{end}}{{$arg}}{{end}}){{else}}{{.CmdVarName}} := {{printf "%q" .FormatString}}{{end}}
-		{{.ExecVarName}} := exec.CommandContext(ctx, "sh", "-c", {{.CmdVarName}})
-		{{.ExecVarName}}.Dir = ctx.WorkingDir
-		
-		// Create buffers to capture output while streaming to terminal
-		var {{.BaseName}}Stdout, {{.BaseName}}Stderr bytes.Buffer
-		
-		// Use MultiWriter to stream to terminal AND capture for CommandResult
-		{{.ExecVarName}}.Stdout = io.MultiWriter(os.Stdout, &{{.BaseName}}Stdout)
-		{{.ExecVarName}}.Stderr = io.MultiWriter(os.Stderr, &{{.BaseName}}Stderr)
-		{{.ExecVarName}}.Stdin = os.Stdin
-		
-		{{.BaseName}}Err := {{.ExecVarName}}.Run()
-		{{.BaseName}}ExitCode := 0
-		if {{.BaseName}}Err != nil {
-			if exitError, ok := {{.BaseName}}Err.(*exec.ExitError); ok {
-				{{.BaseName}}ExitCode = exitError.ExitCode()
-			} else {
-				{{.BaseName}}ExitCode = 1
-			}
-		}
+		{{.BaseName}}Result := executeShellCommand(ctx, {{.CmdVarName}})
 		
 		// Check for command failure and exit early if it failed
-		if {{.BaseName}}ExitCode != 0 {
-			return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}
+		if {{.BaseName}}Result.Failed() {
+			return {{.BaseName}}Result
 		}{{if .NeedsReturn}}
-		return CommandResult{Stdout: {{.BaseName}}Stdout.String(), Stderr: {{.BaseName}}Stderr.String(), ExitCode: {{.BaseName}}ExitCode}{{end}}`
+		return {{.BaseName}}Result{{end}}`
 
 	tmpl, err := template.New("shellExec").Parse(shellExecTemplate)
 	if err != nil {
@@ -441,7 +403,7 @@ func (b *ShellCodeBuilder) GenerateDirectActionTemplate(content *ast.ShellConten
 {{- if eq $element.Type "action"}}
 {{- if eq $element.ActionName "cmd"}}
 		// @cmd decorator - call the referenced command function directly
-		{{$element.VariableName}} := {{cmdFunctionName $element.ActionArgs}}()
+		{{$element.VariableName}} := {{cmdFunctionName $element.ActionArgs}}(ctx)
 		{{if $.NeedsLastResult}}{{$.BaseName}}LastResult = {{$element.VariableName}}{{end}}
 		if {{$element.VariableName}}.Failed() {
 			return {{$element.VariableName}}
@@ -890,38 +852,14 @@ func (b *ShellCodeBuilder) generateSequentialExecutionTemplate(combinedText stri
 
 		stepName := fmt.Sprintf("%sStep%d", baseName, i+1)
 		
-		// Generate execution block for this command
-		templatePart := fmt.Sprintf(`%sCmdStr := %q
-		%sExecCmd := exec.CommandContext(ctx, "sh", "-c", %sCmdStr)
-		%sExecCmd.Dir = %q // Set working directory
-		
-		// Create buffers to capture output while streaming to terminal
-		var %sStdout, %sStderr bytes.Buffer
-		
-		// Use MultiWriter to stream to terminal AND capture for CommandResult
-		%sExecCmd.Stdout = io.MultiWriter(os.Stdout, &%sStdout)
-		%sExecCmd.Stderr = io.MultiWriter(os.Stderr, &%sStderr)
-		%sExecCmd.Stdin = os.Stdin
-		
-		%sErr := %sExecCmd.Run()
-		%sExitCode := 0
-		if %sErr != nil {
-			if exitError, ok := %sErr.(*exec.ExitError); ok {
-				%sExitCode = exitError.ExitCode()
-			} else {
-				%sExitCode = 1
-			}
-		}
+		// Generate execution block for this command using helper function
+		templatePart := fmt.Sprintf(`%sResult := executeShellCommand(ctx, %q)
 		
 		// Check for command failure and exit early if it failed
-		if %sExitCode != 0 {
-			return CommandResult{Stdout: %sStdout.String(), Stderr: %sStderr.String(), ExitCode: %sExitCode}
+		if %sResult.Failed() {
+			return %sResult
 		}`,
-			stepName, cmd, stepName, stepName, stepName, b.context.GetWorkingDir(),
-			stepName, stepName,
-			stepName, stepName, stepName, stepName, stepName,
-			stepName, stepName, stepName, stepName, stepName, stepName, stepName,
-			stepName, stepName, stepName, stepName)
+			stepName, cmd, stepName, stepName)
 		
 		templateParts = append(templateParts, templatePart)
 	}
