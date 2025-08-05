@@ -291,6 +291,10 @@ func buildCommand(cmd *cobra.Command, args []string) error {
 	// Handle generate-only mode
 	if generateOnly {
 		if outputDir != "" {
+			// Create output directory if it doesn't exist
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				return fmt.Errorf("error creating output directory: %w", err)
+			}
 			// Write files to specified directory
 			moduleName := strings.ReplaceAll(binaryName, "-", "_")
 			if err := eng.WriteFiles(genResult, outputDir, moduleName); err != nil {

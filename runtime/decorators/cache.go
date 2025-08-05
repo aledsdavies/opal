@@ -45,12 +45,12 @@ func NewCache(ttl time.Duration, maxSize int) *Cache {
 func (c *Cache) Get(key string) (interface{}, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	entry, exists := c.entries[key]
 	if !exists || entry.IsExpired() {
 		return nil, false
 	}
-	
+
 	entry.HitCount++
 	return entry.Value, true
 }
@@ -59,15 +59,15 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 func (c *Cache) Set(key string, value interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Clean expired entries if needed
 	c.cleanExpiredLocked()
-	
+
 	// Evict oldest entries if cache is full
 	if len(c.entries) >= c.maxSize {
 		c.evictOldestLocked()
 	}
-	
+
 	now := time.Now()
 	c.entries[key] = &CacheEntry{
 		Value:     value,
@@ -106,11 +106,11 @@ func (c *Cache) evictOldestLocked() {
 	if len(c.entries) == 0 {
 		return
 	}
-	
+
 	var oldestKey string
 	var oldestTime time.Time
 	first := true
-	
+
 	for key, entry := range c.entries {
 		if first || entry.CreatedAt.Before(oldestTime) {
 			oldestKey = key
@@ -118,7 +118,7 @@ func (c *Cache) evictOldestLocked() {
 			first = false
 		}
 	}
-	
+
 	if oldestKey != "" {
 		delete(c.entries, oldestKey)
 	}
@@ -126,10 +126,10 @@ func (c *Cache) evictOldestLocked() {
 
 // Global caches for different types of operations
 var (
-	templateCache    = NewCache(30*time.Minute, 1000) // Templates live 30 minutes, max 1000 entries
-	operationCache   = NewCache(15*time.Minute, 500)  // Operations live 15 minutes, max 500 entries
-	validationCache  = NewCache(5*time.Minute, 200)   // Validation results live 5 minutes, max 200 entries
-	astCache         = NewCache(10*time.Minute, 300)  // AST conversions live 10 minutes, max 300 entries
+	templateCache   = NewCache(30*time.Minute, 1000) // Templates live 30 minutes, max 1000 entries
+	operationCache  = NewCache(15*time.Minute, 500)  // Operations live 15 minutes, max 500 entries
+	validationCache = NewCache(5*time.Minute, 200)   // Validation results live 5 minutes, max 200 entries
+	astCache        = NewCache(10*time.Minute, 300)  // AST conversions live 10 minutes, max 300 entries
 )
 
 // CacheKeyGenerator generates consistent cache keys for various inputs
@@ -138,15 +138,15 @@ type CacheKeyGenerator struct{}
 // GenerateTemplateKey creates a cache key for template generation
 func (ckg *CacheKeyGenerator) GenerateTemplateKey(decoratorName string, params []ast.NamedParameter, contentHash string) string {
 	data := struct {
-		Decorator string                 `json:"decorator"`
-		Params    []ast.NamedParameter   `json:"params"`
-		Content   string                 `json:"content"`
+		Decorator string               `json:"decorator"`
+		Params    []ast.NamedParameter `json:"params"`
+		Content   string               `json:"content"`
 	}{
 		Decorator: decoratorName,
 		Params:    params,
 		Content:   contentHash,
 	}
-	
+
 	jsonData, _ := json.Marshal(data)
 	hash := sha256.Sum256(jsonData)
 	return "template:" + hex.EncodeToString(hash[:])
@@ -161,7 +161,7 @@ func (ckg *CacheKeyGenerator) GenerateOperationKey(content []ast.CommandContent,
 		Content: content,
 		Context: contextHash,
 	}
-	
+
 	jsonData, _ := json.Marshal(data)
 	hash := sha256.Sum256(jsonData)
 	return "operation:" + hex.EncodeToString(hash[:])
@@ -170,13 +170,13 @@ func (ckg *CacheKeyGenerator) GenerateOperationKey(content []ast.CommandContent,
 // GenerateValidationKey creates a cache key for validation results
 func (ckg *CacheKeyGenerator) GenerateValidationKey(decoratorName string, params []ast.NamedParameter) string {
 	data := struct {
-		Decorator string                 `json:"decorator"`
-		Params    []ast.NamedParameter   `json:"params"`
+		Decorator string               `json:"decorator"`
+		Params    []ast.NamedParameter `json:"params"`
 	}{
 		Decorator: decoratorName,
 		Params:    params,
 	}
-	
+
 	jsonData, _ := json.Marshal(data)
 	hash := sha256.Sum256(jsonData)
 	return "validation:" + hex.EncodeToString(hash[:])
@@ -214,27 +214,27 @@ func (ctb *CachedTemplateBuilder) BuildTemplate() (string, error) {
 	if !ctb.enableCache {
 		return ctb.TemplateBuilder.BuildTemplate()
 	}
-	
+
 	// Generate cache key based on current builder state
 	builderHash := ctb.generateBuilderHash()
 	cacheKey := keyGenerator.GenerateTemplateKey(ctb.decoratorName, ctb.params, builderHash)
-	
+
 	// Check cache first
 	if cached, found := templateCache.Get(cacheKey); found {
 		if result, ok := cached.(string); ok {
 			return result, nil
 		}
 	}
-	
+
 	// Build template if not cached
 	result, err := ctb.TemplateBuilder.BuildTemplate()
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Cache the result
 	templateCache.Set(cacheKey, result)
-	
+
 	return result, nil
 }
 
@@ -243,27 +243,27 @@ func (ctb *CachedTemplateBuilder) BuildCommandResultTemplate() (string, error) {
 	if !ctb.enableCache {
 		return ctb.TemplateBuilder.BuildCommandResultTemplate()
 	}
-	
+
 	// Generate cache key with "CommandResult" suffix to differentiate
 	builderHash := ctb.generateBuilderHash()
 	cacheKey := keyGenerator.GenerateTemplateKey(ctb.decoratorName+"_CR", ctb.params, builderHash)
-	
+
 	// Check cache first
 	if cached, found := templateCache.Get(cacheKey); found {
 		if result, ok := cached.(string); ok {
 			return result, nil
 		}
 	}
-	
+
 	// Build template if not cached
 	result, err := ctb.TemplateBuilder.BuildCommandResultTemplate()
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Cache the result
 	templateCache.Set(cacheKey, result)
-	
+
 	return result, nil
 }
 
@@ -271,11 +271,11 @@ func (ctb *CachedTemplateBuilder) BuildCommandResultTemplate() (string, error) {
 func (ctb *CachedTemplateBuilder) generateBuilderHash() string {
 	// This is a simplified hash - in practice, you'd want to hash the actual builder state
 	data := struct {
-		HasConcurrent bool   `json:"concurrent"`
-		HasTimeout    bool   `json:"timeout"`
-		HasRetry      bool   `json:"retry"`
-		HasResource   bool   `json:"resource"`
-		Timestamp     int64  `json:"timestamp"`
+		HasConcurrent bool  `json:"concurrent"`
+		HasTimeout    bool  `json:"timeout"`
+		HasRetry      bool  `json:"retry"`
+		HasResource   bool  `json:"resource"`
+		Timestamp     int64 `json:"timestamp"`
 	}{
 		HasConcurrent: false, // You'd determine this from builder state
 		HasTimeout:    false,
@@ -283,7 +283,7 @@ func (ctb *CachedTemplateBuilder) generateBuilderHash() string {
 		HasResource:   false,
 		Timestamp:     time.Now().Unix() / 3600, // Hour-based cache invalidation
 	}
-	
+
 	jsonData, _ := json.Marshal(data)
 	hash := sha256.Sum256(jsonData)
 	return hex.EncodeToString(hash[:])
@@ -306,27 +306,27 @@ func (coc *CachedOperationConverter) ConvertCommandsToOperations(ctx execution.G
 	if !coc.enableCache {
 		return ConvertCommandsToOperations(ctx, content)
 	}
-	
+
 	// Generate cache key
 	contextHash := coc.generateContextHash(ctx)
 	cacheKey := keyGenerator.GenerateOperationKey(content, contextHash)
-	
+
 	// Check cache first
 	if cached, found := operationCache.Get(cacheKey); found {
 		if result, ok := cached.([]Operation); ok {
 			return result, nil
 		}
 	}
-	
+
 	// Convert if not cached
 	result, err := ConvertCommandsToOperations(ctx, content)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Cache the result
 	operationCache.Set(cacheKey, result)
-	
+
 	return result, nil
 }
 
@@ -337,10 +337,10 @@ func (coc *CachedOperationConverter) generateContextHash(ctx execution.Generator
 		WorkingDir string `json:"workdir"`
 		Timestamp  int64  `json:"timestamp"`
 	}{
-		WorkingDir: "/tmp", // You'd get this from context
+		WorkingDir: "/tmp",                   // You'd get this from context
 		Timestamp:  time.Now().Unix() / 3600, // Hour-based cache invalidation
 	}
-	
+
 	jsonData, _ := json.Marshal(data)
 	hash := sha256.Sum256(jsonData)
 	return hex.EncodeToString(hash[:])
@@ -360,10 +360,10 @@ func (cm *CacheManager) ClearAllCaches() {
 // GetCacheStats returns statistics for all caches
 func (cm *CacheManager) GetCacheStats() map[string]int {
 	return map[string]int{
-		"template_cache_size":    templateCache.Size(),
-		"operation_cache_size":   operationCache.Size(),
-		"validation_cache_size":  validationCache.Size(),
-		"ast_cache_size":         astCache.Size(),
+		"template_cache_size":   templateCache.Size(),
+		"operation_cache_size":  operationCache.Size(),
+		"validation_cache_size": validationCache.Size(),
+		"ast_cache_size":        astCache.Size(),
 	}
 }
 

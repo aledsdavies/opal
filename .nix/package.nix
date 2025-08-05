@@ -11,9 +11,9 @@ pkgs.buildGoModule rec {
 
   # Critical: Disable workspace mode and set up proper Go environment for Nix sandbox
   env.GOWORK = "off";
-  
+
   # Force GOWORK=off in vendor phase 
-  overrideModAttrs = _: { 
+  overrideModAttrs = _: {
     env.GOWORK = "off";
   };
 

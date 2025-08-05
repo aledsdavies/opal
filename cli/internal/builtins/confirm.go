@@ -116,10 +116,10 @@ func (c *ConfirmDecorator) ParameterSchema() []decorators.ParameterSchema {
 // ImportRequirements returns the dependencies needed for code generation
 func (c *ConfirmDecorator) ImportRequirements() decorators.ImportRequirement {
 	return decorators.StandardImportRequirement(
-		decorators.CoreImports,         // fmt
-		decorators.FileSystemImports,   // os
-		decorators.StringImports,       // strings  
-		[]string{"bufio"},              // For user input reading
+		decorators.CoreImports,       // fmt
+		decorators.FileSystemImports, // os
+		decorators.StringImports,     // strings
+		[]string{"bufio"},            // For user input reading
 	)
 }
 
@@ -218,7 +218,7 @@ func (c *ConfirmDecorator) extractConfirmParams(params []ast.NamedParameter) (st
 	abortOnNo := ast.GetBoolParam(params, "abortOnNo", true)
 	caseSensitive := ast.GetBoolParam(params, "caseSensitive", false)
 	skipInCI := ast.GetBoolParam(params, "ci", true)
-	
+
 	return message, defaultYes, abortOnNo, caseSensitive, skipInCI, nil
 }
 
@@ -228,11 +228,11 @@ func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	if skipInCI && c.isCI(ctx) {
 		// Auto-confirm in CI and execute commands in child context
 		fmt.Printf("CI environment detected - auto-confirming: %s\n", message)
-		
+
 		// Use CommandExecutor utility to handle command execution
 		commandExecutor := decorators.NewCommandExecutor()
 		defer commandExecutor.Cleanup()
-		
+
 		err := commandExecutor.ExecuteCommandsWithInterpreter(ctx.Child(), content)
 		return &execution.ExecutionResult{
 			Data:  nil,
@@ -290,7 +290,7 @@ func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	// User confirmed, execute the commands in child context using CommandExecutor utility
 	commandExecutor := decorators.NewCommandExecutor()
 	defer commandExecutor.Cleanup()
-	
+
 	err = commandExecutor.ExecuteCommandsWithInterpreter(ctx.Child(), content)
 	return &execution.ExecutionResult{
 		Data:  nil,
@@ -304,7 +304,7 @@ func (c *ConfirmDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 	if skipInCI {
 		c.trackCIEnvironmentVariables(ctx)
 	}
-	
+
 	// Convert commands to operations using the utility
 	executor := decorators.NewCommandResultExecutor(ctx)
 	operations, err := executor.ConvertCommandsToCommandResultOperations(content)
@@ -341,8 +341,8 @@ func (c *ConfirmDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 		AbortOnNo:     abortOnNo,
 		CaseSensitive: caseSensitive,
 		SkipInCI:      skipInCI,
-		Commands:      content,      // Keep for backward compatibility with existing template
-		Operations:    operations,   // New operations for potential future enhancements
+		Commands:      content,    // Keep for backward compatibility with existing template
+		Operations:    operations, // New operations for potential future enhancements
 	}
 
 	var result strings.Builder

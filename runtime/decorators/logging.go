@@ -46,17 +46,17 @@ func (l LogLevel) String() string {
 
 // LogEntry represents a structured log entry
 type LogEntry struct {
-	Timestamp    time.Time              `json:"timestamp"`
-	Level        LogLevel               `json:"level"`
-	Message      string                 `json:"message"`
-	Component    string                 `json:"component"`
-	Decorator    string                 `json:"decorator,omitempty"`
-	ExecutionID  string                 `json:"execution_id,omitempty"`
-	Duration     time.Duration          `json:"duration,omitempty"`
-	Error        string                 `json:"error,omitempty"`
-	Caller       string                 `json:"caller,omitempty"`
-	Fields       map[string]interface{} `json:"fields,omitempty"`
-	StackTrace   []string               `json:"stack_trace,omitempty"`
+	Timestamp   time.Time              `json:"timestamp"`
+	Level       LogLevel               `json:"level"`
+	Message     string                 `json:"message"`
+	Component   string                 `json:"component"`
+	Decorator   string                 `json:"decorator,omitempty"`
+	ExecutionID string                 `json:"execution_id,omitempty"`
+	Duration    time.Duration          `json:"duration,omitempty"`
+	Error       string                 `json:"error,omitempty"`
+	Caller      string                 `json:"caller,omitempty"`
+	Fields      map[string]interface{} `json:"fields,omitempty"`
+	StackTrace  []string               `json:"stack_trace,omitempty"`
 }
 
 // LogFormatter interface for different log output formats
@@ -81,41 +81,41 @@ type TextFormatter struct {
 
 func (f *TextFormatter) Format(entry *LogEntry) string {
 	var parts []string
-	
+
 	if f.ShowTimestamp {
 		parts = append(parts, entry.Timestamp.Format("2006-01-02 15:04:05.000"))
 	}
-	
+
 	levelStr := entry.Level.String()
 	if f.UseColors {
 		levelStr = f.colorizeLevel(entry.Level, levelStr)
 	}
 	parts = append(parts, fmt.Sprintf("[%s]", levelStr))
-	
+
 	if entry.Component != "" {
 		parts = append(parts, fmt.Sprintf("(%s)", entry.Component))
 	}
-	
+
 	if entry.Decorator != "" {
 		parts = append(parts, fmt.Sprintf("@%s", entry.Decorator))
 	}
-	
+
 	parts = append(parts, entry.Message)
-	
+
 	if entry.Duration > 0 {
 		parts = append(parts, fmt.Sprintf("duration=%v", entry.Duration))
 	}
-	
+
 	if entry.Error != "" {
 		parts = append(parts, fmt.Sprintf("error=%s", entry.Error))
 	}
-	
+
 	if f.ShowCaller && entry.Caller != "" {
 		parts = append(parts, fmt.Sprintf("caller=%s", entry.Caller))
 	}
-	
+
 	result := strings.Join(parts, " ")
-	
+
 	// Add fields if any
 	if len(entry.Fields) > 0 {
 		var fieldParts []string
@@ -124,7 +124,7 @@ func (f *TextFormatter) Format(entry *LogEntry) string {
 		}
 		result += " " + strings.Join(fieldParts, " ")
 	}
-	
+
 	return result
 }
 
@@ -132,7 +132,7 @@ func (f *TextFormatter) colorizeLevel(level LogLevel, text string) string {
 	if !f.UseColors {
 		return text
 	}
-	
+
 	switch level {
 	case LogLevelTrace:
 		return fmt.Sprintf("\033[37m%s\033[0m", text) // White
@@ -197,13 +197,13 @@ func (l *Logger) AddOutput(writer io.Writer) {
 func (l *Logger) WithField(key string, value interface{}) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	newFields := make(map[string]interface{})
 	for k, v := range l.fields {
 		newFields[k] = v
 	}
 	newFields[key] = value
-	
+
 	return &Logger{
 		level:     l.level,
 		outputs:   l.outputs,
@@ -217,7 +217,7 @@ func (l *Logger) WithField(key string, value interface{}) *Logger {
 func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	newFields := make(map[string]interface{})
 	for k, v := range l.fields {
 		newFields[k] = v
@@ -225,7 +225,7 @@ func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
 	for k, v := range fields {
 		newFields[k] = v
 	}
-	
+
 	return &Logger{
 		level:     l.level,
 		outputs:   l.outputs,
@@ -249,11 +249,11 @@ func (l *Logger) WithExecutionID(executionID string) *Logger {
 func (l *Logger) log(level LogLevel, message string, err error, duration time.Duration) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	
+
 	if level < l.level {
 		return
 	}
-	
+
 	entry := &LogEntry{
 		Timestamp: time.Now(),
 		Level:     level,
@@ -262,34 +262,34 @@ func (l *Logger) log(level LogLevel, message string, err error, duration time.Du
 		Duration:  duration,
 		Fields:    l.fields,
 	}
-	
+
 	if err != nil {
 		entry.Error = err.Error()
 	}
-	
+
 	// Add decorator from fields if present
 	if decorator, ok := l.fields["decorator"].(string); ok {
 		entry.Decorator = decorator
 	}
-	
+
 	// Add execution ID from fields if present
 	if execID, ok := l.fields["execution_id"].(string); ok {
 		entry.ExecutionID = execID
 	}
-	
+
 	// Get caller information
 	if pc, file, line, ok := runtime.Caller(2); ok {
 		funcName := runtime.FuncForPC(pc).Name()
 		entry.Caller = fmt.Sprintf("%s:%d (%s)", filepath.Base(file), line, filepath.Base(funcName))
 	}
-	
+
 	// Add stack trace for errors and fatal logs
 	if level >= LogLevelError {
 		entry.StackTrace = getStackTrace()
 	}
-	
+
 	formatted := l.formatter.Format(entry)
-	
+
 	for _, output := range l.outputs {
 		fmt.Fprintln(output, formatted)
 	}
@@ -400,21 +400,21 @@ var globalLogManager = &LogManager{
 func GetLogger(component string) *Logger {
 	globalLogManager.mu.Lock()
 	defer globalLogManager.mu.Unlock()
-	
+
 	if logger, exists := globalLogManager.loggers[component]; exists {
 		return logger
 	}
-	
+
 	logger := NewLogger(component)
 	logger.SetLevel(globalLogManager.level)
-	
+
 	// Add file output if configured
 	if globalLogManager.logFile != "" {
-		if file, err := os.OpenFile(globalLogManager.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err == nil {
+		if file, err := os.OpenFile(globalLogManager.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666); err == nil {
 			logger.AddOutput(file)
 		}
 	}
-	
+
 	globalLogManager.loggers[component] = logger
 	return logger
 }
@@ -423,7 +423,7 @@ func GetLogger(component string) *Logger {
 func SetGlobalLogLevel(level LogLevel) {
 	globalLogManager.mu.Lock()
 	defer globalLogManager.mu.Unlock()
-	
+
 	globalLogManager.level = level
 	for _, logger := range globalLogManager.loggers {
 		logger.SetLevel(level)
@@ -434,25 +434,25 @@ func SetGlobalLogLevel(level LogLevel) {
 func SetLogFile(filename string) error {
 	globalLogManager.mu.Lock()
 	defer globalLogManager.mu.Unlock()
-	
+
 	// Create log directory if needed
 	dir := filepath.Dir(filename)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create log directory: %w", err)
 	}
-	
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
-	
+
 	globalLogManager.logFile = filename
-	
+
 	// Add file output to all existing loggers
 	for _, logger := range globalLogManager.loggers {
 		logger.AddOutput(file)
 	}
-	
+
 	return nil
 }
 
@@ -460,7 +460,7 @@ func SetLogFile(filename string) error {
 func SetJSONLogging() {
 	globalLogManager.mu.RLock()
 	defer globalLogManager.mu.RUnlock()
-	
+
 	formatter := &JSONFormatter{}
 	for _, logger := range globalLogManager.loggers {
 		logger.SetFormatter(formatter)

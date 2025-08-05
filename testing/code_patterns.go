@@ -23,12 +23,12 @@ func (r RetryPattern) Matches(code string) bool {
 	hasMaxAttempts := strings.Contains(code, "maxAttempts := "+strconv.Itoa(r.MaxAttempts))
 	hasAttemptLoop := strings.Contains(code, "for attempt :=") && strings.Contains(code, "<= maxAttempts")
 	hasErrorHandling := strings.Contains(code, "lastErr") || strings.Contains(code, "err == nil")
-	
+
 	if r.HasDelay {
 		hasDelayLogic := strings.Contains(code, "time.Sleep") && strings.Contains(code, "delay")
 		return hasMaxAttempts && hasAttemptLoop && hasErrorHandling && hasDelayLogic
 	}
-	
+
 	return hasMaxAttempts && hasAttemptLoop && hasErrorHandling
 }
 
@@ -41,34 +41,34 @@ func (r RetryPattern) Description() string {
 
 // TimeoutPattern validates that code implements timeout logic
 type TimeoutPattern struct {
-	Duration    string
-	HasContext  bool
-	HasSelect   bool
-	HasChannel  bool
+	Duration   string
+	HasContext bool
+	HasSelect  bool
+	HasChannel bool
 }
 
 func (t TimeoutPattern) Matches(code string) bool {
 	// Check for key timeout components
 	hasDurationParsing := strings.Contains(code, "time.ParseDuration") && strings.Contains(code, `"`+t.Duration+`"`)
-	
+
 	if t.HasContext {
 		hasContextTimeout := strings.Contains(code, "context.WithTimeout")
 		hasCancel := strings.Contains(code, "defer cancel()")
-		
+
 		if t.HasSelect {
 			hasSelectStatement := strings.Contains(code, "select {") && strings.Contains(code, "case <-ctx.Done():")
-			
+
 			if t.HasChannel {
 				hasChannel := strings.Contains(code, "make(chan") && strings.Contains(code, "done")
 				return hasDurationParsing && hasContextTimeout && hasCancel && hasSelectStatement && hasChannel
 			}
-			
+
 			return hasDurationParsing && hasContextTimeout && hasCancel && hasSelectStatement
 		}
-		
+
 		return hasDurationParsing && hasContextTimeout && hasCancel
 	}
-	
+
 	return hasDurationParsing
 }
 
@@ -88,29 +88,29 @@ func (t TimeoutPattern) Description() string {
 
 // ParallelPattern validates that code implements parallel execution
 type ParallelPattern struct {
-	NumOperations int
-	HasWaitGroup  bool
+	NumOperations      int
+	HasWaitGroup       bool
 	HasErrorCollection bool
 }
 
 func (p ParallelPattern) Matches(code string) bool {
 	// Check for key parallel components
 	hasGoRoutines := strings.Count(code, "go func()") >= p.NumOperations
-	
+
 	if p.HasWaitGroup {
-		hasWaitGroup := strings.Contains(code, "sync.WaitGroup") && 
-		                 strings.Contains(code, "wg.Add(") && 
-		                 strings.Contains(code, "wg.Done()") && 
-		                 strings.Contains(code, "wg.Wait()")
-		
+		hasWaitGroup := strings.Contains(code, "sync.WaitGroup") &&
+			strings.Contains(code, "wg.Add(") &&
+			strings.Contains(code, "wg.Done()") &&
+			strings.Contains(code, "wg.Wait()")
+
 		if p.HasErrorCollection {
 			hasErrorHandling := strings.Contains(code, "errorsChan") || strings.Contains(code, "errors")
 			return hasGoRoutines && hasWaitGroup && hasErrorHandling
 		}
-		
+
 		return hasGoRoutines && hasWaitGroup
 	}
-	
+
 	return hasGoRoutines
 }
 
@@ -135,7 +135,7 @@ type ConditionalPattern struct {
 func (c ConditionalPattern) Matches(code string) bool {
 	// Check for key conditional components
 	hasConditionCheck := false
-	
+
 	switch c.ConditionType {
 	case "env":
 		hasConditionCheck = strings.Contains(code, "os.Getenv") || strings.Contains(code, "envContext")
@@ -144,18 +144,18 @@ func (c ConditionalPattern) Matches(code string) bool {
 	default:
 		hasConditionCheck = strings.Contains(code, "if") || strings.Contains(code, "switch")
 	}
-	
+
 	if c.HasBranches {
 		hasBranchLogic := strings.Contains(code, "case") || strings.Contains(code, "else")
-		
+
 		if c.HasDefault {
 			hasDefaultCase := strings.Contains(code, "default:") || strings.Contains(code, "else")
 			return hasConditionCheck && hasBranchLogic && hasDefaultCase
 		}
-		
+
 		return hasConditionCheck && hasBranchLogic
 	}
-	
+
 	return hasConditionCheck
 }
 
@@ -184,12 +184,12 @@ func (v VariablePattern) Matches(code string) bool {
 	if v.IsEnvVar {
 		// Environment variable access
 		hasEnvAccess := strings.Contains(code, "os.Getenv") || strings.Contains(code, "envContext")
-		
+
 		if v.HasDefault {
 			hasDefaultLogic := strings.Contains(code, "if val :=") || strings.Contains(code, "default")
 			return hasEnvAccess && hasDefaultLogic
 		}
-		
+
 		return hasEnvAccess
 	} else {
 		// Regular variable declaration

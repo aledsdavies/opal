@@ -14,7 +14,6 @@ import (
 // ParallelDecorator implements the @parallel decorator for concurrent command execution
 type ParallelDecorator struct{}
 
-
 // Name returns the decorator name
 func (p *ParallelDecorator) Name() string {
 	return "parallel"
@@ -104,7 +103,7 @@ func (p *ParallelDecorator) extractParallelParams(params []ast.NamedParameter, c
 			return 0, false, err
 		}
 	}
-	
+
 	// Validate resource limits for concurrency to prevent DoS attacks
 	if err := decorators.ValidateResourceLimits(params, "concurrency", 1000, "parallel"); err != nil {
 		return 0, false, err
@@ -115,7 +114,7 @@ func (p *ParallelDecorator) extractParallelParams(params []ast.NamedParameter, c
 	if defaultConcurrency == 0 {
 		defaultConcurrency = 1 // Always have a positive default
 	}
-	
+
 	concurrency := ast.GetIntParam(params, "concurrency", defaultConcurrency)
 	failOnFirstError := ast.GetBoolParam(params, "failOnFirstError", false)
 	uncapped := ast.GetBoolParam(params, "uncapped", false)
@@ -125,7 +124,7 @@ func (p *ParallelDecorator) extractParallelParams(params []ast.NamedParameter, c
 	if !uncapped {
 		cpuCount := runtime.NumCPU()
 		maxRecommendedConcurrency := cpuCount * 2 // Allow some over-subscription for I/O bound tasks
-		
+
 		if concurrency > maxRecommendedConcurrency {
 			// Cap concurrency but don't error - just limit to reasonable bounds
 			// This provides good defaults while still allowing explicit override via uncapped=true
@@ -141,16 +140,16 @@ func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterCont
 	// Set up logging with decorator context
 	logger := decorators.GetLogger("parallel").WithDecorator("parallel").WithField("mode", "interpreter").WithField("concurrency", concurrency)
 	logger.Infof("Starting parallel execution with %d commands, concurrency=%d, failOnFirstError=%v", len(content), concurrency, failOnFirstError)
-	
+
 	start := time.Now()
 	defer func() {
 		logger.LogDuration(decorators.LogLevelInfo, "Parallel execution completed", time.Since(start))
 	}()
-	
+
 	// Use performance tracking for interpreter execution
 	perfExecutor := decorators.NewPerformanceOptimizedExecutor("parallel", "interpreter", false)
 	defer perfExecutor.Cleanup()
-	
+
 	var execError error
 	err := perfExecutor.Execute(func() error {
 		logger.Debug("Creating concurrent executor")
@@ -172,14 +171,14 @@ func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterCont
 			functions[i] = func() error {
 				cmdLogger := logger.WithField("command_index", cmdIndex)
 				cmdLogger.Trace("Starting command execution")
-				
+
 				// Create isolated context for each parallel command
 				isolatedCtx := ctx.Child()
-				
+
 				// Use CommandExecutor utility to handle the switch logic
 				commandExecutor := decorators.NewCommandExecutor()
 				defer commandExecutor.Cleanup()
-				
+
 				err := commandExecutor.ExecuteCommandWithInterpreter(isolatedCtx, cmd)
 				if err != nil {
 					cmdLogger.ErrorWithErr("Command execution failed", err)
@@ -188,7 +187,7 @@ func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterCont
 				} else {
 					cmdLogger.Trace("Command execution succeeded")
 				}
-				
+
 				return err
 			}
 		}
@@ -203,12 +202,12 @@ func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterCont
 		}
 		return execError
 	})
-	
+
 	// Return the execution error if performance tracking succeeded
 	if err == nil {
 		err = execError
 	}
-	
+
 	if err != nil {
 		logger.ErrorWithErr("Parallel execution failed", err)
 		return execution.NewErrorResult(err)
@@ -230,7 +229,7 @@ func (p *ParallelDecorator) executeGeneratorImpl(ctx execution.GeneratorContext,
 		if err != nil {
 			return execution.NewFormattedErrorResult("failed to convert commands to operations: %w", err)
 		}
-		
+
 		// Generate concurrent execution with proper CommandResult handling
 		generatedCode, err := executor.GenerateConcurrentExecution(operations, concurrency)
 		if err != nil {
@@ -245,7 +244,7 @@ func (p *ParallelDecorator) executeGeneratorImpl(ctx execution.GeneratorContext,
 			Error: nil,
 		}
 	}
-	
+
 	// Use optimized operations
 	operations := make([]decorators.Operation, len(optimizedSequence.Commands))
 	for i, optimizedOp := range optimizedSequence.Commands {
@@ -254,7 +253,7 @@ func (p *ParallelDecorator) executeGeneratorImpl(ctx execution.GeneratorContext,
 
 	// Use cached template builder with performance tracking
 	perfExecutor := decorators.NewPerformanceOptimizedExecutor("parallel", "generator", true)
-	
+
 	var generatedCode string
 	err = perfExecutor.Execute(func() error {
 		// Use generator utilities for consistent CommandResult handling
@@ -266,7 +265,6 @@ func (p *ParallelDecorator) executeGeneratorImpl(ctx execution.GeneratorContext,
 		generatedCode = code
 		return nil
 	})
-	
 	if err != nil {
 		return execution.NewFormattedErrorResult("failed to build parallel template: %w", err)
 	}
@@ -346,7 +344,6 @@ func (p *ParallelDecorator) executePlanImpl(ctx execution.PlanContext, concurren
 
 	return execution.NewSuccessResult(element)
 }
-
 
 // ImportRequirements returns the dependencies needed for code generation
 func (p *ParallelDecorator) ImportRequirements() decorators.ImportRequirement {

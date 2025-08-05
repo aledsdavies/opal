@@ -11,23 +11,23 @@ import (
 
 // ChainElement represents an element in an ActionDecorator command chain
 type ChainElement struct {
-	Type           string // "action", "operator", "text"
-	ActionName     string // For ActionDecorator
-	ActionArgs     []ast.NamedParameter // For ActionDecorator
-	Operator       string // "&&", "||", "|", ">>"
-	Text           string // For text parts
-	VariableName   string // Generated variable name
-	IsPipeTarget   bool   // True if this element receives piped input
-	IsFileTarget   bool   // True if this element is a file for >> operation
+	Type         string               // "action", "operator", "text"
+	ActionName   string               // For ActionDecorator
+	ActionArgs   []ast.NamedParameter // For ActionDecorator
+	Operator     string               // "&&", "||", "|", ">>"
+	Text         string               // For text parts
+	VariableName string               // Generated variable name
+	IsPipeTarget bool                 // True if this element receives piped input
+	IsFileTarget bool                 // True if this element is a file for >> operation
 }
 
 // ChainOperator represents the type of chaining operator
 type ChainOperator string
 
 const (
-	AndOperator  ChainOperator = "&&" // Execute next if current succeeds
-	OrOperator   ChainOperator = "||" // Execute next if current fails  
-	PipeOperator ChainOperator = "|"  // Pipe stdout to next command
+	AndOperator    ChainOperator = "&&" // Execute next if current succeeds
+	OrOperator     ChainOperator = "||" // Execute next if current fails
+	PipeOperator   ChainOperator = "|"  // Pipe stdout to next command
 	AppendOperator ChainOperator = ">>" // Append stdout to file
 )
 
@@ -47,7 +47,7 @@ type BaseExecutionContext struct {
 
 	// Current command name for generating meaningful variable names
 	currentCommand string
-	
+
 	// Decorator lookup functions (set by engine during initialization)
 	valueDecoratorLookup func(name string) (interface{}, bool)
 
@@ -88,13 +88,13 @@ func newBaseExecutionContext(parent context.Context, program *ast.Program) *Base
 	}
 
 	return &BaseExecutionContext{
-		Context:        parent,
-		Program:        program,
-		Variables:      make(map[string]string),
-		env:            capturedEnv, // Immutable captured environment
-		WorkingDir:     workingDir,
-		Debug:          false,
-		DryRun:         false,
+		Context:    parent,
+		Program:    program,
+		Variables:  make(map[string]string),
+		env:        capturedEnv, // Immutable captured environment
+		WorkingDir: workingDir,
+		Debug:      false,
+		DryRun:     false,
 	}
 }
 
@@ -203,5 +203,3 @@ func formatParams(params []ast.NamedParameter) string {
 	// For now, return simple representation - this needs to be expanded
 	return "[]ast.NamedParameter{}"
 }
-
-

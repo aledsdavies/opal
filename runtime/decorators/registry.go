@@ -134,7 +134,6 @@ func (r *Registry) ListAll() ([]ValueDecorator, []ActionDecorator, []BlockDecora
 	return values, actions, blocks, patterns
 }
 
-
 // Global registry functions for convenience
 
 // RegisterValue registers a value decorator in the global registry

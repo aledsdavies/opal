@@ -48,7 +48,7 @@ func (v *ValidationAssertions) InterpreterFails(expectedErrorContains string) *V
 		v.errors = append(v.errors, "Expected interpreter mode to fail, but it succeeded")
 	} else if expectedErrorContains != "" {
 		if !strings.Contains(v.result.InterpreterResult.Error.Error(), expectedErrorContains) {
-			v.errors = append(v.errors, fmt.Sprintf("Interpreter error should contain %q, got: %v", 
+			v.errors = append(v.errors, fmt.Sprintf("Interpreter error should contain %q, got: %v",
 				expectedErrorContains, v.result.InterpreterResult.Error))
 		}
 	}
@@ -58,7 +58,7 @@ func (v *ValidationAssertions) InterpreterFails(expectedErrorContains string) *V
 // InterpreterReturns validates the interpreter mode return value
 func (v *ValidationAssertions) InterpreterReturns(expected interface{}) *ValidationAssertions {
 	if !reflect.DeepEqual(v.result.InterpreterResult.Data, expected) {
-		v.errors = append(v.errors, fmt.Sprintf("Interpreter returned %v, expected %v", 
+		v.errors = append(v.errors, fmt.Sprintf("Interpreter returned %v, expected %v",
 			v.result.InterpreterResult.Data, expected))
 	}
 	return v
@@ -80,7 +80,7 @@ func (v *ValidationAssertions) GeneratorFails(expectedErrorContains string) *Val
 		v.errors = append(v.errors, "Expected generator mode to fail, but it succeeded")
 	} else if expectedErrorContains != "" {
 		if !strings.Contains(v.result.GeneratorResult.Error.Error(), expectedErrorContains) {
-			v.errors = append(v.errors, fmt.Sprintf("Generator error should contain %q, got: %v", 
+			v.errors = append(v.errors, fmt.Sprintf("Generator error should contain %q, got: %v",
 				expectedErrorContains, v.result.GeneratorResult.Error))
 		}
 	}
@@ -92,22 +92,22 @@ func (v *ValidationAssertions) GeneratorProducesValidGo() *ValidationAssertions 
 	if !v.result.GeneratorResult.Success {
 		return v // Skip if generation failed
 	}
-	
+
 	code, ok := v.result.GeneratorResult.Data.(string)
 	if !ok {
 		v.errors = append(v.errors, fmt.Sprintf("Generator should return string, got %T", v.result.GeneratorResult.Data))
 		return v
 	}
-	
+
 	// Wrap code in a function to make it parseable
 	wrappedCode := fmt.Sprintf("package main\nfunc testFunc() {\n%s\n}", code)
-	
+
 	fset := token.NewFileSet()
 	_, err := parser.ParseFile(fset, "", wrappedCode, parser.ParseComments)
 	if err != nil {
 		v.errors = append(v.errors, fmt.Sprintf("Generated Go code is invalid: %v\nCode:\n%s", err, code))
 	}
-	
+
 	return v
 }
 
@@ -116,13 +116,13 @@ func (v *ValidationAssertions) GeneratorExecutesCorrectly() *ValidationAssertion
 	if !v.result.GeneratorResult.Success {
 		return v // Skip if generation failed
 	}
-	
+
 	code, ok := v.result.GeneratorResult.Data.(string)
 	if !ok {
 		v.errors = append(v.errors, "Generator should return string for execution validation")
 		return v
 	}
-	
+
 	// Create a complete CLI program with the generated code
 	fullProgram := fmt.Sprintf(`package main
 
@@ -223,12 +223,12 @@ func executeGeneratedCode(ctx *ExecutionContext) CommandResult {
 	// If we reach here without returning, return success
 	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 }`, code)
-	
+
 	// Try to compile and execute this program with a timeout
 	if err := v.compileAndExecuteGenerated(fullProgram); err != nil {
 		v.errors = append(v.errors, fmt.Sprintf("Generated code execution failed: %v\nGenerated code:\n%s", err, code))
 	}
-	
+
 	return v
 }
 
@@ -242,13 +242,13 @@ func (v *ValidationAssertions) GeneratorCodeContainsWithContext(context string, 
 	if !v.result.GeneratorResult.Success {
 		return v
 	}
-	
+
 	code, ok := v.result.GeneratorResult.Data.(string)
 	if !ok {
 		v.errors = append(v.errors, "Generator should return string")
 		return v
 	}
-	
+
 	for _, expected := range expectedStrings {
 		if !strings.Contains(code, expected) {
 			errorMsg := fmt.Sprintf("Generated code should contain %q", expected)
@@ -259,7 +259,7 @@ func (v *ValidationAssertions) GeneratorCodeContainsWithContext(context string, 
 			v.errors = append(v.errors, errorMsg)
 		}
 	}
-	
+
 	return v
 }
 
@@ -280,40 +280,39 @@ func (v *ValidationAssertions) GeneratorImplementsPattern(pattern CodePattern) *
 	if !v.result.GeneratorResult.Success {
 		return v
 	}
-	
+
 	code, ok := v.result.GeneratorResult.Data.(string)
 	if !ok {
 		v.errors = append(v.errors, "Generator should return string")
 		return v
 	}
-	
+
 	if !pattern.Matches(code) {
 		v.errors = append(v.errors, fmt.Sprintf("Generated code should implement %s\nCode:\n%s", pattern.Description(), code))
 	}
-	
+
 	return v
 }
-
 
 // GeneratorTracksEnvVars validates that generator mode properly tracks environment variables
 func (v *ValidationAssertions) GeneratorTracksEnvVars(expectedVars ...string) *ValidationAssertions {
 	if !v.result.GeneratorResult.Success {
 		return v
 	}
-	
+
 	// This would require integration with the context to check tracked env vars
 	// For now, we validate that the generated code contains environment variable access
 	code, ok := v.result.GeneratorResult.Data.(string)
 	if !ok {
 		return v
 	}
-	
+
 	for _, envVar := range expectedVars {
 		if !strings.Contains(code, envVar) {
 			v.errors = append(v.errors, fmt.Sprintf("Generated code should reference environment variable %q", envVar))
 		}
 	}
-	
+
 	return v
 }
 
@@ -333,7 +332,7 @@ func (v *ValidationAssertions) PlanFails(expectedErrorContains string) *Validati
 		v.errors = append(v.errors, "Expected plan mode to fail, but it succeeded")
 	} else if expectedErrorContains != "" {
 		if !strings.Contains(v.result.PlanResult.Error.Error(), expectedErrorContains) {
-			v.errors = append(v.errors, fmt.Sprintf("Plan error should contain %q, got: %v", 
+			v.errors = append(v.errors, fmt.Sprintf("Plan error should contain %q, got: %v",
 				expectedErrorContains, v.result.PlanResult.Error))
 		}
 	}
@@ -345,12 +344,12 @@ func (v *ValidationAssertions) PlanReturnsElement(elementType string) *Validatio
 	if !v.result.PlanResult.Success {
 		return v
 	}
-	
+
 	if v.result.PlanResult.Data == nil {
 		v.errors = append(v.errors, "Plan mode should return plan element, got nil")
 		return v
 	}
-	
+
 	// Check if it's a plan element (this would depend on actual plan types)
 	switch element := v.result.PlanResult.Data.(type) {
 	case *plan.ExecutionStep:
@@ -363,7 +362,7 @@ func (v *ValidationAssertions) PlanReturnsElement(elementType string) *Validatio
 			v.errors = append(v.errors, "Plan element should not be nil")
 		}
 	}
-	
+
 	return v
 }
 
@@ -376,23 +375,23 @@ func (v *ValidationAssertions) CompletesWithin(maxDuration ...string) *Validatio
 	if len(maxDuration) > 0 {
 		defaultMax = maxDuration[0]
 	}
-	
+
 	// This is a simplified version - would parse duration string in real implementation
 	// For now, check that nothing takes absurdly long (> 5 seconds)
 	maxNanos := int64(5 * 1000 * 1000 * 1000) // 5 seconds in nanoseconds
-	
+
 	if v.result.InterpreterResult.Duration.Nanoseconds() > maxNanos {
 		v.errors = append(v.errors, fmt.Sprintf("Interpreter mode took too long: %v", v.result.InterpreterResult.Duration))
 	}
-	
+
 	if v.result.GeneratorResult.Duration.Nanoseconds() > maxNanos {
 		v.errors = append(v.errors, fmt.Sprintf("Generator mode took too long: %v", v.result.GeneratorResult.Duration))
 	}
-	
+
 	if v.result.PlanResult.Duration.Nanoseconds() > maxNanos {
 		v.errors = append(v.errors, fmt.Sprintf("Plan mode took too long: %v", v.result.PlanResult.Duration))
 	}
-	
+
 	_ = defaultMax // Use it when we implement proper duration parsing
 	return v
 }
@@ -403,18 +402,18 @@ func (v *ValidationAssertions) CompletesWithin(maxDuration ...string) *Validatio
 func (v *ValidationAssertions) ModesAreConsistent() *ValidationAssertions {
 	// Check for cross-mode consistency issues
 	// For example, if one mode fails due to invalid parameters, others should too
-	
+
 	interpreterFailed := !v.result.InterpreterResult.Success
 	generatorFailed := !v.result.GeneratorResult.Success
 	planFailed := !v.result.PlanResult.Success
-	
+
 	// Parameter validation errors should be consistent across modes
 	if interpreterFailed && generatorFailed && planFailed {
 		// All failed - check if they failed for parameter reasons
 		interpErr := v.result.InterpreterResult.Error.Error()
 		genErr := v.result.GeneratorResult.Error.Error()
 		planErr := v.result.PlanResult.Error.Error()
-		
+
 		if strings.Contains(interpErr, "parameter") || strings.Contains(interpErr, "required") {
 			if !strings.Contains(genErr, "parameter") && !strings.Contains(genErr, "required") {
 				v.errors = append(v.errors, "Parameter validation inconsistent between interpreter and generator modes")
@@ -424,7 +423,7 @@ func (v *ValidationAssertions) ModesAreConsistent() *ValidationAssertions {
 			}
 		}
 	}
-	
+
 	return v
 }
 
@@ -435,14 +434,14 @@ func (v *ValidationAssertions) ValidatesParameters(decorator decorators.Decorato
 	// This would test parameter validation by trying invalid parameters
 	// For now, just check that the decorator has a parameter schema
 	schema := decorator.ParameterSchema()
-	
+
 	// Check that required parameters are marked as required
 	for _, param := range schema {
 		if param.Required && param.Name == "" {
 			v.errors = append(v.errors, "Required parameter has empty name in schema")
 		}
 	}
-	
+
 	return v
 }
 
@@ -450,7 +449,7 @@ func (v *ValidationAssertions) ValidatesParameters(decorator decorators.Decorato
 func (v *ValidationAssertions) SupportsDevcmdChaining() *ValidationAssertions {
 	// This would test that the decorator can be chained with other decorators
 	// For now, just verify that outputs are compatible with chaining
-	
+
 	// Generator mode should produce chainable code
 	if v.result.GeneratorResult.Success {
 		if code, ok := v.result.GeneratorResult.Data.(string); ok {
@@ -460,7 +459,7 @@ func (v *ValidationAssertions) SupportsDevcmdChaining() *ValidationAssertions {
 			}
 		}
 	}
-	
+
 	return v
 }
 
@@ -468,12 +467,12 @@ func (v *ValidationAssertions) SupportsDevcmdChaining() *ValidationAssertions {
 func (v *ValidationAssertions) SupportsNesting() *ValidationAssertions {
 	// This would test nesting scenarios
 	// For now, just verify basic structural requirements
-	
+
 	// Plan mode should produce elements that can be nested
 	if v.result.PlanResult.Success && v.result.PlanResult.Data == nil {
 		v.errors = append(v.errors, "Plan mode returns nil - not suitable for nesting")
 	}
-	
+
 	return v
 }
 
@@ -528,12 +527,12 @@ func PatternBranch(pattern string, commands ...string) coreast.PatternBranch {
 	} else {
 		patternNode = &coreast.IdentifierPattern{Name: pattern}
 	}
-	
+
 	content := make([]coreast.CommandContent, len(commands))
 	for i, cmd := range commands {
 		content[i] = Shell(cmd)
 	}
-	
+
 	return coreast.PatternBranch{
 		Pattern:  patternNode,
 		Commands: content,
@@ -565,7 +564,7 @@ func ContainsExecutionEvidence(code string) bool {
 		"exit 1", // If this appears in output, command was executed
 		// Add more patterns that would indicate actual execution
 	}
-	
+
 	for _, pattern := range dangerousPatterns {
 		if ContainsString(code, pattern) {
 			return true
@@ -576,9 +575,9 @@ func ContainsExecutionEvidence(code string) bool {
 
 // ContainsString checks if text contains substr (simple implementation)
 func ContainsString(text, substr string) bool {
-	return len(text) > 0 && len(substr) > 0 && 
-		   len(text) >= len(substr) && 
-		   findSubstring(text, substr)
+	return len(text) > 0 && len(substr) > 0 &&
+		len(text) >= len(substr) &&
+		findSubstring(text, substr)
 }
 
 // findSubstring is a helper for ContainsString
@@ -620,37 +619,37 @@ func (v *ValidationAssertions) compileAndExecuteGenerated(program string) error 
 		return fmt.Errorf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
-	
+
 	// Write the program to a Go file
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := ioutil.WriteFile(mainFile, []byte(program), 0644); err != nil {
+	if err := ioutil.WriteFile(mainFile, []byte(program), 0o644); err != nil {
 		return fmt.Errorf("failed to write test program: %v", err)
 	}
-	
+
 	// Initialize go module
 	goModContent := `module testvalidation
 
 go 1.21
 `
-	if err := ioutil.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+	if err := ioutil.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0o644); err != nil {
 		return fmt.Errorf("failed to write go.mod: %v", err)
 	}
-	
+
 	// Compile the program with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "testprogram", "main.go")
 	buildCmd.Dir = tmpDir
 	buildOutput, err := buildCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("compilation failed: %v\nOutput: %s\nProgram:\n%s", err, string(buildOutput), program)
 	}
-	
+
 	// Execute the compiled program with timeout
 	execCtx, execCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer execCancel()
-	
+
 	execCmd := exec.CommandContext(execCtx, "./testprogram")
 	execCmd.Dir = tmpDir
 	execOutput, err := execCmd.CombinedOutput()
@@ -661,11 +660,11 @@ go 1.21
 		}
 		return fmt.Errorf("execution failed: %v\nOutput: %s", err, string(execOutput))
 	}
-	
+
 	// Check that execution completed (should contain our success message)
 	if !strings.Contains(string(execOutput), "Execution completed successfully") {
 		return fmt.Errorf("execution did not complete successfully\nOutput: %s", string(execOutput))
 	}
-	
+
 	return nil
 }

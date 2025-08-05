@@ -11,7 +11,7 @@ import (
 
 	"github.com/aledsdavies/devcmd/cli/internal/parser"
 	"github.com/aledsdavies/devcmd/core/ast"
-	
+
 	// Import builtins to register decorators
 	_ "github.com/aledsdavies/devcmd/cli/internal/builtins"
 )
@@ -20,12 +20,12 @@ import (
 // sequential execution works correctly in both interpreted and generated modes
 func TestSequentialExecution_BothModes(t *testing.T) {
 	testCases := []struct {
-		name           string
-		commands       string
-		expectSuccess  bool
-		expectedFiles  []string // Files that should be created
+		name            string
+		commands        string
+		expectSuccess   bool
+		expectedFiles   []string // Files that should be created
 		unexpectedFiles []string // Files that should NOT be created
-		description    string
+		description     string
 	}{
 		{
 			name: "successful_sequential_execution",
@@ -36,7 +36,7 @@ func TestSequentialExecution_BothModes(t *testing.T) {
 }`,
 			expectSuccess: true,
 			expectedFiles: []string{"step1.txt", "step2.txt", "step3.txt"},
-			description: "All commands should execute sequentially and create their files",
+			description:   "All commands should execute sequentially and create their files",
 		},
 		{
 			name: "failure_stops_execution",
@@ -45,10 +45,10 @@ func TestSequentialExecution_BothModes(t *testing.T) {
     false
     echo "Step 3 should not execute" > step3.txt
 }`,
-			expectSuccess: false,
-			expectedFiles: []string{"step1.txt"},
+			expectSuccess:   false,
+			expectedFiles:   []string{"step1.txt"},
 			unexpectedFiles: []string{"step3.txt"},
-			description: "Execution should stop after failure, step 3 should not execute",
+			description:     "Execution should stop after failure, step 3 should not execute",
 		},
 		{
 			name: "complex_operations_sequential",
@@ -60,19 +60,19 @@ func TestSequentialExecution_BothModes(t *testing.T) {
 }`,
 			expectSuccess: true,
 			expectedFiles: []string{"testdir/file1.txt", "testdir/file2.txt", "listing.txt"},
-			description: "Complex file operations should execute sequentially",
+			description:   "Complex file operations should execute sequentially",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Logf("Testing: %s", tc.description)
-			
+
 			// Test both modes
 			t.Run("interpreted_mode", func(t *testing.T) {
 				testSequentialExecutionInterpreted(t, tc.commands, tc.expectSuccess, tc.expectedFiles, tc.unexpectedFiles)
 			})
-			
+
 			t.Run("generated_mode", func(t *testing.T) {
 				testSequentialExecutionGenerated(t, tc.commands, tc.expectSuccess, tc.expectedFiles, tc.unexpectedFiles)
 			})
@@ -99,7 +99,7 @@ func testSequentialExecutionInterpreted(t *testing.T, commands string, expectSuc
 
 	// Create engine and execute in interpreted mode
 	engine := New(program)
-	
+
 	// Find the test command
 	var testCmd *ast.CommandDecl
 	for _, cmd := range program.Commands {
@@ -114,7 +114,7 @@ func testSequentialExecutionInterpreted(t *testing.T, commands string, expectSuc
 
 	// Execute the command
 	result, err := engine.ExecuteCommand(testCmd)
-	
+
 	// Check execution result matches expectation
 	if expectSuccess {
 		if err != nil {
@@ -138,7 +138,7 @@ func testSequentialExecutionInterpreted(t *testing.T, commands string, expectSuc
 		}
 	}
 
-	// Verify unexpected files were NOT created  
+	// Verify unexpected files were NOT created
 	for _, filename := range unexpectedFiles {
 		if _, err := os.Stat(filename); err == nil {
 			t.Errorf("Unexpected file %s was created in interpreted mode", filename)
@@ -152,7 +152,7 @@ func testSequentialExecutionInterpreted(t *testing.T, commands string, expectSuc
 func testSequentialExecutionGenerated(t *testing.T, commands string, expectSuccess bool, expectedFiles, unexpectedFiles []string) {
 	// Create temporary directory for generated CLI
 	tmpDir := t.TempDir()
-	
+
 	// Parse the commands
 	program, err := parser.Parse(strings.NewReader(commands))
 	if err != nil {
@@ -168,7 +168,7 @@ func testSequentialExecutionGenerated(t *testing.T, commands string, expectSucce
 
 	// Write the generated code
 	mainGoPath := filepath.Join(tmpDir, "main.go")
-	err = os.WriteFile(mainGoPath, []byte(result.String()), 0644)
+	err = os.WriteFile(mainGoPath, []byte(result.String()), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
@@ -186,7 +186,7 @@ require (
 )
 `
 	goModPath := filepath.Join(tmpDir, "go.mod")
-	err = os.WriteFile(goModPath, []byte(goModContent), 0644)
+	err = os.WriteFile(goModPath, []byte(goModContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write go.mod: %v", err)
 	}
@@ -208,14 +208,14 @@ require (
 
 	// Create test execution directory
 	testDir := filepath.Join(tmpDir, "testrun")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
 
 	// Execute the CLI command
 	execCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	execCmd := exec.CommandContext(execCtx, binaryPath, "test")
 	execCmd.Dir = testDir // Run in test directory so files are created there
 	output, err := execCmd.CombinedOutput()
@@ -269,14 +269,14 @@ func TestSequentialExecutionConsistency(t *testing.T) {
 		// Get interpreted mode results
 		interpretedDir := t.TempDir()
 		interpretedContent := testModeAndGetFileContent(t, commands, interpretedDir, "interpreted")
-		
-		// Get generated mode results  
+
+		// Get generated mode results
 		generatedDir := t.TempDir()
 		generatedContent := testModeAndGetFileContent(t, commands, generatedDir, "generated")
-		
+
 		// Compare results
 		if interpretedContent != generatedContent {
-			t.Errorf("Mode inconsistency detected!\nInterpreted result: %q\nGenerated result: %q", 
+			t.Errorf("Mode inconsistency detected!\nInterpreted result: %q\nGenerated result: %q",
 				interpretedContent, generatedContent)
 		} else {
 			t.Logf("✅ Both modes produced identical results: %q", interpretedContent)
@@ -291,9 +291,9 @@ func testModeAndGetFileContent(t *testing.T, commands, testDir, mode string) str
 		oldDir, _ := os.Getwd()
 		defer os.Chdir(oldDir)
 		os.Chdir(testDir)
-		
+
 		program, _ := parser.Parse(strings.NewReader(commands))
-		
+
 		engine := New(program)
 		var testCmd *ast.CommandDecl
 		for _, cmd := range program.Commands {
@@ -302,24 +302,24 @@ func testModeAndGetFileContent(t *testing.T, commands, testDir, mode string) str
 				break
 			}
 		}
-		
+
 		_, err := engine.ExecuteCommand(testCmd)
 		if err != nil {
 			t.Errorf("Interpreted mode failed: %v", err)
 			return ""
 		}
-		
+
 	} else {
 		// Test generated mode
 		// Parse, generate, build and execute (similar to testSequentialExecutionGenerated)
 		program, _ := parser.Parse(strings.NewReader(commands))
-		
+
 		engine := New(program)
 		result, _ := engine.GenerateCode(program)
-		
+
 		mainGoPath := filepath.Join(testDir, "main.go")
-		os.WriteFile(mainGoPath, []byte(result.String()), 0644)
-		
+		os.WriteFile(mainGoPath, []byte(result.String()), 0o644)
+
 		goModContent := `module testcli
 go 1.22
 require github.com/spf13/cobra v1.8.1
@@ -328,21 +328,21 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 )`
 		goModPath := filepath.Join(testDir, "go.mod")
-		os.WriteFile(goModPath, []byte(goModContent), 0644)
-		
+		os.WriteFile(goModPath, []byte(goModContent), 0o644)
+
 		tidyCmd := exec.Command("go", "mod", "tidy")
 		tidyCmd.Dir = testDir
 		tidyCmd.Run()
-		
+
 		buildCmd := exec.Command("go", "build", "-o", "testcli", ".")
 		buildCmd.Dir = testDir
 		buildCmd.Run()
-		
+
 		execCmd := exec.Command("./testcli", "test")
 		execCmd.Dir = testDir
 		execCmd.Run()
 	}
-	
+
 	// Read the output file
 	outputPath := filepath.Join(testDir, "output.txt")
 	content, err := os.ReadFile(outputPath)
@@ -350,6 +350,6 @@ require (
 		t.Errorf("Failed to read output.txt in %s mode: %v", mode, err)
 		return ""
 	}
-	
+
 	return strings.TrimSpace(string(content))
 }

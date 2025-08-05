@@ -213,7 +213,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 		if err != nil {
 			// Save the full generated code to a file for debugging
 			debugFile := filepath.Join(tempDir, "debug_generated_code.go")
-			_ = os.WriteFile(debugFile, []byte(generatedCode), 0644)
+			_ = os.WriteFile(debugFile, []byte(generatedCode), 0o644)
 
 			t.Fatalf("Compilation failed: %v\nBuild output: %s\nDebug: Full generated code saved to %s\nGenerated code preview:\n%s",
 				err, string(buildOutput), debugFile, result.String()[:2000]+"...")
@@ -505,7 +505,7 @@ main: {
 				if err != nil {
 					// Save debug info
 					debugFile := filepath.Join(tempDir, "debug_code.go")
-					_ = os.WriteFile(debugFile, []byte(generatedCode), 0644)
+					_ = os.WriteFile(debugFile, []byte(generatedCode), 0o644)
 
 					t.Fatalf("Compilation failed for %s: %v\nOutput: %s\nDebug file: %s",
 						tc.description, err, string(buildOutput), debugFile)

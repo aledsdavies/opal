@@ -214,27 +214,27 @@ func ValidateDuration(params []ast.NamedParameter, paramName string, minDuration
 func SanitizePath(path string) (string, []string) {
 	issues := make([]string, 0)
 	sanitized := path
-	
+
 	// Remove dangerous patterns
 	if strings.Contains(sanitized, "..") {
 		issues = append(issues, "directory traversal (..) removed")
 		// Replace .. with single dot to stay in current directory
 		sanitized = strings.ReplaceAll(sanitized, "..", ".")
 	}
-	
+
 	// Remove null bytes
 	if strings.Contains(sanitized, "\x00") {
 		issues = append(issues, "null bytes removed")
 		sanitized = strings.ReplaceAll(sanitized, "\x00", "")
 	}
-	
+
 	// Clean path using filepath.Clean
 	cleaned := filepath.Clean(sanitized)
 	if cleaned != sanitized {
 		issues = append(issues, "path cleaned by filepath.Clean")
 		sanitized = cleaned
 	}
-	
+
 	return sanitized, issues
 }
 
@@ -253,7 +253,7 @@ func ValidatePathSafety(params []ast.NamedParameter, paramName string, decorator
 	// For string literals, validate path safety
 	if strLit, ok := param.Value.(*ast.StringLiteral); ok {
 		path := strLit.Value
-		
+
 		// Check for empty path
 		if strings.TrimSpace(path) == "" {
 			return fmt.Errorf("@%s '%s' parameter cannot be empty", decoratorName, paramName)
@@ -287,29 +287,29 @@ func ValidatePathSafety(params []ast.NamedParameter, paramName string, decorator
 func SanitizeEnvironmentVariableName(envName string) (string, []string) {
 	issues := make([]string, 0)
 	sanitized := envName
-	
+
 	// Remove whitespace
 	sanitized = strings.TrimSpace(sanitized)
-	
+
 	// Replace invalid characters with underscores
 	envNameRegex := regexp.MustCompile(`[^a-zA-Z0-9_]`)
 	if envNameRegex.MatchString(sanitized) {
 		issues = append(issues, "invalid characters replaced with underscores")
 		sanitized = envNameRegex.ReplaceAllString(sanitized, "_")
 	}
-	
+
 	// Ensure it starts with letter or underscore
 	if len(sanitized) > 0 && sanitized[0] >= '0' && sanitized[0] <= '9' {
 		issues = append(issues, "prefixed with underscore (cannot start with digit)")
 		sanitized = "_" + sanitized
 	}
-	
+
 	// Limit length
 	if len(sanitized) > 255 {
 		issues = append(issues, "truncated to 255 characters")
 		sanitized = sanitized[:255]
 	}
-	
+
 	return sanitized, issues
 }
 
@@ -328,7 +328,7 @@ func ValidateEnvironmentVariableName(params []ast.NamedParameter, paramName stri
 	// For string literals, validate environment variable name
 	if strLit, ok := param.Value.(*ast.StringLiteral); ok {
 		envName := strLit.Value
-		
+
 		// Check for empty name
 		if strings.TrimSpace(envName) == "" {
 			return fmt.Errorf("@%s '%s' parameter cannot be empty", decoratorName, paramName)
@@ -367,7 +367,7 @@ func ValidateStringContent(params []ast.NamedParameter, paramName string, decora
 	// For string literals, validate content safety
 	if strLit, ok := param.Value.(*ast.StringLiteral); ok {
 		content := strLit.Value
-		
+
 		// Check for null bytes (security issue)
 		if strings.Contains(content, "\x00") {
 			return fmt.Errorf("@%s '%s' parameter contains null bytes, which is not allowed", decoratorName, paramName)
@@ -389,12 +389,12 @@ func ValidateStringContent(params []ast.NamedParameter, paramName string, decora
 func SanitizeShellCommand(command string) (string, []string) {
 	removed := make([]string, 0)
 	sanitized := command
-	
+
 	// Remove dangerous patterns (be conservative)
 	dangerousPatterns := []string{
 		";", "&", "|", "`", "$(", "||", "&&", ">", "<", ">>", "2>",
 	}
-	
+
 	for _, pattern := range dangerousPatterns {
 		if strings.Contains(sanitized, pattern) {
 			removed = append(removed, pattern)
@@ -407,7 +407,7 @@ func SanitizeShellCommand(command string) (string, []string) {
 			}
 		}
 	}
-	
+
 	return strings.TrimSpace(sanitized), removed
 }
 
@@ -427,7 +427,7 @@ func ValidateShellCommandSafety(params []ast.NamedParameter, paramName string, d
 	// For string literals, validate shell command safety
 	if strLit, ok := param.Value.(*ast.StringLiteral); ok {
 		content := strLit.Value
-		
+
 		// Basic string content validation first
 		if err := ValidateStringContent(params, paramName, decoratorName); err != nil {
 			return err
@@ -455,10 +455,10 @@ func ValidateShellCommandSafety(params []ast.NamedParameter, paramName string, d
 			{"*", "glob expansion"},
 			{"?", "glob expansion"},
 		}
-		
+
 		for _, dangerous := range dangerousPatterns {
 			if strings.Contains(content, dangerous.pattern) {
-				return fmt.Errorf("@%s '%s' parameter contains potentially dangerous shell pattern '%s' (%s), which is not allowed", 
+				return fmt.Errorf("@%s '%s' parameter contains potentially dangerous shell pattern '%s' (%s), which is not allowed",
 					decoratorName, paramName, dangerous.pattern, dangerous.reason)
 			}
 		}
@@ -467,10 +467,10 @@ func ValidateShellCommandSafety(params []ast.NamedParameter, paramName string, d
 		suspiciousPatterns := []string{
 			`"`, `'`, `\"`, `\'`, `\\`,
 		}
-		
+
 		for _, pattern := range suspiciousPatterns {
 			if strings.Contains(content, pattern) {
-				return fmt.Errorf("@%s '%s' parameter contains quote or escape characters, which could lead to shell injection", 
+				return fmt.Errorf("@%s '%s' parameter contains quote or escape characters, which could lead to shell injection",
 					decoratorName, paramName)
 			}
 		}
@@ -550,7 +550,7 @@ func ValidateNoPrivilegeEscalation(params []ast.NamedParameter, paramName string
 	// For string literals, validate no privilege escalation attempts
 	if strLit, ok := param.Value.(*ast.StringLiteral); ok {
 		content := strings.ToLower(strLit.Value)
-		
+
 		// Check for common privilege escalation patterns
 		dangerousCommands := []string{
 			"sudo", "su", "doas", "runas",
@@ -558,10 +558,10 @@ func ValidateNoPrivilegeEscalation(params []ast.NamedParameter, paramName string
 			"/etc/passwd", "/etc/shadow", "/etc/sudoers",
 			"chown root", "chgrp root",
 		}
-		
+
 		for _, dangerous := range dangerousCommands {
 			if strings.Contains(content, dangerous) {
-				return fmt.Errorf("@%s '%s' parameter contains potentially dangerous privilege escalation pattern '%s'", 
+				return fmt.Errorf("@%s '%s' parameter contains potentially dangerous privilege escalation pattern '%s'",
 					decoratorName, paramName, dangerous)
 			}
 		}
@@ -597,9 +597,9 @@ func PerformComprehensiveSecurityValidation(params []ast.NamedParameter, schema 
 	// Security validations based on parameter names and types
 	for _, param := range params {
 		switch {
-		case strings.Contains(strings.ToLower(param.Name), "path") || 
-			 strings.Contains(strings.ToLower(param.Name), "dir") ||
-			 strings.Contains(strings.ToLower(param.Name), "file"):
+		case strings.Contains(strings.ToLower(param.Name), "path") ||
+			strings.Contains(strings.ToLower(param.Name), "dir") ||
+			strings.Contains(strings.ToLower(param.Name), "file"):
 			// Path-related parameters
 			if err := ValidatePathSafety(params, param.Name, decoratorName); err != nil {
 				summary.ValidationErrors = append(summary.ValidationErrors, err.Error())
@@ -607,8 +607,8 @@ func PerformComprehensiveSecurityValidation(params []ast.NamedParameter, schema 
 			summary.PathValidations++
 
 		case strings.Contains(strings.ToLower(param.Name), "command") ||
-			 strings.Contains(strings.ToLower(param.Name), "cmd") ||
-			 strings.Contains(strings.ToLower(param.Name), "script"):
+			strings.Contains(strings.ToLower(param.Name), "cmd") ||
+			strings.Contains(strings.ToLower(param.Name), "script"):
 			// Command-related parameters need shell safety
 			if err := ValidateShellCommandSafety(params, param.Name, decoratorName); err != nil {
 				summary.ValidationErrors = append(summary.ValidationErrors, err.Error())
@@ -620,8 +620,8 @@ func PerformComprehensiveSecurityValidation(params []ast.NamedParameter, schema 
 			summary.PrivilegeChecks++
 
 		case strings.Contains(strings.ToLower(param.Name), "concurrency") ||
-			 strings.Contains(strings.ToLower(param.Name), "parallel") ||
-			 strings.Contains(strings.ToLower(param.Name), "workers"):
+			strings.Contains(strings.ToLower(param.Name), "parallel") ||
+			strings.Contains(strings.ToLower(param.Name), "workers"):
 			// Resource limit parameters
 			if err := ValidateResourceLimits(params, param.Name, 1000, decoratorName); err != nil {
 				summary.ValidationErrors = append(summary.ValidationErrors, err.Error())
@@ -629,7 +629,7 @@ func PerformComprehensiveSecurityValidation(params []ast.NamedParameter, schema 
 			summary.ResourceLimitChecks++
 
 		case strings.Contains(strings.ToLower(param.Name), "timeout") ||
-			 strings.Contains(strings.ToLower(param.Name), "duration"):
+			strings.Contains(strings.ToLower(param.Name), "duration"):
 			// Timeout parameters
 			if err := ValidateTimeoutSafety(params, param.Name, 24*time.Hour, decoratorName); err != nil {
 				summary.ValidationErrors = append(summary.ValidationErrors, err.Error())

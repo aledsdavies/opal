@@ -130,14 +130,14 @@ func (tb *TemplateBuilder) WithTryCatchFinally(mainOp Operation, catchOp *Operat
 	tb.variables["MainOperation"] = mainOp
 	tb.variables["HasCatch"] = catchOp != nil
 	tb.variables["HasFinally"] = finallyOp != nil
-	
+
 	if catchOp != nil {
 		tb.variables["CatchOperation"] = *catchOp
 	}
 	if finallyOp != nil {
 		tb.variables["FinallyOperation"] = *finallyOp
 	}
-	
+
 	tb.patterns = append(tb.patterns, TryCatchFinallyPattern)
 	return tb
 }
@@ -185,7 +185,7 @@ func (tb *TemplateBuilder) BuildCommandResultTemplate() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Wrap the template so it returns CommandResult instead of error
 	wrappedTemplate := fmt.Sprintf(`{
 		if err := func() error %s; err != nil {
@@ -193,7 +193,7 @@ func (tb *TemplateBuilder) BuildCommandResultTemplate() (string, error) {
 		}
 		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
 	}`, innerTemplate)
-	
+
 	return wrappedTemplate, nil
 }
 

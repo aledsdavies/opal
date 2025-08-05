@@ -49,13 +49,13 @@ func TestWorkdirSequentialExecution(t *testing.T) {
 
 	// Create the testdir subdirectory that the workdir command expects
 	testDir := filepath.Join(tmpDir, "testdir")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create testdir: %v", err)
 	}
 
 	// Write the generated Go code
 	mainGoPath := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(mainGoPath, []byte(generatedCode), 0644); err != nil {
+	if err := os.WriteFile(mainGoPath, []byte(generatedCode), 0o644); err != nil {
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
 
@@ -72,7 +72,7 @@ require (
 )
 `
 	goModPath := filepath.Join(tmpDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		t.Fatalf("Failed to write go.mod: %v", err)
 	}
 
@@ -96,7 +96,7 @@ require (
 	// Execute the test command and capture ALL output
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	execCmd := exec.CommandContext(ctx, binaryPath, "test")
 	execCmd.Dir = tmpDir // Run from tmpDir so testdir is available
 	output, err := execCmd.CombinedOutput()
@@ -125,10 +125,10 @@ require (
 	if len(missingOutputs) > 0 {
 		t.Errorf("CRITICAL BUG: Sequential execution failed with @workdir decorator. Missing outputs: %v", missingOutputs)
 		t.Errorf("Full output was: %s", outputStr)
-		
+
 		// Check specific patterns
-		if strings.Contains(outputStr, "Before workdir") && 
-		   !strings.Contains(outputStr, "After workdir") {
+		if strings.Contains(outputStr, "Before workdir") &&
+			!strings.Contains(outputStr, "After workdir") {
 			t.Error("CONFIRMED BUG: Commands after @workdir decorator did not execute")
 		}
 	} else {
@@ -161,15 +161,15 @@ func TestBuildCommandSequentialExecution(t *testing.T) {
 
 	// Test that the generated code has the correct structure:
 	// 1. First echo command
-	// 2. Workdir decorator code  
+	// 2. Workdir decorator code
 	// 3. Second echo command
-	
+
 	// Check that all expected elements are present in generated code
 	expectedElements := []string{
-		`echo "🔨 Building PROJECT CLI..."`,  // First command
-		`@workdir("cli")`,                     // Workdir decorator comment
-		`go build -o ../PROJECT ./main.go`,   // Command inside workdir
-		`echo "✅ Built: ./PROJECT"`,         // Final command
+		`echo "🔨 Building PROJECT CLI..."`, // First command
+		`@workdir("cli")`,                  // Workdir decorator comment
+		`go build -o ../PROJECT ./main.go`, // Command inside workdir
+		`echo "✅ Built: ./PROJECT"`,        // Final command
 	}
 
 	for _, element := range expectedElements {
@@ -181,10 +181,10 @@ func TestBuildCommandSequentialExecution(t *testing.T) {
 	// Most importantly, check that there are NO early returns that would break the sequence
 	lines := strings.Split(generatedCode, "\n")
 	var foundEarlyReturn bool
-	
+
 	for i, line := range lines {
-		if strings.Contains(line, "return CommandResult{") && 
-		   !strings.Contains(line, "// Final return") {
+		if strings.Contains(line, "return CommandResult{") &&
+			!strings.Contains(line, "// Final return") {
 			// Check if there are more commands after this return
 			for j := i + 1; j < len(lines); j++ {
 				nextLine := strings.TrimSpace(lines[j])

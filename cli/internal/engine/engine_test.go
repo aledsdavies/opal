@@ -39,8 +39,8 @@ func TestCommandResultGeneration(t *testing.T) {
 		description string
 	}{
 		{
-			name: "simple_command",
-			input: `hello: echo "Hello World"`,
+			name:        "simple_command",
+			input:       `hello: echo "Hello World"`,
 			expectError: false,
 			description: "Basic command with streaming output",
 		},
@@ -52,20 +52,20 @@ greet: @cmd(hello)`,
 			description: "@cmd decorator calling another command",
 		},
 		{
-			name: "shell_operators_and",
-			input: `chain: echo "First" && echo "Second"`,
+			name:        "shell_operators_and",
+			input:       `chain: echo "First" && echo "Second"`,
 			expectError: false,
 			description: "Shell AND operator",
 		},
 		{
-			name: "shell_operators_or",
-			input: `chain: echo "First" || echo "Second"`,
+			name:        "shell_operators_or",
+			input:       `chain: echo "First" || echo "Second"`,
 			expectError: false,
 			description: "Shell OR operator",
 		},
 		{
-			name: "shell_operators_pipe",
-			input: `chain: echo "Hello" | grep "Hell"`,
+			name:        "shell_operators_pipe",
+			input:       `chain: echo "Hello" | grep "Hell"`,
 			expectError: false,
 			description: "Shell pipe operator",
 		},
@@ -77,8 +77,8 @@ hello: echo "Hello, $NAME!"`,
 			description: "Variable substitution",
 		},
 		{
-			name: "failed_command",
-			input: `fail: false`,
+			name:        "failed_command",
+			input:       `fail: false`,
 			expectError: false,
 			description: "Command that returns non-zero exit code",
 		},
@@ -132,14 +132,14 @@ fail_cmd: false`,
 
 			// Verify imports are reasonable (no unused imports)
 			code := result.Code.String()
-			
+
 			// Check that strings import is only present when needed
 			hasStringsImport := strings.Contains(code, `"strings"`)
-			hasActionDecorators := strings.Contains(tc.input, "@cmd") || 
-								  strings.Contains(tc.input, "&&") || 
-								  strings.Contains(tc.input, "||") || 
-								  strings.Contains(tc.input, "|")
-			
+			hasActionDecorators := strings.Contains(tc.input, "@cmd") ||
+				strings.Contains(tc.input, "&&") ||
+				strings.Contains(tc.input, "||") ||
+				strings.Contains(tc.input, "|")
+
 			if hasStringsImport && !hasActionDecorators {
 				t.Errorf("Strings import present but no ActionDecorators detected in: %s", tc.input)
 			}
@@ -274,35 +274,35 @@ info: echo "Project: @var(PROJECT), Version: @var(VERSION), Built: @var(BUILD_TI
 // TestImportOptimization specifically tests import management
 func TestImportOptimization(t *testing.T) {
 	testCases := []struct {
-		name            string
-		input           string
+		name              string
+		input             string
 		shouldHaveStrings bool
-		description     string
+		description       string
 	}{
 		{
-			name: "simple_no_strings",
-			input: `hello: echo "World"`,
+			name:              "simple_no_strings",
+			input:             `hello: echo "World"`,
 			shouldHaveStrings: false,
-			description: "Simple command should not import strings",
+			description:       "Simple command should not import strings",
 		},
 		{
 			name: "cmd_decorator_no_strings",
 			input: `hello: echo "World"
 greet: @cmd(hello)`,
 			shouldHaveStrings: false,
-			description: "@cmd decorator should not need strings import",
+			description:       "@cmd decorator should not need strings import",
 		},
 		{
-			name: "shell_operators_no_strings",
-			input: `chain: echo "First" && echo "Second"`,
+			name:              "shell_operators_no_strings",
+			input:             `chain: echo "First" && echo "Second"`,
 			shouldHaveStrings: false,
-			description: "Shell operators (&&, ||) should not need strings import",
+			description:       "Shell operators (&&, ||) should not need strings import",
 		},
 		{
-			name: "pipe_operator_needs_strings",
-			input: `chain: echo "Hello" | grep "Hell"`,
+			name:              "pipe_operator_needs_strings",
+			input:             `chain: echo "Hello" | grep "Hell"`,
 			shouldHaveStrings: true,
-			description: "Pipe operator should trigger strings import",
+			description:       "Pipe operator should trigger strings import",
 		},
 	}
 
@@ -726,15 +726,15 @@ build: echo "Building version @var(VERSION)"
 func compileAndTestGeneratedCode(t *testing.T, result *GenerationResult, testName string) error {
 	// Create temporary directory for this test
 	tempDir := t.TempDir()
-	
+
 	// Write the generated files
 	mainGoPath := filepath.Join(tempDir, "main.go")
-	if err := os.WriteFile(mainGoPath, []byte(result.Code.String()), 0644); err != nil {
+	if err := os.WriteFile(mainGoPath, []byte(result.Code.String()), 0o644); err != nil {
 		return fmt.Errorf("failed to write main.go: %v", err)
 	}
 
 	goModPath := filepath.Join(tempDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(result.GoModString()), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(result.GoModString()), 0o644); err != nil {
 		return fmt.Errorf("failed to write go.mod: %v", err)
 	}
 
@@ -758,7 +758,7 @@ func compileAndTestGeneratedCode(t *testing.T, result *GenerationResult, testNam
 
 	// Test basic CLI functionality
 	binaryPath := filepath.Join(tempDir, binaryName)
-	
+
 	// Test 1: Help command should work
 	if err := runCommand(binaryPath, "--help"); err != nil {
 		return fmt.Errorf("help command failed: %v", err)
@@ -769,7 +769,7 @@ func compileAndTestGeneratedCode(t *testing.T, result *GenerationResult, testNam
 	if err != nil {
 		return fmt.Errorf("failed to get help output: %v", err)
 	}
-	
+
 	// Should contain basic CLI structure
 	if !strings.Contains(output, "Available Commands:") && !strings.Contains(output, "Usage:") {
 		return fmt.Errorf("help output doesn't contain expected CLI structure")
@@ -847,7 +847,7 @@ func TestProjectCommandsCLI_Dogfooding(t *testing.T) {
 func TestEngine_CmdDecoratorNoExecutionDuringGeneration(t *testing.T) {
 	// Create a test file that would be created if commands execute during generation
 	testFile := filepath.Join(t.TempDir(), "generation_execution_detected.txt")
-	
+
 	// Create a CLI definition that writes to a file if executed - this is our detection mechanism
 	input := fmt.Sprintf(`
 var TEST_FILE = "%s"
@@ -882,7 +882,7 @@ chain_command: {
 
 	// Create engine and generate code
 	engine := New(program)
-	
+
 	// This is the critical test - GenerateCode should NOT execute any shell commands
 	t.Log("🔍 CRITICAL TEST: Calling GenerateCode with @cmd decorators that would create a file...")
 	result, err := engine.GenerateCode(program)
@@ -895,14 +895,14 @@ chain_command: {
 	if _, err := os.Stat(testFile); err == nil {
 		t.Fatalf("🚨 CRITICAL FAILURE: Test file was created during generation! Commands were executed: %s", testFile)
 	}
-	
+
 	// Verify that code was actually generated
 	generatedCode := result.String()
 	if len(generatedCode) < 500 {
 		t.Errorf("Generated code seems too short (%d chars) - generation may have failed", len(generatedCode))
 	}
 
-	// Verify the generated code contains basic structure 
+	// Verify the generated code contains basic structure
 	basicPatterns := []string{
 		"package main",
 		"func main()",
@@ -921,7 +921,7 @@ chain_command: {
 	if _, err := os.Stat(testFile); err == nil {
 		t.Fatalf("🚨 CRITICAL FAILURE: Test file exists after generation - this proves commands executed!")
 	}
-	
+
 	t.Log("✅ SUCCESS: @cmd decorators generated code without executing shell commands")
 	t.Log("✅ REGRESSION TEST PASSED: The critical execution-during-generation bug is fixed")
 }
@@ -954,12 +954,12 @@ another-test: echo "Another test command with hyphen"`
 	err = compileAndTestGeneratedCode(t, result, "syntax_errors")
 	if err != nil {
 		t.Logf("Generated code that failed to compile:\n%s", generatedCode)
-		
+
 		// Look for specific patterns that might cause syntax errors
 		if strings.Contains(generatedCode, "test-") {
 			t.Errorf("Generated code contains command name with hyphen: this may cause Go syntax errors")
 		}
-		
+
 		t.Fatalf("E2E compilation failed with syntax errors: %v", err)
 	}
 
@@ -1045,12 +1045,12 @@ cleanup: echo "Cleaning up @var(PROJECT)"`,
 
 			// Verify that different shell commands get different variable names
 			// Look for descriptive variable patterns like buildStdout, deployStep2Stdout, etc.
-			hasDescriptiveVars := strings.Contains(generatedCode, "Stdout") && 
-								  strings.Contains(generatedCode, "CmdStr") &&
-								  (strings.Contains(generatedCode, "Step2") || 
-								   strings.Contains(generatedCode, "build") ||
-								   strings.Contains(generatedCode, "deploy"))
-			
+			hasDescriptiveVars := strings.Contains(generatedCode, "Stdout") &&
+				strings.Contains(generatedCode, "CmdStr") &&
+				(strings.Contains(generatedCode, "Step2") ||
+					strings.Contains(generatedCode, "build") ||
+					strings.Contains(generatedCode, "deploy"))
+
 			if !hasDescriptiveVars {
 				t.Errorf("Expected to find descriptive variable names (e.g., buildStdout, deployStep2CmdStr) for readable code generation")
 			}

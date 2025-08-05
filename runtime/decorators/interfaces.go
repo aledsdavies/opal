@@ -56,10 +56,10 @@ type ValueDecorator interface {
 
 	// ExpandInterpreter returns the actual runtime value for interpreter mode
 	ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult
-	
+
 	// ExpandGenerator returns Go code expression that evaluates to the value for generator mode
 	ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult
-	
+
 	// ExpandPlan returns description for dry-run display in plan mode
 	ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult
 }
@@ -71,10 +71,10 @@ type ActionDecorator interface {
 
 	// ExpandInterpreter executes and returns CommandResult for interpreter mode
 	ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult
-	
+
 	// ExpandGenerator returns Go code that produces CommandResult for generator mode
 	ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult
-	
+
 	// ExpandPlan returns description for dry-run display in plan mode
 	ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult
 }
@@ -86,10 +86,10 @@ type BlockDecorator interface {
 
 	// ExecuteInterpreter provides execution for interpreter mode
 	ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
-	
+
 	// ExecuteGenerator provides Go code generation for generator mode
 	ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
-	
+
 	// ExecutePlan provides plan generation for plan mode
 	ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
 }
@@ -101,17 +101,16 @@ type PatternDecorator interface {
 
 	// ExecuteInterpreter provides execution for interpreter mode
 	ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
-	
+
 	// ExecuteGenerator provides Go code generation for generator mode
 	ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
-	
+
 	// ExecutePlan provides plan generation for plan mode
 	ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
 
 	// PatternSchema defines what patterns this decorator accepts
 	PatternSchema() PatternSchema
 }
-
 
 // DecoratorType represents the type of decorator
 type DecoratorType int

@@ -57,7 +57,7 @@ func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 
 	// Get the environment variable value from captured environment (deterministic)
 	value, exists := ctx.GetEnv(key)
-	
+
 	// Use captured value or default based on allowEmpty flag
 	if !exists || (!allowEmpty && value == "") {
 		value = defaultValue
@@ -69,7 +69,7 @@ func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 	}
 }
 
-// ExpandGenerator returns Go code that references captured environment for generator mode  
+// ExpandGenerator returns Go code that references captured environment for generator mode
 func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
 	key, defaultValue, allowEmpty, err := e.extractParameters(params)
 	if err != nil {
@@ -81,7 +81,7 @@ func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []
 
 	// Track this environment variable for global capture generation
 	ctx.TrackEnvironmentVariableReference(key, defaultValue)
-	
+
 	// Generate Go code that references the captured environment
 	var goCode string
 	if defaultValue != "" {
@@ -115,7 +115,7 @@ func (e *EnvDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedP
 
 	// Get the environment variable value from captured environment (deterministic)
 	value, exists := ctx.GetEnv(key)
-	
+
 	var displayValue string
 	// Apply same logic as interpreter mode for consistency
 	if !exists || (!allowEmpty && value == "") {
@@ -163,18 +163,18 @@ func (e *EnvDecorator) extractParameters(params []ast.NamedParameter) (key strin
 			key = v.Name
 		}
 	}
-	
+
 	// Additional check for empty key (shouldn't happen after validation)
 	if key == "" {
 		return "", "", false, fmt.Errorf("@env decorator requires a valid environment variable name")
 	}
-	
+
 	// Get default value if provided
 	defaultValue = ast.GetStringParam(params, "default", "")
-	
+
 	// Get allowEmpty flag (defaults to false for backward compatibility)
 	allowEmpty = ast.GetBoolParam(params, "allowEmpty", false)
-	
+
 	return key, defaultValue, allowEmpty, nil
 }
 

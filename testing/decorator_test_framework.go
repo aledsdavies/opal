@@ -39,7 +39,7 @@ func (d *DecoratorTestSuite) WithVariable(name, value string) *DecoratorTestSuit
 	return d
 }
 
-// WithEnv adds an environment variable to the test environment  
+// WithEnv adds an environment variable to the test environment
 func (d *DecoratorTestSuite) WithEnv(name, value string) *DecoratorTestSuite {
 	d.env[name] = value
 	return d
@@ -58,7 +58,7 @@ func (d *DecoratorTestSuite) WithCommand(name string, content ...string) *Decora
 			},
 		})
 	}
-	
+
 	// Add command to program
 	d.program.Commands = append(d.program.Commands, ast.CommandDecl{
 		Name: name,
@@ -66,7 +66,7 @@ func (d *DecoratorTestSuite) WithCommand(name string, content ...string) *Decora
 			Content: commandContent,
 		},
 	})
-	
+
 	return d
 }
 
@@ -384,31 +384,31 @@ func (d *DecoratorTestSuite) TestPatternDecorator(params []ast.NamedParameter, p
 
 func (d *DecoratorTestSuite) createInterpreterContext() execution.InterpreterContext {
 	ctx := execution.NewInterpreterContext(context.Background(), d.program)
-	
+
 	// Set up variables
 	for name, value := range d.variables {
 		ctx.SetVariable(name, value)
 	}
-	
+
 	if err := ctx.InitializeVariables(); err != nil {
 		d.t.Fatalf("Failed to initialize interpreter context: %v", err)
 	}
-	
+
 	return ctx
 }
 
 func (d *DecoratorTestSuite) createGeneratorContext() execution.GeneratorContext {
 	ctx := execution.NewGeneratorContext(context.Background(), d.program)
-	
+
 	// CRITICAL: Set up decorator lookup functions FIRST, before any other operations
 	// This ensures they're available when template functions are created
 	d.setupDecoratorLookups(ctx)
-	
+
 	// Set up variables
 	for name, value := range d.variables {
 		ctx.SetVariable(name, value)
 	}
-	
+
 	// Set up environment variables for tracking
 	for name, value := range d.env {
 		// In a real scenario, we'd set the actual env var too
@@ -417,26 +417,26 @@ func (d *DecoratorTestSuite) createGeneratorContext() execution.GeneratorContext
 		_ = name
 		_ = value
 	}
-	
+
 	if err := ctx.InitializeVariables(); err != nil {
 		d.t.Fatalf("Failed to initialize generator context: %v", err)
 	}
-	
+
 	return ctx
 }
 
 func (d *DecoratorTestSuite) createPlanContext() execution.PlanContext {
 	ctx := execution.NewPlanContext(context.Background(), d.program)
-	
+
 	// Set up variables
 	for name, value := range d.variables {
 		ctx.SetVariable(name, value)
 	}
-	
+
 	if err := ctx.InitializeVariables(); err != nil {
 		d.t.Fatalf("Failed to initialize plan context: %v", err)
 	}
-	
+
 	return ctx
 }
 
@@ -446,9 +446,9 @@ func (d *DecoratorTestSuite) validateInterpreterResult(execResult *execution.Exe
 	// Interpreter mode should either succeed or fail gracefully
 	// Data can be anything or nil
 	// Error should be descriptive if present
-	
+
 	if execResult.Error != nil && strings.TrimSpace(execResult.Error.Error()) == "" {
-		result.ValidationErrors = append(result.ValidationErrors, 
+		result.ValidationErrors = append(result.ValidationErrors,
 			"Interpreter mode returned empty error message")
 	}
 }
@@ -487,12 +487,12 @@ func (d *DecoratorTestSuite) validateCrossModeConsistency(result *ValidationResu
 	// Check that modes are consistent with each other
 	// For example, if interpreter fails, generator might still work
 	// but they should fail for similar reasons
-	
+
 	result.StructuralValid = len(result.ValidationErrors) == 0
-	
+
 	// Add more cross-mode validation logic here
 	// - Parameter handling consistency
-	// - Error condition consistency  
+	// - Error condition consistency
 	// - Data type consistency where applicable
 }
 
@@ -508,7 +508,7 @@ func (d *DecoratorTestSuite) setupDecoratorLookups(ctx execution.GeneratorContex
 			}
 			return decorator, true
 		})
-		
+
 		// Set up pattern decorator lookup function using the decorator registry
 		generatorCtx.SetPatternDecoratorLookup(func(name string) (interface{}, bool) {
 			decorator, err := decorators.GetPattern(name)
@@ -517,7 +517,7 @@ func (d *DecoratorTestSuite) setupDecoratorLookups(ctx execution.GeneratorContex
 			}
 			return decorator, true
 		})
-		
+
 		// Set up value decorator lookup function using the decorator registry
 		generatorCtx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
 			decorator, err := decorators.GetValue(name)

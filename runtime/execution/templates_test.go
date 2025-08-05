@@ -80,7 +80,7 @@ func TestShellCodeBuilder_MeaningfulVariableNaming(t *testing.T) {
 			expectVar:   "build",
 		},
 		{
-			name:        "Test command", 
+			name:        "Test command",
 			commandName: "test",
 			expectVar:   "test",
 		},
@@ -102,7 +102,6 @@ func TestShellCodeBuilder_MeaningfulVariableNaming(t *testing.T) {
 
 			shell := ast.Shell(ast.Text("echo test"))
 			result, err := builder.GenerateShellExecutionTemplate(shell)
-
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return
@@ -131,7 +130,7 @@ func TestShellCodeBuilder_FormatParamsFunction(t *testing.T) {
 			expected: "nil",
 		},
 		{
-			name: "With parameters", 
+			name: "With parameters",
 			params: []ast.NamedParameter{
 				{Name: "timeout", Value: ast.Str("30s")},
 			},
@@ -159,7 +158,7 @@ func TestShellCodeBuilder_GetTemplateFunctions(t *testing.T) {
 	// Test that all expected functions are present
 	expectedFuncs := []string{
 		"generateShellCode",
-		"formatParams", 
+		"formatParams",
 		"title",
 		"cmdFunctionName",
 	}
@@ -201,7 +200,6 @@ func TestShellCodeBuilder_GenerateShellCode_Basic(t *testing.T) {
 	// Test basic shell content generation
 	shell := ast.Shell(ast.Text("echo hello"))
 	result, err := builder.GenerateShellCode(shell)
-
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 		return

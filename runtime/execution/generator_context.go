@@ -12,13 +12,12 @@ import (
 // GeneratorExecutionContext implements GeneratorContext for Go code generation
 type GeneratorExecutionContext struct {
 	*BaseExecutionContext
-	
+
 	// Decorator lookup functions (set by engine during initialization)
 	blockDecoratorLookup   func(name string) (interface{}, bool)
 	patternDecoratorLookup func(name string) (interface{}, bool)
 	valueDecoratorLookup   func(name string) (interface{}, bool)
 }
-
 
 // ================================================================================================
 // GENERATOR-SPECIFIC FUNCTIONALITY
@@ -113,7 +112,6 @@ func (c *GeneratorExecutionContext) GetValueDecoratorLookup() func(name string) 
 	return c.valueDecoratorLookup
 }
 
-
 // SetBlockDecoratorLookup sets the block decorator lookup function (called by engine during setup)
 func (c *GeneratorExecutionContext) SetBlockDecoratorLookup(lookup func(name string) (interface{}, bool)) {
 	c.blockDecoratorLookup = lookup
@@ -135,14 +133,12 @@ func (c *GeneratorExecutionContext) TrackEnvironmentVariableReference(key, defau
 	// This method exists to satisfy calls from builtin decorators
 }
 
-// GetTrackedEnvironmentVariableReferences returns env var references for template generation  
+// GetTrackedEnvironmentVariableReferences returns env var references for template generation
 func (c *GeneratorExecutionContext) GetTrackedEnvironmentVariableReferences() map[string]string {
 	// For now, return empty - the actual env var tracking happens in the engine
 	// via decorator calls during code generation
 	return make(map[string]string)
 }
-
-
 
 // ================================================================================================
 // CONTEXT MANAGEMENT WITH TYPE SAFETY
@@ -153,30 +149,30 @@ func (c *GeneratorExecutionContext) Child() GeneratorContext {
 	// Increment child counter to ensure unique variable naming across parallel contexts
 	c.childCounter++
 	childID := c.childCounter
-	
+
 	childBase := &BaseExecutionContext{
 		Context:   c.Context,
 		Program:   c.Program,
 		Variables: make(map[string]string),
 		env:       c.env, // Share the same immutable environment reference
-		
+
 		// Copy execution state
-		WorkingDir:    c.WorkingDir,
-		Debug:         c.Debug,
-		DryRun:        c.DryRun,
+		WorkingDir:     c.WorkingDir,
+		Debug:          c.Debug,
+		DryRun:         c.DryRun,
 		currentCommand: c.currentCommand,
-		
+
 		// Initialize unique counter space for this child to avoid variable name conflicts
 		// Each child gets a unique counter space based on parent's counter and child ID
 		shellCounter: c.shellCounter + (childID * 1000), // Give each child 1000 numbers of space
-		childCounter: 0, // Reset child counter for this context's children
+		childCounter: 0,                                 // Reset child counter for this context's children
 	}
-	
+
 	// Copy variables (child gets its own copy)
 	for name, value := range c.Variables {
 		childBase.Variables[name] = value
 	}
-	
+
 	return &GeneratorExecutionContext{
 		BaseExecutionContext: childBase,
 		// Copy immutable configuration from parent to child
@@ -239,4 +235,3 @@ func (c *GeneratorExecutionContext) WithCurrentCommand(commandName string) Gener
 		valueDecoratorLookup:   c.valueDecoratorLookup,
 	}
 }
-

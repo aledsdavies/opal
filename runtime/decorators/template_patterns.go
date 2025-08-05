@@ -338,12 +338,12 @@ func DurationToGoExpr(d time.Duration) string {
 
 // Common import groups that patterns can reference
 var (
-	CoreImports       = []string{"fmt"}
+	CoreImports        = []string{"fmt"}
 	ConcurrencyImports = []string{"sync"}
-	TimeImports       = []string{"time"}
-	ContextImports    = []string{"context"}
-	FileSystemImports = []string{"os"}
-	StringImports     = []string{"strings"}
+	TimeImports        = []string{"time"}
+	ContextImports     = []string{"context"}
+	FileSystemImports  = []string{"os"}
+	StringImports      = []string{"strings"}
 )
 
 // PatternImports maps each pattern to its required standard library imports
@@ -363,7 +363,7 @@ var PatternImports = map[string][]string{
 func CombineImports(importGroups ...[]string) []string {
 	seen := make(map[string]bool)
 	var result []string
-	
+
 	for _, group := range importGroups {
 		for _, imp := range group {
 			if !seen[imp] {
@@ -372,7 +372,7 @@ func CombineImports(importGroups ...[]string) []string {
 			}
 		}
 	}
-	
+
 	return result
 }
 

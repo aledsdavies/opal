@@ -42,7 +42,7 @@ func (ce *ConcurrentExecutor) Execute(functions []ExecutionFunction) error {
 		wg.Add(1)
 		go func(f ExecutionFunction) {
 			defer wg.Done()
-			
+
 			// Check cancellation before work
 			select {
 			case <-ctx.Done():
@@ -50,7 +50,7 @@ func (ce *ConcurrentExecutor) Execute(functions []ExecutionFunction) error {
 				return
 			default:
 			}
-			
+
 			if err := f(); err != nil {
 				errChan <- err
 			} else {

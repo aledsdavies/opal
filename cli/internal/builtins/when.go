@@ -139,7 +139,7 @@ func (w *WhenDecorator) extractVariableName(params []ast.NamedParameter) (string
 
 	// Parse parameters (validation passed, so these should be safe)
 	varName := ast.GetStringParam(params, "variable", "")
-	
+
 	// Additional check for empty variable name (shouldn't happen after validation)
 	if varName == "" {
 		return "", fmt.Errorf("when decorator requires a valid 'variable' parameter")

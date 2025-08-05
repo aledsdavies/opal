@@ -10,22 +10,22 @@ import (
 
 // CommandConnection represents a reusable command execution context
 type CommandConnection struct {
-	ID            string
-	CreatedAt     time.Time
-	LastUsedAt    time.Time
-	UsageCount    int64
-	WorkingDir    string
-	Environment   []string
-	IsIdle        bool
-	ctx           context.Context
-	cancel        context.CancelFunc
-	mu            sync.RWMutex
+	ID          string
+	CreatedAt   time.Time
+	LastUsedAt  time.Time
+	UsageCount  int64
+	WorkingDir  string
+	Environment []string
+	IsIdle      bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	mu          sync.RWMutex
 }
 
 // NewCommandConnection creates a new command connection
 func NewCommandConnection(id, workingDir string, env []string) *CommandConnection {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &CommandConnection{
 		ID:          id,
 		CreatedAt:   time.Now(),
@@ -43,19 +43,19 @@ func NewCommandConnection(id, workingDir string, env []string) *CommandConnectio
 func (cc *CommandConnection) Execute(command string, args ...string) (*exec.Cmd, error) {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	
+
 	if cc.ctx.Err() != nil {
 		return nil, fmt.Errorf("connection is closed")
 	}
-	
+
 	cc.IsIdle = false
 	cc.LastUsedAt = time.Now()
 	cc.UsageCount++
-	
+
 	cmd := exec.CommandContext(cc.ctx, command, args...)
 	cmd.Dir = cc.WorkingDir
 	cmd.Env = cc.Environment
-	
+
 	return cmd, nil
 }
 
@@ -71,7 +71,7 @@ func (cc *CommandConnection) MarkIdle() {
 func (cc *CommandConnection) Close() {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	
+
 	if cc.cancel != nil {
 		cc.cancel()
 	}
@@ -81,7 +81,7 @@ func (cc *CommandConnection) Close() {
 func (cc *CommandConnection) IsExpired(maxIdleTime time.Duration) bool {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
-	
+
 	return cc.IsIdle && time.Since(cc.LastUsedAt) > maxIdleTime
 }
 
@@ -108,10 +108,10 @@ func NewConnectionPool(maxConnections int, maxIdleTime, cleanupInterval time.Dur
 		cleanupTicker:   time.NewTicker(cleanupInterval),
 		cleanupDone:     make(chan bool),
 	}
-	
+
 	// Start cleanup routine
 	go pool.cleanupRoutine()
-	
+
 	return pool
 }
 
@@ -119,14 +119,14 @@ func NewConnectionPool(maxConnections int, maxIdleTime, cleanupInterval time.Dur
 func (cp *ConnectionPool) GetConnection(workingDir string, env []string) (*CommandConnection, error) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
-	
+
 	// Try to find an existing idle connection with matching context
 	for _, conn := range cp.connections {
 		if conn.IsIdle && conn.WorkingDir == workingDir && envEqual(conn.Environment, env) {
 			return conn, nil
 		}
 	}
-	
+
 	// Check if we can create a new connection
 	if len(cp.connections) >= cp.maxConnections {
 		// Try to evict an expired connection
@@ -134,13 +134,13 @@ func (cp *ConnectionPool) GetConnection(workingDir string, env []string) (*Comma
 			return nil, fmt.Errorf("connection pool is full and no connections can be evicted")
 		}
 	}
-	
+
 	// Create new connection
 	cp.nextID++
 	id := fmt.Sprintf("conn_%d", cp.nextID)
 	conn := NewCommandConnection(id, workingDir, env)
 	cp.connections[id] = conn
-	
+
 	return conn, nil
 }
 
@@ -153,7 +153,7 @@ func (cp *ConnectionPool) ReturnConnection(conn *CommandConnection) {
 func (cp *ConnectionPool) CloseConnection(conn *CommandConnection) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
-	
+
 	conn.Close()
 	delete(cp.connections, conn.ID)
 }
@@ -162,13 +162,13 @@ func (cp *ConnectionPool) CloseConnection(conn *CommandConnection) {
 func (cp *ConnectionPool) Close() {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
-	
+
 	// Stop cleanup routine
 	if cp.cleanupTicker != nil {
 		cp.cleanupTicker.Stop()
 		close(cp.cleanupDone)
 	}
-	
+
 	// Close all connections
 	for _, conn := range cp.connections {
 		conn.Close()
@@ -180,11 +180,11 @@ func (cp *ConnectionPool) Close() {
 func (cp *ConnectionPool) GetStats() map[string]interface{} {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
-	
+
 	idleCount := 0
 	activeCount := 0
 	totalUsage := int64(0)
-	
+
 	for _, conn := range cp.connections {
 		if conn.IsIdle {
 			idleCount++
@@ -193,13 +193,13 @@ func (cp *ConnectionPool) GetStats() map[string]interface{} {
 		}
 		totalUsage += conn.UsageCount
 	}
-	
+
 	return map[string]interface{}{
-		"total_connections": len(cp.connections),
-		"idle_connections":  idleCount,
+		"total_connections":  len(cp.connections),
+		"idle_connections":   idleCount,
 		"active_connections": activeCount,
-		"max_connections":   cp.maxConnections,
-		"total_usage":       totalUsage,
+		"max_connections":    cp.maxConnections,
+		"total_usage":        totalUsage,
 	}
 }
 
@@ -219,15 +219,15 @@ func (cp *ConnectionPool) cleanupRoutine() {
 func (cp *ConnectionPool) cleanupExpiredConnections() {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
-	
+
 	expiredIDs := make([]string, 0)
-	
+
 	for id, conn := range cp.connections {
 		if conn.IsExpired(cp.maxIdleTime) {
 			expiredIDs = append(expiredIDs, id)
 		}
 	}
-	
+
 	// Close and remove expired connections
 	for _, id := range expiredIDs {
 		if conn, exists := cp.connections[id]; exists {
@@ -254,32 +254,32 @@ func envEqual(env1, env2 []string) bool {
 	if len(env1) != len(env2) {
 		return false
 	}
-	
+
 	env1Map := make(map[string]string)
 	env2Map := make(map[string]string)
-	
+
 	for _, env := range env1 {
 		if idx := findEquals(env); idx > 0 {
 			env1Map[env[:idx]] = env[idx+1:]
 		}
 	}
-	
+
 	for _, env := range env2 {
 		if idx := findEquals(env); idx > 0 {
 			env2Map[env[:idx]] = env[idx+1:]
 		}
 	}
-	
+
 	if len(env1Map) != len(env2Map) {
 		return false
 	}
-	
+
 	for key, val1 := range env1Map {
 		if val2, exists := env2Map[key]; !exists || val1 != val2 {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -295,8 +295,8 @@ func findEquals(s string) int {
 
 // PooledCommandExecutor provides command execution with connection pooling
 type PooledCommandExecutor struct {
-	pool         *ConnectionPool
-	defaultPool  bool
+	pool        *ConnectionPool
+	defaultPool bool
 }
 
 // NewPooledCommandExecutor creates a new pooled command executor
@@ -304,16 +304,16 @@ func NewPooledCommandExecutor(pool *ConnectionPool) *PooledCommandExecutor {
 	if pool == nil {
 		// Create default pool
 		pool = NewConnectionPool(
-			20,               // max 20 connections
-			5*time.Minute,    // 5 minute idle timeout
-			1*time.Minute,    // cleanup every minute
+			20,            // max 20 connections
+			5*time.Minute, // 5 minute idle timeout
+			1*time.Minute, // cleanup every minute
 		)
 		return &PooledCommandExecutor{
 			pool:        pool,
 			defaultPool: true,
 		}
 	}
-	
+
 	return &PooledCommandExecutor{
 		pool:        pool,
 		defaultPool: false,
@@ -327,21 +327,21 @@ func (pce *PooledCommandExecutor) ExecuteCommand(workingDir string, env []string
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
-	
+
 	// Execute command
 	cmd, err := conn.Execute(command, args...)
 	if err != nil {
 		pce.pool.CloseConnection(conn) // Close on error
 		return nil, err
 	}
-	
+
 	// Return connection to pool after command completes
 	go func() {
 		// Wait for command to complete
 		cmd.Wait()
 		pce.pool.ReturnConnection(conn)
 	}()
-	
+
 	return cmd, nil
 }
 

@@ -13,7 +13,6 @@ import (
 // TryDecorator implements the @try decorator for error handling with pattern matching
 type TryDecorator struct{}
 
-
 // Name returns the decorator name
 func (t *TryDecorator) Name() string {
 	return "try"
@@ -301,7 +300,7 @@ func (t *TryDecorator) executePlanImpl(ctx execution.PlanContext, mainBranch, ca
 	if catchBranch != nil {
 		// Create a conditional element for the catch block
 		catchElement := plan.Decorator("[on error]").WithType("conditional").WithDescription("Executed only if main block fails")
-		
+
 		// Add catch commands as children of the conditional element
 		for _, cmd := range catchBranch.Commands {
 			switch c := cmd.(type) {
@@ -328,7 +327,7 @@ func (t *TryDecorator) executePlanImpl(ctx execution.PlanContext, mainBranch, ca
 				catchElement = catchElement.AddChild(childElement)
 			}
 		}
-		
+
 		// Add the catch element to the main try element
 		element = element.AddChild(catchElement)
 	}
@@ -337,7 +336,7 @@ func (t *TryDecorator) executePlanImpl(ctx execution.PlanContext, mainBranch, ca
 	if finallyBranch != nil {
 		// Create an element for the finally block
 		finallyElement := plan.Decorator("[always]").WithType("block").WithDescription("Always executed regardless of success/failure")
-		
+
 		// Add finally commands as children of the finally element
 		for _, cmd := range finallyBranch.Commands {
 			switch c := cmd.(type) {
@@ -364,7 +363,7 @@ func (t *TryDecorator) executePlanImpl(ctx execution.PlanContext, mainBranch, ca
 				finallyElement = finallyElement.AddChild(childElement)
 			}
 		}
-		
+
 		// Add the finally element to the main try element
 		element = element.AddChild(finallyElement)
 	}
@@ -380,7 +379,7 @@ func (t *TryDecorator) combineOperations(operations []decorators.Operation) (dec
 	if len(operations) == 0 {
 		return decorators.Operation{Code: "// No operations"}, nil
 	}
-	
+
 	if len(operations) == 1 {
 		return operations[0], nil
 	}
@@ -388,12 +387,12 @@ func (t *TryDecorator) combineOperations(operations []decorators.Operation) (dec
 	// Use TemplateBuilder to create sequential execution for multiple operations
 	builder := decorators.NewTemplateBuilder()
 	builder.WithSequentialExecution(operations, true) // Stop on error
-	
+
 	code, err := builder.BuildTemplate()
 	if err != nil {
 		return decorators.Operation{}, fmt.Errorf("failed to combine operations: %w", err)
 	}
-	
+
 	return decorators.Operation{Code: code}, nil
 }
 

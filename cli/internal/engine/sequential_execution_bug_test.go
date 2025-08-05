@@ -17,10 +17,10 @@ import (
 func TestSequentialExecutionBug_RealWorld(t *testing.T) {
 	// This test recreates the exact scenario where we observed the bug:
 	// 1. Generate a CLI with multiple commands in a block
-	// 2. Build the CLI binary 
+	// 2. Build the CLI binary
 	// 3. Execute the CLI command
 	// 4. Verify ALL commands in the block execute (not just the first one)
-	
+
 	input := `build: {
     echo "Step 1: Starting"  
     echo "Step 2: Middle"
@@ -54,7 +54,7 @@ func TestSequentialExecutionBug_RealWorld(t *testing.T) {
 
 	// Write the generated Go code
 	mainGoPath := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(mainGoPath, []byte(generatedCode), 0644); err != nil {
+	if err := os.WriteFile(mainGoPath, []byte(generatedCode), 0o644); err != nil {
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
 
@@ -71,7 +71,7 @@ require (
 )
 `
 	goModPath := filepath.Join(tmpDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		t.Fatalf("Failed to write go.mod: %v", err)
 	}
 
@@ -95,7 +95,7 @@ require (
 	// Execute the build command and capture ALL output
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	execCmd := exec.CommandContext(ctx, binaryPath, "build")
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
@@ -108,7 +108,7 @@ require (
 	// CRITICAL TEST: All three echo commands should appear in the output
 	expectedOutputs := []string{
 		"Step 1: Starting",
-		"Step 2: Middle", 
+		"Step 2: Middle",
 		"Step 3: Finished",
 	}
 
@@ -123,10 +123,10 @@ require (
 		t.Errorf("CRITICAL BUG: Sequential execution failed. Missing outputs: %v", missingOutputs)
 		t.Errorf("This indicates commands stopped executing after the first one")
 		t.Errorf("Full output was: %s", outputStr)
-		
+
 		// This is the critical bug - only the first command executes
-		if strings.Contains(outputStr, "Step 1: Starting") && 
-		   !strings.Contains(outputStr, "Step 2: Middle") {
+		if strings.Contains(outputStr, "Step 1: Starting") &&
+			!strings.Contains(outputStr, "Step 2: Middle") {
 			t.Error("CONFIRMED BUG: First command executed but subsequent commands did not")
 		}
 	} else {
@@ -155,28 +155,28 @@ func TestSequentialExecution_CompilerError(t *testing.T) {
 	}
 
 	generatedCode := result.String()
-	
+
 	// Check for the specific pattern that causes the bug:
 	// A return statement followed by more executable code (which becomes unreachable)
 	lines := strings.Split(generatedCode, "\n")
-	
+
 	var hasEarlyReturn bool
 	var hasUnreachableCode bool
-	
+
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		
+
 		// Look for return statements that aren't at the end of a function
 		if strings.Contains(trimmed, "return CommandResult{") && !strings.Contains(trimmed, "// Final return") {
 			// Check if there are more executable statements after this return
 			for j := i + 1; j < len(lines); j++ {
 				nextLine := strings.TrimSpace(lines[j])
-				
+
 				// Skip empty lines and comments
 				if nextLine == "" || strings.HasPrefix(nextLine, "//") {
 					continue
 				}
-				
+
 				// If we find another command execution after a return, that's the bug
 				if strings.Contains(nextLine, "ExecCmd") || strings.Contains(nextLine, "exec.Command") {
 					hasEarlyReturn = true
@@ -186,7 +186,7 @@ func TestSequentialExecution_CompilerError(t *testing.T) {
 					t.Errorf("Unreachable code at line %d: %s", j+1, nextLine)
 					break
 				}
-				
+
 				// If we hit a closing brace, we're out of the function
 				if nextLine == "}" {
 					break
@@ -194,7 +194,7 @@ func TestSequentialExecution_CompilerError(t *testing.T) {
 			}
 		}
 	}
-	
+
 	if hasEarlyReturn && hasUnreachableCode {
 		t.Error("Generated code has the sequential execution bug pattern")
 	} else {

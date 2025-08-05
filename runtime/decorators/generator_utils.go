@@ -2,6 +2,7 @@ package decorators
 
 import (
 	"fmt"
+	"hash/fnv"
 	"time"
 
 	"github.com/aledsdavies/devcmd/core/ast"
@@ -199,13 +200,13 @@ func (crcb *CommandResultChainBuilder) AddShellCommand(command string) *CommandR
 			&ast.TextPart{Text: command},
 		},
 	}
-	
+
 	code, err := shellBuilder.GenerateShellCodeWithReturn(shellContent)
 	if err != nil {
 		// Add error handling operation
 		code = fmt.Sprintf(`return CommandResult{Stdout: "", Stderr: "failed to generate shell command: %s", ExitCode: 1}`, err.Error())
 	}
-	
+
 	return crcb.AddOperation(code)
 }
 
@@ -278,7 +279,7 @@ func (crpm *CommandResultPatternMatcher) ApplyPattern(name string, operation Ope
 	if !exists {
 		return "", fmt.Errorf("pattern '%s' not registered", name)
 	}
-	
+
 	return transformer(operation), nil
 }
 
@@ -319,3 +320,24 @@ func WrapWithOutputCapture(operation Operation, captureVar string) string {
 	}`, operation.Code, captureVar)
 }
 
+// ============================================================================
+// VARIABLE NAME GENERATION UTILITIES
+// ============================================================================
+
+// GenerateUniqueVarName generates a unique variable name based on input content
+// This helps avoid variable name conflicts in generated code
+func GenerateUniqueVarName(prefix, content string) string {
+	h := fnv.New32a()
+	h.Write([]byte(content))
+	return fmt.Sprintf("%s%d", prefix, h.Sum32())
+}
+
+// GenerateUniqueContextVar generates a unique context variable name for decorators
+func GenerateUniqueContextVar(prefix, path, additionalContent string) string {
+	return GenerateUniqueVarName(prefix+"Ctx", path+additionalContent)
+}
+
+// GenerateUniqueResultVar generates a unique result variable name for shell commands
+func GenerateUniqueResultVar(prefix, command, context string) string {
+	return GenerateUniqueVarName(prefix+"Result", command+context)
+}

@@ -10,22 +10,22 @@ import (
 
 func TestWhenDecorator_BasicMatching(t *testing.T) {
 	decorator := &WhenDecorator{}
-	
+
 	// Set environment for testing
 	os.Setenv("NODE_ENV", "production")
 	defer os.Unsetenv("NODE_ENV")
-	
+
 	patterns := []ast.PatternBranch{
 		decoratortesting.PatternBranch("production", "echo 'prod mode'", "echo 'building for production'"),
 		decoratortesting.PatternBranch("development", "echo 'dev mode'", "echo 'starting dev server'"),
 		decoratortesting.PatternBranch("*", "echo 'unknown mode'"),
 	}
-	
+
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestPatternDecorator([]ast.NamedParameter{
 			decoratortesting.StringParam("variable", "NODE_ENV"),
 		}, patterns)
-	
+
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
@@ -38,7 +38,7 @@ func TestWhenDecorator_BasicMatching(t *testing.T) {
 		SupportsDevcmdChaining().
 		SupportsNesting().
 		Validate()
-	
+
 	if len(errors) > 0 {
 		t.Errorf("WhenDecorator basic matching test failed:\n%s", decoratortesting.JoinErrors(errors))
 	}
@@ -46,29 +46,29 @@ func TestWhenDecorator_BasicMatching(t *testing.T) {
 
 func TestWhenDecorator_DefaultWildcard(t *testing.T) {
 	decorator := &WhenDecorator{}
-	
+
 	// Set environment to something not explicitly matched
 	os.Setenv("DEPLOY_ENV", "staging")
 	defer os.Unsetenv("DEPLOY_ENV")
-	
+
 	patterns := []ast.PatternBranch{
 		decoratortesting.PatternBranch("production", "echo 'prod'"),
 		decoratortesting.PatternBranch("development", "echo 'dev'"),
 		decoratortesting.PatternBranch("*", "echo 'default case'", "echo 'fallback'"),
 	}
-	
+
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestPatternDecorator([]ast.NamedParameter{
 			decoratortesting.StringParam("variable", "DEPLOY_ENV"),
 		}, patterns)
-	
+
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorCodeContains("DEPLOY_ENV", "default").
 		PlanSucceeds().
 		Validate()
-	
+
 	if len(errors) > 0 {
 		t.Errorf("WhenDecorator default wildcard test failed:\n%s", decoratortesting.JoinErrors(errors))
 	}
@@ -76,24 +76,24 @@ func TestWhenDecorator_DefaultWildcard(t *testing.T) {
 
 func TestWhenDecorator_UndefinedVariable(t *testing.T) {
 	decorator := &WhenDecorator{}
-	
+
 	patterns := []ast.PatternBranch{
 		decoratortesting.PatternBranch("production", "echo 'prod'"),
 		decoratortesting.PatternBranch("*", "echo 'default'"),
 	}
-	
+
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestPatternDecorator([]ast.NamedParameter{
 			decoratortesting.StringParam("variable", "UNDEFINED_VAR"),
 		}, patterns)
-	
+
 	// Should fall back to wildcard pattern for undefined variables
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		PlanSucceeds().
 		Validate()
-	
+
 	if len(errors) > 0 {
 		t.Errorf("WhenDecorator undefined variable test failed:\n%s", decoratortesting.JoinErrors(errors))
 	}
@@ -101,28 +101,28 @@ func TestWhenDecorator_UndefinedVariable(t *testing.T) {
 
 func TestWhenDecorator_NoWildcard(t *testing.T) {
 	decorator := &WhenDecorator{}
-	
+
 	// Set environment that doesn't match any pattern
 	os.Setenv("TEST_ENV", "unknown")
 	defer os.Unsetenv("TEST_ENV")
-	
+
 	patterns := []ast.PatternBranch{
 		decoratortesting.PatternBranch("production", "echo 'prod'"),
 		decoratortesting.PatternBranch("development", "echo 'dev'"),
 		// No wildcard pattern
 	}
-	
+
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestPatternDecorator([]ast.NamedParameter{
 			decoratortesting.StringParam("variable", "TEST_ENV"),
 		}, patterns)
-	
+
 	// Should handle gracefully when no pattern matches
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
 		PlanSucceeds().
 		Validate()
-	
+
 	if len(errors) > 0 {
 		t.Errorf("WhenDecorator no wildcard test failed:\n%s", decoratortesting.JoinErrors(errors))
 	}
@@ -130,19 +130,19 @@ func TestWhenDecorator_NoWildcard(t *testing.T) {
 
 func TestWhenDecorator_EmptyPatterns(t *testing.T) {
 	decorator := &WhenDecorator{}
-	
+
 	// Test with no patterns
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestPatternDecorator([]ast.NamedParameter{
 			decoratortesting.StringParam("variable", "TEST_VAR"),
 		}, []ast.PatternBranch{})
-	
+
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds(). // Should handle gracefully
 		GeneratorSucceeds().
 		PlanSucceeds().
 		Validate()
-	
+
 	if len(errors) > 0 {
 		t.Errorf("WhenDecorator empty patterns test failed:\n%s", decoratortesting.JoinErrors(errors))
 	}
@@ -150,10 +150,10 @@ func TestWhenDecorator_EmptyPatterns(t *testing.T) {
 
 func TestWhenDecorator_NestedDecorators(t *testing.T) {
 	decorator := &WhenDecorator{}
-	
+
 	os.Setenv("BUILD_TYPE", "release")
 	defer os.Unsetenv("BUILD_TYPE")
-	
+
 	// Test with nested decorators in pattern branches
 	patterns := []ast.PatternBranch{
 		{
@@ -177,12 +177,12 @@ func TestWhenDecorator_NestedDecorators(t *testing.T) {
 			},
 		},
 	}
-	
+
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestPatternDecorator([]ast.NamedParameter{
 			decoratortesting.StringParam("variable", "BUILD_TYPE"),
 		}, patterns)
-	
+
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
@@ -190,7 +190,7 @@ func TestWhenDecorator_NestedDecorators(t *testing.T) {
 		PlanSucceeds().
 		SupportsNesting().
 		Validate()
-	
+
 	if len(errors) > 0 {
 		t.Errorf("WhenDecorator nested decorators test failed:\n%s", decoratortesting.JoinErrors(errors))
 	}
@@ -198,19 +198,19 @@ func TestWhenDecorator_NestedDecorators(t *testing.T) {
 
 func TestWhenDecorator_ParameterValidation(t *testing.T) {
 	decorator := &WhenDecorator{}
-	
+
 	// Test missing variable parameter
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestPatternDecorator([]ast.NamedParameter{}, []ast.PatternBranch{
 			decoratortesting.PatternBranch("test", "echo 'test'"),
 		})
-	
+
 	errors := decoratortesting.Assert(result).
 		InterpreterFails("requires exactly 1 parameter").
 		GeneratorFails("requires exactly 1 parameter").
 		PlanFails("requires exactly 1 parameter").
 		Validate()
-	
+
 	if len(errors) > 0 {
 		t.Errorf("WhenDecorator parameter validation test failed:\n%s", decoratortesting.JoinErrors(errors))
 	}
@@ -218,28 +218,28 @@ func TestWhenDecorator_ParameterValidation(t *testing.T) {
 
 func TestWhenDecorator_GeneratorVariableResolution(t *testing.T) {
 	decorator := &WhenDecorator{}
-	
+
 	// Critical test: Generator mode should NOT resolve variables at generation time
 	// It should generate code that resolves them at runtime
-	
+
 	patterns := []ast.PatternBranch{
 		decoratortesting.PatternBranch("ci", "echo 'CI build'"),
 		decoratortesting.PatternBranch("local", "echo 'Local build'"),
 		decoratortesting.PatternBranch("*", "echo 'Unknown build'"),
 	}
-	
+
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestPatternDecorator([]ast.NamedParameter{
 			decoratortesting.StringParam("variable", "CI_ENVIRONMENT"),
 		}, patterns)
-	
+
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
 		// Generated code should contain runtime variable resolution, not hardcoded values
 		GeneratorCodeContains("CI_ENVIRONMENT").
 		Validate()
-	
+
 	// Additional check: generated code should NOT contain evidence of generation-time resolution
 	if result.GeneratorResult.Success {
 		if code, ok := result.GeneratorResult.Data.(string); ok {
@@ -248,7 +248,7 @@ func TestWhenDecorator_GeneratorVariableResolution(t *testing.T) {
 			}
 		}
 	}
-	
+
 	if len(errors) > 0 {
 		t.Errorf("WhenDecorator generator variable resolution test failed:\n%s", decoratortesting.JoinErrors(errors))
 	}

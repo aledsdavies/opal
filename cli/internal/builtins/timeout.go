@@ -10,8 +10,6 @@ import (
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
-
-
 // TimeoutDecorator implements the @timeout decorator for command execution with time limits
 type TimeoutDecorator struct{}
 
@@ -94,7 +92,7 @@ func (t *TimeoutDecorator) extractTimeout(params []ast.NamedParameter) (time.Dur
 	if err := decorators.ValidateDuration(params, "duration", 1*time.Millisecond, 24*time.Hour, "timeout"); err != nil {
 		return 0, err
 	}
-	
+
 	// Enhanced security validation for timeout safety
 	if err := decorators.ValidateTimeoutSafety(params, "duration", 24*time.Hour, "timeout"); err != nil {
 		return 0, err
@@ -115,11 +113,11 @@ func (t *TimeoutDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	err := timeoutExecutor.Execute(func() error {
 		// Execute commands sequentially with isolated context
 		childCtx := ctx.Child()
-		
+
 		// Use CommandExecutor utility to handle all commands
 		commandExecutor := decorators.NewCommandExecutor()
 		defer commandExecutor.Cleanup()
-		
+
 		return commandExecutor.ExecuteCommandsWithInterpreter(childCtx, content)
 	})
 
@@ -128,7 +126,6 @@ func (t *TimeoutDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 		Error: err,
 	}
 }
-
 
 // executeGeneratorImpl generates Go code for timeout logic using new utilities
 func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
@@ -157,7 +154,7 @@ func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 		// Use TemplateBuilder to create sequential execution, then wrap with timeout
 		sequentialBuilder := decorators.NewTemplateBuilder()
 		sequentialBuilder.WithSequentialExecution(operations, true) // Stop on error
-		
+
 		sequentialCode, err := sequentialBuilder.BuildTemplate()
 		if err != nil {
 			return &execution.ExecutionResult{
@@ -170,7 +167,7 @@ func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 
 	// Create a single operation from the combined code and wrap with timeout
 	operation := decorators.Operation{Code: combinedCode}
-	
+
 	// Use TemplateBuilder to create timeout pattern with pre-validated duration
 	builder := decorators.NewTemplateBuilder()
 	durationExpr := decorators.DurationToGoExpr(timeout)

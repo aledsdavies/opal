@@ -13,7 +13,6 @@ import (
 // RetryDecorator implements the @retry decorator for retrying failed command execution
 type RetryDecorator struct{}
 
-
 // Name returns the decorator name
 func (r *RetryDecorator) Name() string {
 	return "retry"
@@ -99,7 +98,7 @@ func (r *RetryDecorator) extractRetryParams(params []ast.NamedParameter) (int, t
 	if err := decorators.ValidatePositiveInteger(params, "attempts", "retry"); err != nil {
 		return 0, 0, err
 	}
-	
+
 	// Enhanced security validation for attempts to prevent resource exhaustion
 	if err := decorators.ValidateResourceLimits(params, "attempts", 100, "retry"); err != nil {
 		return 0, 0, err
@@ -109,7 +108,7 @@ func (r *RetryDecorator) extractRetryParams(params []ast.NamedParameter) (int, t
 	if err := decorators.ValidateDuration(params, "delay", 1*time.Millisecond, 1*time.Hour, "retry"); err != nil {
 		return 0, 0, err
 	}
-	
+
 	// Enhanced security validation for timeout safety
 	if err := decorators.ValidateTimeoutSafety(params, "delay", 1*time.Hour, "retry"); err != nil {
 		return 0, 0, err
@@ -132,11 +131,11 @@ func (r *RetryDecorator) executeInterpreterImpl(ctx execution.InterpreterContext
 	err := retryExecutor.Execute(func() error {
 		// Execute commands sequentially with isolated context
 		childCtx := ctx.Child()
-		
+
 		// Use CommandExecutor utility to handle all commands
 		commandExecutor := decorators.NewCommandExecutor()
 		defer commandExecutor.Cleanup()
-		
+
 		return commandExecutor.ExecuteCommandsWithInterpreter(childCtx, content)
 	})
 
@@ -173,7 +172,7 @@ func (r *RetryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, ma
 		// Use TemplateBuilder to create sequential execution, then wrap with retry
 		sequentialBuilder := decorators.NewTemplateBuilder()
 		sequentialBuilder.WithSequentialExecution(operations, true) // Stop on error
-		
+
 		sequentialCode, err := sequentialBuilder.BuildTemplate()
 		if err != nil {
 			return &execution.ExecutionResult{
@@ -186,7 +185,7 @@ func (r *RetryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, ma
 
 	// Create a single operation from the combined code and wrap with retry
 	operation := decorators.Operation{Code: combinedCode}
-	
+
 	// Use TemplateBuilder to create retry pattern with pre-validated delay
 	builder := decorators.NewTemplateBuilder()
 	delayExpr := decorators.DurationToGoExpr(delay)

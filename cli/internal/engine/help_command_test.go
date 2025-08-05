@@ -48,7 +48,7 @@ deploy: echo "Deploying..."
 
 	// Write the generated Go code
 	mainGoPath := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(mainGoPath, []byte(generatedCode), 0644); err != nil {
+	if err := os.WriteFile(mainGoPath, []byte(generatedCode), 0o644); err != nil {
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
 
@@ -65,7 +65,7 @@ require (
 )
 `
 	goModPath := filepath.Join(tmpDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		t.Fatalf("Failed to write go.mod: %v", err)
 	}
 
@@ -90,14 +90,14 @@ require (
 	t.Run("HelpCommandDoesNotHang", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		
+
 		execCmd := exec.CommandContext(ctx, binaryPath, "help")
 		output, err := execCmd.CombinedOutput()
-		
+
 		if ctx.Err() == context.DeadlineExceeded {
 			t.Fatal("CRITICAL BUG: help command hangs and times out after 5 seconds")
 		}
-		
+
 		if err != nil {
 			t.Fatalf("Help command failed: %v\nOutput: %s", err, output)
 		}
@@ -120,18 +120,18 @@ require (
 		}
 	})
 
-	// TEST 2: Execute help with specific command 
+	// TEST 2: Execute help with specific command
 	t.Run("HelpForSpecificCommand", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		
+
 		execCmd := exec.CommandContext(ctx, binaryPath, "help", "build")
 		output, err := execCmd.CombinedOutput()
-		
+
 		if ctx.Err() == context.DeadlineExceeded {
 			t.Fatal("CRITICAL BUG: help build command hangs and times out")
 		}
-		
+
 		if err != nil {
 			t.Fatalf("Help build command failed: %v\nOutput: %s", err, output)
 		}
@@ -149,10 +149,10 @@ require (
 	t.Run("NoArgumentsShowsHelp", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		
+
 		execCmd := exec.CommandContext(ctx, binaryPath)
 		output, err := execCmd.CombinedOutput()
-		
+
 		if ctx.Err() == context.DeadlineExceeded {
 			t.Fatal("CRITICAL BUG: CLI with no arguments hangs and times out")
 		}
@@ -198,7 +198,7 @@ func TestGeneratedCliBasicExecution(t *testing.T) {
 	}
 
 	generatedCode := result.String()
-	
+
 	tmpDir, err := os.MkdirTemp("", "devcmd-basic-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -207,7 +207,7 @@ func TestGeneratedCliBasicExecution(t *testing.T) {
 
 	// Write files
 	mainGoPath := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(mainGoPath, []byte(generatedCode), 0644); err != nil {
+	if err := os.WriteFile(mainGoPath, []byte(generatedCode), 0o644); err != nil {
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
 
@@ -219,7 +219,7 @@ require (
 	github.com/spf13/pflag v1.0.7 // indirect
 )`
 	goModPath := filepath.Join(tmpDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		t.Fatalf("Failed to write go.mod: %v", err)
 	}
 
@@ -240,14 +240,14 @@ require (
 	// Execute simple command
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	execCmd := exec.CommandContext(ctx, binaryPath, "simple")
 	output, err := execCmd.CombinedOutput()
-	
+
 	if ctx.Err() == context.DeadlineExceeded {
 		t.Fatal("CRITICAL BUG: simple command hangs and times out")
 	}
-	
+
 	if err != nil {
 		t.Fatalf("Simple command failed: %v\nOutput: %s", err, output)
 	}

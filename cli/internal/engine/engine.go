@@ -192,7 +192,6 @@ func (e *Engine) GenerateCodeWithModule(program *ast.Program, moduleName string)
 	return e.generateCodeWithTemplate(program, moduleName)
 }
 
-
 // WriteFiles writes the generated Go code and go.mod to the specified directory
 func (e *Engine) WriteFiles(result *GenerationResult, targetDir string, moduleName string) error {
 	// Write main.go
@@ -209,7 +208,6 @@ func (e *Engine) WriteFiles(result *GenerationResult, targetDir string, moduleNa
 
 	return nil
 }
-
 
 // collectDecoratorImports collects import requirements from all decorators used in the program
 func (e *Engine) collectDecoratorImports(program *ast.Program, result *GenerationResult) error {
@@ -380,7 +378,7 @@ func (e *Engine) generateGoMod(result *GenerationResult, moduleName string) erro
 	if moduleName == "" {
 		moduleName = "devcmd-generated"
 	}
-	
+
 	templateData := GoModTemplateData{
 		ModuleName:    moduleName,
 		GoVersion:     e.goVersion,
@@ -566,28 +564,28 @@ func (e *Engine) sortCommandsByDependencies(commands []*ast.CommandDecl) ([]*ast
 	// Build dependency graph
 	dependencies := make(map[string][]string) // command -> list of commands it depends on
 	commandMap := make(map[string]*ast.CommandDecl)
-	
+
 	// Initialize maps
 	for _, cmd := range commands {
 		dependencies[cmd.Name] = []string{}
 		commandMap[cmd.Name] = cmd
 	}
-	
+
 	// Scan each command for decorator dependencies
 	for _, cmd := range commands {
 		deps := e.findCommandDependencies(cmd)
 		dependencies[cmd.Name] = deps
 	}
-	
+
 	// Topological sort using Kahn's algorithm
 	sorted := []*ast.CommandDecl{}
 	inDegree := make(map[string]int)
-	
+
 	// Calculate in-degrees (number of dependencies each command has)
 	for cmd, deps := range dependencies {
 		inDegree[cmd] = len(deps) // Count how many commands this one depends on
 	}
-	
+
 	// Queue commands with no dependencies
 	queue := []string{}
 	for cmd, degree := range inDegree {
@@ -595,14 +593,14 @@ func (e *Engine) sortCommandsByDependencies(commands []*ast.CommandDecl) ([]*ast
 			queue = append(queue, cmd)
 		}
 	}
-	
+
 	// Process queue
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
-		
+
 		sorted = append(sorted, commandMap[current])
-		
+
 		// Reduce in-degree for commands that depend on the current command
 		for cmd, deps := range dependencies {
 			for _, dep := range deps {
@@ -615,31 +613,31 @@ func (e *Engine) sortCommandsByDependencies(commands []*ast.CommandDecl) ([]*ast
 			}
 		}
 	}
-	
+
 	// Check for circular dependencies
 	if len(sorted) != len(commands) {
 		return nil, fmt.Errorf("circular dependency detected in command declarations")
 	}
-	
+
 	return sorted, nil
 }
 
 // findCommandDependencies scans a command for decorator dependencies using CommandDependencyProvider interface
 func (e *Engine) findCommandDependencies(cmd *ast.CommandDecl) []string {
 	dependencies := []string{}
-	
+
 	for _, content := range cmd.Body.Content {
 		deps := e.scanContentForDependencies(content)
 		dependencies = append(dependencies, deps...)
 	}
-	
+
 	return dependencies
 }
 
 // scanContentForDependencies recursively scans command content for dependencies using decorator interfaces
 func (e *Engine) scanContentForDependencies(content ast.CommandContent) []string {
 	dependencies := []string{}
-	
+
 	switch c := content.(type) {
 	case *ast.ShellContent:
 		for _, part := range c.Parts {
@@ -682,7 +680,7 @@ func (e *Engine) scanContentForDependencies(content ast.CommandContent) []string
 			}
 		}
 	}
-	
+
 	return dependencies
 }
 
@@ -725,7 +723,6 @@ func (e *Engine) analyzeCommands(commands []ast.CommandDecl) CommandGroups {
 
 	return groups
 }
-
 
 // getDevcmdVersion attempts to determine the current devcmd version for go.mod generation
 func (e *Engine) getDevcmdVersion() string {
@@ -784,6 +781,15 @@ type ExecutionContext struct {
 	context.Context
 	WorkingDir string            // Current working directory 
 	EnvContext map[string]string // Environment variables (replaces global envContext)
+}
+
+// Child creates a child context that inherits from the parent but can be modified independently
+func (ctx ExecutionContext) Child() ExecutionContext {
+	return ExecutionContext{
+		Context:    ctx.Context,
+		WorkingDir: ctx.WorkingDir, // Inherit parent's WorkingDir
+		EnvContext: ctx.EnvContext, // Share the same environment reference
+	}
 }
 
 // WithWorkingDir creates a new context with a different working directory
@@ -1189,13 +1195,13 @@ func main() {
 
 // Template data structures
 type CLITemplateData struct {
-	StandardImports     []string
-	ThirdPartyImports   []string
-	Variables           []VariableData
-	Commands            []CommandData
-	ProcessGroups       []ProcessGroupData
-	CommandResultDef    string // Inline CommandResult definition
-	TrackedEnvVars      map[string]string // Environment variables for ExecutionContext
+	StandardImports   []string
+	ThirdPartyImports []string
+	Variables         []VariableData
+	Commands          []CommandData
+	ProcessGroups     []ProcessGroupData
+	CommandResultDef  string            // Inline CommandResult definition
+	TrackedEnvVars    map[string]string // Environment variables for ExecutionContext
 }
 
 type VariableData struct {
@@ -1231,7 +1237,6 @@ type ProcessGroupData struct {
 
 // generateCodeWithTemplate uses a template-based approach instead of fragile WriteString calls
 func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName string) (*GenerationResult, error) {
-
 	// Create generator context with decorator lookups
 	ctx := e.CreateGeneratorContext(context.Background(), program)
 
@@ -1257,9 +1262,9 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 	result.AddStandardImport("fmt")
 	result.AddStandardImport("os")
 	result.AddStandardImport("os/exec")
-	result.AddStandardImport("bytes")   // Needed for output capture
-	result.AddStandardImport("io")      // Needed for streaming output
-	
+	result.AddStandardImport("bytes") // Needed for output capture
+	result.AddStandardImport("io")    // Needed for streaming output
+
 	// Add strings import if ActionDecorator templates that use strings are used
 	if e.programUsesStringsInActionDecorators(program) {
 		result.AddStandardImport("strings") // Needed for ActionDecorator templates with string operations
@@ -1342,7 +1347,6 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 		shellCommandIndex := 0
 
 		for _, content := range cmd.Body.Content {
-
 			// Execute each piece of content and collect the generated code
 			switch c := content.(type) {
 			case *ast.ShellContent:
@@ -1352,7 +1356,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 					commandSuffix = fmt.Sprintf("%s%d", cmd.Name, shellCommandIndex)
 				}
 				cmdCtx := ctx.WithCurrentCommand(commandSuffix)
-				
+
 				execResult := cmdCtx.GenerateShellCode(c)
 				if execResult.Error != nil {
 					return nil, fmt.Errorf("failed to generate shell code for command %s: %w", cmd.Name, execResult.Error)
@@ -1445,7 +1449,6 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 				return nil, fmt.Errorf("unsupported command content type %T in command %s", content, cmd.Name)
 			}
 		}
-
 
 		// Generate execution plan for this command (both colored and no-color versions)
 		executionPlan := ""
@@ -1610,10 +1613,10 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 
 	// Execute the template with basic functions
 	tmpl, err := template.New("mainCLI").Funcs(template.FuncMap{
-		"add": func(a, b int) int { return a + b },
-		"title": func(s string) string { return strings.Title(s) },
+		"add":       func(a, b int) int { return a + b },
+		"title":     func(s string) string { return strings.Title(s) },
 		"hasSuffix": func(s, suffix string) bool { return strings.HasSuffix(strings.TrimSpace(s), suffix) },
-		"contains": func(s, substr string) bool { return strings.Contains(s, substr) },
+		"contains":  func(s, substr string) bool { return strings.Contains(s, substr) },
 	}).Parse(mainCLITemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse main CLI template: %w", err)
@@ -1634,7 +1637,6 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 
 	return result, nil
 }
-
 
 // programUsesActionDecorators checks if the program uses ActionDecorator templates
 func (e *Engine) programUsesActionDecorators(program *ast.Program) bool {
@@ -1674,8 +1676,8 @@ func (e *Engine) commandUsesActionDecorators(content ast.CommandContent) bool {
 		for _, part := range c.Parts {
 			if textPart, ok := part.(*ast.TextPart); ok {
 				text := textPart.Text
-				if strings.Contains(text, "&&") || strings.Contains(text, "||") || 
-				   strings.Contains(text, "|") || strings.Contains(text, ">>") {
+				if strings.Contains(text, "&&") || strings.Contains(text, "||") ||
+					strings.Contains(text, "|") || strings.Contains(text, ">>") {
 					return true
 				}
 			}
@@ -1775,7 +1777,7 @@ func (e *Engine) setupDecoratorLookups(ctx execution.GeneratorContext) {
 			}
 			return decorator, true
 		})
-		
+
 		// Set up pattern decorator lookup function using the decorator registry
 		generatorCtx.SetPatternDecoratorLookup(func(name string) (interface{}, bool) {
 			decorator, err := decorators.GetPattern(name)
@@ -1784,7 +1786,7 @@ func (e *Engine) setupDecoratorLookups(ctx execution.GeneratorContext) {
 			}
 			return decorator, true
 		})
-		
+
 		// Set up value decorator lookup function using the decorator registry
 		generatorCtx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
 			decorator, err := decorators.GetValue(name)
@@ -1864,7 +1866,7 @@ func (e *Engine) validateCmdReferencesInContent(content ast.CommandContent, avai
 			if err != nil {
 				return fmt.Errorf("invalid @cmd decorator: %w", err)
 			}
-			
+
 			// Check if the referenced command exists
 			if !availableCommands[cmdName] {
 				return fmt.Errorf("@cmd decorator references non-existent command '%s'", cmdName)

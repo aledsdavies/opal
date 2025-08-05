@@ -2,8 +2,10 @@ package decorators
 
 import (
 	"fmt"
+	"hash/fnv"
 	"os"
 	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/core/plan"
@@ -11,9 +13,26 @@ import (
 	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
-
 // WorkdirDecorator implements the @workdir decorator for changing working directory
 type WorkdirDecorator struct{}
+
+// generateUniqueVarName generates a unique variable name based on input content
+// This helps avoid variable name conflicts in generated code
+func generateUniqueVarName(prefix, content string) string {
+	h := fnv.New32a()
+	h.Write([]byte(content))
+	return fmt.Sprintf("%s%d", prefix, h.Sum32())
+}
+
+// generateUniqueContextVar generates a unique context variable name for decorators
+func generateUniqueContextVar(prefix, path, additionalContent string) string {
+	return generateUniqueVarName(prefix+"Ctx", path+additionalContent)
+}
+
+// generateUniqueResultVar generates a unique result variable name for shell commands
+func generateUniqueResultVar(prefix, command, context string) string {
+	return generateUniqueVarName(prefix+"Result", command+context)
+}
 
 // Name returns the decorator name
 func (d *WorkdirDecorator) Name() string {
@@ -103,7 +122,7 @@ func (d *WorkdirDecorator) extractWorkdirParams(params []ast.NamedParameter) (st
 	if err := decorators.ValidatePathSafety(params, "path", "workdir"); err != nil {
 		return "", false, err
 	}
-	
+
 	// Perform comprehensive security validation for all parameters
 	_, err := decorators.PerformComprehensiveSecurityValidation(params, d.ParameterSchema(), "workdir")
 	if err != nil {
@@ -145,7 +164,7 @@ func (d *WorkdirDecorator) executePlanImpl(path string, createIfNotExists bool, 
 	if createIfNotExists {
 		description += " (create if needed)"
 	}
-	
+
 	element := plan.Decorator("workdir").
 		WithType("block").
 		WithParameter("path", path).
@@ -183,7 +202,7 @@ func (d *WorkdirDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	// Handle directory creation or verification
 	if createIfNotExists {
 		// Create directory if it doesn't exist
-		if err := os.MkdirAll(path, 0755); err != nil {
+		if err := os.MkdirAll(path, 0o755); err != nil {
 			return &execution.ExecutionResult{
 				Data:  nil,
 				Error: fmt.Errorf("failed to create directory %s: %w", path, err),
@@ -224,12 +243,9 @@ func (d *WorkdirDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 
 // executeGeneratorImpl generates Go code for the workdir decorator using new utilities
 func (d *WorkdirDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, path string, createIfNotExists bool, content []ast.CommandContent) *execution.ExecutionResult {
-	// Create a child context with the working directory set
-	workdirCtx := ctx.Child().WithWorkingDir(path)
-	
 	// Generate inline code that integrates with sequential execution
 	var generatedCode strings.Builder
-	
+
 	// Add directory verification/creation code
 	if createIfNotExists {
 		generatedCode.WriteString("// Create directory if it doesn't exist\n")
@@ -242,22 +258,28 @@ func (d *WorkdirDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 		generatedCode.WriteString(fmt.Sprintf("\treturn CommandResult{Stdout: \"\", Stderr: fmt.Sprintf(\"failed to access directory %s: %%v\", err), ExitCode: 1}\n", path))
 		generatedCode.WriteString("}\n")
 	}
-	
-	// Generate shell commands with the updated working directory context
-	shellBuilder := execution.NewShellCodeBuilder(workdirCtx)
+
+	// Generate unique context variable name using utility function
+	contextVarName := generateUniqueContextVar("workdir", path, fmt.Sprintf("%p", &generatedCode))
+
+	// Generate code to create ExecutionContext with updated working directory
+	generatedCode.WriteString(fmt.Sprintf("// Create ExecutionContext with working directory: %s\n", path))
+	generatedCode.WriteString(fmt.Sprintf("%s := execCtx.Child().WithWorkingDir(%q)\n", contextVarName, path))
+	generatedCode.WriteString("\n")
+
+	// Generate shell commands using template
 	for _, cmdContent := range content {
 		switch c := cmdContent.(type) {
 		case *ast.ShellContent:
-			// Generate shell code with the workdir context (updated working directory)
-			code, err := shellBuilder.GenerateShellCodeWithReturn(c)
+			// Generate shell code using unique workdir context template
+			shellCode, err := d.generateShellCodeWithTemplate(c, contextVarName)
 			if err != nil {
 				return &execution.ExecutionResult{
 					Data:  "",
 					Error: fmt.Errorf("failed to generate shell code in workdir: %w", err),
 				}
 			}
-			generatedCode.WriteString(code)
-			generatedCode.WriteString("\n")
+			generatedCode.WriteString(shellCode)
 		case *ast.BlockDecorator:
 			// Handle nested decorators - this would need recursive processing
 			// For now, return an error as this is complex
@@ -277,6 +299,65 @@ func (d *WorkdirDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 		Data:  generatedCode.String(),
 		Error: nil,
 	}
+}
+
+// ShellTemplateData holds template data for workdir shell execution
+type ShellTemplateData struct {
+	Command string
+}
+
+// generateShellCodeWithTemplate generates shell execution code using unique workdir context
+func (d *WorkdirDecorator) generateShellCodeWithTemplate(content *ast.ShellContent, contextVarName string) (string, error) {
+	// Build the command string from shell content parts
+	var cmdParts []string
+	for _, part := range content.Parts {
+		switch p := part.(type) {
+		case *ast.TextPart:
+			cmdParts = append(cmdParts, p.Text)
+		case *ast.ValueDecorator:
+			// For now, we'll include the decorator as-is
+			// A full implementation would process @var decorators here
+			cmdParts = append(cmdParts, fmt.Sprintf("@%s", p.Name))
+		default:
+			return "", fmt.Errorf("unsupported shell part type in workdir: %T", part)
+		}
+	}
+
+	commandStr := strings.Join(cmdParts, "")
+
+	// Generate unique variable name using utility function
+	varName := generateUniqueResultVar("workdir", commandStr, contextVarName)
+
+	// Define the template for shell execution with unique workdir context
+	const workdirShellTemplate = `// Execute shell command in working directory
+{{.VarName}} := executeShellCommand({{.ContextVar}}, {{printf "%q" .Command}})
+if {{.VarName}}.Failed() {
+	return {{.VarName}}
+}
+`
+
+	// Parse and execute the template
+	tmpl, err := template.New("workdirShell").Parse(workdirShellTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse workdir shell template: %w", err)
+	}
+
+	templateData := struct {
+		Command    string
+		VarName    string
+		ContextVar string
+	}{
+		Command:    commandStr,
+		VarName:    varName,
+		ContextVar: contextVarName,
+	}
+
+	var result strings.Builder
+	if err := tmpl.Execute(&result, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute workdir shell template: %w", err)
+	}
+
+	return result.String(), nil
 }
 
 // init registers the workdir decorator

@@ -33,7 +33,6 @@ func (v *VarDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-
 // ExpandInterpreter returns the actual variable value for interpreter mode
 func (v *VarDecorator) ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult {
 	varName, err := v.extractVariableName(params)
@@ -74,7 +73,7 @@ func (v *VarDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []
 	// Generate Go code that references the variable
 	// The variable will be defined in the generated code as: varName := "value"
 	goCode := varName
-	
+
 	return &execution.ExecutionResult{
 		Data:  goCode, // Returns the Go variable name to be used in fmt.Sprintf
 		Error: nil,
@@ -124,13 +123,13 @@ func (v *VarDecorator) extractVariableName(params []ast.NamedParameter) (string,
 		// Fallback to first parameter if no "name" parameter
 		nameParam = &params[0]
 	}
-	
+
 	if nameParam != nil {
 		if ident, ok := nameParam.Value.(*ast.Identifier); ok {
 			return ident.Name, nil
 		}
 	}
-	
+
 	return "", fmt.Errorf("@var decorator requires a valid identifier parameter")
 }
 

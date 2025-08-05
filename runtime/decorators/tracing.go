@@ -32,24 +32,24 @@ type TraceEvent struct {
 
 // ExecutionTrace represents a complete execution trace
 type ExecutionTrace struct {
-	ID         string       `json:"id"`
-	StartTime  time.Time    `json:"start_time"`
-	EndTime    time.Time    `json:"end_time"`
-	Duration   time.Duration `json:"duration"`
-	Events     []TraceEvent `json:"events"`
-	TotalEvents int         `json:"total_events"`
-	Success    bool         `json:"success"`
-	RootEvent  string       `json:"root_event"`
+	ID          string        `json:"id"`
+	StartTime   time.Time     `json:"start_time"`
+	EndTime     time.Time     `json:"end_time"`
+	Duration    time.Duration `json:"duration"`
+	Events      []TraceEvent  `json:"events"`
+	TotalEvents int           `json:"total_events"`
+	Success     bool          `json:"success"`
+	RootEvent   string        `json:"root_event"`
 }
 
 // ExecutionTracer manages execution tracing
 type ExecutionTracer struct {
-	mu       sync.RWMutex
-	enabled  bool
-	traces   map[string]*ExecutionTrace
-	events   map[string]*TraceEvent
+	mu        sync.RWMutex
+	enabled   bool
+	traces    map[string]*ExecutionTrace
+	events    map[string]*TraceEvent
 	maxTraces int
-	logger   *Logger
+	logger    *Logger
 }
 
 // NewExecutionTracer creates a new execution tracer
@@ -91,25 +91,25 @@ func (et *ExecutionTracer) StartTrace(traceID, name string) *ExecutionTrace {
 	if !et.IsEnabled() {
 		return nil
 	}
-	
+
 	et.mu.Lock()
 	defer et.mu.Unlock()
-	
+
 	trace := &ExecutionTrace{
 		ID:        traceID,
 		StartTime: time.Now(),
 		Events:    make([]TraceEvent, 0),
 		Success:   false,
 	}
-	
+
 	// Evict old traces if needed
 	if len(et.traces) >= et.maxTraces {
 		et.evictOldestTrace()
 	}
-	
+
 	et.traces[traceID] = trace
 	et.logger.Debugf("Started trace %s: %s", traceID, name)
-	
+
 	return trace
 }
 
@@ -118,17 +118,17 @@ func (et *ExecutionTracer) FinishTrace(traceID string, success bool) {
 	if !et.IsEnabled() {
 		return
 	}
-	
+
 	et.mu.Lock()
 	defer et.mu.Unlock()
-	
+
 	if trace, exists := et.traces[traceID]; exists {
 		trace.EndTime = time.Now()
 		trace.Duration = trace.EndTime.Sub(trace.StartTime)
 		trace.Success = success
 		trace.TotalEvents = len(trace.Events)
-		
-		et.logger.Debugf("Finished trace %s: success=%v duration=%v events=%d", 
+
+		et.logger.Debugf("Finished trace %s: success=%v duration=%v events=%d",
 			traceID, success, trace.Duration, trace.TotalEvents)
 	}
 }
@@ -138,13 +138,13 @@ func (et *ExecutionTracer) StartEvent(traceID, eventID, parentID, eventType, nam
 	if !et.IsEnabled() {
 		return nil
 	}
-	
+
 	et.mu.Lock()
 	defer et.mu.Unlock()
-	
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	event := &TraceEvent{
 		ID:           eventID,
 		ParentID:     parentID,
@@ -157,12 +157,12 @@ func (et *ExecutionTracer) StartEvent(traceID, eventID, parentID, eventType, nam
 		MemoryBefore: int64(memStats.Alloc),
 		GoroutineID:  getGoroutineID(),
 	}
-	
+
 	// Add stack trace for debugging (always add for tracing purposes)
 	event.StackTrace = getStackTrace()
-	
+
 	et.events[eventID] = event
-	
+
 	// Add to trace if it exists
 	if trace, exists := et.traces[traceID]; exists {
 		trace.Events = append(trace.Events, *event)
@@ -170,9 +170,9 @@ func (et *ExecutionTracer) StartEvent(traceID, eventID, parentID, eventType, nam
 			trace.RootEvent = eventID
 		}
 	}
-	
+
 	et.logger.Tracef("Started event %s in trace %s: %s", eventID, traceID, name)
-	
+
 	return event
 }
 
@@ -181,18 +181,18 @@ func (et *ExecutionTracer) FinishEvent(eventID string, success bool, err error) 
 	if !et.IsEnabled() {
 		return
 	}
-	
+
 	et.mu.Lock()
 	defer et.mu.Unlock()
-	
+
 	if event, exists := et.events[eventID]; exists {
 		var memStats runtime.MemStats
 		runtime.ReadMemStats(&memStats)
-		
+
 		event.EndTime = time.Now()
 		event.Duration = event.EndTime.Sub(event.StartTime)
 		event.MemoryAfter = int64(memStats.Alloc)
-		
+
 		if success {
 			event.Status = "completed"
 		} else {
@@ -201,8 +201,8 @@ func (et *ExecutionTracer) FinishEvent(eventID string, success bool, err error) 
 				event.Error = err.Error()
 			}
 		}
-		
-		et.logger.Tracef("Finished event %s: status=%s duration=%v", 
+
+		et.logger.Tracef("Finished event %s: status=%s duration=%v",
 			eventID, event.Status, event.Duration)
 	}
 }
@@ -211,7 +211,7 @@ func (et *ExecutionTracer) FinishEvent(eventID string, success bool, err error) 
 func (et *ExecutionTracer) GetTrace(traceID string) *ExecutionTrace {
 	et.mu.RLock()
 	defer et.mu.RUnlock()
-	
+
 	if trace, exists := et.traces[traceID]; exists {
 		// Return a copy to prevent race conditions
 		traceCopy := *trace
@@ -219,7 +219,7 @@ func (et *ExecutionTracer) GetTrace(traceID string) *ExecutionTrace {
 		copy(traceCopy.Events, trace.Events)
 		return &traceCopy
 	}
-	
+
 	return nil
 }
 
@@ -227,7 +227,7 @@ func (et *ExecutionTracer) GetTrace(traceID string) *ExecutionTrace {
 func (et *ExecutionTracer) GetAllTraces() []ExecutionTrace {
 	et.mu.RLock()
 	defer et.mu.RUnlock()
-	
+
 	traces := make([]ExecutionTrace, 0, len(et.traces))
 	for _, trace := range et.traces {
 		traceCopy := *trace
@@ -235,7 +235,7 @@ func (et *ExecutionTracer) GetAllTraces() []ExecutionTrace {
 		copy(traceCopy.Events, trace.Events)
 		traces = append(traces, traceCopy)
 	}
-	
+
 	return traces
 }
 
@@ -243,7 +243,7 @@ func (et *ExecutionTracer) GetAllTraces() []ExecutionTrace {
 func (et *ExecutionTracer) ClearTraces() {
 	et.mu.Lock()
 	defer et.mu.Unlock()
-	
+
 	et.traces = make(map[string]*ExecutionTrace)
 	et.events = make(map[string]*TraceEvent)
 	et.logger.Info("Cleared all traces")
@@ -255,12 +255,12 @@ func (et *ExecutionTracer) ExportTrace(traceID string) (string, error) {
 	if trace == nil {
 		return "", fmt.Errorf("trace not found: %s", traceID)
 	}
-	
+
 	data, err := json.MarshalIndent(trace, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal trace: %w", err)
 	}
-	
+
 	return string(data), nil
 }
 
@@ -268,13 +268,13 @@ func (et *ExecutionTracer) ExportTrace(traceID string) (string, error) {
 func (et *ExecutionTracer) GetTraceStatistics() map[string]interface{} {
 	et.mu.RLock()
 	defer et.mu.RUnlock()
-	
+
 	totalTraces := len(et.traces)
 	successfulTraces := 0
 	failedTraces := 0
 	totalEvents := 0
 	totalDuration := time.Duration(0)
-	
+
 	for _, trace := range et.traces {
 		if trace.Success {
 			successfulTraces++
@@ -284,12 +284,12 @@ func (et *ExecutionTracer) GetTraceStatistics() map[string]interface{} {
 		totalEvents += len(trace.Events)
 		totalDuration += trace.Duration
 	}
-	
+
 	avgDuration := time.Duration(0)
 	if totalTraces > 0 {
 		avgDuration = totalDuration / time.Duration(totalTraces)
 	}
-	
+
 	return map[string]interface{}{
 		"total_traces":      totalTraces,
 		"successful_traces": successfulTraces,
@@ -306,7 +306,7 @@ func (et *ExecutionTracer) evictOldestTrace() {
 	var oldestID string
 	var oldestTime time.Time
 	first := true
-	
+
 	for id, trace := range et.traces {
 		if first || trace.StartTime.Before(oldestTime) {
 			oldestID = id
@@ -314,7 +314,7 @@ func (et *ExecutionTracer) evictOldestTrace() {
 			first = false
 		}
 	}
-	
+
 	if oldestID != "" {
 		delete(et.traces, oldestID)
 		et.logger.Debugf("Evicted oldest trace: %s", oldestID)
@@ -369,30 +369,30 @@ func (td *TracingDecorator) ExecuteInterpreter(ctx execution.InterpreterContext,
 	if !td.tracer.IsEnabled() {
 		return td.underlying.ExecuteInterpreter(ctx, params, content)
 	}
-	
+
 	traceID := generateTraceID()
 	eventID := generateEventID()
-	
+
 	td.tracer.StartTrace(traceID, fmt.Sprintf("Interpreter: @%s", td.underlying.Name()))
 	defer td.tracer.FinishTrace(traceID, false) // Will be updated on success
-	
+
 	metadata := map[string]interface{}{
 		"mode":        "interpreter",
 		"params":      len(params),
 		"content":     len(content),
 		"working_dir": getWorkingDir(ctx),
 	}
-	
-	td.tracer.StartEvent(traceID, eventID, "", "decorator_execution", 
-		fmt.Sprintf("@%s interpreter execution", td.underlying.Name()), 
+
+	td.tracer.StartEvent(traceID, eventID, "", "decorator_execution",
+		fmt.Sprintf("@%s interpreter execution", td.underlying.Name()),
 		td.underlying.Name(), metadata)
-	
+
 	result := td.underlying.ExecuteInterpreter(ctx, params, content)
-	
+
 	success := result.Error == nil
 	td.tracer.FinishEvent(eventID, success, result.Error)
 	td.tracer.FinishTrace(traceID, success)
-	
+
 	return result
 }
 
@@ -401,29 +401,29 @@ func (td *TracingDecorator) ExecuteGenerator(ctx execution.GeneratorContext, par
 	if !td.tracer.IsEnabled() {
 		return td.underlying.ExecuteGenerator(ctx, params, content)
 	}
-	
+
 	traceID := generateTraceID()
 	eventID := generateEventID()
-	
+
 	td.tracer.StartTrace(traceID, fmt.Sprintf("Generator: @%s", td.underlying.Name()))
 	defer td.tracer.FinishTrace(traceID, false) // Will be updated on success
-	
+
 	metadata := map[string]interface{}{
 		"mode":    "generator",
 		"params":  len(params),
 		"content": len(content),
 	}
-	
-	td.tracer.StartEvent(traceID, eventID, "", "decorator_execution", 
-		fmt.Sprintf("@%s generator execution", td.underlying.Name()), 
+
+	td.tracer.StartEvent(traceID, eventID, "", "decorator_execution",
+		fmt.Sprintf("@%s generator execution", td.underlying.Name()),
 		td.underlying.Name(), metadata)
-	
+
 	result := td.underlying.ExecuteGenerator(ctx, params, content)
-	
+
 	success := result.Error == nil
 	td.tracer.FinishEvent(eventID, success, result.Error)
 	td.tracer.FinishTrace(traceID, success)
-	
+
 	return result
 }
 
@@ -432,29 +432,29 @@ func (td *TracingDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.
 	if !td.tracer.IsEnabled() {
 		return td.underlying.ExecutePlan(ctx, params, content)
 	}
-	
+
 	traceID := generateTraceID()
 	eventID := generateEventID()
-	
+
 	td.tracer.StartTrace(traceID, fmt.Sprintf("Plan: @%s", td.underlying.Name()))
 	defer td.tracer.FinishTrace(traceID, false) // Will be updated on success
-	
+
 	metadata := map[string]interface{}{
 		"mode":    "plan",
 		"params":  len(params),
 		"content": len(content),
 	}
-	
-	td.tracer.StartEvent(traceID, eventID, "", "decorator_execution", 
-		fmt.Sprintf("@%s plan execution", td.underlying.Name()), 
+
+	td.tracer.StartEvent(traceID, eventID, "", "decorator_execution",
+		fmt.Sprintf("@%s plan execution", td.underlying.Name()),
 		td.underlying.Name(), metadata)
-	
+
 	result := td.underlying.ExecutePlan(ctx, params, content)
-	
+
 	success := result.Error == nil
 	td.tracer.FinishEvent(eventID, success, result.Error)
 	td.tracer.FinishTrace(traceID, success)
-	
+
 	return result
 }
 

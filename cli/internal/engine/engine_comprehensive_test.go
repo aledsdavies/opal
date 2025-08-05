@@ -526,7 +526,7 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 			description: "Parallel execution with nested workdir decorators",
 		},
 		{
-			name: "timeout_with_workdir", 
+			name: "timeout_with_workdir",
 			input: `build: @timeout(duration=30s) {
     @workdir("cli") { echo "Building CLI..." }
 }`,
@@ -545,7 +545,7 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Logf("Testing: %s", tt.description)
-			
+
 			// Parse the input
 			program, err := parser.Parse(strings.NewReader(tt.input))
 			if err != nil {
@@ -560,14 +560,14 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 				result, err := engine.GenerateCode(program)
 				if err != nil {
 					// Check if it's the old architectural error we fixed
-					if strings.Contains(err.Error(), "undefined:") && 
-					   (strings.Contains(err.Error(), "executeWorkdirDecorator") ||
-					    strings.Contains(err.Error(), "executeParallelDecorator") ||
-					    strings.Contains(err.Error(), "executeTimeoutDecorator") ||
-					    strings.Contains(err.Error(), "executeRetryDecorator")) {
+					if strings.Contains(err.Error(), "undefined:") &&
+						(strings.Contains(err.Error(), "executeWorkdirDecorator") ||
+							strings.Contains(err.Error(), "executeParallelDecorator") ||
+							strings.Contains(err.Error(), "executeTimeoutDecorator") ||
+							strings.Contains(err.Error(), "executeRetryDecorator")) {
 						t.Fatalf("ARCHITECTURAL FAILURE: Still getting undefined decorator function errors: %v", err)
 					}
-					
+
 					// Allow other types of errors (type mismatches, etc.) but log them
 					t.Logf("GeneratorMode had non-architectural error (acceptable): %v", err)
 				} else {
@@ -576,7 +576,7 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 					if generatedCode == "" {
 						t.Error("Generated code should not be empty")
 					}
-					
+
 					// Check that generated code doesn't contain function calls to missing decorators
 					problematicCalls := []string{
 						"executeWorkdirDecorator(",
@@ -584,13 +584,13 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 						"executeTimeoutDecorator(",
 						"executeRetryDecorator(",
 					}
-					
+
 					for _, call := range problematicCalls {
 						if strings.Contains(generatedCode, call) {
 							t.Errorf("Generated code still contains problematic function call: %s", call)
 						}
 					}
-					
+
 					t.Logf("✅ GeneratorMode successfully generated %d chars of inline decorator code", len(generatedCode))
 				}
 			})
@@ -603,7 +603,7 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 					cmd = &command // Fix: take address of the loop variable
 					break
 				}
-				
+
 				if cmd != nil {
 					_, err := engine.ExecuteCommand(cmd)
 					if err != nil {
@@ -614,7 +614,7 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 				}
 			})
 
-			// Test PlanMode - this should work regardless  
+			// Test PlanMode - this should work regardless
 			t.Run("PlanMode", func(t *testing.T) {
 				// Find a command and generate plan for it
 				var cmd *ast.CommandDecl
@@ -622,7 +622,7 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 					cmd = &command // Fix: take address of the loop variable
 					break
 				}
-				
+
 				if cmd != nil {
 					_, err := engine.ExecuteCommandPlan(cmd)
 					if err != nil {
@@ -641,7 +641,7 @@ func TestNestedDecoratorArchitecture(t *testing.T) {
 // preventing subsequent commands from executing. This would be a catastrophic regression.
 func TestSequentialCommandExecution_CriticalBug(t *testing.T) {
 	tests := []struct {
-		name                 string
+		name                string
 		input               string
 		expectedOutputs     []string // All these outputs should appear in sequence
 		expectedAllExecuted bool     // All commands must execute
@@ -656,11 +656,11 @@ func TestSequentialCommandExecution_CriticalBug(t *testing.T) {
 }`,
 			expectedOutputs: []string{
 				"Step 1: Starting build",
-				"Step 2: Compiling", 
+				"Step 2: Compiling",
 				"Step 3: Build complete",
 			},
 			expectedAllExecuted: true,
-			description: "Three echo commands should all execute in sequence",
+			description:         "Three echo commands should all execute in sequence",
 		},
 		{
 			name: "sequential_with_workdir",
@@ -675,7 +675,7 @@ func TestSequentialCommandExecution_CriticalBug(t *testing.T) {
 				"After workdir",
 			},
 			expectedAllExecuted: true,
-			description: "Commands before and after @workdir should execute",
+			description:         "Commands before and after @workdir should execute",
 		},
 		{
 			name: "complex_sequential_build",
@@ -690,14 +690,14 @@ build: {
 				"✅ Built: ./devcmd",
 			},
 			expectedAllExecuted: true,
-			description: "Real-world build scenario - ALL commands must execute",
+			description:         "Real-world build scenario - ALL commands must execute",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Logf("CRITICAL TEST: %s", tt.description)
-			
+
 			// Parse the input
 			program, err := parser.Parse(strings.NewReader(tt.input))
 			if err != nil {
@@ -722,14 +722,14 @@ build: {
 				// CRITICAL CHECK: The generated code must NOT have early returns that prevent subsequent commands
 				// Look for the pattern where a CommandResult is returned immediately after the first command
 				// This is the bug we're fixing
-				
+
 				// Count the number of "return CommandResult{" statements in the generated code
 				// For a command with multiple steps, there should be exactly ONE final return at the end
 				// NOT multiple returns that exit early
-				
+
 				returnCount := strings.Count(generatedCode, "return CommandResult{")
 				t.Logf("Generated code has %d 'return CommandResult{' statements", returnCount)
-				
+
 				// For each expected output, verify the command structure appears in generated code
 				// Note: We don't check for literal expanded text since variables are processed at generation time
 				for i, expectedOutput := range tt.expectedOutputs {
@@ -746,17 +746,17 @@ build: {
 						}
 					}
 				}
-				
+
 				// CRITICAL: Check that there are no premature returns between commands
 				// This is a heuristic but should catch the main bug pattern
 				lines := strings.Split(generatedCode, "\n")
 				var inExecuteFunction bool
 				var hasReturn bool
 				var hasSubsequentCode bool
-				
+
 				for _, line := range lines {
 					trimmed := strings.TrimSpace(line)
-					
+
 					// Start tracking when we enter an execute function
 					if strings.Contains(trimmed, "execute") && strings.Contains(trimmed, "func()") {
 						inExecuteFunction = true
@@ -764,18 +764,18 @@ build: {
 						hasSubsequentCode = false
 						continue
 					}
-					
+
 					// If we're in an execute function and see a return, mark it
 					if inExecuteFunction && strings.Contains(trimmed, "return CommandResult{") && !strings.Contains(trimmed, "// Final return") {
 						hasReturn = true
 						continue
 					}
-					
+
 					// If we see a return followed by more command execution code, that's the bug
 					if inExecuteFunction && hasReturn && (strings.Contains(trimmed, "ExecCmd") || strings.Contains(trimmed, "exec.Command")) {
 						hasSubsequentCode = true
 					}
-					
+
 					// Reset when we exit the function
 					if strings.Contains(trimmed, "}") && inExecuteFunction {
 						if hasReturn && hasSubsequentCode {
@@ -798,7 +798,7 @@ build: {
 						break
 					}
 				}
-				
+
 				if buildCmd == nil {
 					t.Skip("No build command found")
 				}
@@ -837,28 +837,28 @@ build: {
 	}
 
 	generatedCode := result.String()
-	
+
 	// CRITICAL: Both echo statements should be present in generated code
 	if !strings.Contains(generatedCode, "🔨 Building") {
 		t.Error("First echo command missing from generated code")
 	}
-	
+
 	if !strings.Contains(generatedCode, "✅ Built:") {
 		t.Error("CRITICAL BUG: Final echo command missing - command execution stops early!")
 	}
-	
+
 	// CRITICAL: There should not be a return statement immediately after the first echo
 	// that prevents the @workdir and final echo from executing
 	firstEchoIndex := strings.Index(generatedCode, "🔨 Building")
 	finalEchoIndex := strings.Index(generatedCode, "✅ Built:")
-	
+
 	if firstEchoIndex == -1 || finalEchoIndex == -1 {
 		t.Fatal("Could not find echo commands in generated code")
 	}
-	
+
 	if finalEchoIndex <= firstEchoIndex {
 		t.Error("CRITICAL BUG: Final echo appears before first echo - code structure is wrong")
 	}
-	
+
 	t.Logf("✅ Both echo commands found in correct order in generated code")
 }

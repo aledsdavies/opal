@@ -70,7 +70,7 @@ func TestValidateShellCommandSafety(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateShellCommandSafety(tt.params, tt.paramName, tt.decoratorName)
-			
+
 			if tt.shouldFail {
 				if err == nil {
 					t.Errorf("Expected validation to fail, but it passed")
@@ -139,7 +139,7 @@ func TestValidateNoPrivilegeEscalation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateNoPrivilegeEscalation(tt.params, tt.paramName, tt.decoratorName)
-			
+
 			if tt.shouldFail {
 				if err == nil {
 					t.Errorf("Expected validation to fail, but it passed")
@@ -202,7 +202,7 @@ func TestValidateResourceLimits(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateResourceLimits(tt.params, tt.paramName, tt.maxValue, tt.decoratorName)
-			
+
 			if tt.shouldFail {
 				if err == nil {
 					t.Errorf("Expected validation to fail, but it passed")
@@ -265,7 +265,7 @@ func TestValidateTimeoutSafety(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateTimeoutSafety(tt.params, tt.paramName, tt.maxTimeout, tt.decoratorName)
-			
+
 			if tt.shouldFail {
 				if err == nil {
 					t.Errorf("Expected validation to fail, but it passed")
@@ -289,10 +289,10 @@ func TestPerformComprehensiveSecurityValidation(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		params        []ast.NamedParameter
-		decoratorName string
-		shouldFail    bool
+		name           string
+		params         []ast.NamedParameter
+		decoratorName  string
+		shouldFail     bool
 		expectedChecks int
 	}{
 		{
@@ -319,7 +319,7 @@ func TestPerformComprehensiveSecurityValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			summary, err := PerformComprehensiveSecurityValidation(tt.params, schema, tt.decoratorName)
-			
+
 			if tt.shouldFail {
 				if err == nil {
 					t.Errorf("Expected validation to fail, but it passed")
@@ -342,8 +342,8 @@ func TestPerformComprehensiveSecurityValidation(t *testing.T) {
 
 // Helper function to check if a string contains a substring
 func containsSubstring(haystack, needle string) bool {
-	return len(needle) == 0 || len(haystack) >= len(needle) && 
-		   (haystack == needle || 
-		    containsSubstring(haystack[1:], needle) || 
-		    (len(haystack) > 0 && haystack[:len(needle)] == needle))
+	return len(needle) == 0 || len(haystack) >= len(needle) &&
+		(haystack == needle ||
+			containsSubstring(haystack[1:], needle) ||
+			(len(haystack) > 0 && haystack[:len(needle)] == needle))
 }

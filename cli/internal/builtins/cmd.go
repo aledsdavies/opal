@@ -39,13 +39,13 @@ func (d *CmdDecorator) GetCommandDependencies(params []ast.NamedParameter) []str
 	if len(params) == 0 {
 		return []string{}
 	}
-	
+
 	// Extract the command name from the first parameter
 	if ident, ok := params[0].Value.(*ast.Identifier); ok {
 		// Keep the original command name format (don't convert hyphens to underscores)
 		return []string{ident.Name}
 	}
-	
+
 	return []string{}
 }
 
@@ -82,7 +82,7 @@ func (d *CmdDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, para
 			Error: err,
 		}
 	}
-	
+
 	// Find the command in the program
 	program := ctx.GetProgram()
 	var command *ast.CommandDecl
@@ -92,14 +92,14 @@ func (d *CmdDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, para
 			break
 		}
 	}
-	
+
 	if command == nil {
 		return &execution.ExecutionResult{
 			Data:  nil,
 			Error: fmt.Errorf("command '%s' not found", cmdName),
 		}
 	}
-	
+
 	// Execute the command's content directly
 	for _, content := range command.Body.Content {
 		switch c := content.(type) {
@@ -134,7 +134,7 @@ func (d *CmdDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params [
 			Error: err,
 		}
 	}
-	
+
 	// Generate function call that returns CommandResult for chaining
 	// This allows @cmd to be used both standalone and in action chains
 	functionName := strings.Title(toCamelCase(cmdName))
@@ -155,7 +155,7 @@ func (d *CmdDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.Named
 			Error: err,
 		}
 	}
-	
+
 	// Find the command in the program
 	program := ctx.GetProgram()
 	var command *ast.CommandDecl
@@ -165,14 +165,14 @@ func (d *CmdDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.Named
 			break
 		}
 	}
-	
+
 	if command == nil {
 		return &execution.ExecutionResult{
 			Data:  nil,
 			Error: fmt.Errorf("command '%s' not found", cmdName),
 		}
 	}
-	
+
 	// Create a simple plan element that references the command
 	// For now, we'll create a basic plan element - this could be enhanced
 	// to actually generate the nested plan for the referenced command

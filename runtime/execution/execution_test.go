@@ -102,7 +102,7 @@ func TestContextVariables(t *testing.T) {
 
 	// Test with InterpreterContext
 	ctx := NewInterpreterContext(context.Background(), program)
-	
+
 	// Initialize variables from program
 	err := ctx.InitializeVariables()
 	if err != nil {

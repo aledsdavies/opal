@@ -115,30 +115,30 @@ func TestResolvePositionalParameters_Basic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ResolvePositionalParameters(tt.params, tt.schema)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("ResolvePositionalParameters() expected error, got nil")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("ResolvePositionalParameters() unexpected error: %v", err)
 				return
 			}
-			
+
 			if len(result) != len(tt.expected) {
 				t.Errorf("ResolvePositionalParameters() length mismatch: got %d, want %d", len(result), len(tt.expected))
 				return
 			}
-			
+
 			for i, param := range result {
 				expectedParam := tt.expected[i]
 				if param.Name != expectedParam.Name {
 					t.Errorf("Parameter %d: Name mismatch: got %q, want %q", i, param.Name, expectedParam.Name)
 				}
-				
+
 				// Compare parameter values by type and content
 				if !compareExpressions(param.Value, expectedParam.Value) {
 					t.Errorf("Parameter %d: Value mismatch: got %v, want %v", i, param.Value, expectedParam.Value)
@@ -200,7 +200,7 @@ func TestResolvePositionalParameters_EdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ResolvePositionalParameters(tt.params, tt.schema)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("ResolvePositionalParameters() expected error, got nil")
@@ -209,27 +209,27 @@ func TestResolvePositionalParameters_EdgeCases(t *testing.T) {
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("ResolvePositionalParameters() unexpected error: %v", err)
 				return
 			}
-			
+
 			if len(result) != len(tt.expected) {
 				t.Errorf("ResolvePositionalParameters() length mismatch: got %d, want %d", len(result), len(tt.expected))
 				return
 			}
-			
+
 			for i, param := range result {
 				expectedParam := tt.expected[i]
 				if param.Name != expectedParam.Name {
 					t.Errorf("Parameter %d: Name mismatch: got %q, want %q", i, param.Name, expectedParam.Name)
 				}
-				
+
 				if !compareExpressions(param.Value, expectedParam.Value) {
 					t.Errorf("Parameter %d: Value mismatch: got %v, want %v", i, param.Value, expectedParam.Value)
 				}
-				
+
 				// Check NameToken preservation
 				if (param.NameToken == nil) != (expectedParam.NameToken == nil) {
 					t.Errorf("Parameter %d: NameToken presence mismatch: got %v, want %v", i, param.NameToken != nil, expectedParam.NameToken != nil)

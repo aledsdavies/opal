@@ -62,10 +62,10 @@ func StartPerformanceTracking(decoratorName, executionMode string) *PerformanceM
 	if !IsPerformanceMonitoringEnabled() {
 		return nil
 	}
-	
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	return &PerformanceMetrics{
 		DecoratorName:     decoratorName,
 		ExecutionMode:     executionMode,
@@ -80,13 +80,13 @@ func FinishPerformanceTracking(metrics *PerformanceMetrics, success bool, errorM
 	if metrics == nil || !IsPerformanceMonitoringEnabled() {
 		return
 	}
-	
+
 	metrics.mu.Lock()
 	defer metrics.mu.Unlock()
-	
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	metrics.EndTime = time.Now()
 	metrics.Duration = metrics.EndTime.Sub(metrics.StartTime)
 	metrics.MemoryUsageAfter = int64(memStats.Alloc)
@@ -94,7 +94,7 @@ func FinishPerformanceTracking(metrics *PerformanceMetrics, success bool, errorM
 	metrics.GoroutinesAfter = runtime.NumGoroutine()
 	metrics.Success = success
 	metrics.ErrorMessage = errorMessage
-	
+
 	// Record in global monitor
 	globalPerformanceMonitor.mu.Lock()
 	globalPerformanceMonitor.metrics = append(globalPerformanceMonitor.metrics, *metrics)
@@ -105,7 +105,7 @@ func FinishPerformanceTracking(metrics *PerformanceMetrics, success bool, errorM
 func GetPerformanceMetrics() []PerformanceMetrics {
 	globalPerformanceMonitor.mu.RLock()
 	defer globalPerformanceMonitor.mu.RUnlock()
-	
+
 	// Return a copy to prevent race conditions
 	result := make([]PerformanceMetrics, len(globalPerformanceMonitor.metrics))
 	copy(result, globalPerformanceMonitor.metrics)
@@ -131,7 +131,7 @@ type ResourceLimiter struct {
 // NewResourceLimiter creates a new resource limiter with specified limits
 func NewResourceLimiter(maxMemoryMB int64, maxGoroutines int, maxExecutionTime time.Duration) *ResourceLimiter {
 	ctx, cancel := context.WithTimeout(context.Background(), maxExecutionTime)
-	
+
 	return &ResourceLimiter{
 		MaxMemoryMB:      maxMemoryMB,
 		MaxGoroutines:    maxGoroutines,
@@ -149,22 +149,22 @@ func (rl *ResourceLimiter) CheckResourceLimits() error {
 		return rl.ctx.Err()
 	default:
 	}
-	
+
 	// Check memory usage
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	currentMemoryMB := int64(memStats.Alloc) / (1024 * 1024)
-	
+
 	if rl.MaxMemoryMB > 0 && currentMemoryMB > rl.MaxMemoryMB {
 		return context.DeadlineExceeded // Reuse existing error type
 	}
-	
+
 	// Check goroutine count
 	currentGoroutines := runtime.NumGoroutine()
 	if rl.MaxGoroutines > 0 && currentGoroutines > rl.MaxGoroutines {
 		return context.DeadlineExceeded
 	}
-	
+
 	return nil
 }
 
@@ -182,25 +182,25 @@ func (rl *ResourceLimiter) Cleanup() {
 
 // PerformanceOptimizedExecutor provides optimized execution with resource monitoring
 type PerformanceOptimizedExecutor struct {
-	limiter         *ResourceLimiter
-	metrics         *PerformanceMetrics
-	decoratorName   string
-	executionMode   string
-	enableCaching   bool
-	operationCache  sync.Map // Cache for repeated operations
+	limiter        *ResourceLimiter
+	metrics        *PerformanceMetrics
+	decoratorName  string
+	executionMode  string
+	enableCaching  bool
+	operationCache sync.Map // Cache for repeated operations
 }
 
 // NewPerformanceOptimizedExecutor creates a new performance-optimized executor
 func NewPerformanceOptimizedExecutor(decoratorName, executionMode string, enableCaching bool) *PerformanceOptimizedExecutor {
 	// Set reasonable default limits
 	limiter := NewResourceLimiter(
-		512,           // 512MB max memory
-		1000,          // 1000 max goroutines
+		512,            // 512MB max memory
+		1000,           // 1000 max goroutines
 		10*time.Minute, // 10 minute max execution time
 	)
-	
+
 	metrics := StartPerformanceTracking(decoratorName, executionMode)
-	
+
 	return &PerformanceOptimizedExecutor{
 		limiter:       limiter,
 		metrics:       metrics,
@@ -213,22 +213,22 @@ func NewPerformanceOptimizedExecutor(decoratorName, executionMode string, enable
 // Execute runs a function with performance monitoring and resource limits
 func (poe *PerformanceOptimizedExecutor) Execute(fn func() error) error {
 	defer poe.Cleanup()
-	
+
 	// Check resource limits before execution
 	if err := poe.limiter.CheckResourceLimits(); err != nil {
 		FinishPerformanceTracking(poe.metrics, false, "Resource limit exceeded before execution")
 		return err
 	}
-	
+
 	// Execute the function
 	err := fn()
-	
+
 	// Check resource limits after execution
 	if resourceErr := poe.limiter.CheckResourceLimits(); resourceErr != nil {
 		FinishPerformanceTracking(poe.metrics, false, "Resource limit exceeded during execution")
 		return resourceErr
 	}
-	
+
 	// Record performance metrics
 	FinishPerformanceTracking(poe.metrics, err == nil, func() string {
 		if err != nil {
@@ -236,7 +236,7 @@ func (poe *PerformanceOptimizedExecutor) Execute(fn func() error) error {
 		}
 		return ""
 	}())
-	
+
 	return err
 }
 

@@ -30,17 +30,17 @@ type ShellTemplateData struct {
 	ExecVarName     string
 	BaseName        string
 	CommandString   string
-	NeedsReturn     bool  // Whether to include return statement for success case
+	NeedsReturn     bool // Whether to include return statement for success case
 }
 
 // ActionChainTemplateData holds data for action decorator chain templates
 type ActionChainTemplateData struct {
 	CommandChain               []ChainElement
 	BaseName                   string
-	NeedsShellCommandWithInput bool   // Whether executeShellCommandWithInput is needed
-	NeedsShellCommand          bool   // Whether executeShellCommand is needed
-	NeedsAppendToFile          bool   // Whether appendToFile is needed
-	NeedsLastResult            bool   // Whether lastResult variable is needed
+	NeedsShellCommandWithInput bool // Whether executeShellCommandWithInput is needed
+	NeedsShellCommand          bool // Whether executeShellCommand is needed
+	NeedsAppendToFile          bool // Whether appendToFile is needed
+	NeedsLastResult            bool // Whether lastResult variable is needed
 }
 
 // GenerateShellCode converts AST CommandContent to template string for Go shell execution
@@ -109,7 +109,7 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 			if lookupFunc == nil {
 				return "", fmt.Errorf("value decorator lookup not available (engine not properly initialized)")
 			}
-			
+
 			decoratorInterface, exists := lookupFunc(p.Name)
 			if !exists {
 				return "", fmt.Errorf("value decorator @%s not found", p.Name)
@@ -122,13 +122,13 @@ func (b *ShellCodeBuilder) GenerateShellExecutionTemplate(content *ast.ShellCont
 			if !ok {
 				return "", fmt.Errorf("value decorator @%s does not implement expected ExpandGenerator method", p.Name)
 			}
-			
+
 			// Call ExpandGenerator to get the Go code expression
 			result := decorator.ExpandGenerator(b.context, p.Args)
 			if result.Error != nil {
 				return "", fmt.Errorf("failed to process value decorator @%s: %w", p.Name, result.Error)
 			}
-			
+
 			if code, ok := result.Data.(string); ok {
 				formatArgs = append(formatArgs, code)
 			} else {
@@ -484,7 +484,7 @@ func (b *ShellCodeBuilder) generateBlockDecoratorTemplate(blockDecorator *ast.Bl
 	if lookupFunc == nil {
 		return "", fmt.Errorf("block decorator lookup not available (engine not properly initialized)")
 	}
-	
+
 	decoratorInterface, exists := lookupFunc(blockDecorator.Name)
 	if !exists {
 		return "", fmt.Errorf("block decorator @%s not found", blockDecorator.Name)
@@ -500,16 +500,16 @@ func (b *ShellCodeBuilder) generateBlockDecoratorTemplate(blockDecorator *ast.Bl
 
 	// Execute the decorator in generator mode to get the generated Go code
 	result := decorator.ExecuteGenerator(b.context, blockDecorator.Args, blockDecorator.Content)
-	
+
 	if result.Error != nil {
 		return "", fmt.Errorf("failed to generate code for @%s decorator: %w", blockDecorator.Name, result.Error)
 	}
-	
+
 	// The result should contain the generated Go code as a string
 	if generatedCode, ok := result.Data.(string); ok {
 		return generatedCode, nil
 	}
-	
+
 	return "", fmt.Errorf("@%s decorator returned unexpected data type for generator mode: %T", blockDecorator.Name, result.Data)
 }
 
@@ -520,7 +520,7 @@ func (b *ShellCodeBuilder) generatePatternDecoratorTemplate(patternDecorator *as
 	if lookupFunc == nil {
 		return "", fmt.Errorf("pattern decorator lookup not available (engine not properly initialized)")
 	}
-	
+
 	decoratorInterface, exists := lookupFunc(patternDecorator.Name)
 	if !exists {
 		return "", fmt.Errorf("pattern decorator @%s not found", patternDecorator.Name)
@@ -536,16 +536,16 @@ func (b *ShellCodeBuilder) generatePatternDecoratorTemplate(patternDecorator *as
 
 	// Execute the decorator in generator mode to get the generated Go code
 	result := decorator.ExecuteGenerator(b.context, patternDecorator.Args, patternDecorator.Patterns)
-	
+
 	if result.Error != nil {
 		return "", fmt.Errorf("failed to generate code for @%s decorator: %w", patternDecorator.Name, result.Error)
 	}
-	
+
 	// The result should contain the generated Go code as a string
 	if generatedCode, ok := result.Data.(string); ok {
 		return generatedCode, nil
 	}
-	
+
 	return "", fmt.Errorf("@%s decorator returned unexpected data type for generator mode: %T", patternDecorator.Name, result.Data)
 }
 
@@ -624,11 +624,11 @@ func (b *ShellCodeBuilder) parseShellOperators(text string) ([]ChainElement, err
 	var current strings.Builder
 	inQuotes := false
 	var quoteChar rune
-	
+
 	i := 0
 	for i < len(text) {
 		char := rune(text[i])
-		
+
 		// Handle quotes
 		if char == '"' || char == '\'' {
 			if !inQuotes {
@@ -641,17 +641,17 @@ func (b *ShellCodeBuilder) parseShellOperators(text string) ([]ChainElement, err
 			i++
 			continue
 		}
-		
+
 		// If we're in quotes, just add the character
 		if inQuotes {
 			current.WriteRune(char)
 			i++
 			continue
 		}
-		
+
 		// Check for operators
 		if i < len(text)-1 {
-			twoChar := text[i:i+2]
+			twoChar := text[i : i+2]
 			switch twoChar {
 			case "&&", "||", ">>":
 				// Add current command if not empty
@@ -663,13 +663,13 @@ func (b *ShellCodeBuilder) parseShellOperators(text string) ([]ChainElement, err
 					})
 				}
 				current.Reset()
-				
+
 				// Add operator
 				elements = append(elements, ChainElement{
-					Type:     "operator", 
+					Type:     "operator",
 					Operator: twoChar,
 				})
-				
+
 				i += 2
 				// Skip whitespace after operator
 				for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
@@ -678,7 +678,7 @@ func (b *ShellCodeBuilder) parseShellOperators(text string) ([]ChainElement, err
 				continue
 			}
 		}
-		
+
 		// Check for single character operators
 		if char == '|' {
 			// Add current command if not empty
@@ -690,13 +690,13 @@ func (b *ShellCodeBuilder) parseShellOperators(text string) ([]ChainElement, err
 				})
 			}
 			current.Reset()
-			
+
 			// Add pipe operator
 			elements = append(elements, ChainElement{
 				Type:     "operator",
 				Operator: "|",
 			})
-			
+
 			i++
 			// Skip whitespace after operator
 			for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
@@ -704,12 +704,12 @@ func (b *ShellCodeBuilder) parseShellOperators(text string) ([]ChainElement, err
 			}
 			continue
 		}
-		
+
 		// Regular character
 		current.WriteRune(char)
 		i++
 	}
-	
+
 	// Add final command if not empty
 	cmd := strings.TrimSpace(current.String())
 	if cmd != "" {
@@ -718,12 +718,12 @@ func (b *ShellCodeBuilder) parseShellOperators(text string) ([]ChainElement, err
 			Text: cmd,
 		})
 	}
-	
+
 	// Validate the chain
 	if err := b.validateChain(elements); err != nil {
 		return nil, err
 	}
-	
+
 	return elements, nil
 }
 
@@ -732,22 +732,22 @@ func (b *ShellCodeBuilder) validateChain(elements []ChainElement) error {
 	if len(elements) == 0 {
 		return nil
 	}
-	
+
 	// Chain should start with a command, not an operator
 	if elements[0].Type == "operator" {
 		return fmt.Errorf("chain cannot start with operator %s", elements[0].Operator)
 	}
-	
+
 	// Chain should end with a command, not an operator
 	if elements[len(elements)-1].Type == "operator" {
 		return fmt.Errorf("chain cannot end with operator %s", elements[len(elements)-1].Operator)
 	}
-	
+
 	// Operators and commands should alternate
 	for i := 0; i < len(elements)-1; i++ {
 		current := elements[i]
 		next := elements[i+1]
-		
+
 		if current.Type == "operator" && next.Type == "operator" {
 			return fmt.Errorf("consecutive operators not allowed: %s %s", current.Operator, next.Operator)
 		}
@@ -755,21 +755,21 @@ func (b *ShellCodeBuilder) validateChain(elements []ChainElement) error {
 			return fmt.Errorf("consecutive commands without operator: %s | %s", current.Text, next.Text)
 		}
 	}
-	
+
 	return nil
 }
 
 // getBaseName returns the base name for variable generation with descriptive naming
 func (b *ShellCodeBuilder) getBaseName() string {
 	b.context.IncrementShellCounter()
-	
+
 	// Create a descriptive base name using camelCase convention
 	baseName := "command"
 	if b.context.GetCurrentCommand() != "" {
 		// Convert to proper camelCase handling hyphens, underscores, and spaces
 		baseName = b.toCamelCase(b.context.GetCurrentCommand())
 	}
-	
+
 	// Use descriptive naming instead of just numbers
 	if b.context.GetShellCounter() == 1 {
 		return baseName
@@ -792,17 +792,17 @@ func (b *ShellCodeBuilder) toCamelCase(name string) string {
 	parts := strings.FieldsFunc(name, func(c rune) bool {
 		return c == '-' || c == '_' || c == ' '
 	})
-	
+
 	if len(parts) == 0 {
 		return name
 	}
-	
+
 	// First part stays lowercase, subsequent parts get title case
 	result := strings.ToLower(parts[0])
 	for i := 1; i < len(parts); i++ {
 		result += strings.Title(strings.ToLower(parts[i]))
 	}
-	
+
 	return result
 }
 
@@ -831,7 +831,6 @@ func (b *ShellCodeBuilder) GetTemplateFunctions() template.FuncMap {
 	}
 }
 
-
 // generateSequentialExecutionTemplate handles combined commands that should execute sequentially
 func (b *ShellCodeBuilder) generateSequentialExecutionTemplate(combinedText string) (string, error) {
 	// Split the combined commands on semicolons
@@ -851,7 +850,7 @@ func (b *ShellCodeBuilder) generateSequentialExecutionTemplate(combinedText stri
 		}
 
 		stepName := fmt.Sprintf("%sStep%d", baseName, i+1)
-		
+
 		// Generate execution block for this command using helper function
 		templatePart := fmt.Sprintf(`%sResult := executeShellCommand(ctx, %q)
 		
@@ -860,7 +859,7 @@ func (b *ShellCodeBuilder) generateSequentialExecutionTemplate(combinedText stri
 			return %sResult
 		}`,
 			stepName, cmd, stepName, stepName)
-		
+
 		templateParts = append(templateParts, templatePart)
 	}
 

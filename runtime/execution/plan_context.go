@@ -12,11 +12,10 @@ import (
 // PlanExecutionContext implements PlanContext for execution planning/dry-run
 type PlanExecutionContext struct {
 	*BaseExecutionContext
-	
+
 	// Environment variable tracking for planning interpreter behavior
 	trackedEnvVars map[string]string
 }
-
 
 // ================================================================================================
 // PLAN-SPECIFIC FUNCTIONALITY
@@ -87,30 +86,30 @@ func (c *PlanExecutionContext) Child() PlanContext {
 	// Increment child counter to ensure unique variable naming across parallel contexts
 	c.childCounter++
 	childID := c.childCounter
-	
+
 	childBase := &BaseExecutionContext{
 		Context:   c.Context,
 		Program:   c.Program,
 		Variables: make(map[string]string),
 		env:       c.env, // Share the same immutable environment reference
-		
+
 		// Copy execution state
-		WorkingDir:    c.WorkingDir,
-		Debug:         c.Debug,
-		DryRun:        c.DryRun,
+		WorkingDir:     c.WorkingDir,
+		Debug:          c.Debug,
+		DryRun:         c.DryRun,
 		currentCommand: c.currentCommand,
-		
+
 		// Initialize unique counter space for this child to avoid variable name conflicts
 		// Each child gets a unique counter space based on parent's counter and child ID
 		shellCounter: c.shellCounter + (childID * 1000), // Give each child 1000 numbers of space
-		childCounter: 0, // Reset child counter for this context's children
+		childCounter: 0,                                 // Reset child counter for this context's children
 	}
-	
+
 	// Copy variables (child gets its own copy)
 	for name, value := range c.Variables {
 		childBase.Variables[name] = value
 	}
-	
+
 	return &PlanExecutionContext{
 		BaseExecutionContext: childBase,
 		trackedEnvVars:       make(map[string]string),
@@ -172,4 +171,3 @@ func (c *PlanExecutionContext) composeShellCommandForPlan(content *ast.ShellCont
 
 	return strings.Join(parts, ""), nil
 }
-

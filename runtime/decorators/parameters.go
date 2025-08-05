@@ -28,7 +28,7 @@ func ResolvePositionalParameters(params []ast.NamedParameter, schema []Parameter
 	// First pass: identify positional vs named parameters and validate order
 	for i, param := range params {
 		isPositional := param.Name == "" && param.NameToken == nil
-		
+
 		if isPositional {
 			if foundNamed {
 				return nil, fmt.Errorf("positional parameters must come before named parameters")
@@ -37,7 +37,7 @@ func ResolvePositionalParameters(params []ast.NamedParameter, schema []Parameter
 		} else {
 			foundNamed = true
 		}
-		
+
 		// Copy the parameter for now
 		resolved[i] = param
 	}
@@ -51,12 +51,12 @@ func ResolvePositionalParameters(params []ast.NamedParameter, schema []Parameter
 	schemaIndex := 0
 	for i, param := range resolved {
 		isPositional := param.Name == "" && param.NameToken == nil
-		
+
 		if isPositional {
 			if schemaIndex >= len(schema) {
 				return nil, fmt.Errorf("internal error: positional parameter index out of bounds")
 			}
-			
+
 			// Map this positional parameter to the corresponding schema parameter
 			resolved[i].Name = schema[schemaIndex].Name
 			schemaIndex++

@@ -1,4 +1,4 @@
-# Library functions for generating CLI packages from devcmd files with proper sandbox support
+# Library functions for generating CLI packages using shell scripts
 { pkgs, self, lib, gitRev, system }:
 
 let
@@ -10,7 +10,7 @@ let
 
 in
 rec {
-  # Generate a CLI package from devcmd commands
+  # Generate a shell script that runs devcmd build for CLI generation
   mkDevCLI =
     {
       # Package name 
@@ -44,7 +44,7 @@ rec {
         let
           candidates = [
             ../commands.cli # Look in parent directory (project root)
-            ./commands.cli  # Look in current directory
+            ./commands.cli # Look in current directory
             ./.commands.cli # Hidden variant
           ];
 
@@ -66,65 +66,39 @@ rec {
 
       processedContent = preProcess finalContent;
 
-      # Create the commands file as a source
-      commandsSrc = pkgs.writeText "${name}-commands.cli" processedContent;
+      # Get devcmd binary
+      devcmdBin =
+        if self != null then self.packages.${system}.devcmd or self.packages.${system}.default
+        else throw "Self reference required for CLI generation. Cannot build '${name}' without devcmd parser.";
 
-      # All-in-one FOD: Build devcmd from source and generate CLI in single derivation
-      # TODO: Migrate to dynamic derivations when they become stable for cleaner separation
-      # This avoids store path references while maintaining network access for Go modules
-      cliPackage = pkgs.stdenv.mkDerivation {
-        pname = name;
-        inherit version;
+      # Create a shell script that generates the CLI
+      cliScript = pkgs.writeShellScriptBin binaryName ''
+        #!/usr/bin/env bash
+        set -euo pipefail
         
-        # We're in the project root, just use the current directory
-        src = ./.;
+        # Create temporary commands file
+        TEMP_COMMANDS=$(mktemp -t commands-XXXXXX.cli)
+        trap "rm -f $TEMP_COMMANDS" EXIT
         
-        nativeBuildInputs = with pkgs; [ go cacert ];
+        cat > "$TEMP_COMMANDS" <<'EOF'
+        ${processedContent}
+        EOF
         
-        buildPhase = ''
-          # Set up Go environment for sandbox
-          export HOME=$TMPDIR
-          export GOCACHE=$TMPDIR/go-cache
-          export GOMODCACHE=$TMPDIR/go-mod-cache
-          export GOPATH=$TMPDIR/go
-          mkdir -p $GOCACHE $GOMODCACHE $GOPATH
-          
-          # We already have all the source files, just add the commands file
-          cat > commands.cli <<'EOF'
-          ${processedContent}
-          EOF
-          
-          # Build devcmd from current source
-          echo "Building devcmd from source..."
-          cd cli
-          GOWORK=off go build -o ../devcmd ./main.go
-          cd ..
-          chmod +x ./devcmd
-          
-          # Generate and build CLI using devcmd
-          echo "Generating CLI with devcmd..."
-          ./devcmd build --file commands.cli --binary "${binaryName}" -o "${binaryName}"
-        '';
+        # Check if compiled binary already exists and is current
+        BINARY_PATH="./${binaryName}-compiled"
+        if [[ -f "$BINARY_PATH" ]]; then
+          echo "✅ ${binaryName} CLI ready"
+          exec "$BINARY_PATH" "$@"
+        fi
         
-        installPhase = ''
-          mkdir -p $out/bin
-          cp ${binaryName} $out/bin/
-          chmod +x $out/bin/${binaryName}
-        '';
+        # Generate the CLI binary
+        echo "🔨 Generating ${binaryName} CLI..."
+        ${devcmdBin}/bin/devcmd build --file "$TEMP_COMMANDS" --binary "${binaryName}" -o "$BINARY_PATH"
         
-        # Fixed-output derivation for network access during Go module downloads
-        outputHashAlgo = "sha256";
-        outputHashMode = "recursive";
-        outputHash = lib.fakeSha256; # Will be updated on first build
-        
-        meta = with lib; {
-          description = "Generated CLI from devcmd (all-in-one FOD)";
-          license = licenses.mit;
-          platforms = platforms.unix;
-          mainProgram = binaryName;
-        } // meta;
-      };
+        # Execute the generated binary with all arguments
+        exec "$BINARY_PATH" "$@"
+      '';
 
     in
-    cliPackage;
+    cliScript;
 }
