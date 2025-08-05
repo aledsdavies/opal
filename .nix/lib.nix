@@ -10,7 +10,7 @@ let
 
 in
 rec {
-  # Generate a CLI package from devcmd commands using stdenv.mkDerivation for better control
+  # Generate a CLI package from devcmd commands
   mkDevCLI =
     {
       # Package name 
@@ -69,38 +69,42 @@ rec {
       # Create the commands file as a source
       commandsSrc = pkgs.writeText "${name}-commands.cli" processedContent;
 
-      # Get devcmd binary
-      devcmdBin =
-        if self != null then self.packages.${system}.devcmd or self.packages.${system}.default
-        else throw "Self reference required for CLI generation. Cannot build '${name}' without devcmd parser.";
-
-      # Build the CLI using a fixed-output derivation for network access
-      # This allows Go module downloads while maintaining reproducibility
+      # All-in-one FOD: Build devcmd from source and generate CLI in single derivation
+      # TODO: Migrate to dynamic derivations when they become stable for cleaner separation
+      # This avoids store path references while maintaining network access for Go modules
       cliPackage = pkgs.stdenv.mkDerivation {
         pname = name;
         inherit version;
         
-        # Use the commands file as source
-        src = commandsSrc;
+        # Use flake source directly to avoid store path references in FOD
+        src = if self != null then self else throw "Self reference required for workspace source";
         
-        nativeBuildInputs = [ devcmdBin pkgs.go pkgs.cacert ];
-        
-        # Don't unpack the source - we'll use it directly
-        dontUnpack = true;
+        nativeBuildInputs = with pkgs; [ go cacert ];
         
         buildPhase = ''
-          # Set up Go environment
+          # Set up Go environment for sandbox
           export HOME=$TMPDIR
           export GOCACHE=$TMPDIR/go-cache
           export GOMODCACHE=$TMPDIR/go-mod-cache
           export GOPATH=$TMPDIR/go
           mkdir -p $GOCACHE $GOMODCACHE $GOPATH
           
-          # Generate and build the CLI binary (with network access for modules)
-          ${devcmdBin}/bin/devcmd build \
-            --file "$src" \
-            --binary "${binaryName}" \
-            -o "${binaryName}"
+          # Create commands file with content
+          echo "Creating commands file..."
+          cat > commands.cli <<'EOF'
+          ${processedContent}
+          EOF
+          
+          # Build devcmd from workspace source
+          echo "Building devcmd from source..."
+          cd cli
+          GOWORK=off go build -o ../devcmd ./main.go
+          cd ..
+          chmod +x ./devcmd
+          
+          # Generate and build CLI using devcmd
+          echo "Generating CLI with devcmd..."
+          ./devcmd build --file commands.cli --binary "${binaryName}" -o "${binaryName}"
         '';
         
         installPhase = ''
@@ -109,14 +113,13 @@ rec {
           chmod +x $out/bin/${binaryName}
         '';
         
-        # Fixed-output derivation attributes for network access
+        # Fixed-output derivation for network access during Go module downloads
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
-        # Use fake hash initially - Nix will tell us the real hash on first build
-        outputHash = lib.fakeSha256;
+        outputHash = lib.fakeSha256; # Will be updated on first build
         
         meta = with lib; {
-          description = "Generated CLI from devcmd (fixed-output derivation)";
+          description = "Generated CLI from devcmd (all-in-one FOD)";
           license = licenses.mit;
           platforms = platforms.unix;
           mainProgram = binaryName;

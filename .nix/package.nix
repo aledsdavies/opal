@@ -11,18 +11,14 @@ pkgs.buildGoModule rec {
 
   # Critical: Disable workspace mode and set up proper Go environment for Nix sandbox
   env.GOWORK = "off";
-  env.GOCACHE = "$TMPDIR/go-cache";
-  env.GOMODCACHE = "$TMPDIR/go-mod-cache";
   
-  # Force GOWORK=off in vendor phase and set up sandbox-compatible paths
+  # Force GOWORK=off in vendor phase 
   overrideModAttrs = _: { 
     env.GOWORK = "off";
-    env.GOCACHE = "$TMPDIR/go-cache";
-    env.GOMODCACHE = "$TMPDIR/go-mod-cache";
   };
 
   # Vendor hash for CLI module dependencies  
-  vendorHash = "sha256-5el+4EYvfYG6t9uBNpRCBrRfevgHYxFDMIxTltn1w18=";
+  vendorHash = "sha256-8B2MwhzXkU+FIYbeTuzVgciOORmYIvP+xEjCegwlH0Y=";
 
   # Build with version info
   ldflags = [
