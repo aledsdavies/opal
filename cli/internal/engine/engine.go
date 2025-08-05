@@ -795,6 +795,36 @@ func (ctx ExecutionContext) WithWorkingDir(dir string) ExecutionContext {
 	}
 }
 
+// executeShellCommand is a helper function for decorators to execute shell commands
+func executeShellCommand(ctx ExecutionContext, command string) CommandResult {
+	cmd := exec.CommandContext(ctx.Context, "sh", "-c", command)
+	cmd.Dir = ctx.WorkingDir
+	
+	// Create buffers to capture output while streaming to terminal
+	var stdout, stderr bytes.Buffer
+	
+	// Use MultiWriter to stream to terminal AND capture for CommandResult
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
+	cmd.Stdin = os.Stdin
+	
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			exitCode = exitError.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+	
+	return CommandResult{
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
+		ExitCode: exitCode,
+	}
+}
+
 func main() {
 	// Initialize working directory from runtime
 	workingDir, err := os.Getwd()
@@ -1011,9 +1041,9 @@ func main() {
 		{{if .HasCustomStop}}
 		// Custom stop command (also terminate the original process)
 		{{if .StopCommandString}}cmdStr := {{.StopCommandString}}
-		stopCmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-		if err := stopCmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Custom stop command failed: %v\n", err)
+		stopResult := executeShellCommand(execCtx, cmdStr)
+		if stopResult.Failed() {
+			fmt.Fprintf(os.Stderr, "Custom stop command failed: %s\n", stopResult.Stderr)
 		}{{else}}{{.StopExecutionCode}}{{end}}
 		
 		// Also terminate the original process

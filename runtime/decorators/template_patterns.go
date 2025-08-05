@@ -61,7 +61,7 @@ const (
 	TimeoutPattern = `{
 	duration := {{.DurationExpr}} // Pre-validated duration
 
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	timeoutCtx, cancel := context.WithTimeout(ctx.Context, duration)
 	defer cancel()
 	done := make(chan error, 1)
 
@@ -74,8 +74,8 @@ const (
 		
 		// Check for cancellation
 		select {
-		case <-ctx.Done():
-			done <- ctx.Err()
+		case <-timeoutCtx.Done():
+			done <- timeoutCtx.Err()
 			return
 		default:
 		}
@@ -96,7 +96,7 @@ const (
 			return CommandResult{Stdout: "", Stderr: err.Error(), ExitCode: 1}
 		}
 		return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
-	case <-ctx.Done():
+	case <-timeoutCtx.Done():
 		return CommandResult{Stdout: "", Stderr: fmt.Sprintf("operation timed out after %s", duration), ExitCode: 124}
 	}
 }`
@@ -136,7 +136,7 @@ const (
 	// CancellableOperationPattern - Generic cancellable operation
 	// Variables: .Operation.Code
 	CancellableOperationPattern = `{
-	ctx, cancel := context.WithCancel(context.Background())
+	cancellableCtx, cancel := context.WithCancel(ctx.Context)
 	defer cancel()
 
 	done := make(chan CommandResult, 1)
@@ -148,8 +148,8 @@ const (
 		}()
 
 		select {
-		case <-ctx.Done():
-			done <- CommandResult{Stdout: "", Stderr: ctx.Err().Error(), ExitCode: 1}
+		case <-cancellableCtx.Done():
+			done <- CommandResult{Stdout: "", Stderr: cancellableCtx.Err().Error(), ExitCode: 1}
 			return
 		default:
 		}
@@ -163,8 +163,8 @@ const (
 	select {
 	case result := <-done:
 		return result
-	case <-ctx.Done():
-		return CommandResult{Stdout: "", Stderr: ctx.Err().Error(), ExitCode: 1}
+	case <-cancellableCtx.Done():
+		return CommandResult{Stdout: "", Stderr: cancellableCtx.Err().Error(), ExitCode: 1}
 	}
 }`
 
