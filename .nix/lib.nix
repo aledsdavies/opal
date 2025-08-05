@@ -76,8 +76,8 @@ rec {
         pname = name;
         inherit version;
         
-        # Use flake source directly to avoid store path references in FOD
-        src = if self != null then self else throw "Self reference required for workspace source";
+        # We're in the project root, just use the current directory
+        src = ./.;
         
         nativeBuildInputs = with pkgs; [ go cacert ];
         
@@ -89,13 +89,12 @@ rec {
           export GOPATH=$TMPDIR/go
           mkdir -p $GOCACHE $GOMODCACHE $GOPATH
           
-          # Create commands file with content
-          echo "Creating commands file..."
+          # We already have all the source files, just add the commands file
           cat > commands.cli <<'EOF'
           ${processedContent}
           EOF
           
-          # Build devcmd from workspace source
+          # Build devcmd from current source
           echo "Building devcmd from source..."
           cd cli
           GOWORK=off go build -o ../devcmd ./main.go

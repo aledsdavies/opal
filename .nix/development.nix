@@ -7,13 +7,14 @@ let
     lib = pkgs.lib;
   };
 
-  # Build the dev CLI using fixed-output derivation (allows network access)
-  devCLI = devcmdLib.mkDevCLI {
-    name = "devcmd-dev-cli";
-    binaryName = "dev";
-    commandsFile = ../commands.cli;
-    version = "dev-${gitRev}";
-  };
+  # TODO: Re-enable dev CLI generation once FOD store path issue is resolved
+  # For now, users can manually run: devcmd build --file commands.cli --binary dev
+  # devCLI = devcmdLib.mkDevCLI {
+  #   name = "devcmd-dev-cli";
+  #   binaryName = "dev";
+  #   commandsFile = ../commands.cli;
+  #   version = "dev-${gitRev}";
+  # };
 in
 pkgs.mkShell {
   name = "devcmd-dev";
@@ -29,7 +30,7 @@ pkgs.mkShell {
     gofumpt
   ] ++ [ 
     self.packages.${system}.devcmd  # Include the devcmd binary itself
-    devCLI                          # Include the generated dev CLI (built via fixed-output derivation)
+    # devCLI                          # TODO: Re-enable when FOD issue is resolved
   ];
   
   shellHook = ''
@@ -38,13 +39,15 @@ pkgs.mkShell {
     echo ""
     echo "Available commands:"
     echo "  devcmd - The devcmd CLI generator"
-    echo "  dev    - Development commands for this project (built via fixed-output derivation)"
     echo ""
-    echo "The dev CLI is automatically built using a fixed-output derivation"
-    echo "that allows network access for Go module downloads while maintaining"
-    echo "reproducibility through content hashing."
+    echo "To generate the dev CLI, run:"
+    echo "  devcmd build --file commands.cli --binary dev -o dev"
     echo ""
-    echo "Run 'dev help' to see available development commands"
+    echo "Then you can run './dev help' to see development commands"
+    echo ""
+    echo "Note: Auto-generated dev CLI is temporarily disabled due to"
+    echo "      FOD store path reference issues. Will be re-enabled with"
+    echo "      dynamic derivations when they become stable."
     exec ${pkgs.zsh}/bin/zsh
   '';
 }
