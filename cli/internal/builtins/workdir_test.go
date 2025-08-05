@@ -28,6 +28,7 @@ func TestWorkdirDecorator_Basic(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
+		GeneratorExecutesCorrectly().
 		GeneratorCodeContains("/tmp", "workdir").
 		PlanSucceeds().
 		PlanReturnsElement("workdir").
@@ -412,6 +413,7 @@ func TestWorkdirDecorator_MultipleCommandsWithDirectoryChanges(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
+		GeneratorExecutesCorrectly().
 		PlanSucceeds().
 		Validate()
 	

@@ -227,69 +227,54 @@ func (d *WorkdirDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, 
 	// Create a child context with the working directory set
 	workdirCtx := ctx.Child().WithWorkingDir(path)
 	
-	// Convert commands to operations using the workdir context
-	executor := decorators.NewCommandResultExecutor(workdirCtx)
-	operations, err := executor.ConvertCommandsToCommandResultOperations(content)
-	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to convert commands to operations: %w", err),
-		}
-	}
-
-	// Combine all operations into a single sequential operation
-	var combinedCode string
-	if len(operations) == 0 {
-		combinedCode = "// No operations to execute"
-	} else if len(operations) == 1 {
-		combinedCode = operations[0].Code
+	// Generate inline code that integrates with sequential execution
+	var generatedCode strings.Builder
+	
+	// Add directory verification/creation code
+	if createIfNotExists {
+		generatedCode.WriteString("// Create directory if it doesn't exist\n")
+		generatedCode.WriteString(fmt.Sprintf("if err := os.MkdirAll(%q, 0755); err != nil {\n", path))
+		generatedCode.WriteString(fmt.Sprintf("\treturn CommandResult{Stdout: \"\", Stderr: fmt.Sprintf(\"failed to create directory %s: %%v\", err), ExitCode: 1}\n", path))
+		generatedCode.WriteString("}\n")
 	} else {
-		// Use TemplateBuilder to create sequential execution
-		sequentialBuilder := decorators.NewTemplateBuilder()
-		sequentialBuilder.WithSequentialExecution(operations, true) // Stop on error
-		
-		sequentialCode, err := sequentialBuilder.BuildTemplate()
-		if err != nil {
+		generatedCode.WriteString("// Verify target directory exists\n")
+		generatedCode.WriteString(fmt.Sprintf("if _, err := os.Stat(%q); err != nil {\n", path))
+		generatedCode.WriteString(fmt.Sprintf("\treturn CommandResult{Stdout: \"\", Stderr: fmt.Sprintf(\"failed to access directory %s: %%v\", err), ExitCode: 1}\n", path))
+		generatedCode.WriteString("}\n")
+	}
+	
+	// Generate shell commands with the updated working directory context
+	shellBuilder := execution.NewShellCodeBuilder(workdirCtx)
+	for _, cmdContent := range content {
+		switch c := cmdContent.(type) {
+		case *ast.ShellContent:
+			// Generate shell code with the workdir context (updated working directory)
+			code, err := shellBuilder.GenerateShellCodeWithReturn(c)
+			if err != nil {
+				return &execution.ExecutionResult{
+					Data:  "",
+					Error: fmt.Errorf("failed to generate shell code in workdir: %w", err),
+				}
+			}
+			generatedCode.WriteString(code)
+			generatedCode.WriteString("\n")
+		case *ast.BlockDecorator:
+			// Handle nested decorators - this would need recursive processing
+			// For now, return an error as this is complex
 			return &execution.ExecutionResult{
 				Data:  "",
-				Error: fmt.Errorf("failed to build sequential template: %w", err),
+				Error: fmt.Errorf("nested decorators in @workdir are not yet supported"),
 			}
-		}
-		combinedCode = sequentialCode
-	}
-
-	// Create setup code for directory creation/verification
-	var setupCode string
-	if createIfNotExists {
-		setupCode = fmt.Sprintf(`// Create directory if it doesn't exist
-if err := os.MkdirAll(%q, 0755); err != nil {
-	return CommandResult{Stdout: "", Stderr: fmt.Sprintf("failed to create directory %s: %%v", %q, err), ExitCode: 1}
-}`, path, path, path)
-	} else {
-		setupCode = fmt.Sprintf(`// Verify target directory exists
-if _, err := os.Stat(%q); err != nil {
-	return CommandResult{Stdout: "", Stderr: fmt.Sprintf("failed to access directory %s: %%v", %q, err), ExitCode: 1}
-}`, path, path, path)
-	}
-
-	// Create operation from combined code
-	operation := decorators.Operation{Code: combinedCode}
-	
-	// Use TemplateBuilder to create resource cleanup pattern
-	builder := decorators.NewTemplateBuilder()
-	builder.WithResourceCleanup(setupCode, operation, "// No cleanup needed - working directory changes are isolated")
-
-	// Build the template
-	generatedCode, err := builder.BuildTemplate()
-	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to build workdir template: %w", err),
+		default:
+			return &execution.ExecutionResult{
+				Data:  "",
+				Error: fmt.Errorf("unsupported command content type in @workdir: %T", cmdContent),
+			}
 		}
 	}
 
 	return &execution.ExecutionResult{
-		Data:  generatedCode,
+		Data:  generatedCode.String(),
 		Error: nil,
 	}
 }

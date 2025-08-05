@@ -1,11 +1,17 @@
 package testing
 
 import (
+	"context"
 	"fmt"
 	"go/parser"
 	"go/token"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	coreast "github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/core/plan"
@@ -100,6 +106,127 @@ func (v *ValidationAssertions) GeneratorProducesValidGo() *ValidationAssertions 
 	_, err := parser.ParseFile(fset, "", wrappedCode, parser.ParseComments)
 	if err != nil {
 		v.errors = append(v.errors, fmt.Sprintf("Generated Go code is invalid: %v\nCode:\n%s", err, code))
+	}
+	
+	return v
+}
+
+// GeneratorExecutesCorrectly validates that generated code compiles and executes without hanging
+func (v *ValidationAssertions) GeneratorExecutesCorrectly() *ValidationAssertions {
+	if !v.result.GeneratorResult.Success {
+		return v // Skip if generation failed
+	}
+	
+	code, ok := v.result.GeneratorResult.Data.(string)
+	if !ok {
+		v.errors = append(v.errors, "Generator should return string for execution validation")
+		return v
+	}
+	
+	// Create a complete CLI program with the generated code
+	fullProgram := fmt.Sprintf(`package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"time"
+)
+
+type CommandResult struct {
+	Stdout   string
+	Stderr   string  
+	ExitCode int
+}
+
+func (cr CommandResult) Success() bool {
+	return cr.ExitCode == 0
+}
+
+func (cr CommandResult) Failed() bool {
+	return cr.ExitCode != 0
+}
+
+type ExecutionContext struct {
+	context.Context
+	variables  map[string]string
+	WorkingDir string
+}
+
+func NewExecutionContext(ctx context.Context) *ExecutionContext {
+	workingDir, _ := os.Getwd()
+	return &ExecutionContext{
+		Context:    ctx,
+		variables:  make(map[string]string),
+		WorkingDir: workingDir,
+	}
+}
+
+func (ctx *ExecutionContext) GetVariable(name string) (string, bool) {
+	value, exists := ctx.variables[name]
+	return value, exists
+}
+
+func (ctx *ExecutionContext) SetVariable(name, value string) {
+	ctx.variables[name] = value
+}
+
+func executeShellCommand(ctx context.Context, command string) CommandResult {
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	stdout, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return CommandResult{
+				Stdout:   string(stdout),
+				Stderr:   string(exitErr.Stderr),
+				ExitCode: exitErr.ExitCode(),
+			}
+		}
+		return CommandResult{
+			Stdout:   string(stdout),
+			Stderr:   err.Error(),
+			ExitCode: 1,
+		}
+	}
+	return CommandResult{
+		Stdout:   string(stdout),
+		Stderr:   "",
+		ExitCode: 0,
+	}
+}
+
+func main() {
+	baseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	ctx := NewExecutionContext(baseCtx)
+	
+	// Execute the generated code wrapped in a function
+	result := executeGeneratedCode(ctx)
+	
+	// Check result (optional - depends on what we want to validate)
+	if result.Failed() {
+		fmt.Printf("Generated code failed: %%s\n", result.Stderr)
+		os.Exit(result.ExitCode)
+	}
+	
+	fmt.Println("Execution completed successfully")
+}
+
+func executeGeneratedCode(ctx *ExecutionContext) CommandResult {
+	// Execute the generated code
+	%s
+	
+	// If we reach here without returning, return success
+	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
+}`, code)
+	
+	// Try to compile and execute this program with a timeout
+	if err := v.compileAndExecuteGenerated(fullProgram); err != nil {
+		v.errors = append(v.errors, fmt.Sprintf("Generated code execution failed: %v\nGenerated code:\n%s", err, code))
 	}
 	
 	return v
@@ -483,4 +610,62 @@ func RandomString(length int) string {
 		b[i] = charset[(i*7+length*3)%len(charset)]
 	}
 	return string(b)
+}
+
+// compileAndExecuteGenerated compiles and executes generated Go code with timeout protection
+func (v *ValidationAssertions) compileAndExecuteGenerated(program string) error {
+	// Create a temporary directory for the test program
+	tmpDir, err := ioutil.TempDir("", "devcmd_validation_test_")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	
+	// Write the program to a Go file
+	mainFile := filepath.Join(tmpDir, "main.go")
+	if err := ioutil.WriteFile(mainFile, []byte(program), 0644); err != nil {
+		return fmt.Errorf("failed to write test program: %v", err)
+	}
+	
+	// Initialize go module
+	goModContent := `module testvalidation
+
+go 1.21
+`
+	if err := ioutil.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		return fmt.Errorf("failed to write go.mod: %v", err)
+	}
+	
+	// Compile the program with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "testprogram", "main.go")
+	buildCmd.Dir = tmpDir
+	buildOutput, err := buildCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("compilation failed: %v\nOutput: %s\nProgram:\n%s", err, string(buildOutput), program)
+	}
+	
+	// Execute the compiled program with timeout
+	execCtx, execCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer execCancel()
+	
+	execCmd := exec.CommandContext(execCtx, "./testprogram")
+	execCmd.Dir = tmpDir
+	execOutput, err := execCmd.CombinedOutput()
+	if err != nil {
+		// Check if it was a timeout
+		if execCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("execution timeout (10s) - generated code likely hangs\nOutput: %s", string(execOutput))
+		}
+		return fmt.Errorf("execution failed: %v\nOutput: %s", err, string(execOutput))
+	}
+	
+	// Check that execution completed (should contain our success message)
+	if !strings.Contains(string(execOutput), "Execution completed successfully") {
+		return fmt.Errorf("execution did not complete successfully\nOutput: %s", string(execOutput))
+	}
+	
+	return nil
 }
