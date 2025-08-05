@@ -1,41 +1,50 @@
-# Development environment for devcmd project
-# Dogfooding our own tool for development commands
+# Development environment for devcmd project - smart derivation approach
 { pkgs, self ? null, gitRev ? "dev", system }:
 let
-  # Import our own library to create the development CLI
+  # Import our library to create the development CLI using fixed-output derivation
   devcmdLib = import ./lib.nix {
     inherit pkgs self gitRev system;
     lib = pkgs.lib;
   };
 
-  # Generate the development CLI from our commands.cli file - fail if can't build
-  devCLI = devcmdLib.mkDevCLI
-    {
-      name = "dev";
-      binaryName = "dev"; # Explicitly set binary name for self-awareness
-      commandsFile = ../commands.cli;
-      version = "latest";
-    };
+  # Build the dev CLI using fixed-output derivation (allows network access)
+  devCLI = devcmdLib.mkDevCLI {
+    name = "devcmd-dev-cli";
+    binaryName = "dev";
+    commandsFile = ../commands.cli;
+    version = "dev-${gitRev}";
+  };
 in
 pkgs.mkShell {
   name = "devcmd-dev";
+  
   buildInputs = with pkgs; [
-    # Core Go development
+    # Development tools
     go
     gopls
     golangci-lint
-    # Development tools
     git
     zsh
-    # Code formatting
     nixpkgs-fmt
     gofumpt
-  ] ++ [ devCLI ];
+  ] ++ [ 
+    self.packages.${system}.devcmd  # Include the devcmd binary itself
+    devCLI                          # Include the generated dev CLI (built via fixed-output derivation)
+  ];
+  
   shellHook = ''
     echo "🔧 Devcmd Development Environment"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    dev help
+    echo "Available commands:"
+    echo "  devcmd - The devcmd CLI generator"
+    echo "  dev    - Development commands for this project (built via fixed-output derivation)"
+    echo ""
+    echo "The dev CLI is automatically built using a fixed-output derivation"
+    echo "that allows network access for Go module downloads while maintaining"
+    echo "reproducibility through content hashing."
+    echo ""
+    echo "Run 'dev help' to see available development commands"
     exec ${pkgs.zsh}/bin/zsh
   '';
 }

@@ -1,11 +1,7 @@
-# Minimal library functions for generating CLI packages from devcmd files
+# Library functions for generating CLI packages from devcmd files with proper sandbox support
 { pkgs, self, lib, gitRev, system }:
 
 let
-  # Simple content hash for deterministic caching
-  mkContentHash = content:
-    builtins.hashString "sha256" (toString content);
-
   # Helper function to safely read files
   tryReadFile = path:
     if builtins.pathExists (toString path) then
@@ -14,10 +10,10 @@ let
 
 in
 rec {
-  # Generate a CLI package from devcmd commands (for standalone binaries)
+  # Generate a CLI package from devcmd commands using stdenv.mkDerivation for better control
   mkDevCLI =
     {
-      # Package name (also used as binary name - follows Nix conventions)
+      # Package name 
       name
 
       # Binary name (defaults to "dev" if not specified)
@@ -34,7 +30,7 @@ rec {
     }:
 
     let
-      # Use the same content resolution logic as mkDevCommands
+      # Content resolution logic
       fileContent =
         if commandsFile != null then tryReadFile commandsFile
         else null;
@@ -47,8 +43,9 @@ rec {
       autoDetectContent =
         let
           candidates = [
-            ./commands.cli # Primary default
-            ./.commands.cli # Hidden
+            ../commands.cli # Look in parent directory (project root)
+            ./commands.cli  # Look in current directory
+            ./.commands.cli # Hidden variant
           ];
 
           findFirst = paths:
@@ -68,64 +65,64 @@ rec {
         else throw "No commands content found for CLI '${name}'. Expected commands.cli file or explicit content.";
 
       processedContent = preProcess finalContent;
-      contentHash = mkContentHash processedContent;
 
-      # Cache-aware source naming
-      commandsSrc = pkgs.writeText "${name}-commands-${contentHash}.cli" processedContent;
+      # Create the commands file as a source
+      commandsSrc = pkgs.writeText "${name}-commands.cli" processedContent;
 
-      # Get devcmd binary with better error handling
+      # Get devcmd binary
       devcmdBin =
         if self != null then self.packages.${system}.devcmd or self.packages.${system}.default
         else throw "Self reference required for CLI generation. Cannot build '${name}' without devcmd parser.";
 
-      # Simplified approach: Use devcmd build to handle everything
-      cliDerivation = pkgs.writeShellScriptBin binaryName ''
-        set -euo pipefail
+      # Build the CLI using a fixed-output derivation for network access
+      # This allows Go module downloads while maintaining reproducibility
+      cliPackage = pkgs.stdenv.mkDerivation {
+        pname = name;
+        inherit version;
         
-        # Cache configuration
-        CACHE_DIR="$HOME/.cache/devcmd/${name}"
-        CONTENT_HASH="${contentHash}"
-        BINARY_PATH="$CACHE_DIR/bin/${binaryName}"
-        HASH_FILE="$CACHE_DIR/hash"
+        # Use the commands file as source
+        src = commandsSrc;
         
-        # Check if cached binary exists and is current
-        if [[ -f "$BINARY_PATH" && -f "$HASH_FILE" ]]; then
-          if [[ "$(cat "$HASH_FILE" 2>/dev/null || echo "")" == "$CONTENT_HASH" ]]; then
-            # Cache hit - use existing binary
-            exec "$BINARY_PATH" "$@"
-          fi
-        fi
+        nativeBuildInputs = [ devcmdBin pkgs.go pkgs.cacert ];
         
-        # Cache miss - use devcmd build to generate and compile everything
-        echo "🔨 Building ${name} CLI..."
-        mkdir -p "$CACHE_DIR/bin"
+        # Don't unpack the source - we'll use it directly
+        dontUnpack = true;
         
-        # Ensure Go toolchain is available
-        if ! command -v go >/dev/null 2>&1; then
-          echo "❌ Error: Go toolchain not found. Please ensure Go is installed."
-          exit 1
-        fi
+        buildPhase = ''
+          # Set up Go environment
+          export HOME=$TMPDIR
+          export GOCACHE=$TMPDIR/go-cache
+          export GOMODCACHE=$TMPDIR/go-mod-cache
+          export GOPATH=$TMPDIR/go
+          mkdir -p $GOCACHE $GOMODCACHE $GOPATH
+          
+          # Generate and build the CLI binary (with network access for modules)
+          ${devcmdBin}/bin/devcmd build \
+            --file "$src" \
+            --binary "${binaryName}" \
+            -o "${binaryName}"
+        '';
         
-        # Verify devcmd binary exists and is executable
-        if [[ ! -x "${devcmdBin}/bin/devcmd" ]]; then
-          echo "❌ Error: devcmd binary not found or not executable at ${devcmdBin}/bin/devcmd"
-          exit 1
-        fi
+        installPhase = ''
+          mkdir -p $out/bin
+          cp ${binaryName} $out/bin/
+          chmod +x $out/bin/${binaryName}
+        '';
         
-        # Use devcmd build to handle generation, module management, and compilation
-        ${devcmdBin}/bin/devcmd build \
-          --file "${commandsSrc}" \
-          --binary "${binaryName}" \
-          -o "$BINARY_PATH"
+        # Fixed-output derivation attributes for network access
+        outputHashAlgo = "sha256";
+        outputHashMode = "recursive";
+        # Use fake hash initially - Nix will tell us the real hash on first build
+        outputHash = lib.fakeSha256;
         
-        # Cache the result
-        echo "$CONTENT_HASH" > "$HASH_FILE"
-        echo "✅ ${name} CLI built successfully"
-        
-        # Execute the built binary
-        exec "$BINARY_PATH" "$@"
-      '';
+        meta = with lib; {
+          description = "Generated CLI from devcmd (fixed-output derivation)";
+          license = licenses.mit;
+          platforms = platforms.unix;
+          mainProgram = binaryName;
+        } // meta;
+      };
 
     in
-    cliDerivation;
+    cliPackage;
 }

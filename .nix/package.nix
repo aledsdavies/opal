@@ -1,4 +1,4 @@
-# Package definition for devcmd CLI (built from cli module)
+# Package definition for devcmd CLI (built from cli module with Go workspace support)
 { pkgs, lib, version ? "dev" }:
 
 pkgs.buildGoModule rec {
@@ -9,13 +9,17 @@ pkgs.buildGoModule rec {
   modRoot = "cli"; # path to CLI module's go.mod
   subPackages = [ "." ]; # build the main package
 
-  # Disable workspace mode for both build and fetcher phases (required for buildGoModule)  
+  # Critical: Disable workspace mode and set up proper Go environment for Nix sandbox
   env.GOWORK = "off";
-  env.GOCACHE = "/tmp/go-cache";
-  env.GOMODCACHE = "/tmp/go-mod-cache";
+  env.GOCACHE = "$TMPDIR/go-cache";
+  env.GOMODCACHE = "$TMPDIR/go-mod-cache";
   
-  # Force GOWORK=off in the modules fetcher step too (Go 1.22+ requirement)
-  overrideModAttrs = _: { env.GOWORK = "off"; };
+  # Force GOWORK=off in vendor phase and set up sandbox-compatible paths
+  overrideModAttrs = _: { 
+    env.GOWORK = "off";
+    env.GOCACHE = "$TMPDIR/go-cache";
+    env.GOMODCACHE = "$TMPDIR/go-mod-cache";
+  };
 
   # Vendor hash for CLI module dependencies  
   vendorHash = "sha256-5el+4EYvfYG6t9uBNpRCBrRfevgHYxFDMIxTltn1w18=";
