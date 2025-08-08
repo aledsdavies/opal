@@ -1658,6 +1658,15 @@ func (e *Engine) setupDecoratorLookups(ctx execution.GeneratorContext) {
 			return decorator, true
 		})
 
+		// Set up block decorator lookup function using the decorator registry
+		generatorCtx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetBlock(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+
 		// Set up action decorator lookup function using the decorator registry
 		generatorCtx.SetActionDecoratorLookup(func(name string) (interface{}, bool) {
 			decorator, err := decorators.GetAction(name)
@@ -1677,6 +1686,15 @@ func (e *Engine) setupInterpreterDecoratorLookups(ctx execution.InterpreterConte
 		// Set up value decorator lookup function using the decorator registry
 		interpreterCtx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
 			decorator, err := decorators.GetValue(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+
+		// Set up block decorator lookup function using the decorator registry  
+		interpreterCtx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetBlock(name)
 			if err != nil {
 				return nil, false
 			}

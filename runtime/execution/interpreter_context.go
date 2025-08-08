@@ -53,11 +53,92 @@ func (c *InterpreterExecutionContext) ExecuteShell(content *ast.ShellContent) *E
 	}
 }
 
-// ExecuteCommandContent executes command content using the engine's executor (used by decorators)
+// ExecuteCommandContent executes any command content type in interpreter mode
 func (c *InterpreterExecutionContext) ExecuteCommandContent(content ast.CommandContent) error {
-	// This method is no longer needed with the new architecture
-	// Commands should be executed directly through the registry patterns
-	return fmt.Errorf("ExecuteCommandContent is deprecated - use direct decorator registry execution")
+	switch cmd := content.(type) {
+	case *ast.ShellContent:
+		result := c.ExecuteShell(cmd)
+		return result.Error
+	
+	case *ast.BlockDecorator:
+		// Handle block decorators by looking them up in the registry
+		return c.executeBlockDecorator(cmd)
+	
+	case *ast.PatternDecorator:
+		// Handle pattern decorators like @when
+		return c.executePatternDecorator(cmd)
+	
+	case *ast.PatternContent:
+		// Handle pattern content (branches within @when)
+		return fmt.Errorf("pattern content cannot be executed directly - should be part of pattern decorator")
+	
+	case *ast.ActionDecorator:
+		// Action decorators as standalone commands (like in @parallel { @cmd(...) })
+		return c.executeActionDecorator(cmd)
+	
+	default:
+		return fmt.Errorf("unsupported command content type: %T", content)
+	}
+}
+
+// executeBlockDecorator handles block decorator execution in interpreter mode
+func (c *InterpreterExecutionContext) executeBlockDecorator(blockDec *ast.BlockDecorator) error {
+	// Import the decorators package to access the registry
+	// Note: This creates a circular dependency, so we'll use the lookup function approach
+	blockDecoratorLookup := c.GetBlockDecoratorLookup()
+	if blockDecoratorLookup == nil {
+		return fmt.Errorf("block decorator lookup not available (engine not properly initialized)")
+	}
+
+	decoratorInterface, exists := blockDecoratorLookup(blockDec.Name)
+	if !exists {
+		return fmt.Errorf("block decorator @%s not found", blockDec.Name)
+	}
+
+	// Cast to the expected interface type for interpreter mode
+	blockDecorator, ok := decoratorInterface.(interface {
+		ExecuteInterpreter(ctx InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *ExecutionResult
+	})
+	if !ok {
+		return fmt.Errorf("block decorator @%s does not implement expected ExecuteInterpreter method", blockDec.Name)
+	}
+
+	// Execute the block decorator
+	result := blockDecorator.ExecuteInterpreter(c, blockDec.Args, blockDec.Content)
+	return result.Error
+}
+
+// executePatternDecorator handles pattern decorator execution in interpreter mode
+func (c *InterpreterExecutionContext) executePatternDecorator(patternDec *ast.PatternDecorator) error {
+	// Get the pattern decorator from the registry
+	blockDecoratorLookup := c.GetBlockDecoratorLookup()
+	if blockDecoratorLookup == nil {
+		return fmt.Errorf("pattern decorator lookup not available (engine not properly initialized)")
+	}
+
+	decoratorInterface, exists := blockDecoratorLookup(patternDec.Name)
+	if !exists {
+		return fmt.Errorf("pattern decorator @%s not found", patternDec.Name)
+	}
+
+	// Cast to the expected interface type for interpreter mode
+	patternDecorator, ok := decoratorInterface.(interface {
+		ExecuteInterpreter(ctx InterpreterContext, params []ast.NamedParameter, branches []ast.PatternBranch) *ExecutionResult
+	})
+	if !ok {
+		return fmt.Errorf("pattern decorator @%s does not implement expected ExecuteInterpreter method", patternDec.Name)
+	}
+
+	// Execute the pattern decorator
+	result := patternDecorator.ExecuteInterpreter(c, patternDec.Args, patternDec.Patterns)
+	return result.Error
+}
+
+// executeActionDecorator handles action decorator execution in interpreter mode
+func (c *InterpreterExecutionContext) executeActionDecorator(actionDec *ast.ActionDecorator) error {
+	// Action decorators as standalone commands need special handling
+	// They should be processed as part of shell content, not as standalone commands
+	return fmt.Errorf("action decorator @%s cannot be executed as standalone command - should be part of shell content", actionDec.Name)
 }
 
 // ExecuteCommand executes a full command by name (used by decorators like @cmd)
@@ -88,6 +169,10 @@ func (c *InterpreterExecutionContext) Child() InterpreterContext {
 		Debug:          c.Debug,
 		DryRun:         c.DryRun,
 		currentCommand: c.currentCommand,
+
+		// Copy decorator lookups from parent (critical for nested decorator execution)
+		valueDecoratorLookup: c.valueDecoratorLookup,
+		blockDecoratorLookup: c.blockDecoratorLookup,
 
 		// Initialize unique counter space for this child to avoid variable name conflicts
 		// Each child gets a unique counter space based on parent's counter and child ID
@@ -213,6 +298,13 @@ func (c *InterpreterExecutionContext) GetValueDecoratorLookup() func(name string
 	// Value decorators are looked up through dependency injection to avoid import cycles
 	// This will be set by the engine during initialization
 	return c.valueDecoratorLookup
+}
+
+// GetBlockDecoratorLookup returns the block decorator lookup function for interpreter mode
+func (c *InterpreterExecutionContext) GetBlockDecoratorLookup() func(name string) (interface{}, bool) {
+	// Block decorators are looked up through dependency injection to avoid import cycles
+	// This will be set by the engine during initialization
+	return c.blockDecoratorLookup
 }
 
 // TrackEnvironmentVariable tracks an environment variable for consistent access during execution

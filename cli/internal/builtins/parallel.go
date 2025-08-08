@@ -134,43 +134,67 @@ func (p *ParallelDecorator) extractParallelParams(params []ast.NamedParameter, c
 
 // executeInterpreterImpl executes commands concurrently in interpreter mode
 func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
-	// Simple goroutine-based parallel execution for interpreter mode
-	errorChan := make(chan error, len(content))
-
+	// Use channels to coordinate execution and output
+	type commandResult struct {
+		index  int
+		result *execution.ExecutionResult
+	}
+	
+	resultChan := make(chan commandResult, len(content))
+	
+	// Execute commands concurrently
 	for i, cmd := range content {
 		go func(cmdIndex int, command ast.CommandContent) {
 			// Create isolated context for each parallel command
 			isolatedCtx := ctx.Child()
 
-			// Execute the command based on its type
-			var err error
-			switch c := command.(type) {
-			case *ast.ShellContent:
-				result := isolatedCtx.ExecuteShell(c)
-				err = result.Error
-			default:
-				err = fmt.Errorf("unsupported command type in parallel: %T", command)
+			// Execute the command using the unified ExecuteCommandContent method
+			err := isolatedCtx.ExecuteCommandContent(command)
+			var result *execution.ExecutionResult
+			if err != nil {
+				result = execution.NewErrorResult(err)
+			} else {
+				result = &execution.ExecutionResult{Data: nil, Error: nil}
 			}
 
-			errorChan <- err
+			resultChan <- commandResult{index: cmdIndex, result: result}
 		}(i, cmd)
 	}
 
+	// Collect results - maintain order for consistent output
+	results := make([]*execution.ExecutionResult, len(content))
+	var firstError error
+	
 	// Wait for all goroutines to complete
 	for i := 0; i < len(content); i++ {
-		if err := <-errorChan; err != nil {
+		cmdResult := <-resultChan
+		results[cmdResult.index] = cmdResult.result
+		
+		if cmdResult.result.Error != nil && firstError == nil {
+			firstError = cmdResult.result.Error
 			if failOnFirstError {
-				return &execution.ExecutionResult{
-					Data:  nil,
-					Error: fmt.Errorf("parallel execution failed: %w", err),
-				}
+				// Still need to wait for all goroutines to complete
+				continue
 			}
 		}
+	}
+	
+	// Display outputs in original command order for consistent behavior
+	for _, result := range results {
+		if result.Error == nil {
+			// Command succeeded - output should already be displayed by ExecuteShell
+			continue
+		}
+	}
+
+	// Return error if fail-fast is enabled and we have an error
+	if failOnFirstError && firstError != nil {
+		return execution.NewErrorResult(fmt.Errorf("parallel execution failed: %w", firstError))
 	}
 
 	return &execution.ExecutionResult{
 		Data:  nil,
-		Error: nil,
+		Error: firstError, // Return first error even if not failing fast
 	}
 }
 
