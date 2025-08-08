@@ -80,17 +80,14 @@ func (d *WorkdirDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, 
 	return d.executeInterpreterImpl(ctx, pathParam, createIfNotExists, content)
 }
 
-// ExecuteGenerator generates Go code for workdir logic
-func (d *WorkdirDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+// GenerateTemplate generates template for workdir logic
+func (d *WorkdirDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
 	pathParam, createIfNotExists, err := d.extractWorkdirParams(params)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("workdir parameter error: %w", err),
-		}
+		return nil, fmt.Errorf("workdir parameter error: %w", err)
 	}
 
-	return d.executeGeneratorImpl(ctx, pathParam, createIfNotExists, content)
+	return d.generateTemplateImpl(ctx, pathParam, createIfNotExists, content)
 }
 
 // ExecutePlan creates a plan element for dry-run mode
@@ -241,64 +238,46 @@ func (d *WorkdirDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	}
 }
 
-// executeGeneratorImpl generates Go code for the workdir decorator using new utilities
-func (d *WorkdirDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, path string, createIfNotExists bool, content []ast.CommandContent) *execution.ExecutionResult {
-	// Generate inline code that integrates with sequential execution
-	var generatedCode strings.Builder
+// generateTemplateImpl generates template for the workdir decorator
+func (d *WorkdirDecorator) generateTemplateImpl(ctx execution.GeneratorContext, path string, createIfNotExists bool, content []ast.CommandContent) (*execution.TemplateResult, error) {
+	// Create template string with workdir logic
+	tmplStr := `{{if .CreateIfNotExists}}// Create directory if it doesn't exist
+if err := os.MkdirAll({{printf "%q" .Path}}, 0755); err != nil {
+	return fmt.Errorf("failed to create directory {{.Path}}: %w", err)
+}
+{{else}}// Verify target directory exists
+if _, err := os.Stat({{printf "%q" .Path}}); err != nil {
+	return fmt.Errorf("failed to access directory {{.Path}}: %w", err)
+}
+{{end}}// Execute in working directory: {{.Path}}
+{
+	// Create isolated context with updated working directory
+	workdirCtx := ctx.Clone()
+	workdirCtx.Dir = {{printf "%q" .Path}}
+	ctx := workdirCtx  // Use workdir context for commands
+	
+{{range .Content}}	{{. | buildCommand}}
+{{end}}
+}`
 
-	// Add directory verification/creation code
-	if createIfNotExists {
-		generatedCode.WriteString("// Create directory if it doesn't exist\n")
-		generatedCode.WriteString(fmt.Sprintf("if err := os.MkdirAll(%q, 0755); err != nil {\n", path))
-		generatedCode.WriteString(fmt.Sprintf("\treturn CommandResult{Stdout: \"\", Stderr: fmt.Sprintf(\"failed to create directory %s: %%v\", err), ExitCode: 1}\n", path))
-		generatedCode.WriteString("}\n")
-	} else {
-		generatedCode.WriteString("// Verify target directory exists\n")
-		generatedCode.WriteString(fmt.Sprintf("if _, err := os.Stat(%q); err != nil {\n", path))
-		generatedCode.WriteString(fmt.Sprintf("\treturn CommandResult{Stdout: \"\", Stderr: fmt.Sprintf(\"failed to access directory %s: %%v\", err), ExitCode: 1}\n", path))
-		generatedCode.WriteString("}\n")
+	// Parse template with helper functions
+	tmpl, err := template.New("workdir").Funcs(ctx.GetTemplateFunctions()).Parse(tmplStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse workdir template: %w", err)
 	}
 
-	// Generate unique context variable name using utility function
-	contextVarName := generateUniqueContextVar("workdir", path, fmt.Sprintf("%p", &generatedCode))
-
-	// Generate code to create ExecutionContext with updated working directory
-	generatedCode.WriteString(fmt.Sprintf("// Create ExecutionContext with working directory: %s\n", path))
-	generatedCode.WriteString(fmt.Sprintf("%s := execCtx.Child().WithWorkingDir(%q)\n", contextVarName, path))
-	generatedCode.WriteString("\n")
-
-	// Generate shell commands using template
-	for _, cmdContent := range content {
-		switch c := cmdContent.(type) {
-		case *ast.ShellContent:
-			// Generate shell code using unique workdir context template
-			shellCode, err := d.generateShellCodeWithTemplate(c, contextVarName)
-			if err != nil {
-				return &execution.ExecutionResult{
-					Data:  "",
-					Error: fmt.Errorf("failed to generate shell code in workdir: %w", err),
-				}
-			}
-			generatedCode.WriteString(shellCode)
-		case *ast.BlockDecorator:
-			// Handle nested decorators - this would need recursive processing
-			// For now, return an error as this is complex
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("nested decorators in @workdir are not yet supported"),
-			}
-		default:
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("unsupported command content type in @workdir: %T", cmdContent),
-			}
-		}
-	}
-
-	return &execution.ExecutionResult{
-		Data:  generatedCode.String(),
-		Error: nil,
-	}
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			Path              string
+			CreateIfNotExists bool
+			Content           []ast.CommandContent
+		}{
+			Path:              path,
+			CreateIfNotExists: createIfNotExists,
+			Content:           content,
+		},
+	}, nil
 }
 
 // ShellTemplateData holds template data for workdir shell execution
@@ -328,11 +307,10 @@ func (d *WorkdirDecorator) generateShellCodeWithTemplate(content *ast.ShellConte
 	// Generate unique variable name using utility function
 	varName := generateUniqueResultVar("workdir", commandStr, contextVarName)
 
-	// Define the template for shell execution with unique workdir context
+	// Define the template for shell execution with workdir context
 	const workdirShellTemplate = `// Execute shell command in working directory
-{{.VarName}} := executeShellCommand({{.ContextVar}}, {{printf "%q" .Command}})
-if {{.VarName}}.Failed() {
-	return {{.VarName}}
+if err := exec({{.ContextVar}}, {{printf "%q" .Command}}); err != nil {
+	return err
 }
 `
 

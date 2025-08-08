@@ -2,6 +2,7 @@ package decorators
 
 import (
 	"fmt"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/runtime/decorators"
@@ -57,27 +58,31 @@ func (v *VarDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 	}
 }
 
-// ExpandGenerator returns Go code that resolves the variable for generator mode
-func (v *VarDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
+// GenerateTemplate returns template for Go code that resolves the variable for generator mode
+func (v *VarDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter) (*execution.TemplateResult, error) {
 	varName, err := v.extractVariableName(params)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("var parameter error: %w", err),
-		}
+		return nil, fmt.Errorf("var parameter error: %w", err)
 	}
 
-	// Generator mode should work even with undefined variables for planning purposes
-	// Generate code that will resolve the variable at runtime
+	// Create simple template that outputs the variable name
+	// Variables are defined at the top of generated functions
+	tmplStr := `{{.VarName}}`
 
-	// Generate Go code that references the variable
-	// The variable will be defined in the generated code as: varName := "value"
-	goCode := varName
-
-	return &execution.ExecutionResult{
-		Data:  goCode, // Returns the Go variable name to be used in fmt.Sprintf
-		Error: nil,
+	// Parse template
+	tmpl, err := template.New("var").Parse(tmplStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse var template: %w", err)
 	}
+
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			VarName string
+		}{
+			VarName: varName,
+		},
+	}, nil
 }
 
 // ExpandPlan returns description for dry-run display in plan mode

@@ -1,7 +1,6 @@
 package decorators
 
 import (
-	"bytes"
 	"fmt"
 	"text/template"
 
@@ -14,41 +13,11 @@ import (
 // WhenDecorator implements the @when decorator for conditional execution based on patterns
 type WhenDecorator struct{}
 
-// Template for when execution code generation (unified contract: statement blocks)
-const whenExecutionTemplate = `// Pattern matching for variable: {{.VariableName}}
-// Get variable value from context or captured environment at runtime
-var {{.VariableName}}Value string
-if ctxValue, exists := variableContext[{{printf "%q" .VariableName}}]; exists {
-	{{.VariableName}}Value = ctxValue
-} else if envValue, exists := ctx.EnvContext[{{printf "%q" .VariableName}}]; exists {
-	{{.VariableName}}Value = envValue
-}
-
-switch {{.VariableName}}Value {
-{{range $pattern := .Patterns}}
-{{if $pattern.IsDefault}}
-default:
-{{else}}
-case {{printf "%q" $pattern.Name}}:
-{{end}}
-	// Execute commands for pattern: {{$pattern.Name}}
-	{{range $i, $cmd := $pattern.Commands}}
-	{{$cmd}}
-	{{end}}
-{{end}}
-}`
-
 // WhenPatternData holds data for a single pattern branch
 type WhenPatternData struct {
 	Name      string
 	IsDefault bool
-	Commands  []string // Generated shell code strings
-}
-
-// WhenTemplateData holds data for template execution
-type WhenTemplateData struct {
-	VariableName string
-	Patterns     []WhenPatternData
+	Commands  []ast.CommandContent // AST commands for template processing
 }
 
 // Name returns the decorator name
@@ -99,17 +68,14 @@ func (w *WhenDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, par
 	return w.executeInterpreterImpl(ctx, varName, patterns)
 }
 
-// ExecuteGenerator generates Go code for pattern matching with runtime variable resolution
-func (w *WhenDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult {
+// GenerateTemplate generates template for pattern matching with runtime variable resolution
+func (w *WhenDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (*execution.TemplateResult, error) {
 	varName, err := w.extractVariableName(params)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: err,
-		}
+		return nil, err
 	}
 
-	return w.executeGeneratorImpl(ctx, varName, patterns)
+	return w.generateTemplateImpl(ctx, varName, patterns)
 }
 
 // ExecutePlan creates a plan element for dry-run mode showing the path taken for current environment
@@ -179,13 +145,36 @@ func (w *WhenDecorator) executeInterpreterImpl(ctx execution.InterpreterContext,
 	}
 }
 
-// executeGeneratorImpl generates Go code for pattern matching with runtime variable resolution
-func (w *WhenDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, varName string, patterns []ast.PatternBranch) *execution.ExecutionResult {
+// generateTemplateImpl generates template for pattern matching with runtime variable resolution
+func (w *WhenDecorator) generateTemplateImpl(ctx execution.GeneratorContext, varName string, patterns []ast.PatternBranch) (*execution.TemplateResult, error) {
 	// Track the variable for global environment capture in generated code
-	// This ensures the variable is available in the generated binary's envContext
 	ctx.TrackEnvironmentVariableReference(varName, "")
 
-	// Convert patterns to template data with generated shell code
+	// Create template for pattern matching
+	tmplStr := `// Pattern matching for variable: {{.VariableName}}
+var {{.VariableName}}Value string
+if ctxValue, exists := variableContext[{{printf "%q" .VariableName}}]; exists {
+	{{.VariableName}}Value = ctxValue
+} else if envValue, exists := ctx.EnvContext[{{printf "%q" .VariableName}}]; exists {
+	{{.VariableName}}Value = envValue
+}
+
+switch {{.VariableName}}Value {
+{{range .Patterns}}
+{{if .IsDefault}}default:{{else}}case {{printf "%q" .Name}}:{{end}}
+	// Execute commands for pattern: {{.Name}}
+{{range .Commands}}\t{{. | buildCommand}}
+{{end}}
+{{end}}
+}`
+
+	// Parse template with helper functions
+	tmpl, err := template.New("when").Funcs(ctx.GetTemplateFunctions()).Parse(tmplStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse when template: %w", err)
+	}
+
+	// Convert patterns to template data
 	var patternData []WhenPatternData
 	for _, pattern := range patterns {
 		patternStr := w.patternToString(pattern.Pattern)
@@ -194,59 +183,23 @@ func (w *WhenDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, var
 			isDefault = true
 		}
 
-		// Generate shell code for each command in the pattern
-		commandCodes := make([]string, len(pattern.Commands))
-		for j, cmd := range pattern.Commands {
-			switch c := cmd.(type) {
-			case *ast.ShellContent:
-				// Generate shell code using the execution context
-				result := ctx.GenerateShellCode(c)
-				if result.Error != nil {
-					return &execution.ExecutionResult{
-						Data:  "",
-						Error: fmt.Errorf("failed to generate shell code for pattern %s: %w", patternStr, result.Error),
-					}
-				}
-				commandCodes[j] = result.Data.(string)
-			default:
-				commandCodes[j] = fmt.Sprintf("// Unsupported command type: %T", cmd)
-			}
-		}
-
 		patternData = append(patternData, WhenPatternData{
 			Name:      patternStr,
 			IsDefault: isDefault,
-			Commands:  commandCodes,
+			Commands:  pattern.Commands, // Pass AST commands directly to template
 		})
 	}
 
-	// Prepare template data for runtime variable resolution
-	templateData := WhenTemplateData{
-		VariableName: varName,
-		Patterns:     patternData,
-	}
-
-	// Parse and execute template
-	tmpl, err := template.New("when").Parse(whenExecutionTemplate)
-	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to parse when template: %w", err),
-		}
-	}
-
-	var result bytes.Buffer
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to execute when template: %w", err),
-		}
-	}
-
-	return &execution.ExecutionResult{
-		Data:  result.String(),
-		Error: nil,
-	}
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			VariableName string
+			Patterns     []WhenPatternData
+		}{
+			VariableName: varName,
+			Patterns:     patternData,
+		},
+	}, nil
 }
 
 // executePlanImpl creates a plan element for dry-run mode showing the path taken for current environment

@@ -1,0 +1,10 @@
+test: @parallel {
+    @workdir("dir1") {
+        pwd > result.txt
+        echo "Branch 1 executed" >> result.txt
+    }
+    @workdir("dir2") {
+        pwd > result.txt
+        echo "Branch 2 executed" >> result.txt
+    }
+}

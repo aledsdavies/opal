@@ -16,55 +16,6 @@ import (
 // ConfirmDecorator implements the @confirm decorator for user confirmation prompts
 type ConfirmDecorator struct{}
 
-// Template for confirmation logic code generation (unified contract: statement blocks)
-const confirmExecutionTemplate = `// Confirmation execution setup
-{{if .SkipInCI}}// Check if we're in CI environment (using captured environment)
-isCI := func() bool {
-	ciVars := []string{"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "TRAVIS", "CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER"}
-	for _, envVar := range ciVars {
-		if value, exists := ctx.EnvContext[envVar]; exists && value != "" {
-			return true
-		}
-	}
-	return false
-}()
-
-if isCI {
-	// Auto-confirm in CI and execute commands
-	fmt.Printf("CI environment detected - auto-confirming: %s\n", {{printf "%q" .Message}})
-} else {
-{{end}}	// Display the confirmation message
-	fmt.Print({{printf "%q" .Message}})
-	{{if .DefaultYes}}fmt.Print(" [Y/n]: "){{else}}fmt.Print(" [y/N]: "){{end}}
-	
-	// Read user input
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read user input: %w", err)
-	}
-	
-	response = strings.TrimSpace(response)
-	
-	// Determine if user confirmed
-	confirmed := false
-	if response == "" {
-		confirmed = {{.DefaultYes}}
-	} else {
-		{{if .CaseSensitive}}confirmed = response == "y" || response == "Y" || response == "yes" || response == "Yes"{{else}}lowerResponse := strings.ToLower(response)
-		confirmed = lowerResponse == "y" || lowerResponse == "yes"{{end}}
-	}
-	
-	if !confirmed {
-		{{if .AbortOnNo}}return fmt.Errorf("user cancelled execution"){{else}}return nil{{end}}
-	}
-{{if .SkipInCI}}}{{end}}
-
-// Execute the commands in child context
-{{range $i, $cmd := .Commands}}
-{{generateShellCode $cmd}}
-{{end}}`
-
 // Name returns the decorator name
 func (c *ConfirmDecorator) Name() string {
 	return "confirm"
@@ -154,9 +105,8 @@ func (c *ConfirmDecorator) trackCIEnvironmentVariables(ctx execution.GeneratorCo
 		"CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER",
 	}
 
-	for _, envVar := range ciVars {
-		ctx.TrackEnvironmentVariableReference(envVar, "")
-	}
+	// TODO: Implement env var tracking in template system
+	_ = ciVars // Suppress unused variable warning for now
 }
 
 // ExecuteInterpreter executes confirmation prompt in interpreter mode
@@ -171,16 +121,13 @@ func (c *ConfirmDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, 
 	return c.executeInterpreterImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
 }
 
-// ExecuteGenerator generates Go code for confirmation logic
-func (c *ConfirmDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+// GenerateTemplate generates template for confirmation logic
+func (c *ConfirmDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
 	message, defaultYes, abortOnNo, caseSensitive, skipInCI, err := c.extractConfirmParams(params)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("confirm parameter error: %w", err),
-		}
+		return nil, fmt.Errorf("confirm parameter error: %w", err)
 	}
-	return c.executeGeneratorImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
+	return c.generateTemplateImpl(ctx, message, defaultYes, abortOnNo, caseSensitive, skipInCI, content)
 }
 
 // ExecutePlan creates a plan element for dry-run mode
@@ -298,65 +245,76 @@ func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	}
 }
 
-// executeGeneratorImpl generates Go code for confirmation logic using new utilities
-func (c *ConfirmDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) *execution.ExecutionResult {
+// generateTemplateImpl generates template for confirmation logic
+func (c *ConfirmDecorator) generateTemplateImpl(ctx execution.GeneratorContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) (*execution.TemplateResult, error) {
 	// Track CI environment variables for deterministic behavior
 	if skipInCI {
 		c.trackCIEnvironmentVariables(ctx)
 	}
 
-	// Convert commands to operations using the utility
-	executor := decorators.NewCommandResultExecutor(ctx)
-	operations, err := executor.ConvertCommandsToCommandResultOperations(content)
+	// Create template for confirm logic
+	tmplStr := `// Confirmation prompt: {{.Message}}
+{{if .SkipInCI}}if isCI() {
+	// Skip confirmation in CI environment
+{{range .Content}}	{{. | buildCommand}}
+{{end}}	return nil
+}
+{{end}}fmt.Print("{{.Message}} {{if .DefaultYes}}[Y/n]{{else}}[y/N]{{end}}: ")
+reader := bufio.NewReader(os.Stdin)
+input, err := reader.ReadString('\n')
+if err != nil {
+	return fmt.Errorf("failed to read user input: %w", err)
+}
+input = strings.TrimSpace(input)
+
+confirmed := false
+if input == "" {
+	confirmed = {{.DefaultYes}}
+} else {
+{{if .CaseSensitive}}
+	confirmed = input == "y" || input == "Y" || input == "yes" || input == "Yes"
+{{else}}
+	confirmed = strings.ToLower(input) == "y" || strings.ToLower(input) == "yes"
+{{end}}
+}
+
+{{if .AbortOnNo}}
+if !confirmed {
+	return fmt.Errorf("operation cancelled by user")
+}
+{{else}}
+if confirmed {
+{{end}}
+{{range .Content}}{{. | buildCommand}}
+{{end}}
+{{if not .AbortOnNo}}
+}
+{{end}}`
+
+	// Parse template with helper functions
+	tmpl, err := template.New("confirm").Funcs(ctx.GetTemplateFunctions()).Parse(tmplStr)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to convert commands to operations: %w", err),
-		}
+		return nil, fmt.Errorf("failed to parse confirm template: %w", err)
 	}
 
-	// Create child context for isolated execution
-	confirmCtx := ctx.Child()
-
-	// Use template to generate the full confirmation logic
-	tmpl, err := template.New("confirmExecution").Funcs(confirmCtx.GetTemplateFunctions()).Parse(confirmExecutionTemplate)
-	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to parse confirm template: %w", err),
-		}
-	}
-
-	templateData := struct {
-		Message       string
-		DefaultYes    bool
-		AbortOnNo     bool
-		CaseSensitive bool
-		SkipInCI      bool
-		Commands      []ast.CommandContent
-		Operations    []decorators.Operation
-	}{
-		Message:       message,
-		DefaultYes:    defaultYes,
-		AbortOnNo:     abortOnNo,
-		CaseSensitive: caseSensitive,
-		SkipInCI:      skipInCI,
-		Commands:      content,    // Keep for backward compatibility with existing template
-		Operations:    operations, // New operations for potential future enhancements
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to execute confirm template: %w", err),
-		}
-	}
-
-	return &execution.ExecutionResult{
-		Data:  result.String(),
-		Error: nil,
-	}
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			Message       string
+			DefaultYes    bool
+			AbortOnNo     bool
+			CaseSensitive bool
+			SkipInCI      bool
+			Content       []ast.CommandContent
+		}{
+			Message:       message,
+			DefaultYes:    defaultYes,
+			AbortOnNo:     abortOnNo,
+			CaseSensitive: caseSensitive,
+			SkipInCI:      skipInCI,
+			Content:       content,
+		},
+	}, nil
 }
 
 // executePlanImpl creates a plan element for dry-run mode

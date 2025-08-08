@@ -25,10 +25,10 @@ func TestRetryDecorator_Basic(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
-		GeneratorCodeContainsf("maxAttempts := %d", 3).
-		GeneratorCodeContains("for attempt :=", "time.Sleep", "lastErr").
+		GeneratorExecutesCorrectly().
+		GeneratorCodeContains("for attempt := 1; attempt <= 3", "1 * time.Second", "func() error").
 		PlanSucceeds().
-		PlanReturnsElement("retry").
+		PlanReturnsElement("decorator").
 		CompletesWithin("1s").
 		SupportsDevcmdChaining().
 		SupportsNesting().
@@ -56,7 +56,7 @@ func TestRetryDecorator_WithDelay(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("maxAttempts := 2", "500 * time.Millisecond").
+		GeneratorCodeContains("for attempt := 1; attempt <= 2", "500 * time.Millisecond").
 		PlanSucceeds().
 		Validate()
 
@@ -106,7 +106,7 @@ func TestRetryDecorator_SingleAttempt(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("maxAttempts := 1").
+		GeneratorCodeContains("for attempt := 1; attempt <= 1").
 		PlanSucceeds().
 		Validate()
 
@@ -132,7 +132,7 @@ func TestRetryDecorator_FailingCommand(t *testing.T) {
 	// Note: Interpreter will fail after all retries, but generator and plan should work
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
-		GeneratorCodeContains("all %d attempts failed").
+		GeneratorCodeContains("command failed after %d attempts").
 		PlanSucceeds().
 		Validate()
 
@@ -360,7 +360,7 @@ func TestRetryDecorator_HighAttemptCount(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("maxAttempts := 10").
+		GeneratorCodeContains("for attempt := 1; attempt <= 10").
 		PlanSucceeds().
 		Validate()
 
@@ -420,8 +420,8 @@ func TestRetryDecorator_ErrorRecoveryScenario(t *testing.T) {
 		InterpreterSucceeds().
 		GeneratorSucceeds().
 		GeneratorProducesValidGo().
-		GeneratorCodeContainsf("maxAttempts := %d", 3).
-		GeneratorCodeContains("100ms", "time.Sleep").
+		GeneratorCodeContains("for attempt := 1; attempt <= 3").
+		GeneratorCodeContains("100 * time.Millisecond", "time.Sleep").
 		PlanSucceeds().
 		SupportsDevcmdChaining().
 		Validate()

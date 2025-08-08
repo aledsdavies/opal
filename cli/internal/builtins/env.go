@@ -2,6 +2,7 @@ package decorators
 
 import (
 	"fmt"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/runtime/decorators"
@@ -69,38 +70,49 @@ func (e *EnvDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 	}
 }
 
-// ExpandGenerator returns Go code that references captured environment for generator mode
-func (e *EnvDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
+// GenerateTemplate returns template for Go code that references captured environment for generator mode
+func (e *EnvDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter) (*execution.TemplateResult, error) {
 	key, defaultValue, allowEmpty, err := e.extractParameters(params)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("env parameter error: %w", err),
-		}
+		return nil, fmt.Errorf("env parameter error: %w", err)
 	}
 
 	// Track this environment variable for global capture generation
 	ctx.TrackEnvironmentVariableReference(key, defaultValue)
 
-	// Generate Go code that references the captured environment
-	var goCode string
+	// Create template for environment variable access
+	var tmplStr string
 	if defaultValue != "" {
 		if allowEmpty {
-			// If allowEmpty=true, only use default if not exists: ctx.EnvContext["KEY"] or "default"
-			goCode = fmt.Sprintf(`func() string { if val, exists := ctx.EnvContext[%q]; exists { return val }; return %q }()`, key, defaultValue)
+			// If allowEmpty=true, only use default if not exists
+			tmplStr = `func() string { if val, exists := ctx.Env[{{printf "%q" .Key}}]; exists { return val }; return {{printf "%q" .DefaultValue}} }()`
 		} else {
-			// Default behavior: use default if not exists or empty: ctx.EnvContext["KEY"] or "default"
-			goCode = fmt.Sprintf(`func() string { if val, exists := ctx.EnvContext[%q]; exists && val != "" { return val }; return %q }()`, key, defaultValue)
+			// Default behavior: use default if not exists or empty
+			tmplStr = `func() string { if val, exists := ctx.Env[{{printf "%q" .Key}}]; exists && val != "" { return val }; return {{printf "%q" .DefaultValue}} }()`
 		}
 	} else {
-		// No default, just use captured value: ctx.EnvContext["KEY"]
-		goCode = fmt.Sprintf(`ctx.EnvContext[%q]`, key)
+		// No default, just use captured value
+		tmplStr = `ctx.Env[{{printf "%q" .Key}}]`
 	}
 
-	return &execution.ExecutionResult{
-		Data:  goCode, // Returns code that references the global captured environment
-		Error: nil,
+	// Parse template
+	tmpl, err := template.New("env").Parse(tmplStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse env template: %w", err)
 	}
+
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			Key          string
+			DefaultValue string
+			AllowEmpty   bool
+		}{
+			Key:          key,
+			DefaultValue: defaultValue,
+			AllowEmpty:   allowEmpty,
+		},
+	}, nil
 }
 
 // ExpandPlan returns description showing the captured environment value for plan mode

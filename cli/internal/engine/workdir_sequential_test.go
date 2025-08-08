@@ -16,10 +16,13 @@ import (
 func TestWorkdirSequentialExecution(t *testing.T) {
 	input := `test: {
     echo "Before workdir"
+    pwd
     @workdir("testdir") {
         echo "Inside workdir"
+        pwd
     }
     echo "After workdir"
+    pwd
 }`
 
 	// Parse the input
@@ -107,8 +110,7 @@ require (
 	outputStr := string(output)
 	t.Logf("CLI execution output:\n%s", outputStr)
 
-	// CRITICAL TEST: All three commands should appear in the output
-	// This tests that decorators don't break sequential execution
+	// CRITICAL TEST: Verify both sequential execution AND directory changes
 	expectedOutputs := []string{
 		"Before workdir",
 		"Inside workdir",
@@ -125,14 +127,38 @@ require (
 	if len(missingOutputs) > 0 {
 		t.Errorf("CRITICAL BUG: Sequential execution failed with @workdir decorator. Missing outputs: %v", missingOutputs)
 		t.Errorf("Full output was: %s", outputStr)
+	}
 
-		// Check specific patterns
-		if strings.Contains(outputStr, "Before workdir") &&
-			!strings.Contains(outputStr, "After workdir") {
-			t.Error("CONFIRMED BUG: Commands after @workdir decorator did not execute")
+	// VERIFY WORKING DIRECTORY ACTUALLY CHANGED
+	lines := strings.Split(outputStr, "\n")
+	var pwdOutputs []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// pwd outputs are absolute paths
+		if strings.HasPrefix(line, "/") && !strings.Contains(line, "echo") {
+			pwdOutputs = append(pwdOutputs, line)
+		}
+	}
+
+	if len(pwdOutputs) >= 3 {
+		// First pwd should be tmpDir
+		// Second pwd should be tmpDir/testdir (inside @workdir)
+		// Third pwd should be tmpDir again (after @workdir)
+
+		if !strings.HasSuffix(pwdOutputs[1], "/testdir") {
+			t.Errorf("CRITICAL BUG: @workdir did not change directory! Inside @workdir pwd was: %s", pwdOutputs[1])
+		} else {
+			t.Logf("✅ Verified @workdir changed to testdir: %s", pwdOutputs[1])
+		}
+
+		// Verify we returned to original directory after @workdir
+		if pwdOutputs[0] != pwdOutputs[2] {
+			t.Errorf("WARNING: Directory not restored after @workdir. Before: %s, After: %s", pwdOutputs[0], pwdOutputs[2])
+		} else {
+			t.Logf("✅ Verified directory restored after @workdir")
 		}
 	} else {
-		t.Logf("✅ All commands executed successfully in sequence with @workdir decorator")
+		t.Errorf("Could not verify directory changes - expected 3 pwd outputs, got %d: %v", len(pwdOutputs), pwdOutputs)
 	}
 }
 

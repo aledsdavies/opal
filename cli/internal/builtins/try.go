@@ -3,6 +3,7 @@ package decorators
 import (
 	"fmt"
 	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/core/plan"
@@ -54,17 +55,14 @@ func (t *TryDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, para
 	return t.executeInterpreterImpl(ctx, mainBranch, catchBranch, finallyBranch)
 }
 
-// ExecuteGenerator generates Go code for try-catch-finally logic
-func (t *TryDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult {
+// GenerateTemplate generates template for try-catch-finally logic
+func (t *TryDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (*execution.TemplateResult, error) {
 	mainBranch, catchBranch, finallyBranch, err := t.validateAndExtractPatterns(params, patterns)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: err,
-		}
+		return nil, err
 	}
 
-	return t.executeGeneratorImpl(ctx, mainBranch, catchBranch, finallyBranch)
+	return t.generateTemplateImpl(ctx, mainBranch, catchBranch, finallyBranch)
 }
 
 // ExecutePlan creates a plan element for dry-run mode
@@ -166,84 +164,50 @@ func (t *TryDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, 
 	}
 }
 
-// executeGeneratorImpl generates Go code for try-catch-finally logic using new utilities
-func (t *TryDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, mainBranch, catchBranch, finallyBranch *ast.PatternBranch) *execution.ExecutionResult {
-	// Convert main commands to operation
-	executor := decorators.NewCommandResultExecutor(ctx)
-	mainOperations, err := executor.ConvertCommandsToCommandResultOperations(mainBranch.Commands)
+// generateTemplateImpl generates template for try-catch-finally logic
+func (t *TryDecorator) generateTemplateImpl(ctx execution.GeneratorContext, mainBranch, catchBranch, finallyBranch *ast.PatternBranch) (*execution.TemplateResult, error) {
+	// Create template for try-catch-finally logic
+	tmplStr := `// Try-catch-finally block
+var mainErr error
+{{range .MainBranch.Commands}}{{. | buildCommand}}
+if err != nil {
+	mainErr = err
+}
+{{end}}
+{{if .CatchBranch}}
+// Catch block - execute only if main failed
+if mainErr != nil {
+{{range .CatchBranch.Commands}}\t{{. | buildCommand}}
+{{end}}}
+{{end}}
+{{if .FinallyBranch}}
+// Finally block - always execute
+{{range .FinallyBranch.Commands}}{{. | buildCommand}}
+{{end}}
+{{end}}
+// Return main error if it occurred
+if mainErr != nil {
+	return mainErr
+}`
+
+	// Parse template with helper functions
+	tmpl, err := template.New("try").Funcs(ctx.GetTemplateFunctions()).Parse(tmplStr)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to convert main commands: %w", err),
-		}
+		return nil, fmt.Errorf("failed to parse try template: %w", err)
 	}
 
-	// Combine main operations into single operation
-	mainOp, err := t.combineOperations(mainOperations)
-	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to combine main operations: %w", err),
-		}
-	}
-
-	// Convert catch commands to operation if they exist
-	var catchOp *decorators.Operation
-	if catchBranch != nil {
-		catchOperations, err := executor.ConvertCommandsToCommandResultOperations(catchBranch.Commands)
-		if err != nil {
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("failed to convert catch commands: %w", err),
-			}
-		}
-		combinedCatch, err := t.combineOperations(catchOperations)
-		if err != nil {
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("failed to combine catch operations: %w", err),
-			}
-		}
-		catchOp = &combinedCatch
-	}
-
-	// Convert finally commands to operation if they exist
-	var finallyOp *decorators.Operation
-	if finallyBranch != nil {
-		finallyOperations, err := executor.ConvertCommandsToCommandResultOperations(finallyBranch.Commands)
-		if err != nil {
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("failed to convert finally commands: %w", err),
-			}
-		}
-		combinedFinally, err := t.combineOperations(finallyOperations)
-		if err != nil {
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("failed to combine finally operations: %w", err),
-			}
-		}
-		finallyOp = &combinedFinally
-	}
-
-	// Use TemplateBuilder to create try-catch-finally pattern
-	builder := decorators.NewTemplateBuilder()
-	builder.WithTryCatchFinally(mainOp, catchOp, finallyOp)
-
-	// Build the template
-	generatedCode, err := builder.BuildTemplate()
-	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to build try-catch-finally template: %w", err),
-		}
-	}
-
-	return &execution.ExecutionResult{
-		Data:  generatedCode,
-		Error: nil,
-	}
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			MainBranch    *ast.PatternBranch
+			CatchBranch   *ast.PatternBranch
+			FinallyBranch *ast.PatternBranch
+		}{
+			MainBranch:    mainBranch,
+			CatchBranch:   catchBranch,
+			FinallyBranch: finallyBranch,
+		},
+	}, nil
 }
 
 // executePlanImpl creates a plan element for dry-run mode showing try-catch-finally structure
@@ -372,28 +336,6 @@ func (t *TryDecorator) executePlanImpl(ctx execution.PlanContext, mainBranch, ca
 		Data:  element,
 		Error: nil,
 	}
-}
-
-// combineOperations combines multiple operations into a single sequential operation
-func (t *TryDecorator) combineOperations(operations []decorators.Operation) (decorators.Operation, error) {
-	if len(operations) == 0 {
-		return decorators.Operation{Code: "// No operations"}, nil
-	}
-
-	if len(operations) == 1 {
-		return operations[0], nil
-	}
-
-	// Use TemplateBuilder to create sequential execution for multiple operations
-	builder := decorators.NewTemplateBuilder()
-	builder.WithSequentialExecution(operations, true) // Stop on error
-
-	code, err := builder.BuildTemplate()
-	if err != nil {
-		return decorators.Operation{}, fmt.Errorf("failed to combine operations: %w", err)
-	}
-
-	return decorators.Operation{Code: code}, nil
 }
 
 // patternToString converts a pattern to its string representation

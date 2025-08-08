@@ -3,7 +3,7 @@ package decorators
 import (
 	"fmt"
 	"runtime"
-	"time"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/core/plan"
@@ -60,17 +60,14 @@ func (p *ParallelDecorator) ExecuteInterpreter(ctx execution.InterpreterContext,
 	return p.executeInterpreterImpl(ctx, concurrency, failOnFirstError, content)
 }
 
-// ExecuteGenerator generates Go code for parallel execution
-func (p *ParallelDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+// GenerateTemplate generates template-based Go code for parallel execution
+func (p *ParallelDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
 	concurrency, failOnFirstError, err := p.extractParallelParams(params, len(content))
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: err,
-		}
+		return nil, err
 	}
 
-	return p.executeGeneratorImpl(ctx, concurrency, failOnFirstError, content)
+	return p.generateTemplateImpl(ctx, concurrency, failOnFirstError, content)
 }
 
 // ExecutePlan creates a plan element for dry-run mode
@@ -135,141 +132,96 @@ func (p *ParallelDecorator) extractParallelParams(params []ast.NamedParameter, c
 	return concurrency, failOnFirstError, nil
 }
 
-// executeInterpreterImpl executes commands concurrently in interpreter mode using performance-optimized utilities
+// executeInterpreterImpl executes commands concurrently in interpreter mode
 func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
-	// Set up logging with decorator context
-	logger := decorators.GetLogger("parallel").WithDecorator("parallel").WithField("mode", "interpreter").WithField("concurrency", concurrency)
-	logger.Infof("Starting parallel execution with %d commands, concurrency=%d, failOnFirstError=%v", len(content), concurrency, failOnFirstError)
+	// Simple goroutine-based parallel execution for interpreter mode
+	errorChan := make(chan error, len(content))
 
-	start := time.Now()
-	defer func() {
-		logger.LogDuration(decorators.LogLevelInfo, "Parallel execution completed", time.Since(start))
-	}()
+	for i, cmd := range content {
+		go func(cmdIndex int, command ast.CommandContent) {
+			// Create isolated context for each parallel command
+			isolatedCtx := ctx.Child()
 
-	// Use performance tracking for interpreter execution
-	perfExecutor := decorators.NewPerformanceOptimizedExecutor("parallel", "interpreter", false)
-	defer perfExecutor.Cleanup()
-
-	var execError error
-	err := perfExecutor.Execute(func() error {
-		logger.Debug("Creating concurrent executor")
-		// Create ConcurrentExecutor with proper concurrency limit
-		concurrentExecutor := decorators.NewConcurrentExecutor(concurrency)
-		defer concurrentExecutor.Cleanup()
-
-		logger.Debug("Getting pooled command executor")
-		// Get pooled command executor for better resource management
-		pooledExecutor := decorators.GetPooledCommandExecutor()
-		defer pooledExecutor.Cleanup()
-
-		logger.Debugf("Converting %d commands to execution functions", len(content))
-		// Convert AST commands to execution functions using the utility
-		functions := make([]decorators.ExecutionFunction, len(content))
-		for i, cmd := range content {
-			cmd := cmd // Capture loop variable
-			cmdIndex := i
-			functions[i] = func() error {
-				cmdLogger := logger.WithField("command_index", cmdIndex)
-				cmdLogger.Trace("Starting command execution")
-
-				// Create isolated context for each parallel command
-				isolatedCtx := ctx.Child()
-
-				// Use CommandExecutor utility to handle the switch logic
-				commandExecutor := decorators.NewCommandExecutor()
-				defer commandExecutor.Cleanup()
-
-				err := commandExecutor.ExecuteCommandWithInterpreter(isolatedCtx, cmd)
-				if err != nil {
-					cmdLogger.ErrorWithErr("Command execution failed", err)
-					// Record error for diagnostics
-					decorators.RecordError("parallel", err.Error(), []string{}, fmt.Sprintf("command %d", cmdIndex))
-				} else {
-					cmdLogger.Trace("Command execution succeeded")
-				}
-
-				return err
+			// Execute the command based on its type
+			var err error
+			switch c := command.(type) {
+			case *ast.ShellContent:
+				result := isolatedCtx.ExecuteShell(c)
+				err = result.Error
+			default:
+				err = fmt.Errorf("unsupported command type in parallel: %T", command)
 			}
-		}
 
-		logger.Debug("Executing functions concurrently")
-		// Execute all functions concurrently using the utility
-		execError = concurrentExecutor.Execute(functions)
-		if execError != nil {
-			logger.ErrorWithErr("Concurrent execution failed", execError)
-		} else {
-			logger.Debug("Concurrent execution succeeded")
-		}
-		return execError
-	})
-
-	// Return the execution error if performance tracking succeeded
-	if err == nil {
-		err = execError
+			errorChan <- err
+		}(i, cmd)
 	}
 
-	if err != nil {
-		logger.ErrorWithErr("Parallel execution failed", err)
-		return execution.NewErrorResult(err)
-	} else {
-		logger.Info("Parallel execution completed successfully")
-		return execution.NewSuccessResult(nil)
+	// Wait for all goroutines to complete
+	for i := 0; i < len(content); i++ {
+		if err := <-errorChan; err != nil {
+			if failOnFirstError {
+				return &execution.ExecutionResult{
+					Data:  nil,
+					Error: fmt.Errorf("parallel execution failed: %w", err),
+				}
+			}
+		}
+	}
+
+	return &execution.ExecutionResult{
+		Data:  nil,
+		Error: nil,
 	}
 }
 
-// executeGeneratorImpl generates Go code for parallel execution using performance-optimized utilities
-func (p *ParallelDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) *execution.ExecutionResult {
-	// Use performance optimization if enabled
-	optimizer := decorators.GetASTOptimizer()
-	optimizedSequence, err := optimizer.OptimizeCommandSequence(ctx, content)
-	if err != nil {
-		// Use generator utilities for consistent CommandResult handling
-		executor := decorators.NewCommandResultExecutor(ctx)
-		operations, err := executor.ConvertCommandsToCommandResultOperations(content)
+// generateTemplateImpl generates template for parallel execution
+func (p *ParallelDecorator) generateTemplateImpl(ctx execution.GeneratorContext, concurrency int, failOnFirstError bool, content []ast.CommandContent) (*execution.TemplateResult, error) {
+	// Create template string for parallel execution
+	tmplStr := `// Parallel execution
+{
+	var wg sync.WaitGroup
+	errs := make([]error, {{len .Content}})
+
+{{range $i, $cmd := .Content}}	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Branch {{$i}} with isolated context
+		branchCtx := ctx.Clone()
+		errs[{{$i}}] = func() error {
+			ctx := branchCtx
+			{{$cmd | buildCommand}}
+			return nil
+		}()
+	}()
+
+{{end}}	wg.Wait()
+
+	// Check for errors
+	for _, err := range errs {
 		if err != nil {
-			return execution.NewFormattedErrorResult("failed to convert commands to operations: %w", err)
-		}
-
-		// Generate concurrent execution with proper CommandResult handling
-		generatedCode, err := executor.GenerateConcurrentExecution(operations, concurrency)
-		if err != nil {
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("failed to build parallel template: %w", err),
-			}
-		}
-
-		return &execution.ExecutionResult{
-			Data:  generatedCode,
-			Error: nil,
+			return err
 		}
 	}
+}`
 
-	// Use optimized operations
-	operations := make([]decorators.Operation, len(optimizedSequence.Commands))
-	for i, optimizedOp := range optimizedSequence.Commands {
-		operations[i] = optimizedOp.Operation
-	}
-
-	// Use cached template builder with performance tracking
-	perfExecutor := decorators.NewPerformanceOptimizedExecutor("parallel", "generator", true)
-
-	var generatedCode string
-	err = perfExecutor.Execute(func() error {
-		// Use generator utilities for consistent CommandResult handling
-		executor := decorators.NewCommandResultExecutor(ctx)
-		code, buildErr := executor.GenerateConcurrentExecution(operations, concurrency)
-		if buildErr != nil {
-			return buildErr
-		}
-		generatedCode = code
-		return nil
-	})
+	// Parse template with helper functions
+	tmpl, err := template.New("parallel").Funcs(ctx.GetTemplateFunctions()).Parse(tmplStr)
 	if err != nil {
-		return execution.NewFormattedErrorResult("failed to build parallel template: %w", err)
+		return nil, fmt.Errorf("failed to parse parallel template: %w", err)
 	}
 
-	return execution.NewSuccessResult(generatedCode)
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			Concurrency      int
+			FailOnFirstError bool
+			Content          []ast.CommandContent
+		}{
+			Concurrency:      concurrency,
+			FailOnFirstError: failOnFirstError,
+			Content:          content,
+		},
+	}, nil
 }
 
 // executePlanImpl creates a plan element for dry-run mode
@@ -347,7 +299,8 @@ func (p *ParallelDecorator) executePlanImpl(ctx execution.PlanContext, concurren
 
 // ImportRequirements returns the dependencies needed for code generation
 func (p *ParallelDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.StandardImportRequirement(decorators.CoreImports, decorators.StringImports, decorators.ConcurrencyImports)
+	// Parallel decorator only needs sync for WaitGroup, no strings or other imports
+	return decorators.StandardImportRequirement(decorators.ConcurrencyImports)
 }
 
 // init registers the parallel decorator

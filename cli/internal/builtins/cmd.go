@@ -3,6 +3,7 @@ package decorators
 import (
 	"fmt"
 	"strings"
+	"text/template"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/aledsdavies/devcmd/runtime/decorators"
@@ -54,9 +55,9 @@ func (d *CmdDecorator) ExpandInterpreter(ctx execution.InterpreterContext, param
 	return d.ExecuteInterpreter(ctx, params)
 }
 
-// ExpandGenerator generates Go code for action chaining
-func (d *CmdDecorator) ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
-	return d.ExecuteGenerator(ctx, params)
+// GenerateTemplate generates template for action chaining
+func (d *CmdDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter) (*execution.TemplateResult, error) {
+	return d.generateTemplateImpl(ctx, params)
 }
 
 // ExpandPlan creates a plan element for the command reference
@@ -66,8 +67,10 @@ func (d *CmdDecorator) ExpandPlan(ctx execution.PlanContext, params []ast.NamedP
 
 // ImportRequirements returns the dependencies needed for code generation
 func (d *CmdDecorator) ImportRequirements() decorators.ImportRequirement {
+	// CmdDecorator templates only generate function calls, no additional imports needed
+	// The main CLI already imports everything needed for the exec function
 	return decorators.ImportRequirement{
-		StandardLibrary: []string{"fmt", "bytes", "context", "os/exec", "os", "io"},
+		StandardLibrary: []string{}, // No additional imports needed
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
 	}
@@ -125,25 +128,32 @@ func (d *CmdDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, para
 	}
 }
 
-// ExecuteGenerator generates Go code for the command reference
-func (d *CmdDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult {
+// generateTemplateImpl generates template for the command reference
+func (d *CmdDecorator) generateTemplateImpl(ctx execution.GeneratorContext, params []ast.NamedParameter) (*execution.TemplateResult, error) {
 	cmdName, err := d.extractCommandName(params)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: err,
-		}
+		return nil, err
 	}
 
-	// Generate function call that returns CommandResult for chaining
-	// This allows @cmd to be used both standalone and in action chains
-	functionName := strings.Title(toCamelCase(cmdName))
-	code := fmt.Sprintf("execute%s()", functionName)
+	// Create template for function call that returns CommandResult
+	tmplStr := `execute{{.FunctionName}}(ctx)`
 
-	return &execution.ExecutionResult{
-		Data:  code,
-		Error: nil,
+	// Parse template
+	tmpl, err := template.New("cmd").Parse(tmplStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse cmd template: %w", err)
 	}
+
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			CmdName      string
+			FunctionName string
+		}{
+			CmdName:      cmdName,
+			FunctionName: strings.Title(toCamelCase(cmdName)),
+		},
+	}, nil
 }
 
 // ExecutePlan creates a plan element for the command reference

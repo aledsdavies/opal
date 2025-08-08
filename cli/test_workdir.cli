@@ -1,0 +1,10 @@
+test: @parallel {
+    @workdir("dir1") {
+        pwd
+        echo "test1" > result.txt
+    }
+    @workdir("dir2") {
+        pwd  
+        echo "test2" > result.txt
+    }
+}

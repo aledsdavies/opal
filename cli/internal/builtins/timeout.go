@@ -2,6 +2,7 @@ package decorators
 
 import (
 	"fmt"
+	"text/template"
 	"time"
 
 	"github.com/aledsdavies/devcmd/core/ast"
@@ -50,17 +51,14 @@ func (t *TimeoutDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, 
 	return t.executeInterpreterImpl(ctx, timeout, content)
 }
 
-// ExecuteGenerator generates Go code for timeout logic
-func (t *TimeoutDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
+// GenerateTemplate generates template for timeout logic
+func (t *TimeoutDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
 	timeout, err := t.extractTimeout(params)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: err,
-		}
+		return nil, err
 	}
 
-	return t.executeGeneratorImpl(ctx, timeout, content)
+	return t.generateTemplateImpl(ctx, timeout, content)
 }
 
 // ExecutePlan creates a plan element for dry-run mode
@@ -127,65 +125,50 @@ func (t *TimeoutDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 	}
 }
 
-// executeGeneratorImpl generates Go code for timeout logic using new utilities
-func (t *TimeoutDecorator) executeGeneratorImpl(ctx execution.GeneratorContext, timeout time.Duration, content []ast.CommandContent) *execution.ExecutionResult {
-	// Convert AST commands to a single operation containing all sequential commands
-	executor := decorators.NewCommandResultExecutor(ctx)
-	operations, err := executor.ConvertCommandsToCommandResultOperations(content)
+// generateTemplateImpl generates template for timeout logic
+func (t *TimeoutDecorator) generateTemplateImpl(ctx execution.GeneratorContext, timeout time.Duration, content []ast.CommandContent) (*execution.TemplateResult, error) {
+	// Create template for timeout logic
+	tmplStr := `// Timeout: {{.TimeoutDuration}}
+timeoutCtx, cancel := context.WithTimeout(context.Background(), {{.Timeout | formatDuration}})
+defer cancel()
+
+done := make(chan error, 1)
+go func() {
+	defer close(done)
+	err := func() error {
+{{range .Content}}		{{. | buildCommand}}
+{{end}}		return nil
+	}()
+	done <- err
+}()
+
+select {
+case err := <-done:
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to convert commands to operations: %w", err),
-		}
+		return err
 	}
+case <-timeoutCtx.Done():
+	return fmt.Errorf("operation timed out after %v", {{.Timeout | formatDuration}})
+}`
 
-	// Combine all operations into a single sequential operation for timeout wrapping
-	if len(operations) == 0 {
-		return &execution.ExecutionResult{
-			Data:  "// No operations to execute",
-			Error: nil,
-		}
-	}
-
-	var combinedCode string
-	if len(operations) == 1 {
-		combinedCode = operations[0].Code
-	} else {
-		// Use TemplateBuilder to create sequential execution, then wrap with timeout
-		sequentialBuilder := decorators.NewTemplateBuilder()
-		sequentialBuilder.WithSequentialExecution(operations, true) // Stop on error
-
-		sequentialCode, err := sequentialBuilder.BuildTemplate()
-		if err != nil {
-			return &execution.ExecutionResult{
-				Data:  "",
-				Error: fmt.Errorf("failed to build sequential template: %w", err),
-			}
-		}
-		combinedCode = sequentialCode
-	}
-
-	// Create a single operation from the combined code and wrap with timeout
-	operation := decorators.Operation{Code: combinedCode}
-
-	// Use TemplateBuilder to create timeout pattern with pre-validated duration
-	builder := decorators.NewTemplateBuilder()
-	durationExpr := decorators.DurationToGoExpr(timeout)
-	builder.WithTimeoutExpr(durationExpr, operation)
-
-	// Build the template
-	generatedCode, err := builder.BuildTemplate()
+	// Parse template with helper functions
+	tmpl, err := template.New("timeout").Funcs(ctx.GetTemplateFunctions()).Parse(tmplStr)
 	if err != nil {
-		return &execution.ExecutionResult{
-			Data:  "",
-			Error: fmt.Errorf("failed to build timeout template: %w", err),
-		}
+		return nil, fmt.Errorf("failed to parse timeout template: %w", err)
 	}
 
-	return &execution.ExecutionResult{
-		Data:  generatedCode,
-		Error: nil,
-	}
+	return &execution.TemplateResult{
+		Template: tmpl,
+		Data: struct {
+			TimeoutDuration string
+			Timeout         time.Duration
+			Content         []ast.CommandContent
+		}{
+			TimeoutDuration: timeout.String(),
+			Timeout:         timeout,
+			Content:         content,
+		},
+	}, nil
 }
 
 // executePlanImpl creates a plan element for dry-run mode

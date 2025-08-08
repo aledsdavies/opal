@@ -1,0 +1,4 @@
+test: @workdir("testdir") {
+    pwd
+    echo "In workdir"
+}
