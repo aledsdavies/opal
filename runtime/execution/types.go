@@ -84,6 +84,7 @@ type InterpreterContext interface {
 
 	// Decorator lookups (needed for interpreter mode decorator processing)
 	GetValueDecoratorLookup() func(name string) (interface{}, bool)
+	GetBlockDecoratorLookup() func(name string) (interface{}, bool)
 
 	// Environment variable tracking for runtime consistency
 	TrackEnvironmentVariable(key, defaultValue string)

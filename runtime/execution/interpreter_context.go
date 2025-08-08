@@ -307,6 +307,11 @@ func (c *InterpreterExecutionContext) GetBlockDecoratorLookup() func(name string
 	return c.blockDecoratorLookup
 }
 
+// SetBlockDecoratorLookup sets the block decorator lookup function (called by engine during setup)
+func (c *InterpreterExecutionContext) SetBlockDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.blockDecoratorLookup = lookup
+}
+
 // TrackEnvironmentVariable tracks an environment variable for consistent access during execution
 func (c *InterpreterExecutionContext) TrackEnvironmentVariable(key, defaultValue string) {
 	if c.trackedEnvVars == nil {
