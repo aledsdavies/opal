@@ -9,16 +9,21 @@ pkgs.buildGoModule rec {
   modRoot = "cli"; # path to CLI module's go.mod
   subPackages = [ "." ]; # build the main package
 
-  # Critical: Disable workspace mode and set up proper Go environment for Nix sandbox
-  env.GOWORK = "off";
+  # Critical: Disable workspace mode for all build phases
+  GOWORK = "off";
 
-  # Force GOWORK=off in vendor phase
-  overrideModAttrs = _: {
-    env.GOWORK = "off";
+  # Override vendor phase to ensure clean vendoring without workspace/replace paths
+  overrideModAttrs = old: {
+    GOWORK = "off";
+    # Clean up go.mod to remove replace directives that would create store path references
+    postPatch = ''
+      # Remove replace directives that point to local paths
+      sed -i '/^replace.*=> \.\./d' go.mod
+    '';
   };
 
   # Vendor hash for CLI module dependencies
-  vendorHash = "sha256-/v47xqLFmBCKtXeuze+9uBkG1XDGUXrX3outjBZUU80=";
+  vendorHash = "sha256-eo7lndvi57QpHwueA/D2XiJyKZKcdAhRGHik3AQyyXM=";
 
   # Build with version info
   ldflags = [

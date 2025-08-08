@@ -63,6 +63,9 @@ grammar/*.tokens
 devcmd
 devcmd.exe
 devcmd-*
+dev-compiled
+cli
+result
 !cmd/dev
 
 # Generated CLI files from devcmd
