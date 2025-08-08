@@ -35,6 +35,16 @@ pkgs.mkShell {
   shellHook = ''
     echo "🔧 Devcmd Development Environment"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Build dev CLI if it doesn't exist or if commands.cli is newer
+    if [[ ! -f "./dev-compiled" ]] || [[ "commands.cli" -nt "./dev-compiled" ]]; then
+      echo "🔨 Building dev CLI..."
+      devcmd build --file commands.cli --binary dev -o ./dev-compiled
+      echo "✅ dev CLI ready"
+    else
+      echo "✅ dev CLI ready"
+    fi
+    
     echo ""
     echo "Available commands:"
     echo "  devcmd - The devcmd CLI generator"

@@ -10,7 +10,7 @@ let
 
 in
 rec {
-  # Generate a shell script that runs devcmd build for CLI generation
+  # Generate a pre-compiled CLI binary
   mkDevCLI =
     {
       # Package name 
@@ -71,32 +71,19 @@ rec {
         if self != null then self.packages.${system}.devcmd or self.packages.${system}.default
         else throw "Self reference required for CLI generation. Cannot build '${name}' without devcmd parser.";
 
-      # Create a shell script that generates the CLI
+      # Create a shell script that checks for existing binary first
       cliScript = pkgs.writeShellScriptBin binaryName ''
         #!/usr/bin/env bash
         set -euo pipefail
         
-        # Create temporary commands file
-        TEMP_COMMANDS=$(mktemp -t commands-XXXXXX.cli)
-        trap "rm -f $TEMP_COMMANDS" EXIT
-        
-        cat > "$TEMP_COMMANDS" <<'EOF'
-        ${processedContent}
-        EOF
-        
-        # Check if compiled binary already exists and is current
+        # Check if compiled binary exists
         BINARY_PATH="./${binaryName}-compiled"
         if [[ -f "$BINARY_PATH" ]]; then
-          echo "✅ ${binaryName} CLI ready"
           exec "$BINARY_PATH" "$@"
         fi
         
-        # Generate the CLI binary
-        echo "🔨 Generating ${binaryName} CLI..."
-        ${devcmdBin}/bin/devcmd build --file "$TEMP_COMMANDS" --binary "${binaryName}" -o "$BINARY_PATH"
-        
-        # Execute the generated binary with all arguments
-        exec "$BINARY_PATH" "$@"
+        echo "❌ ${binaryName} binary not found. Please run 'nix develop' to rebuild."
+        exit 1
       '';
 
     in

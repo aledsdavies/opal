@@ -1,0 +1,4 @@
+test-simple: @parallel {
+    @workdir("cli") { echo "cli: test output" }  
+    @workdir(".") { echo "root: test output" }
+}
