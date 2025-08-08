@@ -97,17 +97,6 @@ func (c *ConfirmDecorator) isCI(ctx execution.BaseContext) bool {
 	return false
 }
 
-// trackCIEnvironmentVariables tracks CI environment variables for code generation
-func (c *ConfirmDecorator) trackCIEnvironmentVariables(ctx execution.GeneratorContext) {
-	// Track all CI environment variables so they're included in global envContext
-	ciVars := []string{
-		"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "TRAVIS",
-		"CIRCLECI", "JENKINS_URL", "GITLAB_CI", "BUILDKITE", "BUILD_NUMBER",
-	}
-
-	// TODO: Implement env var tracking in template system
-	_ = ciVars // Suppress unused variable warning for now
-}
 
 // ExecuteInterpreter executes confirmation prompt in interpreter mode
 func (c *ConfirmDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
@@ -249,38 +238,47 @@ func (c *ConfirmDecorator) executeInterpreterImpl(ctx execution.InterpreterConte
 func (c *ConfirmDecorator) generateTemplateImpl(ctx execution.GeneratorContext, message string, defaultYes, abortOnNo, caseSensitive, skipInCI bool, content []ast.CommandContent) (*execution.TemplateResult, error) {
 	// Track CI environment variables for deterministic behavior
 	if skipInCI {
-		c.trackCIEnvironmentVariables(ctx)
+		ctx.TrackEnvironmentVariableReference("CI", "")
+		ctx.TrackEnvironmentVariableReference("GITHUB_ACTIONS", "")
+		ctx.TrackEnvironmentVariableReference("TRAVIS", "")
+		ctx.TrackEnvironmentVariableReference("CIRCLECI", "")
+		ctx.TrackEnvironmentVariableReference("JENKINS_URL", "")
+		ctx.TrackEnvironmentVariableReference("GITLAB_CI", "")
+		ctx.TrackEnvironmentVariableReference("BUILDKITE", "")
+		ctx.TrackEnvironmentVariableReference("BUILD_NUMBER", "")
+		ctx.TrackEnvironmentVariableReference("CONTINUOUS_INTEGRATION", "")
 	}
 
 	// Create template for confirm logic
 	tmplStr := `// Confirmation prompt: {{.Message}}
-{{if .SkipInCI}}if isCI() {
-	// Skip confirmation in CI environment
+{{if .SkipInCI}}// Check for CI environment variables
+if envContext["CI"] != "" || envContext["GITHUB_ACTIONS"] != "" || envContext["TRAVIS"] != "" || envContext["CIRCLECI"] != "" || envContext["JENKINS_URL"] != "" || envContext["GITLAB_CI"] != "" || envContext["BUILDKITE"] != "" || envContext["BUILD_NUMBER"] != "" || envContext["CONTINUOUS_INTEGRATION"] != "" {
+	// CI environment detected - Skip confirmation in CI environment
 {{range .Content}}	{{. | buildCommand}}
 {{end}}	return nil
 }
-{{end}}fmt.Print("{{.Message}} {{if .DefaultYes}}[Y/n]{{else}}[y/N]{{end}}: ")
+{{end}}fmt.Print({{printf "%q" .Message}} + " {{if .DefaultYes}}[Y/n]{{else}}[y/N]{{end}}: ")
 reader := bufio.NewReader(os.Stdin)
-input, err := reader.ReadString('\n')
+response, err := reader.ReadString('\n')
 if err != nil {
 	return fmt.Errorf("failed to read user input: %w", err)
 }
-input = strings.TrimSpace(input)
+response = strings.TrimSpace(response)
 
 confirmed := false
-if input == "" {
+if response == "" {
 	confirmed = {{.DefaultYes}}
 } else {
 {{if .CaseSensitive}}
-	confirmed = input == "y" || input == "Y" || input == "yes" || input == "Yes"
+	confirmed = response == "y" || response == "Y" || response == "yes" || response == "Yes"
 {{else}}
-	confirmed = strings.ToLower(input) == "y" || strings.ToLower(input) == "yes"
+	confirmed = strings.ToLower(response) == "y" || strings.ToLower(response) == "yes"
 {{end}}
 }
 
 {{if .AbortOnNo}}
 if !confirmed {
-	return fmt.Errorf("operation cancelled by user")
+	return fmt.Errorf("user cancelled execution")
 }
 {{else}}
 if confirmed {

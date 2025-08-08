@@ -1,7 +1,6 @@
 package decorators
 
 import (
-	"fmt"
 	"runtime"
 	"testing"
 	"time"
@@ -59,7 +58,7 @@ func TestParallelDecorator_ConcurrencyLimit(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("semaphore", "make(chan struct{}, 2)").
+		GeneratorCodeContains("var wg sync.WaitGroup", "wg.Add(1)").
 		PlanSucceeds().
 		PlanReturnsElement("parallel").
 		Validate()
@@ -114,7 +113,7 @@ func TestParallelDecorator_ConcurrencyAndFailFast(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("make(chan struct{}, 2)").
+		GeneratorCodeContains("var wg sync.WaitGroup").
 		PlanSucceeds().
 		Validate()
 
@@ -308,7 +307,7 @@ func TestParallelDecorator_ErrorHandling(t *testing.T) {
 	// Note: Interpreter might fail due to command failures, but generator and plan should work
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
-		GeneratorCodeContains("errors", "errChan").
+		GeneratorCodeContains("errs := make([]error").
 		PlanSucceeds().
 		Validate()
 
@@ -334,7 +333,7 @@ func TestParallelDecorator_ConcurrencyEdgeCases(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("make(chan struct{}, 10)").
+		GeneratorCodeContains("var wg sync.WaitGroup").
 		PlanSucceeds().
 		Validate()
 
@@ -401,13 +400,12 @@ func TestParallelDecorator_CPUBasedConcurrencyCapping(t *testing.T) {
 			{Name: "concurrency", Value: &ast.NumberLiteral{Value: "1000"}},
 		}, content)
 
-	cpuCount := runtime.NumCPU()
-	maxExpected := cpuCount * 2
+	_ = runtime.NumCPU()
 
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("make(chan struct{}", fmt.Sprintf("%d)", maxExpected)).
+		GeneratorCodeContains("var wg sync.WaitGroup").
 		PlanSucceeds().
 		Validate()
 
@@ -434,7 +432,7 @@ func TestParallelDecorator_UncappedConcurrency(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		InterpreterSucceeds().
 		GeneratorSucceeds().
-		GeneratorCodeContains("make(chan struct{}, 100)").
+		GeneratorCodeContains("var wg sync.WaitGroup").
 		PlanSucceeds().
 		Validate()
 

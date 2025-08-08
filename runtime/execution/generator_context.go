@@ -260,6 +260,22 @@ func (c *GeneratorExecutionContext) GetTemplateFunctions() template.FuncMap {
 					}
 				}
 				panic("Unknown block decorator: @" + content.Name)
+			case *ast.PatternDecorator:
+				// For pattern decorators, we delegate to their GenerateTemplate method
+				if c.patternDecoratorLookup != nil {
+					if decoratorImpl, exists := c.patternDecoratorLookup(content.Name); exists {
+						if patternDec, ok := decoratorImpl.(interface {
+							GenerateTemplate(ctx GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (*TemplateResult, error)
+						}); ok {
+							if result, err := patternDec.GenerateTemplate(c, content.Args, content.Patterns); err == nil {
+								if code, err := c.ExecuteTemplate(result); err == nil {
+									return code
+								}
+							}
+						}
+					}
+				}
+				panic("Unknown pattern decorator: @" + content.Name)
 			default:
 				panic(fmt.Sprintf("Unsupported command type: %T", actualContent))
 			}

@@ -187,7 +187,7 @@ func TestEnvDecorator_GlobalTracking(t *testing.T) {
 	errors := decoratortesting.Assert(result).
 		GeneratorSucceeds().
 		// Should contain env var access patterns (using captured environment context)
-		GeneratorCodeContains("envContext", "TRACKED_VAR").
+		GeneratorCodeContains("ctx.Env", "TRACKED_VAR").
 		Validate()
 
 	if len(errors) > 0 {

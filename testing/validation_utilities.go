@@ -129,16 +129,61 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 	execpkg "os/exec"
 )
 
-func exec(ctx context.Context, command string) error {
-	cmd := execpkg.CommandContext(ctx, "sh", "-c", command)
+// ExecutionContext carries minimal state needed for execution
+type ExecutionContext struct {
+	Dir string                // Working directory
+	Env map[string]string     // Environment variables
+}
+
+// Clone creates an isolated copy of the context
+func (c ExecutionContext) Clone() ExecutionContext {
+	newEnv := make(map[string]string, len(c.Env))
+	for k, v := range c.Env {
+		newEnv[k] = v
+	}
+	return ExecutionContext{
+		Dir: c.Dir,
+		Env: newEnv,
+	}
+}
+
+func exec(ctx ExecutionContext, command string) error {
+	cmd := execpkg.Command("sh", "-c", command)
+	cmd.Dir = ctx.Dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	
+	// Set environment if provided
+	if len(ctx.Env) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range ctx.Env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
+	
 	return cmd.Run()
 }
 
 func main() {
-	ctx := context.Background()
+	// Initialize working directory from runtime
+	workingDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get current working directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx := ExecutionContext{
+		Dir: workingDir,
+		Env: map[string]string{},
+	}
+	
+	// Suppress unused import warning
+	_ = context.Background()
 	
 	// Execute the generated code
 	if err := testGeneratedCode(ctx); err != nil {
@@ -149,7 +194,7 @@ func main() {
 	fmt.Println("Execution completed successfully")
 }
 
-func testGeneratedCode(ctx context.Context) error {
+func testGeneratedCode(ctx ExecutionContext) error {
 ` + code + `
 	return nil
 }`

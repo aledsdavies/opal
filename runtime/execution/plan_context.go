@@ -159,8 +159,45 @@ func (c *PlanExecutionContext) composeShellCommandForPlan(content *ast.ShellCont
 		case *ast.TextPart:
 			parts = append(parts, p.Text)
 		case *ast.ValueDecorator:
-			// For plan mode, just show the decorator syntax without executing
-			parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
+			// For plan mode, resolve value decorators to show actual values
+			// Special handling for @var decorator which just needs variable lookup
+			if p.Name == "var" && len(p.Args) > 0 {
+				// Extract variable name from decorator arguments
+				if len(p.Args) > 0 {
+					var varName string
+					// Try to get named parameter "name" first
+					for _, arg := range p.Args {
+						if arg.Name == "name" {
+							if ident, ok := arg.Value.(*ast.Identifier); ok {
+								varName = ident.Name
+								break
+							}
+						}
+					}
+					// Fallback to first parameter if no named "name" parameter
+					if varName == "" && len(p.Args) > 0 {
+						if ident, ok := p.Args[0].Value.(*ast.Identifier); ok {
+							varName = ident.Name
+						}
+					}
+					
+					// Look up the variable value
+					if varName != "" {
+						if value, exists := c.GetVariable(varName); exists {
+							parts = append(parts, value)
+						} else {
+							parts = append(parts, fmt.Sprintf("@var(%s)", varName))
+						}
+					} else {
+						parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
+					}
+				} else {
+					parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
+				}
+			} else {
+				// For other value decorators, show decorator syntax
+				parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))
+			}
 		case *ast.ActionDecorator:
 			// For plan mode, just show the decorator syntax without executing
 			parts = append(parts, fmt.Sprintf("@%s(...)", p.Name))

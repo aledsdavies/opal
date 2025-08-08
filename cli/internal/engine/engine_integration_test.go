@@ -23,7 +23,7 @@ serve: echo "Server on port @var(PORT)"`,
 			expectGenerate: true,
 			contains: []string{
 				"func main()",
-				"PORT := \"8080\"",
+				"const PORT = \"8080\"",
 				"cobra.Command",
 				"rootCmd.Execute()",
 			},
@@ -154,9 +154,9 @@ test: echo "Testing on @var(HOST)"
 
 	generatedCode := result.String()
 	expectedInCode := []string{
-		"HOST := \"localhost\"",
-		"PORT := \"8080\"",
-		"DEBUG := \"true\"",
+		"const HOST = \"localhost\"",
+		"const PORT = \"8080\"",
+		"const DEBUG = \"true\"",
 	}
 
 	for _, expected := range expectedInCode {

@@ -196,10 +196,10 @@ func TestBuildCommandSequentialExecution(t *testing.T) {
 
 	// Check that all expected elements are present in generated code
 	expectedElements := []string{
-		`echo "🔨 Building PROJECT CLI..."`, // First command
-		`@workdir("cli")`,                  // Workdir decorator comment
-		`go build -o ../PROJECT ./main.go`, // Command inside workdir
-		`echo "✅ Built: ./PROJECT"`,        // Final command
+		`"echo \"🔨 Building PROJECT CLI...\""`, // First command (with proper Go string escaping)
+		`@workdir(\"cli\")`,                      // Workdir decorator comment (with proper Go string escaping)
+		`"go build -o ../PROJECT ./main.go"`,     // Command inside workdir
+		`"echo \"✅ Built: ./PROJECT\""`,         // Final command (with proper Go string escaping)
 	}
 
 	for _, element := range expectedElements {

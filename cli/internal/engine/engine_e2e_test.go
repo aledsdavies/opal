@@ -80,8 +80,8 @@ func TestEngine_EndToEndRealCommandsFile(t *testing.T) {
 			"func main()",
 			"cobra.Command",
 			"rootCmd.Execute()",
-			"PROJECT := \"devcmd\"",
-			"GO_VERSION := \"1.22\"",
+			"const PROJECT = \"devcmd\"",
+			"const GO_VERSION = \"1.22\"",
 		}
 
 		for _, element := range requiredElements {
@@ -296,9 +296,9 @@ debug: echo "Debug mode: @var(DEBUG)"`
 		{"main_function", "func main()", "Generated CLI needs main function"},
 		{"cobra_import", "github.com/spf13/cobra", "CLI framework import required"},
 		{"context_import", "context", "Context needed for command execution"},
-		{"project_var", "PROJECT := \"test-project\"", "Variable should be included"},
-		{"version_var", "VERSION := \"1.0.0\"", "Variable should be included"},
-		{"debug_var", "DEBUG := \"true\"", "Boolean variable should be string"},
+		{"project_var", "const PROJECT = \"test-project\"", "Variable should be included"},
+		{"version_var", "const VERSION = \"1.0.0\"", "Variable should be included"},
+		{"debug_var", "const DEBUG = \"true\"", "Boolean variable should be string"},
 		{"build_command", "buildCmd", "Build command should be generated"},
 		{"test_command", "testCmd", "Test command should be generated"},
 		{"deploy_command", "deployCmd", "Deploy command should be generated"},
