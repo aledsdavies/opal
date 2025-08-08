@@ -274,6 +274,7 @@ func ValidatePathSafety(params []ast.NamedParameter, paramName string, decorator
 		if cleanPath != path && path != "." && path != ".." {
 			// Allow common cases but warn about others
 			// This is informational rather than blocking since Clean() may change valid paths
+			_ = cleanPath // Suppress unused variable warning
 		}
 
 		return nil

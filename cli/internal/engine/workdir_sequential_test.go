@@ -48,7 +48,11 @@ func TestWorkdirSequentialExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Warning: failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Create the testdir subdirectory that the workdir command expects
 	testDir := filepath.Join(tmpDir, "testdir")

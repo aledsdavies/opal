@@ -46,7 +46,11 @@ func TestWorkdirDecorator_CreateIfNotExists(t *testing.T) {
 
 	// Use a unique directory name to avoid conflicts
 	testDir := filepath.Join(os.TempDir(), "devcmd_test_"+decoratortesting.RandomString(8))
-	defer os.RemoveAll(testDir) // Clean up after test
+	defer func() {
+		if err := os.RemoveAll(testDir); err != nil {
+			t.Logf("Warning: failed to clean up test dir %s: %v", testDir, err)
+		}
+	}() // Clean up after test
 
 	content := []ast.CommandContent{
 		decoratortesting.Shell("pwd"),
@@ -277,7 +281,12 @@ func TestWorkdirDecorator_DeepPath(t *testing.T) {
 
 	// Create a deep path for testing
 	testDir := filepath.Join(os.TempDir(), "devcmd_test", "deep", "nested", "path")
-	defer os.RemoveAll(filepath.Join(os.TempDir(), "devcmd_test")) // Clean up root
+	defer func() {
+		cleanupDir := filepath.Join(os.TempDir(), "devcmd_test")
+		if err := os.RemoveAll(cleanupDir); err != nil {
+			t.Logf("Warning: failed to clean up test dir %s: %v", cleanupDir, err)
+		}
+	}() // Clean up root
 
 	content := []ast.CommandContent{
 		decoratortesting.Shell("pwd"),
@@ -307,7 +316,11 @@ func TestWorkdirDecorator_SpecialCharactersInPath(t *testing.T) {
 
 	// Test path with spaces and special characters (but valid for filesystem)
 	testDir := filepath.Join(os.TempDir(), "test dir with spaces")
-	defer os.RemoveAll(testDir)
+	defer func() {
+		if err := os.RemoveAll(testDir); err != nil {
+			t.Logf("Warning: failed to remove test directory: %v", err)
+		}
+	}()
 
 	content := []ast.CommandContent{
 		decoratortesting.Shell("pwd"),
@@ -340,8 +353,14 @@ func TestWorkdirDecorator_FileInsteadOfDirectory(t *testing.T) {
 	if err != nil {
 		t.Skip("Could not create temp file for test")
 	}
-	defer os.Remove(tempFile.Name())
-	tempFile.Close()
+	defer func() {
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Logf("Warning: failed to remove temp file: %v", err)
+		}
+	}()
+	if err := tempFile.Close(); err != nil {
+		t.Logf("Warning: failed to close temp file: %v", err)
+	}
 
 	content := []ast.CommandContent{
 		decoratortesting.Shell("echo 'should not run'"),

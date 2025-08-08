@@ -12,8 +12,14 @@ func TestWhenDecorator_BasicMatching(t *testing.T) {
 	decorator := &WhenDecorator{}
 
 	// Set environment for testing
-	os.Setenv("NODE_ENV", "production")
-	defer os.Unsetenv("NODE_ENV")
+	if err := os.Setenv("NODE_ENV", "production"); err != nil {
+		t.Fatalf("Failed to set test env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("NODE_ENV"); err != nil {
+			t.Logf("Warning: Failed to unset test env var: %v", err)
+		}
+	}()
 
 	patterns := []ast.PatternBranch{
 		decoratortesting.PatternBranch("production", "echo 'prod mode'", "echo 'building for production'"),
@@ -48,8 +54,14 @@ func TestWhenDecorator_DefaultWildcard(t *testing.T) {
 	decorator := &WhenDecorator{}
 
 	// Set environment to something not explicitly matched
-	os.Setenv("DEPLOY_ENV", "staging")
-	defer os.Unsetenv("DEPLOY_ENV")
+	if err := os.Setenv("DEPLOY_ENV", "staging"); err != nil {
+		t.Fatalf("Failed to set test env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("DEPLOY_ENV"); err != nil {
+			t.Logf("Warning: Failed to unset test env var: %v", err)
+		}
+	}()
 
 	patterns := []ast.PatternBranch{
 		decoratortesting.PatternBranch("production", "echo 'prod'"),
@@ -103,8 +115,14 @@ func TestWhenDecorator_NoWildcard(t *testing.T) {
 	decorator := &WhenDecorator{}
 
 	// Set environment that doesn't match any pattern
-	os.Setenv("TEST_ENV", "unknown")
-	defer os.Unsetenv("TEST_ENV")
+	if err := os.Setenv("TEST_ENV", "unknown"); err != nil {
+		t.Fatalf("Failed to set test env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_ENV"); err != nil {
+			t.Logf("Warning: Failed to unset test env var: %v", err)
+		}
+	}()
 
 	patterns := []ast.PatternBranch{
 		decoratortesting.PatternBranch("production", "echo 'prod'"),
@@ -151,8 +169,14 @@ func TestWhenDecorator_EmptyPatterns(t *testing.T) {
 func TestWhenDecorator_NestedDecorators(t *testing.T) {
 	decorator := &WhenDecorator{}
 
-	os.Setenv("BUILD_TYPE", "release")
-	defer os.Unsetenv("BUILD_TYPE")
+	if err := os.Setenv("BUILD_TYPE", "release"); err != nil {
+		t.Fatalf("Failed to set test env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("BUILD_TYPE"); err != nil {
+			t.Logf("Warning: Failed to unset test env var: %v", err)
+		}
+	}()
 
 	// Test with nested decorators in pattern branches
 	patterns := []ast.PatternBranch{

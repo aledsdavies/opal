@@ -57,8 +57,8 @@ type ValueDecorator interface {
 	// ExpandInterpreter returns the actual runtime value for interpreter mode
 	ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult
 
-	// ExpandGenerator returns Go code expression that evaluates to the value for generator mode
-	ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult
+	// GenerateTemplate returns template for Go code expression that evaluates to the value for generator mode
+	GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter) (*execution.TemplateResult, error)
 
 	// ExpandPlan returns description for dry-run display in plan mode
 	ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult
@@ -72,8 +72,8 @@ type ActionDecorator interface {
 	// ExpandInterpreter executes and returns CommandResult for interpreter mode
 	ExpandInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter) *execution.ExecutionResult
 
-	// ExpandGenerator returns Go code that produces CommandResult for generator mode
-	ExpandGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter) *execution.ExecutionResult
+	// GenerateTemplate returns template for Go code that produces CommandResult for generator mode
+	GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter) (*execution.TemplateResult, error)
 
 	// ExpandPlan returns description for dry-run display in plan mode
 	ExpandPlan(ctx execution.PlanContext, params []ast.NamedParameter) *execution.ExecutionResult
@@ -87,8 +87,8 @@ type BlockDecorator interface {
 	// ExecuteInterpreter provides execution for interpreter mode
 	ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
 
-	// ExecuteGenerator provides Go code generation for generator mode
-	ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
+	// GenerateTemplate provides template-based code generation
+	GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error)
 
 	// ExecutePlan provides plan generation for plan mode
 	ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult
@@ -102,8 +102,8 @@ type PatternDecorator interface {
 	// ExecuteInterpreter provides execution for interpreter mode
 	ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
 
-	// ExecuteGenerator provides Go code generation for generator mode
-	ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
+	// GenerateTemplate provides template-based code generation
+	GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, patterns []ast.PatternBranch) (*execution.TemplateResult, error)
 
 	// ExecutePlan provides plan generation for plan mode
 	ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, patterns []ast.PatternBranch) *execution.ExecutionResult
@@ -123,16 +123,18 @@ const (
 )
 
 // GetDecoratorType returns the type of a decorator
+// Note: Due to interface signature overlap, ActionDecorator and ValueDecorator
+// cannot be reliably distinguished through type assertion alone
 func GetDecoratorType(d Decorator) DecoratorType {
 	switch d.(type) {
-	case ValueDecorator:
-		return ValueType
-	case ActionDecorator:
-		return ActionType
-	case BlockDecorator:
-		return BlockType
 	case PatternDecorator:
 		return PatternType
+	case BlockDecorator:
+		return BlockType
+	case ActionDecorator:
+		return ActionType
+	// ValueDecorator case removed due to interface signature collision with ActionDecorator
+	// Both interfaces have identical method signatures, making this case unreachable
 	default:
 		panic("unknown decorator type")
 	}

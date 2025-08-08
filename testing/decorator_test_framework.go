@@ -123,18 +123,33 @@ func (d *DecoratorTestSuite) TestValueDecorator(params []ast.NamedParameter) Val
 	d.t.Run("GeneratorMode", func(t *testing.T) {
 		ctx := d.createGeneratorContext()
 		start := time.Now()
-		execResult := valueDecorator.ExpandGenerator(ctx, params)
+		templateResult, err := valueDecorator.GenerateTemplate(ctx, params)
 		duration := time.Since(start)
+
+		// Execute template to get actual generated code
+		var generatedCode string
+		var templateExecError error
+		if err == nil && templateResult != nil && templateResult.Template != nil {
+			var buf strings.Builder
+			if templateExecError = templateResult.Template.Execute(&buf, templateResult.Data); templateExecError == nil {
+				generatedCode = strings.TrimSpace(buf.String())
+			}
+		}
 
 		result.GeneratorResult = TestResult{
 			Mode:     "generator",
-			Success:  execResult.Error == nil,
-			Data:     execResult.Data,
-			Error:    execResult.Error,
+			Success:  err == nil && templateExecError == nil,
+			Data:     generatedCode, // Store executed template code, not TemplateResult
+			Error:    err,
 			Duration: duration,
 		}
 
-		d.validateGeneratorResult(execResult, &result)
+		// Store template exec error if it occurred
+		if templateExecError != nil {
+			result.GeneratorResult.Error = templateExecError
+		}
+
+		d.validateGeneratorTemplateResult(templateResult, err, &result)
 	})
 
 	// Test Plan Mode
@@ -196,18 +211,33 @@ func (d *DecoratorTestSuite) TestActionDecorator(params []ast.NamedParameter) Va
 	d.t.Run("GeneratorMode", func(t *testing.T) {
 		ctx := d.createGeneratorContext()
 		start := time.Now()
-		execResult := actionDecorator.ExpandGenerator(ctx, params)
+		templateResult, err := actionDecorator.GenerateTemplate(ctx, params)
 		duration := time.Since(start)
+
+		// Execute template to get actual generated code
+		var generatedCode string
+		var templateExecError error
+		if err == nil && templateResult != nil && templateResult.Template != nil {
+			var buf strings.Builder
+			if templateExecError = templateResult.Template.Execute(&buf, templateResult.Data); templateExecError == nil {
+				generatedCode = strings.TrimSpace(buf.String())
+			}
+		}
 
 		result.GeneratorResult = TestResult{
 			Mode:     "generator",
-			Success:  execResult.Error == nil,
-			Data:     execResult.Data,
-			Error:    execResult.Error,
+			Success:  err == nil && templateExecError == nil,
+			Data:     generatedCode, // Store executed template code, not TemplateResult
+			Error:    err,
 			Duration: duration,
 		}
 
-		d.validateGeneratorResult(execResult, &result)
+		// Store template exec error if it occurred
+		if templateExecError != nil {
+			result.GeneratorResult.Error = templateExecError
+		}
+
+		d.validateGeneratorTemplateResult(templateResult, err, &result)
 	})
 
 	// Test Plan Mode
@@ -269,18 +299,33 @@ func (d *DecoratorTestSuite) TestBlockDecorator(params []ast.NamedParameter, con
 	d.t.Run("GeneratorMode", func(t *testing.T) {
 		ctx := d.createGeneratorContext()
 		start := time.Now()
-		execResult := blockDecorator.ExecuteGenerator(ctx, params, content)
+		templateResult, err := blockDecorator.GenerateTemplate(ctx, params, content)
 		duration := time.Since(start)
+
+		// Execute template to get actual generated code
+		var generatedCode string
+		var templateExecError error
+		if err == nil && templateResult != nil && templateResult.Template != nil {
+			var buf strings.Builder
+			if templateExecError = templateResult.Template.Execute(&buf, templateResult.Data); templateExecError == nil {
+				generatedCode = strings.TrimSpace(buf.String())
+			}
+		}
 
 		result.GeneratorResult = TestResult{
 			Mode:     "generator",
-			Success:  execResult.Error == nil,
-			Data:     execResult.Data,
-			Error:    execResult.Error,
+			Success:  err == nil && templateExecError == nil,
+			Data:     generatedCode, // Store executed template code, not TemplateResult
+			Error:    err,
 			Duration: duration,
 		}
 
-		d.validateGeneratorResult(execResult, &result)
+		// Store template exec error if it occurred
+		if templateExecError != nil {
+			result.GeneratorResult.Error = templateExecError
+		}
+
+		d.validateGeneratorTemplateResult(templateResult, err, &result)
 	})
 
 	// Test Plan Mode
@@ -342,18 +387,33 @@ func (d *DecoratorTestSuite) TestPatternDecorator(params []ast.NamedParameter, p
 	d.t.Run("GeneratorMode", func(t *testing.T) {
 		ctx := d.createGeneratorContext()
 		start := time.Now()
-		execResult := patternDecorator.ExecuteGenerator(ctx, params, patterns)
+		templateResult, err := patternDecorator.GenerateTemplate(ctx, params, patterns)
 		duration := time.Since(start)
+
+		// Execute template to get actual generated code
+		var generatedCode string
+		var templateExecError error
+		if err == nil && templateResult != nil && templateResult.Template != nil {
+			var buf strings.Builder
+			if templateExecError = templateResult.Template.Execute(&buf, templateResult.Data); templateExecError == nil {
+				generatedCode = strings.TrimSpace(buf.String())
+			}
+		}
 
 		result.GeneratorResult = TestResult{
 			Mode:     "generator",
-			Success:  execResult.Error == nil,
-			Data:     execResult.Data,
-			Error:    execResult.Error,
+			Success:  err == nil && templateExecError == nil,
+			Data:     generatedCode, // Store executed template code, not TemplateResult
+			Error:    err,
 			Duration: duration,
 		}
 
-		d.validateGeneratorResult(execResult, &result)
+		// Store template exec error if it occurred
+		if templateExecError != nil {
+			result.GeneratorResult.Error = templateExecError
+		}
+
+		d.validateGeneratorTemplateResult(templateResult, err, &result)
 	})
 
 	// Test Plan Mode
@@ -453,21 +513,37 @@ func (d *DecoratorTestSuite) validateInterpreterResult(execResult *execution.Exe
 	}
 }
 
-func (d *DecoratorTestSuite) validateGeneratorResult(execResult *execution.ExecutionResult, result *ValidationResult) {
-	// Generator mode should return valid Go code as string
-	if execResult.Error == nil {
-		if execResult.Data == nil {
+func (d *DecoratorTestSuite) validateGeneratorTemplateResult(templateResult *execution.TemplateResult, err error, result *ValidationResult) {
+	// Generator mode should return valid template result
+	if err == nil {
+		if templateResult == nil {
 			result.ValidationErrors = append(result.ValidationErrors,
-				"Generator mode returned nil data - expected Go code string")
-		} else if code, ok := execResult.Data.(string); ok {
-			if strings.TrimSpace(code) == "" {
-				result.ValidationErrors = append(result.ValidationErrors,
-					"Generator mode returned empty code string")
-			}
-			// TODO: Add Go syntax validation here
+				"Generator mode returned nil template result")
 		} else {
-			result.ValidationErrors = append(result.ValidationErrors,
-				fmt.Sprintf("Generator mode returned %T, expected string", execResult.Data))
+			// Validate template can be executed
+			if templateResult.Template == nil {
+				result.ValidationErrors = append(result.ValidationErrors,
+					"Template result has nil template")
+			}
+			if templateResult.Data == nil {
+				result.ValidationErrors = append(result.ValidationErrors,
+					"Template result has nil data")
+			}
+
+			// Try to execute template to validate syntax
+			if templateResult.Template != nil && templateResult.Data != nil {
+				var buf strings.Builder
+				if err := templateResult.Template.Execute(&buf, templateResult.Data); err != nil {
+					result.ValidationErrors = append(result.ValidationErrors,
+						fmt.Sprintf("Template execution failed: %v", err))
+				} else {
+					code := strings.TrimSpace(buf.String())
+					if code == "" {
+						result.ValidationErrors = append(result.ValidationErrors,
+							"Template executed to empty code")
+					}
+				}
+			}
 		}
 	}
 }

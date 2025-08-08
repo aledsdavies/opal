@@ -12,8 +12,14 @@ func TestEnvDecorator_Basic(t *testing.T) {
 	decorator := &EnvDecorator{}
 
 	// Set environment variable for test
-	os.Setenv("TEST_ENV_VAR", "env_value")
-	defer os.Unsetenv("TEST_ENV_VAR")
+	if err := os.Setenv("TEST_ENV_VAR", "env_value"); err != nil {
+		t.Fatalf("Failed to set test env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_ENV_VAR"); err != nil {
+			t.Logf("Warning: Failed to unset test env var: %v", err)
+		}
+	}()
 
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestValueDecorator([]ast.NamedParameter{
@@ -82,8 +88,14 @@ func TestEnvDecorator_EmptyValue_AllowEmpty(t *testing.T) {
 	decorator := &EnvDecorator{}
 
 	// Set empty environment variable
-	os.Setenv("EMPTY_ENV_VAR", "")
-	defer os.Unsetenv("EMPTY_ENV_VAR")
+	if err := os.Setenv("EMPTY_ENV_VAR", ""); err != nil {
+		t.Fatalf("Failed to set empty test env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("EMPTY_ENV_VAR"); err != nil {
+			t.Logf("Warning: Failed to unset empty test env var: %v", err)
+		}
+	}()
 
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestValueDecorator([]ast.NamedParameter{
@@ -108,8 +120,14 @@ func TestEnvDecorator_EmptyValue_DefaultBehavior(t *testing.T) {
 	decorator := &EnvDecorator{}
 
 	// Set empty environment variable
-	os.Setenv("EMPTY_ENV_VAR", "")
-	defer os.Unsetenv("EMPTY_ENV_VAR")
+	if err := os.Setenv("EMPTY_ENV_VAR", ""); err != nil {
+		t.Fatalf("Failed to set empty test env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("EMPTY_ENV_VAR"); err != nil {
+			t.Logf("Warning: Failed to unset empty test env var: %v", err)
+		}
+	}()
 
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestValueDecorator([]ast.NamedParameter{
@@ -152,8 +170,14 @@ func TestEnvDecorator_GlobalTracking(t *testing.T) {
 	decorator := &EnvDecorator{}
 
 	// Test that env vars are tracked globally for generator mode
-	os.Setenv("TRACKED_VAR", "tracked_value")
-	defer os.Unsetenv("TRACKED_VAR")
+	if err := os.Setenv("TRACKED_VAR", "tracked_value"); err != nil {
+		t.Fatalf("Failed to set test env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TRACKED_VAR"); err != nil {
+			t.Logf("Warning: Failed to unset test env var: %v", err)
+		}
+	}()
 
 	result := decoratortesting.NewDecoratorTest(t, decorator).
 		TestValueDecorator([]ast.NamedParameter{

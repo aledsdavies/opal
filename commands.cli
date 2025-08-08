@@ -42,9 +42,9 @@ setup: {
 test-quick: {
     echo "⚡ Running quick checks..."
     echo "🔍 Checking Go formatting..."
-    command -v gofumpt >/dev/null 2>&1 && gofumpt -l . | head -20 || go fmt ./... >/dev/null
+    command -v gofumpt >/dev/null 2>&1 && gofumpt -l . | head -20 || go fmt ./core/... ./runtime/... ./testing/... ./cli/... >/dev/null
     echo "🔍 Running basic linters..."
-    command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || echo "⚠️  golangci-lint not available"
+    command -v golangci-lint >/dev/null 2>&1 && golangci-lint run ./core/... ./runtime/... ./testing/... ./cli/... || echo "⚠️  golangci-lint not available"
     echo "✅ Quick checks passed!"
 }
 
@@ -108,7 +108,7 @@ test-decorators: @parallel {
 format: {
     echo "📝 Formatting all code across modules..."
     @parallel {
-        command -v gofumpt >/dev/null 2>&1 && gofumpt -w . || go fmt ./...
+        command -v gofumpt >/dev/null 2>&1 && gofumpt -w . || go fmt ./core/... ./runtime/... ./testing/... ./cli/...
         command -v nixpkgs-fmt >/dev/null 2>&1 && find . -name '*.nix' -exec nixpkgs-fmt {} + || echo "⚠️  nixpkgs-fmt not available"
     }
     echo "✅ All code formatted!"

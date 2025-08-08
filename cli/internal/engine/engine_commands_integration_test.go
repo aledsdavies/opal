@@ -29,7 +29,11 @@ func TestProjectCommandsIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open commands.cli: %v", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			t.Logf("Warning: failed to close commands.cli file: %v", err)
+		}
+	}()
 
 	// Parse the commands
 	program, err := parser.Parse(file)
@@ -105,7 +109,11 @@ func TestProjectCommandsIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create temp dir: %v", err)
 		}
-		defer os.RemoveAll(tempDir)
+		defer func() {
+			if err := os.RemoveAll(tempDir); err != nil {
+				t.Logf("Warning: failed to remove temp directory: %v", err)
+			}
+		}()
 
 		// Generate the Go code with proper module name
 		engine := New(program)

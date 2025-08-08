@@ -1535,7 +1535,7 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 	// Execute the template with basic functions
 	tmpl, err := template.New("mainCLI").Funcs(template.FuncMap{
 		"add":       func(a, b int) int { return a + b },
-		"title":     func(s string) string { return strings.Title(s) },
+		"title":     func(s string) string { return capitalizeFirst(s) },
 		"hasSuffix": func(s, suffix string) bool { return strings.HasSuffix(strings.TrimSpace(s), suffix) },
 		"contains":  func(s, substr string) bool { return strings.Contains(s, substr) },
 	}).Parse(mainCLITemplate)
@@ -1559,64 +1559,12 @@ func (e *Engine) generateCodeWithTemplate(program *ast.Program, moduleName strin
 	return result, nil
 }
 
-// programUsesActionDecorators checks if the program uses ActionDecorator templates
-func (e *Engine) programUsesActionDecorators(program *ast.Program) bool {
-	for _, cmd := range program.Commands {
-		for _, content := range cmd.Body.Content {
-			if e.commandUsesActionDecorators(content) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // programUsesStringsInActionDecorators checks if any command uses ActionDecorator templates that require strings import
 func (e *Engine) programUsesStringsInActionDecorators(program *ast.Program) bool {
 	for _, cmd := range program.Commands {
 		for _, content := range cmd.Body.Content {
 			if e.commandUsesStringsInActionDecorators(content) {
 				return true
-			}
-		}
-	}
-	return false
-}
-
-// commandUsesActionDecorators checks if command content uses ActionDecorator templates
-func (e *Engine) commandUsesActionDecorators(content ast.CommandContent) bool {
-	switch c := content.(type) {
-	case *ast.ShellContent:
-		// Check for ActionDecorators
-		for _, part := range c.Parts {
-			if _, ok := part.(*ast.ActionDecorator); ok {
-				return true
-			}
-		}
-		// Check for shell operators that trigger ActionDecorator template usage
-		for _, part := range c.Parts {
-			if textPart, ok := part.(*ast.TextPart); ok {
-				text := textPart.Text
-				if strings.Contains(text, "&&") || strings.Contains(text, "||") ||
-					strings.Contains(text, "|") || strings.Contains(text, ">>") {
-					return true
-				}
-			}
-		}
-	case *ast.BlockDecorator:
-		// Block decorators might contain ActionDecorators
-		for _, subContent := range c.Content {
-			if e.commandUsesActionDecorators(subContent) {
-				return true
-			}
-		}
-	case *ast.PatternDecorator:
-		// Pattern decorators might contain ActionDecorators
-		for _, pattern := range c.Patterns {
-			for _, command := range pattern.Commands {
-				if e.commandUsesActionDecorators(command) {
-					return true
-				}
 			}
 		}
 	}

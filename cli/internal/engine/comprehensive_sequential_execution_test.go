@@ -88,8 +88,14 @@ func testSequentialExecutionInterpreted(t *testing.T, commands string, expectSuc
 	if err != nil {
 		t.Fatalf("Failed to get current directory: %v", err)
 	}
-	defer os.Chdir(oldDir)
-	os.Chdir(tmpDir)
+	defer func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Logf("Warning: failed to restore original directory: %v", err)
+		}
+	}()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
 
 	// Parse the commands
 	program, err := parser.Parse(strings.NewReader(commands))
@@ -289,8 +295,14 @@ func testModeAndGetFileContent(t *testing.T, commands, testDir, mode string) str
 	if mode == "interpreted" {
 		// Test interpreted mode
 		oldDir, _ := os.Getwd()
-		defer os.Chdir(oldDir)
-		os.Chdir(testDir)
+		defer func() {
+			if err := os.Chdir(oldDir); err != nil {
+				t.Logf("Warning: failed to restore directory: %v", err)
+			}
+		}()
+		if err := os.Chdir(testDir); err != nil {
+			t.Logf("Warning: failed to change directory: %v", err)
+		}
 
 		program, _ := parser.Parse(strings.NewReader(commands))
 
@@ -318,7 +330,10 @@ func testModeAndGetFileContent(t *testing.T, commands, testDir, mode string) str
 		result, _ := engine.GenerateCode(program)
 
 		mainGoPath := filepath.Join(testDir, "main.go")
-		os.WriteFile(mainGoPath, []byte(result.String()), 0o644)
+		if err := os.WriteFile(mainGoPath, []byte(result.String()), 0o644); err != nil {
+			t.Logf("Warning: failed to write main.go: %v", err)
+			return ""
+		}
 
 		goModContent := `module testcli
 go 1.22
@@ -328,19 +343,29 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 )`
 		goModPath := filepath.Join(testDir, "go.mod")
-		os.WriteFile(goModPath, []byte(goModContent), 0o644)
+		if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
+			t.Logf("Warning: failed to write go.mod: %v", err)
+			return ""
+		}
 
 		tidyCmd := exec.Command("go", "mod", "tidy")
 		tidyCmd.Dir = testDir
-		tidyCmd.Run()
+		if err := tidyCmd.Run(); err != nil {
+			t.Logf("Warning: go mod tidy failed: %v", err)
+		}
 
 		buildCmd := exec.Command("go", "build", "-o", "testcli", ".")
 		buildCmd.Dir = testDir
-		buildCmd.Run()
+		if err := buildCmd.Run(); err != nil {
+			t.Logf("Warning: build failed: %v", err)
+			return ""
+		}
 
 		execCmd := exec.Command("./testcli", "test")
 		execCmd.Dir = testDir
-		execCmd.Run()
+		if err := execCmd.Run(); err != nil {
+			t.Logf("Warning: execution failed: %v", err)
+		}
 	}
 
 	// Read the output file

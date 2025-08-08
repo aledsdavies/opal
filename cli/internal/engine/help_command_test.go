@@ -44,7 +44,11 @@ deploy: echo "Deploying..."
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Warning: failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Write the generated Go code
 	mainGoPath := filepath.Join(tmpDir, "main.go")
@@ -203,7 +207,11 @@ func TestGeneratedCliBasicExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Warning: failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Write files
 	mainGoPath := filepath.Join(tmpDir, "main.go")

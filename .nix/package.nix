@@ -17,8 +17,8 @@ pkgs.buildGoModule rec {
     env.GOWORK = "off";
   };
 
-  # Vendor hash for CLI module dependencies  
-  vendorHash = "sha256-8B2MwhzXkU+FIYbeTuzVgciOORmYIvP+xEjCegwlH0Y=";
+  # Vendor hash for CLI module dependencies
+  vendorHash = "sha256-/v47xqLFmBCKtXeuze+9uBkG1XDGUXrX3outjBZUU80=";
 
   # Build with version info
   ldflags = [

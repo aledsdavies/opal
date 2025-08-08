@@ -50,7 +50,11 @@ func TestParallelWorkdirIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Warning: failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create the subdirectories
 	for _, dir := range []string{"dir1", "dir2", "dir3"} {
@@ -193,7 +197,11 @@ func TestNestedDecoratorBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Warning: failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Write the generated Go code
 	mainGoPath := filepath.Join(tmpDir, "main.go")
@@ -319,7 +327,11 @@ func TestParallelContextVariableIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Warning: failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Write and compile
 	mainGoPath := filepath.Join(tmpDir, "main.go")

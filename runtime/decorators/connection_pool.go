@@ -338,7 +338,10 @@ func (pce *PooledCommandExecutor) ExecuteCommand(workingDir string, env []string
 	// Return connection to pool after command completes
 	go func() {
 		// Wait for command to complete
-		cmd.Wait()
+		if err := cmd.Wait(); err != nil {
+			// Log the error but don't fail - connection cleanup should still happen
+			fmt.Printf("Warning: command execution failed: %v\n", err)
+		}
 		pce.pool.ReturnConnection(conn)
 	}()
 

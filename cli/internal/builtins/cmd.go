@@ -151,7 +151,7 @@ func (d *CmdDecorator) generateTemplateImpl(ctx execution.GeneratorContext, para
 			FunctionName string
 		}{
 			CmdName:      cmdName,
-			FunctionName: strings.Title(toCamelCase(cmdName)),
+			FunctionName: capitalizeFirst(toCamelCase(cmdName)),
 		},
 	}, nil
 }

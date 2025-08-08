@@ -2,7 +2,6 @@ package decorators
 
 import (
 	"fmt"
-	"hash/fnv"
 	"os"
 	"strings"
 	"text/template"
@@ -15,24 +14,6 @@ import (
 
 // WorkdirDecorator implements the @workdir decorator for changing working directory
 type WorkdirDecorator struct{}
-
-// generateUniqueVarName generates a unique variable name based on input content
-// This helps avoid variable name conflicts in generated code
-func generateUniqueVarName(prefix, content string) string {
-	h := fnv.New32a()
-	h.Write([]byte(content))
-	return fmt.Sprintf("%s%d", prefix, h.Sum32())
-}
-
-// generateUniqueContextVar generates a unique context variable name for decorators
-func generateUniqueContextVar(prefix, path, additionalContent string) string {
-	return generateUniqueVarName(prefix+"Ctx", path+additionalContent)
-}
-
-// generateUniqueResultVar generates a unique result variable name for shell commands
-func generateUniqueResultVar(prefix, command, context string) string {
-	return generateUniqueVarName(prefix+"Result", command+context)
-}
 
 // Name returns the decorator name
 func (d *WorkdirDecorator) Name() string {
@@ -134,26 +115,6 @@ func (d *WorkdirDecorator) extractWorkdirParams(params []ast.NamedParameter) (st
 }
 
 // getPathParameter extracts and validates the path parameter (deprecated - use extractWorkdirParams)
-func (d *WorkdirDecorator) getPathParameter(params []ast.NamedParameter) (string, error) {
-	if len(params) == 0 {
-		return "", fmt.Errorf("workdir requires a path parameter")
-	}
-
-	pathParam := ast.FindParameter(params, "path")
-	if pathParam == nil && len(params) > 0 {
-		pathParam = &params[0]
-	}
-
-	if pathParam == nil {
-		return "", fmt.Errorf("workdir requires a path parameter")
-	}
-
-	if str, ok := pathParam.Value.(*ast.StringLiteral); ok {
-		return str.Value, nil
-	}
-
-	return "", fmt.Errorf("workdir path must be a string literal, got %T", pathParam.Value)
-}
 
 // executePlanImpl creates a plan element for dry-run display
 func (d *WorkdirDecorator) executePlanImpl(path string, createIfNotExists bool, content []ast.CommandContent) *execution.ExecutionResult {
@@ -283,59 +244,6 @@ if _, err := os.Stat({{printf "%q" .Path}}); err != nil {
 // ShellTemplateData holds template data for workdir shell execution
 type ShellTemplateData struct {
 	Command string
-}
-
-// generateShellCodeWithTemplate generates shell execution code using unique workdir context
-func (d *WorkdirDecorator) generateShellCodeWithTemplate(content *ast.ShellContent, contextVarName string) (string, error) {
-	// Build the command string from shell content parts
-	var cmdParts []string
-	for _, part := range content.Parts {
-		switch p := part.(type) {
-		case *ast.TextPart:
-			cmdParts = append(cmdParts, p.Text)
-		case *ast.ValueDecorator:
-			// For now, we'll include the decorator as-is
-			// A full implementation would process @var decorators here
-			cmdParts = append(cmdParts, fmt.Sprintf("@%s", p.Name))
-		default:
-			return "", fmt.Errorf("unsupported shell part type in workdir: %T", part)
-		}
-	}
-
-	commandStr := strings.Join(cmdParts, "")
-
-	// Generate unique variable name using utility function
-	varName := generateUniqueResultVar("workdir", commandStr, contextVarName)
-
-	// Define the template for shell execution with workdir context
-	const workdirShellTemplate = `// Execute shell command in working directory
-if err := exec({{.ContextVar}}, {{printf "%q" .Command}}); err != nil {
-	return err
-}
-`
-
-	// Parse and execute the template
-	tmpl, err := template.New("workdirShell").Parse(workdirShellTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse workdir shell template: %w", err)
-	}
-
-	templateData := struct {
-		Command    string
-		VarName    string
-		ContextVar string
-	}{
-		Command:    commandStr,
-		VarName:    varName,
-		ContextVar: contextVarName,
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, templateData); err != nil {
-		return "", fmt.Errorf("failed to execute workdir shell template: %w", err)
-	}
-
-	return result.String(), nil
 }
 
 // init registers the workdir decorator

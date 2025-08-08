@@ -1,0 +1,6 @@
+# Test ActionDecorator
+var PROJECT = "test"
+
+hello: echo "Hello @var(PROJECT)"
+
+test-action: @cmd(hello)

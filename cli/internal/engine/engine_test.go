@@ -682,9 +682,13 @@ build: echo "Building version @var(VERSION)"
 			// Create a temporary test directory to isolate any side effects
 			tempDir := t.TempDir()
 			defer func() {
-				os.Chdir(originalDir)
+				if err := os.Chdir(originalDir); err != nil {
+					t.Logf("Warning: failed to restore directory: %v", err)
+				}
 			}()
-			os.Chdir(tempDir)
+			if err := os.Chdir(tempDir); err != nil {
+				t.Fatalf("Failed to change to temp directory: %v", err)
+			}
 
 			// Parse the input
 			program, err := parser.Parse(strings.NewReader(tt.input))
@@ -740,7 +744,12 @@ func compileAndTestGeneratedCode(t *testing.T, result *GenerationResult, testNam
 
 	// Change to temp directory for compilation
 	originalDir, _ := os.Getwd()
-	defer os.Chdir(originalDir)
+	defer func() {
+		if err := os.Chdir(originalDir); err != nil {
+			// This is a critical failure that could affect other tests
+			fmt.Printf("Warning: failed to restore directory to %s: %v\n", originalDir, err)
+		}
+	}()
 	if err := os.Chdir(tempDir); err != nil {
 		return fmt.Errorf("failed to change to temp dir: %v", err)
 	}
@@ -812,7 +821,11 @@ func TestProjectCommandsCLI_Dogfooding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CRITICAL: Cannot read project commands.cli at %s: %v", commandsPath, err)
 	}
-	defer commandsFile.Close()
+	defer func() {
+		if err := commandsFile.Close(); err != nil {
+			t.Logf("Warning: failed to close commands.cli file: %v", err)
+		}
+	}()
 
 	// Parse the commands.cli file
 	program, err := parser.Parse(commandsFile)

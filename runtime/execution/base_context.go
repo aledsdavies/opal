@@ -3,8 +3,6 @@ package execution
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/aledsdavies/devcmd/core/ast"
 )
@@ -64,39 +62,6 @@ func (c *BaseExecutionContext) SetValueDecoratorLookup(lookup func(name string) 
 }
 
 // newBaseExecutionContext creates a new base execution context
-func newBaseExecutionContext(parent context.Context, program *ast.Program) *BaseExecutionContext {
-	if parent == nil {
-		parent = context.Background()
-	}
-
-	// Initialize working directory to current directory
-	workingDir, err := os.Getwd()
-	if err != nil {
-		// Fallback to empty string if we can't get current directory
-		workingDir = ""
-	}
-
-	// Capture environment variables immutably at command start for security
-	// This prevents manipulation during execution and ensures consistent environment state
-	capturedEnv := make(map[string]string)
-	for _, envVar := range os.Environ() {
-		if idx := strings.Index(envVar, "="); idx > 0 {
-			key := envVar[:idx]
-			value := envVar[idx+1:]
-			capturedEnv[key] = value
-		}
-	}
-
-	return &BaseExecutionContext{
-		Context:    parent,
-		Program:    program,
-		Variables:  make(map[string]string),
-		env:        capturedEnv, // Immutable captured environment
-		WorkingDir: workingDir,
-		Debug:      false,
-		DryRun:     false,
-	}
-}
 
 // GetVariable retrieves a variable value
 func (c *BaseExecutionContext) GetVariable(name string) (string, bool) {
@@ -186,20 +151,3 @@ func (c *BaseExecutionContext) resolveVariableValue(expr ast.Expression) (string
 // ================================================================================================
 // SHARED UTILITY METHODS
 // ================================================================================================
-
-// getBaseName returns the base name for variable generation
-func (c *BaseExecutionContext) getBaseName() string {
-	if c.currentCommand != "" {
-		return strings.Title(c.currentCommand)
-	}
-	return "Action"
-}
-
-// Helper function to format parameters for Go code generation
-func formatParams(params []ast.NamedParameter) string {
-	if len(params) == 0 {
-		return "nil"
-	}
-	// For now, return simple representation - this needs to be expanded
-	return "[]ast.NamedParameter{}"
-}

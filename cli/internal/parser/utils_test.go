@@ -44,6 +44,13 @@ func (d *DebounceDecorator) ExecuteGenerator(ctx execution.GeneratorContext, par
 	return execution.NewSuccessResult("// debounce")
 }
 
+func (d *DebounceDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
+	return &execution.TemplateResult{
+		Template: nil,
+		Data:     "// debounce template",
+	}, nil
+}
+
 func (d *DebounceDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
 	return execution.NewSuccessResult(nil)
 }
@@ -69,6 +76,13 @@ func (c *CwdDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, para
 
 func (c *CwdDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
 	return execution.NewSuccessResult("// cwd")
+}
+
+func (c *CwdDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
+	return &execution.TemplateResult{
+		Template: nil,
+		Data:     "// cwd template",
+	}, nil
 }
 
 func (c *CwdDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
@@ -101,6 +115,13 @@ func (w *WatchFilesDecorator) ExecuteGenerator(ctx execution.GeneratorContext, p
 	return execution.NewSuccessResult("// watch-files")
 }
 
+func (w *WatchFilesDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
+	return &execution.TemplateResult{
+		Template: nil,
+		Data:     "// watch-files template",
+	}, nil
+}
+
 func (w *WatchFilesDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
 	return execution.NewSuccessResult(nil)
 }
@@ -131,6 +152,13 @@ func (o *OffsetDecorator) ExecuteGenerator(ctx execution.GeneratorContext, param
 	return execution.NewSuccessResult("// offset")
 }
 
+func (o *OffsetDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
+	return &execution.TemplateResult{
+		Template: nil,
+		Data:     "// offset template",
+	}, nil
+}
+
 func (o *OffsetDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
 	return execution.NewSuccessResult(nil)
 }
@@ -159,6 +187,13 @@ func (f *FactorDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, p
 
 func (f *FactorDecorator) ExecuteGenerator(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
 	return execution.NewSuccessResult("// factor")
+}
+
+func (f *FactorDecorator) GenerateTemplate(ctx execution.GeneratorContext, params []ast.NamedParameter, content []ast.CommandContent) (*execution.TemplateResult, error) {
+	return &execution.TemplateResult{
+		Template: nil,
+		Data:     "// factor template",
+	}, nil
 }
 
 func (f *FactorDecorator) ExecutePlan(ctx execution.PlanContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {

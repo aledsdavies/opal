@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
-	"io/ioutil"
 	"os"
-	"os/exec"
+	execpkg "os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -123,106 +122,37 @@ func (v *ValidationAssertions) GeneratorExecutesCorrectly() *ValidationAssertion
 		return v
 	}
 
-	// Create a complete CLI program with the generated code
-	fullProgram := fmt.Sprintf(`package main
+	// Create a clean test program that matches production structure
+	fullProgram := `package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
-	"time"
+	execpkg "os/exec"
 )
 
-type CommandResult struct {
-	Stdout   string
-	Stderr   string  
-	ExitCode int
-}
-
-func (cr CommandResult) Success() bool {
-	return cr.ExitCode == 0
-}
-
-func (cr CommandResult) Failed() bool {
-	return cr.ExitCode != 0
-}
-
-type ExecutionContext struct {
-	context.Context
-	variables  map[string]string
-	WorkingDir string
-}
-
-func NewExecutionContext(ctx context.Context) *ExecutionContext {
-	workingDir, _ := os.Getwd()
-	return &ExecutionContext{
-		Context:    ctx,
-		variables:  make(map[string]string),
-		WorkingDir: workingDir,
-	}
-}
-
-func (ctx *ExecutionContext) GetVariable(name string) (string, bool) {
-	value, exists := ctx.variables[name]
-	return value, exists
-}
-
-func (ctx *ExecutionContext) SetVariable(name, value string) {
-	ctx.variables[name] = value
-}
-
-func executeShellCommand(ctx context.Context, command string) CommandResult {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	stdout, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return CommandResult{
-				Stdout:   string(stdout),
-				Stderr:   string(exitErr.Stderr),
-				ExitCode: exitErr.ExitCode(),
-			}
-		}
-		return CommandResult{
-			Stdout:   string(stdout),
-			Stderr:   err.Error(),
-			ExitCode: 1,
-		}
-	}
-	return CommandResult{
-		Stdout:   string(stdout),
-		Stderr:   "",
-		ExitCode: 0,
-	}
+func exec(ctx context.Context, command string) error {
+	cmd := execpkg.CommandContext(ctx, "sh", "-c", command)
+	return cmd.Run()
 }
 
 func main() {
-	baseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := context.Background()
 	
-	ctx := NewExecutionContext(baseCtx)
-	
-	// Execute the generated code wrapped in a function
-	result := executeGeneratedCode(ctx)
-	
-	// Check result (optional - depends on what we want to validate)
-	if result.Failed() {
-		fmt.Printf("Generated code failed: %%s\n", result.Stderr)
-		os.Exit(result.ExitCode)
+	// Execute the generated code
+	if err := testGeneratedCode(ctx); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
 	}
 	
 	fmt.Println("Execution completed successfully")
 }
 
-func executeGeneratedCode(ctx *ExecutionContext) CommandResult {
-	// Execute the generated code
-	%s
-	
-	// If we reach here without returning, return success
-	return CommandResult{Stdout: "", Stderr: "", ExitCode: 0}
-}`, code)
+func testGeneratedCode(ctx context.Context) error {
+` + code + `
+	return nil
+}`
 
 	// Try to compile and execute this program with a timeout
 	if err := v.compileAndExecuteGenerated(fullProgram); err != nil {
@@ -519,6 +449,14 @@ func IdentifierParam(name, value string) coreast.NamedParameter {
 	}
 }
 
+// Helper function to create integer parameters
+func IntParam(name string, value int) coreast.NamedParameter {
+	return coreast.NamedParameter{
+		Name:  name,
+		Value: &coreast.NumberLiteral{Value: fmt.Sprintf("%d", value)},
+	}
+}
+
 // Helper function to create pattern branches for testing
 func PatternBranch(pattern string, commands ...string) coreast.PatternBranch {
 	var patternNode coreast.Pattern
@@ -590,8 +528,8 @@ func findSubstring(text, substr string) bool {
 	return false
 }
 
-// ContainsAll checks if text contains all of the provided substrings
-func ContainsAll(text string, substrings []string) bool {
+// ContainsAllStrings checks if text contains all of the provided substrings
+func ContainsAllStrings(text string, substrings []string) bool {
 	for _, substr := range substrings {
 		if !ContainsString(text, substr) {
 			return false
@@ -614,15 +552,19 @@ func RandomString(length int) string {
 // compileAndExecuteGenerated compiles and executes generated Go code with timeout protection
 func (v *ValidationAssertions) compileAndExecuteGenerated(program string) error {
 	// Create a temporary directory for the test program
-	tmpDir, err := ioutil.TempDir("", "devcmd_validation_test_")
+	tmpDir, err := os.MkdirTemp("", "devcmd_validation_test_")
 	if err != nil {
 		return fmt.Errorf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			fmt.Printf("Warning: failed to clean up temp dir %s: %v\n", tmpDir, err)
+		}
+	}()
 
 	// Write the program to a Go file
 	mainFile := filepath.Join(tmpDir, "main.go")
-	if err := ioutil.WriteFile(mainFile, []byte(program), 0o644); err != nil {
+	if err := os.WriteFile(mainFile, []byte(program), 0o644); err != nil {
 		return fmt.Errorf("failed to write test program: %v", err)
 	}
 
@@ -631,7 +573,7 @@ func (v *ValidationAssertions) compileAndExecuteGenerated(program string) error 
 
 go 1.21
 `
-	if err := ioutil.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0o644); err != nil {
 		return fmt.Errorf("failed to write go.mod: %v", err)
 	}
 
@@ -639,7 +581,7 @@ go 1.21
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "testprogram", "main.go")
+	buildCmd := execpkg.CommandContext(ctx, "go", "build", "-o", "testprogram", "main.go")
 	buildCmd.Dir = tmpDir
 	buildOutput, err := buildCmd.CombinedOutput()
 	if err != nil {
@@ -650,7 +592,7 @@ go 1.21
 	execCtx, execCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer execCancel()
 
-	execCmd := exec.CommandContext(execCtx, "./testprogram")
+	execCmd := execpkg.CommandContext(execCtx, "./testprogram")
 	execCmd.Dir = tmpDir
 	execOutput, err := execCmd.CombinedOutput()
 	if err != nil {
@@ -664,6 +606,202 @@ go 1.21
 	// Check that execution completed (should contain our success message)
 	if !strings.Contains(string(execOutput), "Execution completed successfully") {
 		return fmt.Errorf("execution did not complete successfully\nOutput: %s", string(execOutput))
+	}
+
+	return nil
+}
+
+// === BEHAVIORAL EQUIVALENCE VALIDATION ===
+
+// ModesAreEquivalent validates that interpreter and generator modes produce equivalent results
+func (v *ValidationAssertions) ModesAreEquivalent() *ValidationAssertions {
+	// Skip if either mode failed
+	if !v.result.InterpreterResult.Success || !v.result.GeneratorResult.Success {
+		return v
+	}
+
+	// Get generated code
+	code, ok := v.result.GeneratorResult.Data.(string)
+	if !ok {
+		v.errors = append(v.errors, "Generator should return string for equivalence testing")
+		return v
+	}
+
+	if strings.TrimSpace(code) == "" {
+		v.errors = append(v.errors, "Generator produced empty code, cannot test equivalence")
+		return v
+	}
+
+	// Create a complete Go program that executes the generated code
+	fullProgram := fmt.Sprintf(`package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"time"
+)
+
+// CommandResult represents the output from command execution
+type CommandResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+func (r CommandResult) Success() bool {
+	return r.ExitCode == 0
+}
+
+func (r CommandResult) Failed() bool {
+	return r.ExitCode != 0
+}
+
+func (r CommandResult) Error() error {
+	if r.Success() {
+		return nil
+	}
+	if r.Stderr != "" {
+		return fmt.Errorf("exit code %%d: %%s", r.ExitCode, r.Stderr)
+	}
+	return fmt.Errorf("exit code %%d", r.ExitCode)
+}
+
+// exec executes a shell command and returns a CommandResult
+func exec(ctx context.Context, command string) error {
+	cmd := execpkg.CommandContext(ctx, "sh", "-c", command)
+	
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*execpkg.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+	
+	result := CommandResult{
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(), 
+		ExitCode: exitCode,
+	}
+	
+	// Print result for comparison
+	fmt.Printf("GENERATOR_OUTPUT:%%s\n", result.Stdout)
+	if result.Failed() {
+		return result.Error()
+	}
+	return nil
+}
+
+func main() {
+	ctx := context.Background()
+	
+	// Execute the generated code
+	err := func() error {
+		%s
+		return nil
+	}()
+	
+	if err != nil {
+		fmt.Printf("Generated code failed: %%v\n", err)
+		os.Exit(1)
+	}
+}`, code)
+
+	// Try to compile and execute this program
+	if err := v.compileAndExecuteForEquivalence(fullProgram); err != nil {
+		v.errors = append(v.errors, fmt.Sprintf("Behavioral equivalence test failed: %v", err))
+	}
+
+	return v
+}
+
+// compileAndExecuteForEquivalence compiles and executes generated code, comparing output to interpreter
+func (v *ValidationAssertions) compileAndExecuteForEquivalence(program string) error {
+	// Create temporary directory for compilation
+	tmpDir, err := os.MkdirTemp("", "devcmd-equivalence-test-")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			fmt.Printf("Warning: failed to clean up temp dir %s: %v\n", tmpDir, err)
+		}
+	}()
+
+	// Write the program to a Go file
+	mainPath := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(mainPath, []byte(program), 0o644); err != nil {
+		return fmt.Errorf("failed to write program: %w", err)
+	}
+
+	// Initialize go module
+	modCmd := execpkg.Command("go", "mod", "init", "testprogram")
+	modCmd.Dir = tmpDir
+	if err := modCmd.Run(); err != nil {
+		return fmt.Errorf("failed to init go module: %w", err)
+	}
+
+	// Compile the program with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	buildCmd := execpkg.CommandContext(ctx, "go", "build", "-o", "testprogram", "main.go")
+	buildCmd.Dir = tmpDir
+	buildOutput, err := buildCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("compilation failed: %v\nOutput: %s", err, string(buildOutput))
+	}
+
+	// Execute the compiled program with timeout
+	execCtx, execCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer execCancel()
+
+	execCmd := execpkg.CommandContext(execCtx, "./testprogram")
+	execCmd.Dir = tmpDir
+	execOutput, err := execCmd.CombinedOutput()
+
+	// Extract generator output from the execution
+	generatorOutput := ""
+	lines := strings.Split(string(execOutput), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "GENERATOR_OUTPUT:") {
+			generatorOutput = strings.TrimPrefix(line, "GENERATOR_OUTPUT:")
+			break
+		}
+	}
+
+	// Compare with interpreter output
+	var interpreterOutput string
+	if str, ok := v.result.InterpreterResult.Data.(string); ok {
+		interpreterOutput = str
+	} else if v.result.InterpreterResult.Data != nil {
+		interpreterOutput = fmt.Sprintf("%v", v.result.InterpreterResult.Data)
+	}
+
+	// Normalize outputs for comparison (trim whitespace)
+	generatorOutput = strings.TrimSpace(generatorOutput)
+	interpreterOutput = strings.TrimSpace(interpreterOutput)
+
+	if generatorOutput != interpreterOutput {
+		return fmt.Errorf("outputs differ:\nInterpreter: %q\nGenerator:   %q\nFull execution output:\n%s",
+			interpreterOutput, generatorOutput, string(execOutput))
+	}
+
+	// If execution failed but interpreter succeeded, that's a problem
+	if err != nil && v.result.InterpreterResult.Success {
+		if execCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("generated code timeout (interpreter succeeded but generator hangs)")
+		}
+		return fmt.Errorf("generated code execution failed (interpreter succeeded): %v\nOutput: %s", err, string(execOutput))
 	}
 
 	return nil

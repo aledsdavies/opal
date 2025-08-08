@@ -291,7 +291,10 @@ func (l *Logger) log(level LogLevel, message string, err error, duration time.Du
 	formatted := l.formatter.Format(entry)
 
 	for _, output := range l.outputs {
-		fmt.Fprintln(output, formatted)
+		if _, err := fmt.Fprintln(output, formatted); err != nil {
+			// Log to stderr as fallback if primary output fails
+			fmt.Fprintf(os.Stderr, "Warning: failed to write log output: %v\n", err)
+		}
 	}
 }
 
@@ -388,7 +391,6 @@ type LogManager struct {
 	loggers map[string]*Logger
 	level   LogLevel
 	logFile string
-	logDir  string
 }
 
 var globalLogManager = &LogManager{

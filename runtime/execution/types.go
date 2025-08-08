@@ -97,34 +97,35 @@ type InterpreterContext interface {
 	WithCurrentCommand(commandName string) InterpreterContext
 }
 
+// TemplateResult contains a parsed template and its data
+type TemplateResult struct {
+	Template *template.Template
+	Data     interface{}
+}
+
 // GeneratorContext provides functionality for Go code generation
 type GeneratorContext interface {
 	BaseContext
 
-	// Code generation - commands produce Go code strings
-	GenerateShellCode(content *ast.ShellContent) *ExecutionResult
-	GenerateDirectActionCode(content *ast.ShellContent) *ExecutionResult
+	// Template-based code generation
 	GetTemplateFunctions() template.FuncMap
-	SetTemplateFunctions(funcs template.FuncMap)
+	BuildCommandContent(commands []ast.CommandContent) (*TemplateResult, error)
+	ExecuteTemplate(result *TemplateResult) (string, error)
 
-	// Internal access for template generation (these should be minimized)
-	GetShellCounter() int
-	IncrementShellCounter()
-	GetCurrentCommand() string
+	// Decorator registry access
 	GetBlockDecoratorLookup() func(name string) (interface{}, bool)
 	GetPatternDecoratorLookup() func(name string) (interface{}, bool)
 	GetValueDecoratorLookup() func(name string) (interface{}, bool)
 
-	// Environment variable reference tracking for code generation
+	// Context info for generation
+	GetCurrentCommand() string
+
+	// Environment variable tracking for generated code
 	TrackEnvironmentVariableReference(key, defaultValue string)
 	GetTrackedEnvironmentVariableReferences() map[string]string
 
-	// Typed context management
+	// Simple child context for nested generation
 	Child() GeneratorContext
-	WithTimeout(timeout time.Duration) (GeneratorContext, context.CancelFunc)
-	WithCancel() (GeneratorContext, context.CancelFunc)
-	WithWorkingDir(workingDir string) GeneratorContext
-	WithCurrentCommand(commandName string) GeneratorContext
 }
 
 // PlanContext provides functionality for execution planning/dry-run
@@ -163,6 +164,7 @@ func NewInterpreterContext(ctx context.Context, program *ast.Program) Interprete
 func NewGeneratorContext(ctx context.Context, program *ast.Program) GeneratorContext {
 	return &GeneratorExecutionContext{
 		BaseExecutionContext: newBaseContext(ctx, program),
+		trackedEnvVars:       make(map[string]string),
 	}
 }
 
