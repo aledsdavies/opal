@@ -171,8 +171,8 @@ func (c *InterpreterExecutionContext) Child() InterpreterContext {
 		currentCommand: c.currentCommand,
 
 		// Copy decorator lookups from parent (critical for nested decorator execution)
-		valueDecoratorLookup: c.valueDecoratorLookup,
-		blockDecoratorLookup: c.blockDecoratorLookup,
+		valueDecoratorLookup: c.BaseExecutionContext.valueDecoratorLookup,
+		blockDecoratorLookup: c.BaseExecutionContext.blockDecoratorLookup,
 
 		// Initialize unique counter space for this child to avoid variable name conflicts
 		// Each child gets a unique counter space based on parent's counter and child ID
@@ -304,12 +304,12 @@ func (c *InterpreterExecutionContext) GetValueDecoratorLookup() func(name string
 func (c *InterpreterExecutionContext) GetBlockDecoratorLookup() func(name string) (interface{}, bool) {
 	// Block decorators are looked up through dependency injection to avoid import cycles
 	// This will be set by the engine during initialization
-	return c.blockDecoratorLookup
+	return c.BaseExecutionContext.blockDecoratorLookup
 }
 
 // SetBlockDecoratorLookup sets the block decorator lookup function (called by engine during setup)
 func (c *InterpreterExecutionContext) SetBlockDecoratorLookup(lookup func(name string) (interface{}, bool)) {
-	c.blockDecoratorLookup = lookup
+	c.BaseExecutionContext.SetBlockDecoratorLookup(lookup)
 }
 
 // TrackEnvironmentVariable tracks an environment variable for consistent access during execution
