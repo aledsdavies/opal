@@ -64,9 +64,14 @@ devcmd
 devcmd.exe
 devcmd-*
 dev-compiled
-cli
+cli/cli
+cli/dev-compiled
 result
 !cmd/dev
+
+# Test and temporary directories
+testdir/
+cli/testdir/
 
 # Generated CLI files from devcmd
 examples/*.go
@@ -75,13 +80,21 @@ examples/build/
 
 # Build directory for temporary files
 build/
+cli/build/
 
 # Test artifacts
 coverage.out
 coverage.html
+coverage-*.out
 cpu.prof
 mem.prof
 *.prof
+
+# Test CLI files (temporary test files)
+test_*.cli
+simple_*.cli
+debug_*.cli
+*_test_*.cli
 
 # Documentation generated files
 docs/parser.md
