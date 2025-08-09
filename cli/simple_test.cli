@@ -1,4 +1,0 @@
-test: @parallel {
-    echo "test1"
-    echo "test2"
-}

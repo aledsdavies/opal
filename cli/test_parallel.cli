@@ -1,4 +1,0 @@
-test-parallel-only: @parallel {
-    echo "command 1"
-    echo "command 2"
-}

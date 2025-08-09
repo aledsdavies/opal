@@ -1,4 +1,0 @@
-test-simple: @parallel {
-    @workdir("core") { echo "core: test output" }
-    @workdir("runtime") { echo "runtime: test output" }
-}
