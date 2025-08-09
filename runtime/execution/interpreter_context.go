@@ -59,23 +59,23 @@ func (c *InterpreterExecutionContext) ExecuteCommandContent(content ast.CommandC
 	case *ast.ShellContent:
 		result := c.ExecuteShell(cmd)
 		return result.Error
-	
+
 	case *ast.BlockDecorator:
 		// Handle block decorators by looking them up in the registry
 		return c.executeBlockDecorator(cmd)
-	
+
 	case *ast.PatternDecorator:
 		// Handle pattern decorators like @when
 		return c.executePatternDecorator(cmd)
-	
+
 	case *ast.PatternContent:
 		// Handle pattern content (branches within @when)
 		return fmt.Errorf("pattern content cannot be executed directly - should be part of pattern decorator")
-	
+
 	case *ast.ActionDecorator:
 		// Action decorators as standalone commands (like in @parallel { @cmd(...) })
 		return c.executeActionDecorator(cmd)
-	
+
 	default:
 		return fmt.Errorf("unsupported command content type: %T", content)
 	}
@@ -171,8 +171,9 @@ func (c *InterpreterExecutionContext) Child() InterpreterContext {
 		currentCommand: c.currentCommand,
 
 		// Copy decorator lookups from parent (critical for nested decorator execution)
-		valueDecoratorLookup: c.BaseExecutionContext.valueDecoratorLookup,
-		blockDecoratorLookup: c.BaseExecutionContext.blockDecoratorLookup,
+		valueDecoratorLookup:  c.BaseExecutionContext.valueDecoratorLookup,
+		actionDecoratorLookup: c.BaseExecutionContext.actionDecoratorLookup,
+		blockDecoratorLookup:  c.BaseExecutionContext.blockDecoratorLookup,
 
 		// Initialize unique counter space for this child to avoid variable name conflicts
 		// Each child gets a unique counter space based on parent's counter and child ID
@@ -300,6 +301,13 @@ func (c *InterpreterExecutionContext) GetValueDecoratorLookup() func(name string
 	return c.valueDecoratorLookup
 }
 
+// GetActionDecoratorLookup returns the action decorator lookup function for interpreter mode
+func (c *InterpreterExecutionContext) GetActionDecoratorLookup() func(name string) (interface{}, bool) {
+	// Action decorators are looked up through dependency injection to avoid import cycles
+	// This will be set by the engine during initialization
+	return c.BaseExecutionContext.actionDecoratorLookup
+}
+
 // GetBlockDecoratorLookup returns the block decorator lookup function for interpreter mode
 func (c *InterpreterExecutionContext) GetBlockDecoratorLookup() func(name string) (interface{}, bool) {
 	// Block decorators are looked up through dependency injection to avoid import cycles
@@ -335,6 +343,31 @@ func (c *InterpreterExecutionContext) GetTrackedEnvironmentVariables() map[strin
 
 // processActionDecorator handles action decorators in interpreter mode
 func (c *InterpreterExecutionContext) processActionDecorator(decorator *ast.ActionDecorator) (interface{}, error) {
-	// This method is deprecated - use direct decorator registry access
-	return nil, fmt.Errorf("processActionDecorator is deprecated - use decorator registry directly")
+	// Use the action decorator lookup to get the decorator from the registry
+	lookupFunc := c.GetActionDecoratorLookup()
+	if lookupFunc == nil {
+		return nil, fmt.Errorf("action decorator lookup not available (engine not properly initialized)")
+	}
+
+	decoratorInterface, exists := lookupFunc(decorator.Name)
+	if !exists {
+		return nil, fmt.Errorf("action decorator @%s not found", decorator.Name)
+	}
+
+	// Cast to the expected interface type for interpreter mode
+	actionDecorator, ok := decoratorInterface.(interface {
+		ExpandInterpreter(ctx InterpreterContext, params []ast.NamedParameter) *ExecutionResult
+	})
+	if !ok {
+		return nil, fmt.Errorf("action decorator @%s does not implement expected ExpandInterpreter method", decorator.Name)
+	}
+
+	// Call ExpandInterpreter to get the expanded result for shell chaining
+	result := actionDecorator.ExpandInterpreter(c, decorator.Args)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to expand action decorator @%s: %w", decorator.Name, result.Error)
+	}
+
+	// Return the expanded value for shell composition
+	return result.Data, nil
 }

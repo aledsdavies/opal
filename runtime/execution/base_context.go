@@ -47,8 +47,9 @@ type BaseExecutionContext struct {
 	currentCommand string
 
 	// Decorator lookup functions (set by engine during initialization)
-	valueDecoratorLookup func(name string) (interface{}, bool)
-	blockDecoratorLookup func(name string) (interface{}, bool)
+	valueDecoratorLookup  func(name string) (interface{}, bool)
+	actionDecoratorLookup func(name string) (interface{}, bool)
+	blockDecoratorLookup  func(name string) (interface{}, bool)
 
 	// Shell execution counter for unique variable naming
 	shellCounter int
@@ -60,6 +61,11 @@ type BaseExecutionContext struct {
 // SetValueDecoratorLookup sets the value decorator lookup function (called by engine during setup)
 func (c *BaseExecutionContext) SetValueDecoratorLookup(lookup func(name string) (interface{}, bool)) {
 	c.valueDecoratorLookup = lookup
+}
+
+// SetActionDecoratorLookup sets the action decorator lookup function (called by engine during setup)
+func (c *BaseExecutionContext) SetActionDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.actionDecoratorLookup = lookup
 }
 
 // SetBlockDecoratorLookup sets the block decorator lookup function (called by engine during setup)

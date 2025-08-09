@@ -424,6 +424,10 @@ func (h *DecoratorHarness) executePlan(ctx execution.PlanContext, testCase TestC
 func (h *DecoratorHarness) createInterpreterContext() execution.InterpreterContext {
 	ctx := execution.NewInterpreterContext(context.Background(), h.program)
 
+	// CRITICAL: Set up decorator lookup functions FIRST, before any other operations
+	// This ensures decorators are available during interpreter execution
+	h.setupInterpreterDecoratorLookups(ctx)
+
 	for name, value := range h.variables {
 		ctx.SetVariable(name, value)
 	}
@@ -463,9 +467,38 @@ func (h *DecoratorHarness) createPlanContext() execution.PlanContext {
 	return ctx
 }
 
+// setupInterpreterDecoratorLookups configures decorator registry access for interpreter context
+func (h *DecoratorHarness) setupInterpreterDecoratorLookups(ctx execution.InterpreterContext) {
+	if interpreterCtx, ok := ctx.(*execution.InterpreterExecutionContext); ok {
+		// Set up action decorator lookup function using the decorator registry
+		interpreterCtx.SetActionDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, exists := decorators.GetActionDecorator(name)
+			return decorator, exists
+		})
+
+		// Set up value decorator lookup function using the decorator registry
+		interpreterCtx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetValue(name)
+			return decorator, err == nil
+		})
+
+		// Set up block decorator lookup function using the decorator registry
+		interpreterCtx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetBlock(name)
+			return decorator, err == nil
+		})
+	}
+}
+
 // setupDecoratorLookups configures decorator registry access for template functions
 func (h *DecoratorHarness) setupDecoratorLookups(ctx execution.GeneratorContext) {
 	if generatorCtx, ok := ctx.(*execution.GeneratorExecutionContext); ok {
+		// Set up action decorator lookup function using the decorator registry
+		generatorCtx.SetActionDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, exists := decorators.GetActionDecorator(name)
+			return decorator, exists
+		})
+
 		generatorCtx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
 			decorator, err := decorators.GetBlock(name)
 			return decorator, err == nil

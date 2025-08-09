@@ -341,7 +341,7 @@ func TestCommandsCLIGeneration(t *testing.T) {
 
 			// Should contain our expected help content
 			if !strings.Contains(outputStr, "Development Commands") ||
-				!strings.Contains(outputStr, "Quick Start") {
+				!strings.Contains(outputStr, "Global Commands") {
 				t.Errorf("Help command should contain our custom help content\nOutput: %s", outputStr)
 			}
 		})
@@ -567,8 +567,8 @@ func TestCommandsCLIVariableResolution(t *testing.T) {
 
 	// Check that variables are properly declared in generated code
 	expectedDeclarations := []string{
-		"PROJECT := \"devcmd\"",
-		"GO_VERSION := \"1.22\"",
+		"const PROJECT = \"devcmd\"",
+		"const GO_VERSION = \"1.24.3\"",
 	}
 
 	for _, declaration := range expectedDeclarations {

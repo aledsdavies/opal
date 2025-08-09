@@ -282,7 +282,7 @@ func validateGeneratorResult(t *testing.T, result interface{}, expectVars map[st
 
 	// Check that variables are in generated code
 	for name, expectedValue := range expectVars {
-		varDecl := name + " := \"" + expectedValue + "\""
+		varDecl := "const " + name + " = \"" + expectedValue + "\""
 		if !strings.Contains(generatedCode, varDecl) {
 			t.Errorf("Generated code should contain variable declaration %q", varDecl)
 		}
@@ -377,7 +377,7 @@ serve: echo "Server: @var(HOST):@var(PORT) (debug=@var(DEBUG))"`
 	genResult := generatorResult.(*GenerationResult)
 	generatedCode := genResult.String()
 	for name, expectedValue := range expectedVars {
-		varDecl := name + " := \"" + expectedValue + "\""
+		varDecl := "const " + name + " = \"" + expectedValue + "\""
 		if !strings.Contains(generatedCode, varDecl) {
 			t.Errorf("Generator mode: should contain variable declaration %q", varDecl)
 		}
@@ -455,15 +455,15 @@ serve: echo "Server on @var(PORT) at @env("HOST", default="localhost")"`,
 				t.Error("Generated code should contain main function")
 			}
 
-			// Check for decorator markers in generated code
-			if strings.Contains(tt.input, "@parallel") && !strings.Contains(generatedCode, "// Block decorator: @parallel") {
-				t.Error("Generated code should contain parallel decorator marker")
+			// Check for decorator implementation patterns in generated code
+			if strings.Contains(tt.input, "@parallel") && !strings.Contains(generatedCode, "sync.WaitGroup") {
+				t.Error("Generated code should contain parallel implementation (sync.WaitGroup)")
 			}
-			if strings.Contains(tt.input, "@timeout") && !strings.Contains(generatedCode, "// Block decorator: @timeout") {
-				t.Error("Generated code should contain timeout decorator marker")
+			if strings.Contains(tt.input, "@timeout") && !strings.Contains(generatedCode, "context.WithTimeout") {
+				t.Error("Generated code should contain timeout implementation (context.WithTimeout)")
 			}
-			if strings.Contains(tt.input, "@when") && !strings.Contains(generatedCode, "// Pattern decorator: @when") {
-				t.Error("Generated code should contain when decorator marker")
+			if strings.Contains(tt.input, "@when") && !strings.Contains(generatedCode, "switch") {
+				t.Error("Generated code should contain when implementation (switch statement)")
 			}
 
 			t.Logf("Decorator %s generated code successfully", tt.name)

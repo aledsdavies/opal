@@ -21,7 +21,9 @@ func TestDecorators(t *testing.T) {
     echo "Building backend"  
 }`,
 			contains: []string{
-				"// Block decorator: @parallel",
+				"sync.WaitGroup",
+				"go func()",
+				"wg.Add(1)",
 				"func main()",
 				"cobra.Command",
 			},
@@ -32,7 +34,9 @@ func TestDecorators(t *testing.T) {
     echo "Running tests"
 }`,
 			contains: []string{
-				"// Block decorator: @timeout",
+				"context.WithTimeout",
+				"time.Second",
+				"select {",
 				"func main()",
 			},
 		},
@@ -44,7 +48,9 @@ func TestDecorators(t *testing.T) {
     default: echo "Unknown environment"
 }`,
 			contains: []string{
-				"// Pattern decorator: @when",
+				"switch ENVValue {",
+				"case \"prod\":",
+				"case \"dev\":",
 				"func main()",
 			},
 		},
@@ -53,7 +59,7 @@ func TestDecorators(t *testing.T) {
 			input: `var PORT = "8080"
 serve: echo "Server running on @var(PORT)"`,
 			contains: []string{
-				"PORT := \"8080\"",
+				"const PORT = \"8080\"",
 				"func main()",
 			},
 		},

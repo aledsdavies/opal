@@ -630,9 +630,9 @@ func TestEngine_GenerateCodeIsolation(t *testing.T) {
 test_cmd: echo "This should not execute during generation"
 `,
 			contains: []string{
-				"testCmd := &cobra.Command{",
+				"testCmdCmd := &cobra.Command{",
 				`Use:   "test_cmd"`,
-				"executeTestCmd := func() error {",
+				"executeTestCmd := func(ctx ExecutionContext) error {",
 			},
 		},
 		{
@@ -642,9 +642,9 @@ helper: echo "Helper command"
 main: @cmd(helper)
 `,
 			contains: []string{
-				"executeHelper := func() error {",
-				"executeMain := func() error {",
-				"executeHelper()",
+				"executeHelper := func(ctx ExecutionContext) error {",
+				"executeMain := func(ctx ExecutionContext) error {",
+				"executeHelper(ctx)",
 			},
 		},
 		{
@@ -654,8 +654,8 @@ var MESSAGE = "test message"
 greet: echo "@var(MESSAGE)"
 `,
 			contains: []string{
-				`MESSAGE := "test message"`,
-				"executeGreet := func() error {",
+				`const MESSAGE = "test message"`,
+				"executeGreet := func(ctx ExecutionContext) error {",
 				"MESSAGE",
 			},
 		},
@@ -666,8 +666,8 @@ var VERSION = "$(echo 'v1.0.0')"
 build: echo "Building version @var(VERSION)"
 `,
 			contains: []string{
-				`VERSION := "$(echo 'v1.0.0')"`,
-				"executeeBuild := func() error {",
+				`const VERSION = "$(echo 'v1.0.0')"`,
+				"executeBuild := func(ctx ExecutionContext) error {",
 				"VERSION",
 			},
 		},
@@ -920,8 +920,8 @@ chain_command: {
 		"package main",
 		"func main()",
 		"cobra.Command",
-		"executeDangerousCommand := func() error {", // Should generate the function
-		"executeTestCommand := func() error {",      // Should generate the function
+		"executeDangerousCommand := func(ctx ExecutionContext) error {", // Should generate the function
+		"executeTestCommand := func(ctx ExecutionContext) error {",      // Should generate the function
 	}
 
 	for _, pattern := range basicPatterns {

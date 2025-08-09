@@ -445,6 +445,10 @@ func (d *DecoratorTestSuite) TestPatternDecorator(params []ast.NamedParameter, p
 func (d *DecoratorTestSuite) createInterpreterContext() execution.InterpreterContext {
 	ctx := execution.NewInterpreterContext(context.Background(), d.program)
 
+	// CRITICAL: Set up decorator lookup functions FIRST, before any other operations
+	// This ensures decorators are available during interpreter execution
+	d.setupInterpreterDecoratorLookups(ctx)
+
 	// Set up variables
 	for name, value := range d.variables {
 		ctx.SetVariable(name, value)
@@ -572,6 +576,36 @@ func (d *DecoratorTestSuite) validateCrossModeConsistency(result *ValidationResu
 	// - Data type consistency where applicable
 }
 
+// setupInterpreterDecoratorLookups configures decorator registry access for interpreter context
+func (d *DecoratorTestSuite) setupInterpreterDecoratorLookups(ctx execution.InterpreterContext) {
+	// Cast to the concrete type to access the setup methods
+	if interpreterCtx, ok := ctx.(*execution.InterpreterExecutionContext); ok {
+		// Set up action decorator lookup function using the decorator registry
+		interpreterCtx.SetActionDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, exists := decorators.GetActionDecorator(name)
+			return decorator, exists
+		})
+
+		// Set up value decorator lookup function using the decorator registry
+		interpreterCtx.SetValueDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetValue(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+
+		// Set up block decorator lookup function using the decorator registry
+		interpreterCtx.SetBlockDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, err := decorators.GetBlock(name)
+			if err != nil {
+				return nil, false
+			}
+			return decorator, true
+		})
+	}
+}
+
 // setupDecoratorLookups configures decorator registry access for testing nested decorators
 func (d *DecoratorTestSuite) setupDecoratorLookups(ctx execution.GeneratorContext) {
 	// Cast to the concrete type to access the setup methods
@@ -592,6 +626,12 @@ func (d *DecoratorTestSuite) setupDecoratorLookups(ctx execution.GeneratorContex
 				return nil, false
 			}
 			return decorator, true
+		})
+
+		// Set up action decorator lookup function using the decorator registry
+		generatorCtx.SetActionDecoratorLookup(func(name string) (interface{}, bool) {
+			decorator, exists := decorators.GetActionDecorator(name)
+			return decorator, exists
 		})
 
 		// Set up value decorator lookup function using the decorator registry

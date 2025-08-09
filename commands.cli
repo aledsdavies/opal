@@ -228,7 +228,7 @@ setup: {
 }
 
 # Test all modules respecting dependency hierarchy
-test-all: {
+test: {
     echo "🧪 Testing all modules with dependency awareness..."
     @cmd(core-test)           # Foundation
     @cmd(runtime-test)        # Depends on core
@@ -319,7 +319,7 @@ ci: {
 dev-quick: {
     echo "⚡ Quick development checks..."
     @cmd(format)
-    @cmd(test-all)
+    @cmd(test)
     echo "✅ Quick checks passed!"
 }
 
@@ -414,7 +414,7 @@ help: {
     echo "  setup          - Set up development environment"
     echo "  build          - Build CLI (with full validation)"
     echo "  ci             - Full project CI workflow"
-    echo "  test-all       - Test all modules (dependency order)"
+    echo "  test           - Test all modules (dependency order)"
     echo "  test-coverage  - Tests with coverage reports"
     echo "  format         - Format all code"
     echo "  lint           - Run all linters"

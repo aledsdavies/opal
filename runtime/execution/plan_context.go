@@ -180,7 +180,7 @@ func (c *PlanExecutionContext) composeShellCommandForPlan(content *ast.ShellCont
 							varName = ident.Name
 						}
 					}
-					
+
 					// Look up the variable value
 					if varName != "" {
 						if value, exists := c.GetVariable(varName); exists {

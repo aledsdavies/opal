@@ -449,7 +449,7 @@ func TestParallelWorkdirOutputConsistency(t *testing.T) {
 	// Test 1: Interpreter Mode
 	t.Run("InterpreterMode", func(t *testing.T) {
 		engine := New(program)
-		
+
 		// Change to tmpDir for the test
 		originalDir, err := os.Getwd()
 		if err != nil {
@@ -486,10 +486,10 @@ func TestParallelWorkdirOutputConsistency(t *testing.T) {
 		}
 	})
 
-	// Test 2: Generator Mode  
+	// Test 2: Generator Mode
 	t.Run("GeneratorMode", func(t *testing.T) {
 		engine := New(program)
-		
+
 		// Generate the code
 		result, err := engine.GenerateCode(program)
 		if err != nil {

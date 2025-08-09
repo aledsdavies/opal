@@ -97,7 +97,6 @@ func (c *ConfirmDecorator) isCI(ctx execution.BaseContext) bool {
 	return false
 }
 
-
 // ExecuteInterpreter executes confirmation prompt in interpreter mode
 func (c *ConfirmDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, params []ast.NamedParameter, content []ast.CommandContent) *execution.ExecutionResult {
 	message, defaultYes, abortOnNo, caseSensitive, skipInCI, err := c.extractConfirmParams(params)

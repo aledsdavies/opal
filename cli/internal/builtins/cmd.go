@@ -103,21 +103,14 @@ func (d *CmdDecorator) ExecuteInterpreter(ctx execution.InterpreterContext, para
 		}
 	}
 
-	// Execute the command's content directly
+	// Execute the command's content directly using the context's ExecuteCommandContent method
+	// This properly handles all command content types: ShellContent, BlockDecorators, etc.
 	for _, content := range command.Body.Content {
-		switch c := content.(type) {
-		case *ast.ShellContent:
-			result := ctx.ExecuteShell(c)
-			if result.Error != nil {
-				return &execution.ExecutionResult{
-					Data:  nil,
-					Error: fmt.Errorf("failed to execute command '%s': %w", cmdName, result.Error),
-				}
-			}
-		default:
+		err := ctx.ExecuteCommandContent(content)
+		if err != nil {
 			return &execution.ExecutionResult{
 				Data:  nil,
-				Error: fmt.Errorf("unsupported command content type in command '%s': %T", cmdName, content),
+				Error: fmt.Errorf("failed to execute command '%s': %w", cmdName, err),
 			}
 		}
 	}

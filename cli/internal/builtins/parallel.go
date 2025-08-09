@@ -139,9 +139,9 @@ func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterCont
 		index  int
 		result *execution.ExecutionResult
 	}
-	
+
 	resultChan := make(chan commandResult, len(content))
-	
+
 	// Execute commands concurrently
 	for i, cmd := range content {
 		go func(cmdIndex int, command ast.CommandContent) {
@@ -164,12 +164,12 @@ func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterCont
 	// Collect results - maintain order for consistent output
 	results := make([]*execution.ExecutionResult, len(content))
 	var firstError error
-	
+
 	// Wait for all goroutines to complete
 	for i := 0; i < len(content); i++ {
 		cmdResult := <-resultChan
 		results[cmdResult.index] = cmdResult.result
-		
+
 		if cmdResult.result.Error != nil && firstError == nil {
 			firstError = cmdResult.result.Error
 			if failOnFirstError {
@@ -178,7 +178,7 @@ func (p *ParallelDecorator) executeInterpreterImpl(ctx execution.InterpreterCont
 			}
 		}
 	}
-	
+
 	// Display outputs in original command order for consistent behavior
 	for _, result := range results {
 		if result.Error == nil {
