@@ -315,6 +315,16 @@ func (c *InterpreterExecutionContext) GetBlockDecoratorLookup() func(name string
 	return c.BaseExecutionContext.blockDecoratorLookup
 }
 
+// SetValueDecoratorLookup sets the value decorator lookup function (called by engine during setup)
+func (c *InterpreterExecutionContext) SetValueDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.BaseExecutionContext.SetValueDecoratorLookup(lookup)
+}
+
+// SetActionDecoratorLookup sets the action decorator lookup function (called by engine during setup)
+func (c *InterpreterExecutionContext) SetActionDecoratorLookup(lookup func(name string) (interface{}, bool)) {
+	c.BaseExecutionContext.SetActionDecoratorLookup(lookup)
+}
+
 // SetBlockDecoratorLookup sets the block decorator lookup function (called by engine during setup)
 func (c *InterpreterExecutionContext) SetBlockDecoratorLookup(lookup func(name string) (interface{}, bool)) {
 	c.BaseExecutionContext.SetBlockDecoratorLookup(lookup)
