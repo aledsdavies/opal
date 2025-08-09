@@ -299,10 +299,10 @@ greet: @cmd(hello)`,
 			description:       "Shell operators (&&, ||) should not need strings import",
 		},
 		{
-			name:              "pipe_operator_needs_strings",
+			name:              "pipe_operator_no_strings",
 			input:             `chain: echo "Hello" | grep "Hell"`,
-			shouldHaveStrings: true,
-			description:       "Pipe operator should trigger strings import",
+			shouldHaveStrings: false,
+			description:       "Pipe operator handled by shell, no strings import needed",
 		},
 	}
 

@@ -276,22 +276,15 @@ require (
 // TestParallelContextVariableIsolation verifies that parallel branches have isolated contexts
 func TestParallelContextVariableIsolation(t *testing.T) {
 	// Each parallel branch should have its own context and not interfere with others
-	input := `test: @parallel {
-    {
-        echo "Branch 1: Starting"
-        sleep 0.5
-        echo "Branch 1: Completed"
-    }
-    {
-        echo "Branch 2: Starting"
-        sleep 0.3
-        echo "Branch 2: Completed"  
-    }
-    {
-        echo "Branch 3: Starting"
-        sleep 0.1
-        echo "Branch 3: Completed"
-    }
+	input := `
+branch1: echo "Branch 1: Starting" && sleep 0.5 && echo "Branch 1: Completed"
+branch2: echo "Branch 2: Starting" && sleep 0.3 && echo "Branch 2: Completed"
+branch3: echo "Branch 3: Starting" && sleep 0.1 && echo "Branch 3: Completed"
+
+test: @parallel {
+    @cmd(branch1)
+    @cmd(branch2)
+    @cmd(branch3)
 }`
 
 	// Parse the input
@@ -310,17 +303,17 @@ func TestParallelContextVariableIsolation(t *testing.T) {
 	// Verify the generated code creates child contexts for each branch
 	generatedCode := result.String()
 
-	// Check for child context creation in parallel execution
-	if !strings.Contains(generatedCode, "Child()") {
-		t.Error("Generated code should create child contexts for parallel branches")
+	// Check for context isolation in parallel execution
+	if !strings.Contains(generatedCode, "Clone()") {
+		t.Error("Generated code should create isolated contexts for parallel branches")
 	}
 
-	// Count how many child contexts are created
-	childContextCount := strings.Count(generatedCode, ".Child()")
-	if childContextCount < 3 {
-		t.Errorf("Expected at least 3 child contexts for parallel branches, found %d", childContextCount)
+	// Count how many isolated contexts are created
+	isolatedContextCount := strings.Count(generatedCode, ".Clone()")
+	if isolatedContextCount < 3 {
+		t.Errorf("Expected at least 3 isolated contexts for parallel branches, found %d", isolatedContextCount)
 	} else {
-		t.Logf("✅ Generated code creates %d child contexts for isolation", childContextCount)
+		t.Logf("✅ Generated code creates %d isolated contexts for isolation", isolatedContextCount)
 	}
 
 	// Also verify the code compiles and runs

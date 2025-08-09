@@ -37,7 +37,8 @@ serve: echo "Server on port @var(PORT)"`,
 			expectGenerate: true,
 			contains: []string{
 				"func main()",
-				"// Block decorator: @parallel",
+				"sync.WaitGroup",
+				"go func()",
 			},
 		},
 		{
@@ -50,7 +51,8 @@ serve: echo "Server on port @var(PORT)"`,
 			expectGenerate: true,
 			contains: []string{
 				"func main()",
-				"// Pattern decorator: @when",
+				"switch",
+				"case \"prod\":",
 			},
 		},
 		{
@@ -63,7 +65,8 @@ serve: echo "Server on port @var(PORT)"`,
 			expectGenerate: true,
 			contains: []string{
 				"func main()",
-				"// Block decorator: @timeout",
+				"context.WithTimeout",
+				"time.Second",
 			},
 		},
 		{
