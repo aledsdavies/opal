@@ -12,6 +12,10 @@ CLAUDE.local.md
 CLAUDE.md
 .claude/
 
+# Work session tracking files (user-specific)
+WORK.md
+work.md
+
 # Cursor AI Editor
 .cursor/
 .cursorrules
