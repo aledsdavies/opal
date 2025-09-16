@@ -34,7 +34,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			os.Stdin = r
 
 			go func() {
-				defer w.Close()
+				defer func() { _ = w.Close() }()
 				_, err := w.Write([]byte(sampleCommands))
 				assert.NoError(t, err)
 			}()
@@ -44,7 +44,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			// Test getInputReader
 			reader, closeFunc, err := getInputReader()
 			require.NoError(t, err)
-			defer closeFunc()
+			defer func() { _ = closeFunc() }()
 
 			content, err := io.ReadAll(reader)
 			require.NoError(t, err)
@@ -66,7 +66,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			os.Stdin = r
 
 			go func() {
-				defer w.Close()
+				defer func() { _ = w.Close() }()
 				_, err := w.Write([]byte(sampleCommands))
 				assert.NoError(t, err)
 			}()
@@ -76,7 +76,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			// Test getInputReader
 			reader, closeFunc, err := getInputReader()
 			require.NoError(t, err)
-			defer closeFunc()
+			defer func() { _ = closeFunc() }()
 
 			content, err := io.ReadAll(reader)
 			require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			require.NoError(t, err)
 			err = os.Chdir(tempDir)
 			require.NoError(t, err)
-			defer func() { os.Chdir(oldWd) }()
+			defer func() { _ = os.Chdir(oldWd) }()
 
 			// No commands.cli file exists, and no piped data
 			_, _, err = getInputReader()
@@ -111,7 +111,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			tempDir := t.TempDir()
 			testFile := filepath.Join(tempDir, "mycommands.cli")
 
-			err := os.WriteFile(testFile, []byte(sampleCommands), 0644)
+			err := os.WriteFile(testFile, []byte(sampleCommands), 0o644)
 			require.NoError(t, err)
 
 			oldCommandsFile := commandsFile
@@ -120,7 +120,7 @@ func TestCLIExecutionModes(t *testing.T) {
 
 			reader, closeFunc, err := getInputReader()
 			require.NoError(t, err)
-			defer closeFunc()
+			defer func() { _ = closeFunc() }()
 
 			content, err := io.ReadAll(reader)
 			require.NoError(t, err)
@@ -144,11 +144,11 @@ func TestCLIExecutionModes(t *testing.T) {
 			// Test: devcmd -f ./path/to/commands.cli test-cmd
 			tempDir := t.TempDir()
 			subDir := filepath.Join(tempDir, "path", "to")
-			err := os.MkdirAll(subDir, 0755)
+			err := os.MkdirAll(subDir, 0o755)
 			require.NoError(t, err)
 
 			testFile := filepath.Join(subDir, "commands.cli")
-			err = os.WriteFile(testFile, []byte(sampleCommands), 0644)
+			err = os.WriteFile(testFile, []byte(sampleCommands), 0o644)
 			require.NoError(t, err)
 
 			// Change to temp dir so relative path works
@@ -156,7 +156,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			require.NoError(t, err)
 			err = os.Chdir(tempDir)
 			require.NoError(t, err)
-			defer func() { os.Chdir(oldWd) }()
+			defer func() { _ = os.Chdir(oldWd) }()
 
 			oldCommandsFile := commandsFile
 			commandsFile = "./path/to/commands.cli"
@@ -164,7 +164,7 @@ func TestCLIExecutionModes(t *testing.T) {
 
 			reader, closeFunc, err := getInputReader()
 			require.NoError(t, err)
-			defer closeFunc()
+			defer func() { _ = closeFunc() }()
 
 			content, err := io.ReadAll(reader)
 			require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			tempDir := t.TempDir()
 			commandsFile := filepath.Join(tempDir, "commands.cli")
 
-			err := os.WriteFile(commandsFile, []byte(sampleCommands), 0644)
+			err := os.WriteFile(commandsFile, []byte(sampleCommands), 0o644)
 			require.NoError(t, err)
 
 			// Change to temp dir
@@ -187,7 +187,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			require.NoError(t, err)
 			err = os.Chdir(tempDir)
 			require.NoError(t, err)
-			defer func() { os.Chdir(oldWd) }()
+			defer func() { _ = os.Chdir(oldWd) }()
 
 			oldCommandsFileVar := commandsFile
 			commandsFile = "commands.cli" // default value
@@ -195,7 +195,7 @@ func TestCLIExecutionModes(t *testing.T) {
 
 			reader, closeFunc, err := getInputReader()
 			require.NoError(t, err)
-			defer closeFunc()
+			defer func() { _ = closeFunc() }()
 
 			content, err := io.ReadAll(reader)
 			require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestCLIExecutionModes(t *testing.T) {
 			require.NoError(t, err)
 			err = os.Chdir(tempDir)
 			require.NoError(t, err)
-			defer func() { os.Chdir(oldWd) }()
+			defer func() { _ = os.Chdir(oldWd) }()
 
 			oldCommandsFileVar := commandsFile
 			commandsFile = "commands.cli" // default value
@@ -237,13 +237,13 @@ func TestGetInputReaderEdgeCases(t *testing.T) {
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		os.Stdin = r
-		w.Close() // Close write end immediately (empty input)
+		_ = w.Close() // Close write end immediately (empty input)
 
 		defer func() { os.Stdin = oldStdin }()
 
 		reader, closeFunc, err := getInputReader()
 		require.NoError(t, err)
-		defer closeFunc()
+		defer func() { _ = closeFunc() }()
 
 		content, err := io.ReadAll(reader)
 		require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestGetInputReaderEdgeCases(t *testing.T) {
 		}
 		largeContent := buf.String()
 
-		err := os.WriteFile(testFile, []byte(largeContent), 0644)
+		err := os.WriteFile(testFile, []byte(largeContent), 0o644)
 		require.NoError(t, err)
 
 		oldCommandsFile := commandsFile
@@ -272,7 +272,7 @@ func TestGetInputReaderEdgeCases(t *testing.T) {
 
 		reader, closeFunc, err := getInputReader()
 		require.NoError(t, err)
-		defer closeFunc()
+		defer func() { _ = closeFunc() }()
 
 		content, err := io.ReadAll(reader)
 		require.NoError(t, err)
@@ -285,7 +285,7 @@ func TestGetInputReaderEdgeCases(t *testing.T) {
 		tempDir := t.TempDir()
 		testFile := filepath.Join(tempDir, "my commands file.cli")
 
-		err := os.WriteFile(testFile, []byte("test: echo hello"), 0644)
+		err := os.WriteFile(testFile, []byte("test: echo hello"), 0o644)
 		require.NoError(t, err)
 
 		oldCommandsFile := commandsFile
@@ -294,7 +294,7 @@ func TestGetInputReaderEdgeCases(t *testing.T) {
 
 		reader, closeFunc, err := getInputReader()
 		require.NoError(t, err)
-		defer closeFunc()
+		defer func() { _ = closeFunc() }()
 
 		content, err := io.ReadAll(reader)
 		require.NoError(t, err)
@@ -328,15 +328,15 @@ func TestStdinDetection(t *testing.T) {
 
 		testData := "piped-cmd: echo from pipe"
 		go func() {
-			defer w.Close()
-			w.Write([]byte(testData))
+			defer func() { _ = w.Close() }()
+			_, _ = w.Write([]byte(testData))
 		}()
 
 		defer func() { os.Stdin = oldStdin }()
 
 		reader, closeFunc, err := getInputReader()
 		require.NoError(t, err)
-		defer closeFunc()
+		defer func() { _ = closeFunc() }()
 
 		// Should read from stdin, not try to open commands.cli
 		content, err := io.ReadAll(reader)
@@ -351,7 +351,7 @@ func TestFileCloseHandling(t *testing.T) {
 		tempDir := t.TempDir()
 		testFile := filepath.Join(tempDir, "test.cli")
 
-		err := os.WriteFile(testFile, []byte("test: echo hello"), 0644)
+		err := os.WriteFile(testFile, []byte("test: echo hello"), 0o644)
 		require.NoError(t, err)
 
 		oldCommandsFile := commandsFile
