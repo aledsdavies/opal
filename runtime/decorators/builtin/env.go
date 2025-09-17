@@ -11,7 +11,7 @@ import (
 
 // Register the @env decorator on package import
 func init() {
-	decorators.Register(NewEnvDecorator())
+	decorators.RegisterValue(NewEnvDecorator())
 }
 
 // EnvDecorator implements the @env decorator using the core decorator interfaces
@@ -85,9 +85,9 @@ func (e *EnvDecorator) Examples() []decorators.Example {
 // ImportRequirements returns the dependencies needed for code generation
 func (e *EnvDecorator) ImportRequirements() execution.ImportRequirement {
 	return execution.ImportRequirement{
-		StandardLibrary: []string{},
-		ThirdParty:      []string{},
-		GoModules:       map[string]string{},
+		Packages: []string{},
+		Binaries: []string{},
+		Env:      map[string]string{},
 	}
 }
 
