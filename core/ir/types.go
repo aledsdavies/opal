@@ -125,3 +125,24 @@ type Command struct {
 }
 
 func (c Command) NodeType() string { return "Command" }
+
+// ================================================================================================
+// ENVIRONMENT SNAPSHOT - Structural representation only
+// ================================================================================================
+
+// EnvSnapshot represents a frozen environment snapshot for deterministic execution
+type EnvSnapshot struct {
+	Values      map[string]string `json:"values"`      // Immutable environment variables
+	Fingerprint string            `json:"fingerprint"` // SHA256 of sorted KEY\x00VAL pairs
+}
+
+// Get retrieves a value from the environment snapshot
+func (e *EnvSnapshot) Get(key string) (string, bool) {
+	value, exists := e.Values[key]
+	return value, exists
+}
+
+// GetAll returns all environment values for shell execution
+func (e *EnvSnapshot) GetAll() map[string]string {
+	return e.Values
+}
