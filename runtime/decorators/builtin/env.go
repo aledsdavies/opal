@@ -5,6 +5,8 @@ import (
 
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
+	"github.com/aledsdavies/devcmd/runtime/execution"
+	"github.com/aledsdavies/devcmd/runtime/execution/context"
 )
 
 // Register the @env decorator on package import
@@ -81,8 +83,8 @@ func (e *EnvDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (e *EnvDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (e *EnvDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -94,7 +96,7 @@ func (e *EnvDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // Render expands the environment variable value from frozen context
-func (e *EnvDecorator) Render(ctx *decorators.Ctx, args []decorators.DecoratorParam) (string, error) {
+func (e *EnvDecorator) Render(ctx *context.Ctx, args []decorators.Param) (string, error) {
 	key, defaultValue, allowEmpty, err := e.extractDecoratorParameters(args)
 	if err != nil {
 		return "", fmt.Errorf("@env parameter error: %w", err)
@@ -112,7 +114,7 @@ func (e *EnvDecorator) Render(ctx *decorators.Ctx, args []decorators.DecoratorPa
 }
 
 // Describe returns description for dry-run display
-func (e *EnvDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam) plan.ExecutionStep {
+func (e *EnvDecorator) Describe(ctx *context.Ctx, args []decorators.Param) plan.ExecutionStep {
 	key, defaultValue, allowEmpty, err := e.extractDecoratorParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -154,7 +156,7 @@ func (e *EnvDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decorator
 // ================================================================================================
 
 // extractDecoratorParameters extracts the environment variable key, default value, and allowEmpty flag
-func (e *EnvDecorator) extractDecoratorParameters(params []decorators.DecoratorParam) (key string, defaultValue string, allowEmpty bool, err error) {
+func (e *EnvDecorator) extractDecoratorParameters(params []decorators.Param) (key string, defaultValue string, allowEmpty bool, err error) {
 	// Extract key (first positional parameter or named "key")
 	key, err = decorators.ExtractPositionalString(params, 0, "")
 	if err != nil || key == "" {

@@ -62,6 +62,8 @@ type ActionDecorator interface {
 	DecoratorBase
 	// Plan generation - shows what action will be executed
 	Describe(args []Param) plan.ExecutionStep
+	// Execution method - runtime implementations provide this
+	Run(ctx ExecutionContext, args []Param) CommandResult
 }
 
 // BlockDecorator - Execution wrapper decorators

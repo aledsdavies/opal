@@ -84,8 +84,8 @@ func (p *ParallelDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (p *ParallelDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (p *ParallelDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{"sync", "runtime"},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -97,7 +97,7 @@ func (p *ParallelDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // WrapCommands executes multiple steps in parallel using the documented API
-func (p *ParallelDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.DecoratorParam, commands decorators.CommandSeq) decorators.CommandResult {
+func (p *ParallelDecorator) WrapCommands(ctx *context.Ctx, args []decorators.Param, commands ir.CommandSeq) context.CommandResult {
 	// Calculate default concurrency based on CPU cores
 	defaultConcurrency := ctx.NumCPU * 2
 	maxConcurrency := 50
@@ -107,23 +107,23 @@ func (p *ParallelDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.
 
 	mode, _, err := p.extractParameters(args, defaultConcurrency)
 	if err != nil {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("@parallel parameter error: %v", err),
 			ExitCode: 1,
 		}
 	}
 
 	// Convert mode string to ParallelMode enum
-	var parallelMode decorators.ParallelMode
+	var parallelMode execution.ParallelMode
 	switch mode {
 	case "fail-fast":
-		parallelMode = decorators.ParallelModeFailFast
+		parallelMode = execution.ParallelModeFailFast
 	case "immediate":
-		parallelMode = decorators.ParallelModeFailImmediate
+		parallelMode = execution.ParallelModeFailImmediate
 	case "all":
-		parallelMode = decorators.ParallelModeAll
+		parallelMode = execution.ParallelModeAll
 	default:
-		parallelMode = decorators.ParallelModeFailFast
+		parallelMode = execution.ParallelModeFailFast
 	}
 
 	// Use the documented context helper method for parallel execution
@@ -138,7 +138,7 @@ func (p *ParallelDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.
 }
 
 // Describe returns description for dry-run display
-func (p *ParallelDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner plan.ExecutionStep) plan.ExecutionStep {
+func (p *ParallelDecorator) Describe(ctx *context.Ctx, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
 	// Calculate default concurrency based on CPU cores
 	defaultConcurrency := ctx.NumCPU * 2
 	maxConcurrency := 50
@@ -204,7 +204,7 @@ func (p *ParallelDecorator) Describe(ctx *decorators.Ctx, args []decorators.Deco
 // ================================================================================================
 
 // extractParameters extracts and validates parallel execution parameters
-func (p *ParallelDecorator) extractParameters(params []decorators.DecoratorParam, defaultConcurrency int) (mode string, concurrency int, err error) {
+func (p *ParallelDecorator) extractParameters(params []decorators.Param, defaultConcurrency int) (mode string, concurrency int, err error) {
 	// Set defaults
 	mode = "fail-fast"
 	concurrency = defaultConcurrency

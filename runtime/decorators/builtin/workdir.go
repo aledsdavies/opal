@@ -80,8 +80,8 @@ func (w *WorkdirDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (w *WorkdirDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (w *WorkdirDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{"os", "path/filepath"},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -93,10 +93,10 @@ func (w *WorkdirDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // Wrap executes the inner commands with updated working directory context
-func (w *WorkdirDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner decorators.CommandSeq) decorators.CommandResult {
+func (w *WorkdirDecorator) WrapCommands(ctx *context.Ctx, args []decorators.Param, inner ir.CommandSeq) context.CommandResult {
 	path, createIfNotExists, err := w.extractParameters(args)
 	if err != nil {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("@workdir parameter error: %v", err),
 			ExitCode: 1,
 		}
@@ -114,7 +114,7 @@ func (w *WorkdirDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 	// Handle directory creation if requested
 	if createIfNotExists {
 		if err := os.MkdirAll(resolvedPath, 0o755); err != nil {
-			return decorators.CommandResult{
+			return context.CommandResult{
 				Stderr:   fmt.Sprintf("failed to create directory %s: %v", resolvedPath, err),
 				ExitCode: 1,
 			}
@@ -122,7 +122,7 @@ func (w *WorkdirDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 	} else {
 		// Verify the directory exists
 		if _, err := os.Stat(resolvedPath); err != nil {
-			return decorators.CommandResult{
+			return context.CommandResult{
 				Stderr:   fmt.Sprintf("directory %s does not exist: %v", resolvedPath, err),
 				ExitCode: 1,
 			}
@@ -138,7 +138,7 @@ func (w *WorkdirDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 }
 
 // Describe returns description for dry-run display
-func (w *WorkdirDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner plan.ExecutionStep) plan.ExecutionStep {
+func (w *WorkdirDecorator) Describe(ctx *context.Ctx, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
 	path, createIfNotExists, err := w.extractParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -179,7 +179,7 @@ func (w *WorkdirDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decor
 // ================================================================================================
 
 // extractParameters extracts and validates workdir parameters
-func (w *WorkdirDecorator) extractParameters(params []decorators.DecoratorParam) (path string, createIfNotExists bool, err error) {
+func (w *WorkdirDecorator) extractParameters(params []decorators.Param) (path string, createIfNotExists bool, err error) {
 	if len(params) == 0 {
 		return "", false, fmt.Errorf("@workdir requires a path parameter")
 	}

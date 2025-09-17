@@ -5,8 +5,19 @@ import (
 
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
-	"github.com/aledsdavies/devcmd/runtime/execution"
 )
+
+// ErrorResult implements decorators.CommandResult for error cases
+type ErrorResult struct {
+	stdout   string
+	stderr   string
+	exitCode int
+}
+
+func (r *ErrorResult) GetStdout() string { return r.stdout }
+func (r *ErrorResult) GetStderr() string { return r.stderr }
+func (r *ErrorResult) GetExitCode() int  { return r.exitCode }
+func (r *ErrorResult) IsSuccess() bool   { return r.exitCode == 0 }
 
 // Register the @cmd decorator on package import
 func init() {
@@ -65,54 +76,27 @@ func (c *CmdDecorator) Examples() []decorators.Example {
 	}
 }
 
-// ImportRequirements returns the dependencies needed for code generation
-func (c *CmdDecorator) ImportRequirements() execution.ImportRequirement {
-	return execution.ImportRequirement{
-		Packages: []string{},
-		Binaries: []string{},
-		Env:      map[string]string{},
-	}
-}
-
 // ================================================================================================
 // ACTION DECORATOR METHODS
 // ================================================================================================
 
-// Run executes the referenced command
-func (c *CmdDecorator) Run(ctx *execution.Ctx, args []execution.DecoratorParam) execution.CommandResult {
+// Run executes the referenced command using core interfaces
+func (c *CmdDecorator) Run(ctx decorators.ExecutionContext, args []decorators.Param) decorators.CommandResult {
 	cmdName, err := c.extractDecoratorCommandName(args)
 	if err != nil {
-		return execution.CommandResult{
-			Stderr:   fmt.Sprintf("@cmd parameter error: %v", err),
-			ExitCode: 1,
+		// Create a simple error result that implements the interface
+		return &ErrorResult{
+			stderr:   fmt.Sprintf("@cmd parameter error: %v", err),
+			exitCode: 1,
 		}
 	}
 
-	result := ctx.ExecShell(cmdName)
-	return execution.CommandResult{
-		Stdout:   result.Stdout,
-		Stderr:   result.Stderr,
-		ExitCode: result.ExitCode,
-	}
-}
-	}
-
-	// Use the execution delegate to execute the command by name
-	if ctx.Executor == nil {
-		// Stub behavior for testing - output TODO message
-		return decorators.CommandResult{
-			Stdout:   fmt.Sprintf("[TODO: Execute command '%s']", cmdName),
-			Stderr:   "",
-			ExitCode: 0,
-		}
-	}
-
-	// Execute the command through the delegate (which has access to the command registry)
-	return ctx.Executor.ExecuteCommand(ctx, cmdName)
+	// Use the interface method
+	return ctx.ExecShell(cmdName)
 }
 
 // Describe returns description for dry-run display with expansion hints
-func (c *CmdDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam) plan.ExecutionStep {
+func (c *CmdDecorator) Describe(args []decorators.Param) plan.ExecutionStep {
 	cmdName, err := c.extractDecoratorCommandName(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -143,7 +127,7 @@ func (c *CmdDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decorator
 // ================================================================================================
 
 // extractDecoratorCommandName extracts the command name from decorator parameters
-func (c *CmdDecorator) extractDecoratorCommandName(params []decorators.DecoratorParam) (string, error) {
+func (c *CmdDecorator) extractDecoratorCommandName(params []decorators.Param) (string, error) {
 	// Extract command name (first positional parameter or named "name")
 	cmdName, err := decorators.ExtractPositionalString(params, 0, "")
 	if err != nil || cmdName == "" {

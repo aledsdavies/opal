@@ -4,7 +4,9 @@ import (
 	"fmt"
 
 	"github.com/aledsdavies/devcmd/core/decorators"
+	"github.com/aledsdavies/devcmd/core/ir"
 	"github.com/aledsdavies/devcmd/core/plan"
+	"github.com/aledsdavies/devcmd/runtime/execution/context"
 )
 
 // Register the @try decorator on package import
@@ -42,8 +44,8 @@ func (t *TryDecorator) ParameterSchema() []decorators.ParameterSchema {
 }
 
 // PatternSchema defines what patterns @try accepts
-func (t *TryDecorator) PatternSchema() decorators.PatternSchema {
-	return decorators.PatternSchema{
+func (t *TryDecorator) PatternSchema() execution.PatternSchema {
+	return execution.PatternSchema{
 		AllowedPatterns:     []string{"main", "catch", "finally"},
 		RequiredPatterns:    []string{"main"}, // main block is required
 		AllowsWildcard:      false,            // No wildcard patterns
@@ -88,8 +90,8 @@ func (t *TryDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (t *TryDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (t *TryDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -101,11 +103,11 @@ func (t *TryDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // SelectBranch executes try/catch/finally logic
-func (t *TryDecorator) SelectBranch(ctx *decorators.Ctx, args []decorators.DecoratorParam, branches map[string]decorators.CommandSeq) decorators.CommandResult {
+func (t *TryDecorator) SelectBranch(ctx *context.Ctx, args []decorators.Param, branches map[string]ir.CommandSeq) context.CommandResult {
 	// Validate that we have required branches
 	mainBranch, hasMain := branches["main"]
 	if !hasMain {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   "@try requires a 'main' branch",
 			ExitCode: 1,
 		}
@@ -114,8 +116,8 @@ func (t *TryDecorator) SelectBranch(ctx *decorators.Ctx, args []decorators.Decor
 	catchBranch, hasCatch := branches["catch"]
 	finallyBranch, hasFinally := branches["finally"]
 
-	var mainResult decorators.CommandResult
-	var finalResult decorators.CommandResult
+	var mainResult context.CommandResult
+	var finalResult context.CommandResult
 
 	// Execute main branch
 	mainResult = ctx.ExecSequential(mainBranch.Steps)
@@ -165,7 +167,7 @@ func (t *TryDecorator) SelectBranch(ctx *decorators.Ctx, args []decorators.Decor
 }
 
 // Describe returns description for dry-run display
-func (t *TryDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam, branches map[string]plan.ExecutionStep) plan.ExecutionStep {
+func (t *TryDecorator) Describe(ctx *context.Ctx, args []decorators.Param, branches map[string]plan.ExecutionStep) plan.ExecutionStep {
 	description := "@try"
 
 	var children []plan.ExecutionStep

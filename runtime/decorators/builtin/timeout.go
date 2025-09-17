@@ -74,8 +74,8 @@ func (t *TimeoutDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (t *TimeoutDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (t *TimeoutDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{"context", "time"},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -87,10 +87,10 @@ func (t *TimeoutDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // Wrap executes the inner commands with timeout
-func (t *TimeoutDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner decorators.CommandSeq) decorators.CommandResult {
+func (t *TimeoutDecorator) WrapCommands(ctx *context.Ctx, args []decorators.Param, inner ir.CommandSeq) context.CommandResult {
 	duration, err := t.extractDuration(args)
 	if err != nil {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("@timeout parameter error: %v", err),
 			ExitCode: 1,
 		}
@@ -101,14 +101,14 @@ func (t *TimeoutDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 	defer cancel()
 
 	// Channel to receive the result from inner execution
-	resultChan := make(chan decorators.CommandResult, 1)
+	resultChan := make(chan context.CommandResult, 1)
 
 	// Execute inner commands in a goroutine
 	go func() {
 		defer func() {
 			// Recover from panics to prevent the timeout goroutine from crashing
 			if r := recover(); r != nil {
-				resultChan <- decorators.CommandResult{
+				resultChan <- context.CommandResult{
 					Stderr:   fmt.Sprintf("panic during execution: %v", r),
 					ExitCode: 1,
 				}
@@ -127,7 +127,7 @@ func (t *TimeoutDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 
 	case <-timeoutCtx.Done():
 		// Timeout occurred
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("command timed out after %v", duration),
 			ExitCode: 124, // Standard timeout exit code
 		}
@@ -135,7 +135,7 @@ func (t *TimeoutDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 }
 
 // Describe returns description for dry-run display
-func (t *TimeoutDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner plan.ExecutionStep) plan.ExecutionStep {
+func (t *TimeoutDecorator) Describe(ctx *context.Ctx, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
 	duration, err := t.extractDuration(args)
 	if err != nil {
 		return plan.NewErrorStep("timeout", err)
@@ -172,7 +172,7 @@ func (t *TimeoutDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decor
 // ================================================================================================
 
 // extractDuration extracts and validates the timeout duration
-func (t *TimeoutDecorator) extractDuration(params []decorators.DecoratorParam) (time.Duration, error) {
+func (t *TimeoutDecorator) extractDuration(params []decorators.Param) (time.Duration, error) {
 	// Default timeout
 	defaultDuration := 30 * time.Second
 

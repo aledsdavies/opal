@@ -57,7 +57,7 @@ type DecoratorParam struct {
 }
 
 // Ensure DecoratorParam implements core interface
-var _ decorators.DecoratorParam = (*DecoratorParam)(nil)
+var _ execution.DecoratorParam = (*DecoratorParam)(nil)
 
 // GetName returns the parameter name (empty for positional parameters)
 func (p DecoratorParam) GetName() string {

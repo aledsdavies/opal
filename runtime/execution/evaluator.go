@@ -25,7 +25,7 @@ type NodeEvaluator struct {
 }
 
 // ExecuteAction implements the ExecutionDelegate interface for action decorators
-func (e *NodeEvaluator) ExecuteAction(ctx *decorators.Ctx, name string, args []decorators.DecoratorParam) decorators.CommandResult {
+func (e *NodeEvaluator) ExecuteAction(ctx *context.Ctx, name string, args []decorators.Param) context.CommandResult {
 	// Convert decorator context back to execution context
 	execCtx := e.toExecutionContext(ctx)
 
@@ -33,7 +33,7 @@ func (e *NodeEvaluator) ExecuteAction(ctx *decorators.Ctx, name string, args []d
 	result := e.executeAction(execCtx, name, args)
 
 	// Convert back to decorator result format
-	return decorators.CommandResult{
+	return context.CommandResult{
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
@@ -41,7 +41,7 @@ func (e *NodeEvaluator) ExecuteAction(ctx *decorators.Ctx, name string, args []d
 }
 
 // ExecuteBlock implements the ExecutionDelegate interface for block decorators
-func (e *NodeEvaluator) ExecuteBlock(ctx *decorators.Ctx, name string, args []decorators.DecoratorParam, innerSteps []decorators.CommandStep) decorators.CommandResult {
+func (e *NodeEvaluator) ExecuteBlock(ctx *context.Ctx, name string, args []decorators.Param, innerSteps []ir.CommandStep) context.CommandResult {
 	// Convert decorator context back to execution context
 	execCtx := e.toExecutionContext(ctx)
 
@@ -82,7 +82,7 @@ func (e *NodeEvaluator) ExecuteBlock(ctx *decorators.Ctx, name string, args []de
 	result := e.executeBlockDecorator(execCtx, name, args, execSteps)
 
 	// Convert back to decorator result format
-	return decorators.CommandResult{
+	return context.CommandResult{
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
@@ -90,13 +90,13 @@ func (e *NodeEvaluator) ExecuteBlock(ctx *decorators.Ctx, name string, args []de
 }
 
 // ExecuteCommand implements the ExecutionDelegate interface for command execution by name
-func (e *NodeEvaluator) ExecuteCommand(ctx *decorators.Ctx, commandName string) decorators.CommandResult {
+func (e *NodeEvaluator) ExecuteCommand(ctx *context.Ctx, commandName string) context.CommandResult {
 	// Convert decorator context to execution context
 	execCtx := e.toExecutionContext(ctx)
 
 	// Look up the command IR node from the context
 	if execCtx.Commands == nil {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   "Commands not available in execution context for @cmd",
 			ExitCode: 1,
 		}
@@ -104,7 +104,7 @@ func (e *NodeEvaluator) ExecuteCommand(ctx *decorators.Ctx, commandName string) 
 
 	irNode, exists := execCtx.Commands[commandName]
 	if !exists {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Command '%s' not found", commandName),
 			ExitCode: 1,
 		}
@@ -114,7 +114,7 @@ func (e *NodeEvaluator) ExecuteCommand(ctx *decorators.Ctx, commandName string) 
 	result := e.EvaluateNode(execCtx, irNode)
 
 	// Convert back to decorator result format
-	return decorators.CommandResult{
+	return context.CommandResult{
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
@@ -129,13 +129,13 @@ func NewNodeEvaluator(registry *decorators.Registry) *NodeEvaluator {
 }
 
 // resolveElementText resolves the text content from an IR ChainElement
-func (e *NodeEvaluator) resolveElementText(ctx *ir.Ctx, element *ir.ChainElement) (string, error) {
+func (e *NodeEvaluator) resolveElementText(ctx *context.Ctx, element *ir.ChainElement) (string, error) {
 	if element.Content == nil {
 		return "", fmt.Errorf("shell element missing content")
 	}
 
 	// Convert IR context to decorator context for text resolution
-	decoratorCtx := &decorators.Ctx{
+	decoratorCtx := &context.Ctx{
 		Env:  ctx.Env, // ir.EnvSnapshot implements decorators.EnvSnapshot interface
 		Vars: ctx.Vars,
 		// Note: Some fields are omitted but not needed for text resolution
@@ -145,7 +145,7 @@ func (e *NodeEvaluator) resolveElementText(ctx *ir.Ctx, element *ir.ChainElement
 }
 
 // EvaluateNode executes an IR node and returns the result
-func (e *NodeEvaluator) EvaluateNode(ctx *ir.Ctx, node ir.Node) ir.CommandResult {
+func (e *NodeEvaluator) EvaluateNode(ctx *context.Ctx, node ir.Node) context.CommandResult {
 	switch n := node.(type) {
 	case ir.CommandSeq:
 		return e.evaluateCommandSeq(ctx, n)
@@ -154,7 +154,7 @@ func (e *NodeEvaluator) EvaluateNode(ctx *ir.Ctx, node ir.Node) ir.CommandResult
 	case ir.Pattern:
 		return e.evaluatePattern(ctx, n)
 	default:
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Unknown node type: %T", node),
 			ExitCode: 1,
 		}
@@ -162,8 +162,8 @@ func (e *NodeEvaluator) EvaluateNode(ctx *ir.Ctx, node ir.Node) ir.CommandResult
 }
 
 // evaluateCommandSeq executes a sequence of command steps
-func (e *NodeEvaluator) evaluateCommandSeq(ctx *ir.Ctx, seq ir.CommandSeq) ir.CommandResult {
-	var lastResult ir.CommandResult
+func (e *NodeEvaluator) evaluateCommandSeq(ctx *context.Ctx, seq ir.CommandSeq) context.CommandResult {
+	var lastResult context.CommandResult
 	for _, step := range seq.Steps {
 		lastResult = e.evaluateStep(ctx, step)
 		if lastResult.Failed() {
@@ -174,11 +174,11 @@ func (e *NodeEvaluator) evaluateCommandSeq(ctx *ir.Ctx, seq ir.CommandSeq) ir.Co
 }
 
 // evaluateWrapper executes a block decorator around inner content
-func (e *NodeEvaluator) evaluateWrapper(ctx *ir.Ctx, wrapper ir.Wrapper) ir.CommandResult {
+func (e *NodeEvaluator) evaluateWrapper(ctx *context.Ctx, wrapper ir.Wrapper) context.CommandResult {
 	// Get the block decorator from registry
 	decorator, exists := e.registry.GetBlock(wrapper.Kind)
 	if !exists {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Block decorator @%s not found", wrapper.Kind),
 			ExitCode: 1,
 		}
@@ -197,7 +197,7 @@ func (e *NodeEvaluator) evaluateWrapper(ctx *ir.Ctx, wrapper ir.Wrapper) ir.Comm
 	result := decorator.WrapCommands(decorCtx, args, innerCommandSeq)
 
 	// Convert back to execution result
-	return ir.CommandResult{
+	return context.CommandResult{
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
@@ -205,11 +205,11 @@ func (e *NodeEvaluator) evaluateWrapper(ctx *ir.Ctx, wrapper ir.Wrapper) ir.Comm
 }
 
 // evaluatePattern executes a pattern decorator (conditional execution)
-func (e *NodeEvaluator) evaluatePattern(ctx *ir.Ctx, pattern ir.Pattern) ir.CommandResult {
+func (e *NodeEvaluator) evaluatePattern(ctx *context.Ctx, pattern ir.Pattern) context.CommandResult {
 	// Get the pattern decorator from registry
 	decorator, exists := e.registry.GetPattern(pattern.Kind)
 	if !exists {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Pattern decorator @%s not found", pattern.Kind),
 			ExitCode: 1,
 		}
@@ -219,7 +219,7 @@ func (e *NodeEvaluator) evaluatePattern(ctx *ir.Ctx, pattern ir.Pattern) ir.Comm
 	args := e.convertParams(pattern.Params)
 
 	// Build branches map with CommandSeq
-	branches := make(map[string]decorators.CommandSeq)
+	branches := make(map[string]ir.CommandSeq)
 	for branchName, branchSeq := range pattern.Branches {
 		branches[branchName] = e.convertToDecoratorCommandSeq(branchSeq)
 	}
@@ -231,7 +231,7 @@ func (e *NodeEvaluator) evaluatePattern(ctx *ir.Ctx, pattern ir.Pattern) ir.Comm
 	result := decorator.SelectBranch(decorCtx, args, branches)
 
 	// Convert back to execution result
-	return ir.CommandResult{
+	return context.CommandResult{
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
@@ -239,12 +239,12 @@ func (e *NodeEvaluator) evaluatePattern(ctx *ir.Ctx, pattern ir.Pattern) ir.Comm
 }
 
 // evaluateStep executes a single command step (chain of elements)
-func (e *NodeEvaluator) evaluateStep(ctx *ir.Ctx, step ir.CommandStep) ir.CommandResult {
+func (e *NodeEvaluator) evaluateStep(ctx *context.Ctx, step ir.CommandStep) context.CommandResult {
 	if len(step.Chain) == 0 {
-		return ir.CommandResult{ExitCode: 0} // Empty chain succeeds
+		return context.CommandResult{ExitCode: 0} // Empty chain succeeds
 	}
 
-	var lastResult ir.CommandResult
+	var lastResult context.CommandResult
 	var combinedOutput strings.Builder
 
 	for i, element := range step.Chain {
@@ -257,13 +257,13 @@ func (e *NodeEvaluator) evaluateStep(ctx *ir.Ctx, step ir.CommandStep) ir.Comman
 		}
 
 		// Execute the element
-		var result ir.CommandResult
+		var result context.CommandResult
 		switch ir.ElementKind(element.Kind) {
 		case ir.ElementKindShell:
 			// Resolve shell command text from IR element
 			text, err := e.resolveElementText(ctx, &element)
 			if err != nil {
-				return ir.CommandResult{
+				return context.CommandResult{
 					Stderr:   fmt.Sprintf("Failed to resolve shell command text: %v", err),
 					ExitCode: 1,
 				}
@@ -282,12 +282,12 @@ func (e *NodeEvaluator) evaluateStep(ctx *ir.Ctx, step ir.CommandStep) ir.Comman
 			result = e.executeBlockDecorator(ctx, element.Name, element.Args, element.InnerSteps)
 		case ir.ElementKindPattern:
 			// Pattern decorators should not be in ChainElements anymore - they should be Pattern nodes
-			result = ir.CommandResult{
+			result = context.CommandResult{
 				Stderr:   fmt.Sprintf("Pattern decorator @%s should be a Pattern node, not ir.ChainElement", element.Name),
 				ExitCode: 1,
 			}
 		default:
-			result = ir.CommandResult{
+			result = context.CommandResult{
 				Stderr:   fmt.Sprintf("Unknown element kind: %s", element.Kind),
 				ExitCode: 1,
 			}
@@ -334,7 +334,7 @@ func (e *NodeEvaluator) evaluateStep(ctx *ir.Ctx, step ir.CommandStep) ir.Comman
 	// Return the result with combined output
 	finalOutput := combinedOutput.String()
 
-	return ir.CommandResult{
+	return context.CommandResult{
 		Stdout:   finalOutput,
 		Stderr:   lastResult.Stderr,
 		ExitCode: lastResult.ExitCode,
@@ -342,7 +342,7 @@ func (e *NodeEvaluator) evaluateStep(ctx *ir.Ctx, step ir.CommandStep) ir.Comman
 }
 
 // executeShell runs a shell command with real-time streaming output
-func (e *NodeEvaluator) executeShell(ctx *ir.Ctx, command string) ir.CommandResult {
+func (e *NodeEvaluator) executeShell(ctx *context.Ctx, command string) context.CommandResult {
 	// Only expand value decorators in normal execution mode, not in dry-run
 	var expandedCommand string
 	if ctx.DryRun {
@@ -352,7 +352,7 @@ func (e *NodeEvaluator) executeShell(ctx *ir.Ctx, command string) ir.CommandResu
 		var err error
 		expandedCommand, err = expandValueDecorators(ctx, command)
 		if err != nil {
-			return ir.CommandResult{
+			return context.CommandResult{
 				Stderr:   fmt.Sprintf("Failed to expand value decorators: %v", err),
 				ExitCode: 1,
 			}
@@ -372,11 +372,11 @@ func (e *NodeEvaluator) executeShell(ctx *ir.Ctx, command string) ir.CommandResu
 
 // executeWithStreaming executes a command with real-time output streaming
 // This provides both live feedback to the user and captures output for CommandResult
-func (e *NodeEvaluator) executeWithStreaming(ctx *ir.Ctx, cmd *exec.Cmd) ir.CommandResult {
+func (e *NodeEvaluator) executeWithStreaming(ctx *context.Ctx, cmd *exec.Cmd) context.CommandResult {
 	// Create pipes for stdout and stderr
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Failed to create stdout pipe: %v", err),
 			ExitCode: 1,
 		}
@@ -384,7 +384,7 @@ func (e *NodeEvaluator) executeWithStreaming(ctx *ir.Ctx, cmd *exec.Cmd) ir.Comm
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Failed to create stderr pipe: %v", err),
 			ExitCode: 1,
 		}
@@ -408,7 +408,7 @@ func (e *NodeEvaluator) executeWithStreaming(ctx *ir.Ctx, cmd *exec.Cmd) ir.Comm
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Failed to start command: %v", err),
 			ExitCode: 1,
 		}
@@ -464,7 +464,7 @@ func (e *NodeEvaluator) executeWithStreaming(ctx *ir.Ctx, cmd *exec.Cmd) ir.Comm
 		fmt.Printf("[DEBUG] Command finished with exit code: %d\n", exitCode)
 	}
 
-	return ir.CommandResult{
+	return context.CommandResult{
 		Stdout:   stdoutBuf.String(),
 		Stderr:   stderrBuf.String(),
 		ExitCode: exitCode,
@@ -472,7 +472,7 @@ func (e *NodeEvaluator) executeWithStreaming(ctx *ir.Ctx, cmd *exec.Cmd) ir.Comm
 }
 
 // executeShellWithInput runs a shell command with provided stdin (for pipe operator)
-func (e *NodeEvaluator) executeShellWithInput(ctx *ir.Ctx, command string, stdin io.Reader) ir.CommandResult {
+func (e *NodeEvaluator) executeShellWithInput(ctx *context.Ctx, command string, stdin io.Reader) context.CommandResult {
 	// Only expand value decorators in normal execution mode, not in dry-run
 	var expandedCommand string
 	if ctx.DryRun {
@@ -482,7 +482,7 @@ func (e *NodeEvaluator) executeShellWithInput(ctx *ir.Ctx, command string, stdin
 		var err error
 		expandedCommand, err = expandValueDecorators(ctx, command)
 		if err != nil {
-			return ir.CommandResult{
+			return context.CommandResult{
 				Stderr:   fmt.Sprintf("Failed to expand value decorators: %v", err),
 				ExitCode: 1,
 			}
@@ -518,7 +518,7 @@ func (e *NodeEvaluator) executeShellWithInput(ctx *ir.Ctx, command string, stdin
 	// Create pipes for stdout and stderr capture and streaming
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Failed to create stdout pipe: %v", err),
 			ExitCode: 1,
 		}
@@ -526,7 +526,7 @@ func (e *NodeEvaluator) executeShellWithInput(ctx *ir.Ctx, command string, stdin
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Failed to create stderr pipe: %v", err),
 			ExitCode: 1,
 		}
@@ -534,7 +534,7 @@ func (e *NodeEvaluator) executeShellWithInput(ctx *ir.Ctx, command string, stdin
 
 	// Start command
 	if err := cmd.Start(); err != nil {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Failed to start command: %v", err),
 			ExitCode: 1,
 		}
@@ -588,7 +588,7 @@ func (e *NodeEvaluator) executeShellWithInput(ctx *ir.Ctx, command string, stdin
 		fmt.Printf("[DEBUG] Command with input finished with exit code: %d\n", exitCode)
 	}
 
-	return ir.CommandResult{
+	return context.CommandResult{
 		Stdout:   stdoutBuf.String(),
 		Stderr:   stderrBuf.String(),
 		ExitCode: exitCode,
@@ -623,11 +623,11 @@ func (e *NodeEvaluator) streamOutput(pipe io.ReadCloser, liveOutput io.Writer, b
 }
 
 // executeAction runs an action decorator
-func (e *NodeEvaluator) executeAction(ctx *ir.Ctx, name string, args []decorators.DecoratorParam) ir.CommandResult {
+func (e *NodeEvaluator) executeAction(ctx *context.Ctx, name string, args []decorators.Param) context.CommandResult {
 	// Get the action decorator from registry
 	decorator, exists := e.registry.GetAction(name)
 	if !exists {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Action decorator @%s not found", name),
 			ExitCode: 1,
 		}
@@ -640,7 +640,7 @@ func (e *NodeEvaluator) executeAction(ctx *ir.Ctx, name string, args []decorator
 	result := decorator.Run(decorCtx, args)
 
 	// Convert back to execution result
-	return ir.CommandResult{
+	return context.CommandResult{
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
@@ -648,11 +648,11 @@ func (e *NodeEvaluator) executeAction(ctx *ir.Ctx, name string, args []decorator
 }
 
 // executeBlockDecorator runs a block decorator with inner steps
-func (e *NodeEvaluator) executeBlockDecorator(ctx *ir.Ctx, name string, args []decorators.DecoratorParam, innerSteps []ir.CommandStep) ir.CommandResult {
+func (e *NodeEvaluator) executeBlockDecorator(ctx *context.Ctx, name string, args []decorators.Param, innerSteps []ir.CommandStep) context.CommandResult {
 	// Get the block decorator from registry
 	decorator, exists := e.registry.GetBlock(name)
 	if !exists {
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Block decorator @%s not found", name),
 			ExitCode: 1,
 		}
@@ -668,7 +668,7 @@ func (e *NodeEvaluator) executeBlockDecorator(ctx *ir.Ctx, name string, args []d
 	result := decorator.WrapCommands(decorCtx, args, innerCommandSeq)
 
 	// Convert back to execution result
-	return ir.CommandResult{
+	return context.CommandResult{
 		Stdout:   result.Stdout,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
@@ -676,7 +676,7 @@ func (e *NodeEvaluator) executeBlockDecorator(ctx *ir.Ctx, name string, args []d
 }
 
 // shouldExecute determines if an element should execute based on the previous operator and result
-func (e *NodeEvaluator) shouldExecute(op ir.ChainOp, prevResult ir.CommandResult) bool {
+func (e *NodeEvaluator) shouldExecute(op ir.ChainOp, prevResult context.CommandResult) bool {
 	switch op {
 	case ir.ChainOpAnd: // &&
 		return prevResult.Success()
@@ -692,28 +692,28 @@ func (e *NodeEvaluator) shouldExecute(op ir.ChainOp, prevResult ir.CommandResult
 }
 
 // convertToDecoratorCommandSeq converts execution CommandSeq to decorator CommandSeq
-func (e *NodeEvaluator) convertToDecoratorCommandSeq(seq ir.CommandSeq) decorators.CommandSeq {
-	var decoratorSteps []decorators.CommandStep
+func (e *NodeEvaluator) convertToDecoratorCommandSeq(seq ir.CommandSeq) ir.CommandSeq {
+	var decoratorSteps []ir.CommandStep
 
 	for _, step := range seq.Steps {
-		decoratorStep := decorators.CommandStep{
-			Chain: make([]decorators.ChainElement, len(step.Chain)),
+		decoratorStep := ir.CommandStep{
+			Chain: make([]ir.ChainElement, len(step.Chain)),
 		}
 
 		for i, element := range step.Chain {
 			// Convert inner steps if they exist (for block decorators inside pattern branches)
-			var innerSteps []decorators.CommandStep
+			var innerSteps []ir.CommandStep
 			for _, innerStep := range element.InnerSteps {
-				convertedInnerStep := decorators.CommandStep{
-					Chain: make([]decorators.ChainElement, len(innerStep.Chain)),
+				convertedInnerStep := ir.CommandStep{
+					Chain: make([]ir.ChainElement, len(innerStep.Chain)),
 				}
 				for j, innerElem := range innerStep.Chain {
-					convertedInnerStep.Chain[j] = decorators.ChainElement{
-						Kind:   decorators.ElementKind(innerElem.Kind),
+					convertedInnerStep.Chain[j] = ir.ChainElement{
+						Kind:   ir.ElementKind(innerElem.Kind),
 						Name:   innerElem.Name,
 						Text:   e.irElementToText(&innerElem),
 						Args:   innerElem.Args,
-						OpNext: decorators.ChainOp(innerElem.OpNext),
+						OpNext: ir.ChainOp(innerElem.OpNext),
 						Target: innerElem.Target,
 						// Note: Not converting nested InnerSteps to avoid infinite recursion
 					}
@@ -721,13 +721,13 @@ func (e *NodeEvaluator) convertToDecoratorCommandSeq(seq ir.CommandSeq) decorato
 				innerSteps = append(innerSteps, convertedInnerStep)
 			}
 
-			decoratorStep.Chain[i] = decorators.ChainElement{
-				Kind:       decorators.ElementKind(element.Kind),
+			decoratorStep.Chain[i] = ir.ChainElement{
+				Kind:       ir.ElementKind(element.Kind),
 				Name:       element.Name,
 				Text:       e.irElementToText(&element),
 				Args:       element.Args,
 				InnerSteps: innerSteps, // Include converted inner steps
-				OpNext:     decorators.ChainOp(element.OpNext),
+				OpNext:     ir.ChainOp(element.OpNext),
 				Target:     element.Target,
 			}
 		}
@@ -735,16 +735,16 @@ func (e *NodeEvaluator) convertToDecoratorCommandSeq(seq ir.CommandSeq) decorato
 		decoratorSteps = append(decoratorSteps, decoratorStep)
 	}
 
-	return decorators.CommandSeq{
+	return ir.CommandSeq{
 		Steps: decoratorSteps,
 	}
 }
 
 // convertParams converts parameter map to decorator parameters
-func (e *NodeEvaluator) convertParams(params map[string]interface{}) []decorators.DecoratorParam {
-	var result []decorators.DecoratorParam
+func (e *NodeEvaluator) convertParams(params map[string]interface{}) []decorators.Param {
+	var result []decorators.Param
 	for name, value := range params {
-		result = append(result, decorators.DecoratorParam{
+		result = append(result, execution.DecoratorParam{
 			Name:  name,
 			Value: value,
 		})
@@ -753,11 +753,11 @@ func (e *NodeEvaluator) convertParams(params map[string]interface{}) []decorator
 }
 
 // toDecoratorContext converts execution context to decorator context
-func (e *NodeEvaluator) toDecoratorContext(ctx *ir.Ctx) *decorators.Ctx {
+func (e *NodeEvaluator) toDecoratorContext(ctx *context.Ctx) *context.Ctx {
 	// Convert UI config to decorator format
-	var ui *decorators.UIConfig
+	var ui *context.UIConfig
 	if ctx.UIConfig != nil {
-		ui = &decorators.UIConfig{
+		ui = &context.UIConfig{
 			ColorMode:   ctx.UIConfig.ColorMode,
 			Quiet:       ctx.UIConfig.Quiet,
 			Verbose:     ctx.UIConfig.Verbose,
@@ -767,7 +767,7 @@ func (e *NodeEvaluator) toDecoratorContext(ctx *ir.Ctx) *decorators.Ctx {
 		}
 	}
 
-	return &decorators.Ctx{
+	return &context.Ctx{
 		Env:      ctx.Env,
 		Vars:     ctx.Vars,
 		WorkDir:  ctx.WorkDir,
@@ -782,11 +782,11 @@ func (e *NodeEvaluator) toDecoratorContext(ctx *ir.Ctx) *decorators.Ctx {
 }
 
 // toExecutionContext converts decorator context back to execution context
-func (e *NodeEvaluator) toExecutionContext(ctx *decorators.Ctx) *ir.Ctx {
+func (e *NodeEvaluator) toExecutionContext(ctx *context.Ctx) *context.Ctx {
 	// Convert UI config to execution format
-	var ui *ir.UIConfig
+	var ui *context.UIConfig
 	if ctx.UI != nil {
-		ui = &ir.UIConfig{
+		ui = &context.UIConfig{
 			ColorMode:   ctx.UI.ColorMode,
 			Quiet:       ctx.UI.Quiet,
 			Verbose:     ctx.UI.Verbose,
@@ -805,7 +805,7 @@ func (e *NodeEvaluator) toExecutionContext(ctx *decorators.Ctx) *ir.Ctx {
 		}
 	}
 
-	return &ir.Ctx{
+	return &context.Ctx{
 		Env:      env,
 		Vars:     ctx.Vars,
 		WorkDir:  ctx.WorkDir,
@@ -823,7 +823,7 @@ func (e *NodeEvaluator) toExecutionContext(ctx *decorators.Ctx) *ir.Ctx {
 // ================================================================================================
 
 // expandValueDecorators expands @var and @env placeholders in shell commands
-func expandValueDecorators(ctx *ir.Ctx, command string) (string, error) {
+func expandValueDecorators(ctx *context.Ctx, command string) (string, error) {
 	// Pattern to match @var(name=VAR_NAME) and @env(key=ENV_KEY) placeholders
 	// The transform code creates placeholders like: @var(name=BUILD_DIR) or @env(key=HOME)
 
@@ -855,7 +855,7 @@ func expandValueDecorators(ctx *ir.Ctx, command string) (string, error) {
 }
 
 // expandVarDecorators expands @var(name=VAR_NAME) placeholders
-func expandVarDecorators(ctx *ir.Ctx, command string) (string, error) {
+func expandVarDecorators(ctx *context.Ctx, command string) (string, error) {
 	// Match @var(name=VAR_NAME) patterns
 	re := regexp.MustCompile(`@var\(name=([^)]+)\)`)
 
@@ -880,7 +880,7 @@ func expandVarDecorators(ctx *ir.Ctx, command string) (string, error) {
 }
 
 // expandEnvDecorators expands @env(key=ENV_KEY) and more complex patterns
-func expandEnvDecorators(ctx *ir.Ctx, command string) (string, error) {
+func expandEnvDecorators(ctx *context.Ctx, command string) (string, error) {
 	// Match @env(key=ENV_KEY, default=DEFAULT_VALUE) patterns
 	// This matches the format created by the transform code
 	re := regexp.MustCompile(`@env\(key=([^,)]+)(?:,\s*default=([^)]+))?\)`)
@@ -955,7 +955,7 @@ func (e *NodeEvaluator) appendToFile(filepath, content string) error {
 	return nil
 }
 
-// irElementToText converts an IR ChainElement to a text string suitable for decorators.ChainElement.Text
+// irElementToText converts an IR ChainElement to a text string suitable for ir.ChainElement.Text
 func (e *NodeEvaluator) irElementToText(element *ir.ChainElement) string {
 	if element.Content == nil {
 		// For non-shell elements (action decorators), return empty text

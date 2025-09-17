@@ -85,8 +85,8 @@ func (r *RetryDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (r *RetryDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (r *RetryDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{"time"},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -98,16 +98,16 @@ func (r *RetryDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // Wrap executes the inner commands with retry logic
-func (r *RetryDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner decorators.CommandSeq) decorators.CommandResult {
+func (r *RetryDecorator) WrapCommands(ctx *context.Ctx, args []decorators.Param, inner ir.CommandSeq) context.CommandResult {
 	attempts, delay, exponentialBackoff, err := r.extractParameters(args)
 	if err != nil {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("@retry parameter error: %v", err),
 			ExitCode: 1,
 		}
 	}
 
-	var lastResult decorators.CommandResult
+	var lastResult context.CommandResult
 	currentDelay := delay
 
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -151,7 +151,7 @@ func (r *RetryDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.Dec
 }
 
 // Describe returns description for dry-run display
-func (r *RetryDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner plan.ExecutionStep) plan.ExecutionStep {
+func (r *RetryDecorator) Describe(ctx *context.Ctx, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
 	attempts, delay, exponentialBackoff, err := r.extractParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -189,7 +189,7 @@ func (r *RetryDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decorat
 // ================================================================================================
 
 // extractParameters extracts and validates retry parameters
-func (r *RetryDecorator) extractParameters(params []decorators.DecoratorParam) (attempts int, delay time.Duration, exponentialBackoff bool, err error) {
+func (r *RetryDecorator) extractParameters(params []decorators.Param) (attempts int, delay time.Duration, exponentialBackoff bool, err error) {
 	// Extract attempts (first positional parameter or named "attempts")
 	attempts, err = decorators.ExtractInt(params, "attempts", 3)
 	if err != nil {

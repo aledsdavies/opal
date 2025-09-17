@@ -64,15 +64,15 @@ type CommandResult struct {
 	ExitCode int    `json:"exit_code"` // Exit code (0 = success)
 }
 
-// Success returns true if the command executed successfully (exit code 0)
-func (r CommandResult) Success() bool {
-	return r.ExitCode == 0
-}
+// Implement decorators.CommandResult interface
+func (r CommandResult) GetStdout() string { return r.Stdout }
+func (r CommandResult) GetStderr() string { return r.Stderr }
+func (r CommandResult) GetExitCode() int  { return r.ExitCode }
+func (r CommandResult) IsSuccess() bool   { return r.ExitCode == 0 }
 
-// Failed returns true if the command failed (non-zero exit code)
-func (r CommandResult) Failed() bool {
-	return r.ExitCode != 0
-}
+// Additional convenience methods
+func (r CommandResult) Success() bool { return r.IsSuccess() }
+func (r CommandResult) Failed() bool  { return !r.IsSuccess() }
 
 // ================================================================================================
 // INTERFACE COMPLIANCE CHECKS
@@ -81,7 +81,7 @@ func (r CommandResult) Failed() bool {
 // Ensure Ctx implements ExecutionContext interface
 var _ decorators.ExecutionContext = (*Ctx)(nil)
 
-// Ensure CommandResult implements CommandResult interface
+// Ensure CommandResult implements decorators.CommandResult interface
 var _ decorators.CommandResult = (*CommandResult)(nil)
 
 // ================================================================================================
@@ -214,28 +214,8 @@ func (ctx *Ctx) Printf(format string, args ...any) {
 }
 
 // ================================================================================================
-// COMMAND RESULT INTERFACE IMPLEMENTATION
+// COMMAND RESULT INTERFACE IMPLEMENTATION - Already implemented above
 // ================================================================================================
-
-// GetStdout returns the standard output from the command
-func (r *CommandResult) GetStdout() string {
-	return r.Stdout
-}
-
-// GetStderr returns the standard error from the command
-func (r *CommandResult) GetStderr() string {
-	return r.Stderr
-}
-
-// GetExitCode returns the exit code from the command
-func (r *CommandResult) GetExitCode() int {
-	return r.ExitCode
-}
-
-// IsSuccess returns true if the command succeeded (exit code 0)
-func (r *CommandResult) IsSuccess() bool {
-	return r.ExitCode == 0
-}
 
 // ================================================================================================
 // CONTEXT METHODS

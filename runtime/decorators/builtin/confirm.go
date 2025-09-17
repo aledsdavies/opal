@@ -81,8 +81,8 @@ func (c *ConfirmDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (c *ConfirmDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (c *ConfirmDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{"bufio", "os", "strings"},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -94,10 +94,10 @@ func (c *ConfirmDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // Wrap prompts for user confirmation before executing inner commands
-func (c *ConfirmDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner decorators.CommandSeq) decorators.CommandResult {
+func (c *ConfirmDecorator) WrapCommands(ctx *context.Ctx, args []decorators.Param, inner ir.CommandSeq) context.CommandResult {
 	message, defaultYes, err := c.extractParameters(args)
 	if err != nil {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("@confirm parameter error: %v", err),
 			ExitCode: 1,
 		}
@@ -105,7 +105,7 @@ func (c *ConfirmDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 
 	// In dry-run mode, don't prompt - just show what would be prompted
 	if ctx.DryRun {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stdout:   fmt.Sprintf("[DRY-RUN] Would prompt: %s", message),
 			ExitCode: 0,
 		}
@@ -124,7 +124,7 @@ func (c *ConfirmDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 	// Read user response
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   "failed to read user input",
 			ExitCode: 1,
 		}
@@ -143,14 +143,14 @@ func (c *ConfirmDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 	case "n", "no":
 		confirmed = false
 	default:
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("invalid response %q, please answer 'y' or 'n'", response),
 			ExitCode: 1,
 		}
 	}
 
 	if !confirmed {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stdout:   "Operation cancelled by user",
 			ExitCode: 130, // Standard "interrupted by user" exit code
 		}
@@ -161,7 +161,7 @@ func (c *ConfirmDecorator) WrapCommands(ctx *decorators.Ctx, args []decorators.D
 }
 
 // Describe returns description for dry-run display
-func (c *ConfirmDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam, inner plan.ExecutionStep) plan.ExecutionStep {
+func (c *ConfirmDecorator) Describe(ctx *context.Ctx, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
 	message, defaultYes, err := c.extractParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -194,7 +194,7 @@ func (c *ConfirmDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decor
 // ================================================================================================
 
 // extractParameters extracts and validates confirm parameters
-func (c *ConfirmDecorator) extractParameters(params []decorators.DecoratorParam) (message string, defaultYes bool, err error) {
+func (c *ConfirmDecorator) extractParameters(params []decorators.Param) (message string, defaultYes bool, err error) {
 	// Set defaults
 	message = "Continue?"
 	defaultYes = false

@@ -12,8 +12,8 @@ import (
 )
 
 // Helper to create test context for decorator tests
-func createTestCtx() *decorators.Ctx {
-	return &decorators.Ctx{
+func createTestCtx() *context.Ctx {
+	return &context.Ctx{
 		Env:     &ir.EnvSnapshot{Values: map[string]string{}},
 		Vars:    map[string]string{},
 		WorkDir: "",
@@ -29,7 +29,7 @@ func createTestCtx() *decorators.Ctx {
 func TestLogDecorator(t *testing.T) {
 	tests := []struct {
 		name       string
-		params     []decorators.DecoratorParam
+		params     []decorators.Param
 		wantOut    string
 		wantErr    string
 		wantExit   int
@@ -37,7 +37,7 @@ func TestLogDecorator(t *testing.T) {
 	}{
 		{
 			name: "simple log message",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "Hello world"},
 			},
 			wantOut:  "Hello world\n",
@@ -45,7 +45,7 @@ func TestLogDecorator(t *testing.T) {
 		},
 		{
 			name: "log message with level",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "Error occurred"},
 				{Name: "level", Value: "error"},
 			},
@@ -54,7 +54,7 @@ func TestLogDecorator(t *testing.T) {
 		},
 		{
 			name: "log message with color formatting",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "{green}Success!{/green}"},
 			},
 			wantOut:    "\033[32mSuccess!\033[0m\n",
@@ -63,7 +63,7 @@ func TestLogDecorator(t *testing.T) {
 		},
 		{
 			name: "log message with multiple colors",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "{red}Error:{/red} {yellow}Warning message{/yellow}"},
 			},
 			wantOut:    "\033[31mError:\033[0m \033[33mWarning message\033[0m\n",
@@ -72,7 +72,7 @@ func TestLogDecorator(t *testing.T) {
 		},
 		{
 			name: "empty message error",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: ""},
 			},
 			wantErr:  "@log parameter error: @log requires a message",
@@ -80,7 +80,7 @@ func TestLogDecorator(t *testing.T) {
 		},
 		{
 			name: "invalid log level",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "Test message"},
 				{Name: "level", Value: "invalid"},
 			},
@@ -119,13 +119,13 @@ func TestLogDecorator(t *testing.T) {
 func TestLogDecoratorDescribe(t *testing.T) {
 	tests := []struct {
 		name        string
-		params      []decorators.DecoratorParam
+		params      []decorators.Param
 		wantDesc    string
 		wantCommand string
 	}{
 		{
 			name: "simple message describe",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "Building project"},
 			},
 			wantDesc:    "Log: [INFO] Building project",
@@ -133,7 +133,7 @@ func TestLogDecoratorDescribe(t *testing.T) {
 		},
 		{
 			name: "error level describe",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "Build failed"},
 				{Name: "level", Value: "error"},
 			},
@@ -142,7 +142,7 @@ func TestLogDecoratorDescribe(t *testing.T) {
 		},
 		{
 			name: "long message truncation",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: strings.Repeat("a", 70)},
 			},
 			wantDesc:    "Log: [INFO] " + strings.Repeat("a", 65) + "...",
@@ -150,7 +150,7 @@ func TestLogDecoratorDescribe(t *testing.T) {
 		},
 		{
 			name: "message with color templates removed",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "{green}Success message{/green}"},
 			},
 			wantDesc:    "Log: [INFO] Success message",
@@ -176,13 +176,13 @@ func TestLogDecoratorDescribe(t *testing.T) {
 func TestCmdDecorator(t *testing.T) {
 	tests := []struct {
 		name     string
-		params   []decorators.DecoratorParam
+		params   []decorators.Param
 		wantOut  string
 		wantExit int
 	}{
 		{
 			name: "simple command reference",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "build"},
 			},
 			wantOut:  "[TODO: Execute command 'build']",
@@ -190,7 +190,7 @@ func TestCmdDecorator(t *testing.T) {
 		},
 		{
 			name: "named parameter",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "name", Value: "test"},
 			},
 			wantOut:  "[TODO: Execute command 'test']",
@@ -198,14 +198,14 @@ func TestCmdDecorator(t *testing.T) {
 		},
 		{
 			name: "empty command name error",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: ""},
 			},
 			wantExit: 1,
 		},
 		{
 			name:     "no parameters error",
-			params:   []decorators.DecoratorParam{},
+			params:   []decorators.Param{},
 			wantExit: 1,
 		},
 	}
@@ -230,13 +230,13 @@ func TestCmdDecorator(t *testing.T) {
 func TestCmdDecoratorDescribe(t *testing.T) {
 	tests := []struct {
 		name        string
-		params      []decorators.DecoratorParam
+		params      []decorators.Param
 		wantDesc    string
 		wantCommand string
 	}{
 		{
 			name: "simple command describe",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "build"},
 			},
 			wantDesc:    "@cmd(build)",
@@ -244,7 +244,7 @@ func TestCmdDecoratorDescribe(t *testing.T) {
 		},
 		{
 			name: "named parameter describe",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "name", Value: "test-all"},
 			},
 			wantDesc:    "@cmd(test-all)",
@@ -330,13 +330,13 @@ func TestActionDecoratorsInShellChain(t *testing.T) {
 		ctx := createTestCtx()
 
 		// Test first log in chain
-		params1 := []decorators.DecoratorParam{{Name: "", Value: "Starting process"}}
+		params1 := []decorators.Param{{Name: "", Value: "Starting process"}}
 		result1 := log.Run(ctx, params1)
 		assert.Equal(t, 0, result1.ExitCode, "first log should succeed")
 		assert.Equal(t, "Starting process\n", result1.Stdout, "first log output")
 
 		// Test second log in chain
-		params2 := []decorators.DecoratorParam{{Name: "", Value: "Process complete"}}
+		params2 := []decorators.Param{{Name: "", Value: "Process complete"}}
 		result2 := log.Run(ctx, params2)
 		assert.Equal(t, 0, result2.ExitCode, "second log should succeed")
 		assert.Equal(t, "Process complete\n", result2.Stdout, "second log output")
@@ -350,7 +350,7 @@ func TestActionDecoratorsInShellChain(t *testing.T) {
 		ctx := createTestCtx()
 
 		// Test cmd in chain (placeholder implementation)
-		params := []decorators.DecoratorParam{{Name: "", Value: "build"}}
+		params := []decorators.Param{{Name: "", Value: "build"}}
 		result := cmd.Run(ctx, params)
 		assert.Equal(t, 0, result.ExitCode, "cmd should succeed")
 		assert.Contains(t, result.Stdout, "build", "cmd output should mention command")
@@ -363,9 +363,9 @@ func TestLogDecoratorQuietMode(t *testing.T) {
 
 	t.Run("quiet mode suppresses info logs", func(t *testing.T) {
 		ctx := createTestCtx()
-		ctx.UI = &decorators.UIConfig{Quiet: true}
+		ctx.UI = &context.UIConfig{Quiet: true}
 
-		params := []decorators.DecoratorParam{
+		params := []decorators.Param{
 			{Name: "", Value: "Info message"},
 			{Name: "level", Value: "info"},
 		}
@@ -378,9 +378,9 @@ func TestLogDecoratorQuietMode(t *testing.T) {
 
 	t.Run("quiet mode shows error logs", func(t *testing.T) {
 		ctx := createTestCtx()
-		ctx.UI = &decorators.UIConfig{Quiet: true}
+		ctx.UI = &context.UIConfig{Quiet: true}
 
-		params := []decorators.DecoratorParam{
+		params := []decorators.Param{
 			{Name: "", Value: "Error message"},
 			{Name: "level", Value: "error"},
 			{Name: "plain", Value: false}, // Set plain=false so errors go to stderr
@@ -401,7 +401,7 @@ func TestLogDecoratorMultilineAndMultipleLogs(t *testing.T) {
 		ctx := createTestCtx()
 
 		multilineMessage := "Line 1\nLine 2\nLine 3"
-		params := []decorators.DecoratorParam{
+		params := []decorators.Param{
 			{Name: "", Value: multilineMessage},
 		}
 
@@ -414,13 +414,13 @@ func TestLogDecoratorMultilineAndMultipleLogs(t *testing.T) {
 		ctx := createTestCtx()
 
 		// First log
-		params1 := []decorators.DecoratorParam{{Name: "", Value: "First message"}}
+		params1 := []decorators.Param{{Name: "", Value: "First message"}}
 		result1 := log.Run(ctx, params1)
 		assert.Equal(t, 0, result1.ExitCode, "first log should succeed")
 		assert.Equal(t, "First message\n", result1.Stdout, "first log output")
 
 		// Second log
-		params2 := []decorators.DecoratorParam{{Name: "", Value: "Second message"}}
+		params2 := []decorators.Param{{Name: "", Value: "Second message"}}
 		result2 := log.Run(ctx, params2)
 		assert.Equal(t, 0, result2.ExitCode, "second log should succeed")
 		assert.Equal(t, "Second message\n", result2.Stdout, "second log output")
@@ -431,7 +431,7 @@ func TestLogDecoratorMultilineAndMultipleLogs(t *testing.T) {
 
 		// Info level multiline
 		infoMultiline := "Info:\nMultiple\nLines"
-		paramsInfo := []decorators.DecoratorParam{
+		paramsInfo := []decorators.Param{
 			{Name: "", Value: infoMultiline},
 			{Name: "level", Value: "info"},
 		}
@@ -442,7 +442,7 @@ func TestLogDecoratorMultilineAndMultipleLogs(t *testing.T) {
 
 		// Error level multiline
 		errorMultiline := "Error:\nSomething\nWent wrong"
-		paramsError := []decorators.DecoratorParam{
+		paramsError := []decorators.Param{
 			{Name: "", Value: errorMultiline},
 			{Name: "level", Value: "error"},
 		}
@@ -462,7 +462,7 @@ func TestLogDecoratorDescribeMultiline(t *testing.T) {
 		ctx := createTestCtx()
 
 		multilineMessage := "First line\nSecond line\nThird line"
-		params := []decorators.DecoratorParam{
+		params := []decorators.Param{
 			{Name: "", Value: multilineMessage},
 		}
 
@@ -480,7 +480,7 @@ func TestLogDecoratorDescribeMultiline(t *testing.T) {
 		ctx := createTestCtx()
 
 		multilineMessage := "Error occurred:\nStack trace line 1\nStack trace line 2"
-		params := []decorators.DecoratorParam{
+		params := []decorators.Param{
 			{Name: "", Value: multilineMessage},
 			{Name: "level", Value: "error"},
 		}

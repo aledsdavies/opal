@@ -47,8 +47,8 @@ func (w *WhenDecorator) ParameterSchema() []decorators.ParameterSchema {
 }
 
 // PatternSchema defines what patterns @when accepts
-func (w *WhenDecorator) PatternSchema() decorators.PatternSchema {
-	return decorators.PatternSchema{
+func (w *WhenDecorator) PatternSchema() execution.PatternSchema {
+	return execution.PatternSchema{
 		AllowedPatterns:     []string{}, // Any pattern is allowed
 		RequiredPatterns:    []string{}, // No required patterns
 		AllowsWildcard:      true,       // "default" wildcard pattern is allowed
@@ -89,8 +89,8 @@ func (w *WhenDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (w *WhenDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (w *WhenDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -102,10 +102,10 @@ func (w *WhenDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // SelectBranch chooses and executes the appropriate branch based on environment variable matching
-func (w *WhenDecorator) SelectBranch(ctx *decorators.Ctx, args []decorators.DecoratorParam, branches map[string]decorators.CommandSeq) decorators.CommandResult {
+func (w *WhenDecorator) SelectBranch(ctx *context.Ctx, args []decorators.Param, branches map[string]ir.CommandSeq) context.CommandResult {
 	envVar, err := w.extractEnvVar(args)
 	if err != nil {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("@when parameter error: %v", err),
 			ExitCode: 1,
 		}
@@ -121,7 +121,7 @@ func (w *WhenDecorator) SelectBranch(ctx *decorators.Ctx, args []decorators.Deco
 	selectedBranch := w.selectBranch(value, branches)
 	if selectedBranch == "__NO_MATCH__" {
 		// No matching branch - return error
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stdout:   "",
 			Stderr:   fmt.Sprintf("no matching branch for %s=\"%s\"", envVar, value),
 			ExitCode: 1,
@@ -131,7 +131,7 @@ func (w *WhenDecorator) SelectBranch(ctx *decorators.Ctx, args []decorators.Deco
 	// Execute the selected branch
 	branchCommands, exists := branches[selectedBranch]
 	if !exists {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("internal error: branch %q not found", selectedBranch),
 			ExitCode: 1,
 		}
@@ -141,7 +141,7 @@ func (w *WhenDecorator) SelectBranch(ctx *decorators.Ctx, args []decorators.Deco
 }
 
 // Describe returns description for dry-run display
-func (w *WhenDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam, branches map[string]plan.ExecutionStep) plan.ExecutionStep {
+func (w *WhenDecorator) Describe(ctx *context.Ctx, args []decorators.Param, branches map[string]plan.ExecutionStep) plan.ExecutionStep {
 	envVar, err := w.extractEnvVar(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -209,7 +209,7 @@ func (w *WhenDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decorato
 // ================================================================================================
 
 // extractEnvVar extracts the environment variable name parameter
-func (w *WhenDecorator) extractEnvVar(params []decorators.DecoratorParam) (string, error) {
+func (w *WhenDecorator) extractEnvVar(params []decorators.Param) (string, error) {
 	if len(params) == 0 {
 		return "", fmt.Errorf("@when requires an environment variable name")
 	}
@@ -243,7 +243,7 @@ func (w *WhenDecorator) extractEnvVar(params []decorators.DecoratorParam) (strin
 
 // selectBranch finds the matching branch for an environment variable value
 // Returns the branch name, or a special sentinel value if no match is found
-func (w *WhenDecorator) selectBranch(value string, branches map[string]decorators.CommandSeq) string {
+func (w *WhenDecorator) selectBranch(value string, branches map[string]ir.CommandSeq) string {
 	// First, look for exact match
 	if _, exists := branches[value]; exists {
 		return value

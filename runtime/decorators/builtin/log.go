@@ -83,8 +83,8 @@ func (l *LogDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (l *LogDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
+func (l *LogDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
 		StandardLibrary: []string{"fmt"},
 		ThirdParty:      []string{},
 		GoModules:       map[string]string{},
@@ -96,10 +96,10 @@ func (l *LogDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // Run executes the log command and returns appropriate CommandResult
-func (l *LogDecorator) Run(ctx *decorators.Ctx, args []decorators.DecoratorParam) decorators.CommandResult {
+func (l *LogDecorator) Run(ctx *context.Ctx, args []decorators.Param) context.CommandResult {
 	message, level, _, err := l.extractDecoratorParameters(args)
 	if err != nil {
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("@log parameter error: %v", err),
 			ExitCode: 1,
 		}
@@ -111,7 +111,7 @@ func (l *LogDecorator) Run(ctx *decorators.Ctx, args []decorators.DecoratorParam
 	// Respect standardized flags - in quiet mode, suppress non-error logs
 	if ctx.UI != nil && ctx.UI.Quiet && level != "error" {
 		// In quiet mode, suppress info/debug logs but keep errors
-		return decorators.CommandResult{
+		return context.CommandResult{
 			Stdout:   "",
 			Stderr:   "",
 			ExitCode: 0,
@@ -124,7 +124,7 @@ func (l *LogDecorator) Run(ctx *decorators.Ctx, args []decorators.DecoratorParam
 	}
 
 	// Always add trailing newline (like echo command)
-	return decorators.CommandResult{
+	return context.CommandResult{
 		Stdout:   processedMessage + "\n",
 		Stderr:   "",
 		ExitCode: 0,
@@ -132,7 +132,7 @@ func (l *LogDecorator) Run(ctx *decorators.Ctx, args []decorators.DecoratorParam
 }
 
 // Describe returns description for dry-run display
-func (l *LogDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam) plan.ExecutionStep {
+func (l *LogDecorator) Describe(ctx *context.Ctx, args []decorators.Param) plan.ExecutionStep {
 	message, level, plain, err := l.extractDecoratorParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -195,7 +195,7 @@ func (l *LogDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decorator
 // ================================================================================================
 
 // extractDecoratorParameters extracts message, level, and plain flag from decorator parameters
-func (l *LogDecorator) extractDecoratorParameters(params []decorators.DecoratorParam) (message string, level string, plain bool, err error) {
+func (l *LogDecorator) extractDecoratorParameters(params []decorators.Param) (message string, level string, plain bool, err error) {
 	// Extract message (first positional parameter or named "message")
 	message, err = decorators.ExtractPositionalString(params, 0, "")
 	if err != nil || message == "" {

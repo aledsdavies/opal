@@ -15,8 +15,8 @@ import (
 func TestWhenDecorator(t *testing.T) {
 	tests := []struct {
 		name         string
-		params       []decorators.DecoratorParam
-		branches     map[string]decorators.CommandSeq
+		params       []decorators.Param
+		branches     map[string]ir.CommandSeq
 		envVars      map[string]string
 		wantOut      string
 		wantErr      string
@@ -25,21 +25,21 @@ func TestWhenDecorator(t *testing.T) {
 	}{
 		{
 			name: "exact environment variable match",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "ENV"},
 			},
-			branches: map[string]decorators.CommandSeq{
+			branches: map[string]ir.CommandSeq{
 				"prod": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo production"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo production"},
 						}},
 					},
 				},
 				"dev": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo development"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo development"},
 						}},
 					},
 				},
@@ -51,21 +51,21 @@ func TestWhenDecorator(t *testing.T) {
 		},
 		{
 			name: "wildcard fallback match",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "ENV"},
 			},
-			branches: map[string]decorators.CommandSeq{
+			branches: map[string]ir.CommandSeq{
 				"prod": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo production"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo production"},
 						}},
 					},
 				},
 				"default": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo unknown environment"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo unknown environment"},
 						}},
 					},
 				},
@@ -77,21 +77,21 @@ func TestWhenDecorator(t *testing.T) {
 		},
 		{
 			name: "missing environment variable uses wildcard",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "MISSING_VAR"},
 			},
-			branches: map[string]decorators.CommandSeq{
+			branches: map[string]ir.CommandSeq{
 				"value1": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo value1"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo value1"},
 						}},
 					},
 				},
 				"default": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo default"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo default"},
 						}},
 					},
 				},
@@ -103,21 +103,21 @@ func TestWhenDecorator(t *testing.T) {
 		},
 		{
 			name: "empty environment variable matches empty string pattern",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "EMPTY_VAR"},
 			},
-			branches: map[string]decorators.CommandSeq{
+			branches: map[string]ir.CommandSeq{
 				"": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo empty"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo empty"},
 						}},
 					},
 				},
 				"nonempty": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo has value"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo has value"},
 						}},
 					},
 				},
@@ -129,14 +129,14 @@ func TestWhenDecorator(t *testing.T) {
 		},
 		{
 			name: "no matching branch error",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "ENV"},
 			},
-			branches: map[string]decorators.CommandSeq{
+			branches: map[string]ir.CommandSeq{
 				"prod": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo production"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo production"},
 						}},
 					},
 				},
@@ -147,12 +147,12 @@ func TestWhenDecorator(t *testing.T) {
 		},
 		{
 			name:   "missing environment variable parameter error",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"branch1": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo test"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo test"},
 						}},
 					},
 				},
@@ -163,14 +163,14 @@ func TestWhenDecorator(t *testing.T) {
 		},
 		{
 			name: "named env parameter",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "env", Value: "TARGET"},
 			},
-			branches: map[string]decorators.CommandSeq{
+			branches: map[string]ir.CommandSeq{
 				"linux": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo linux build"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo linux build"},
 						}},
 					},
 				},
@@ -206,7 +206,7 @@ func TestWhenDecorator(t *testing.T) {
 func TestWhenDecoratorDescribe(t *testing.T) {
 	tests := []struct {
 		name           string
-		params         []decorators.DecoratorParam
+		params         []decorators.Param
 		branches       map[string]plan.ExecutionStep
 		envVars        map[string]string
 		wantDesc       string
@@ -216,7 +216,7 @@ func TestWhenDecoratorDescribe(t *testing.T) {
 	}{
 		{
 			name: "environment variable with value",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "ENV"},
 			},
 			branches: map[string]plan.ExecutionStep{
@@ -231,7 +231,7 @@ func TestWhenDecoratorDescribe(t *testing.T) {
 		},
 		{
 			name: "missing environment variable",
-			params: []decorators.DecoratorParam{
+			params: []decorators.Param{
 				{Name: "", Value: "MISSING"},
 			},
 			branches: map[string]plan.ExecutionStep{
@@ -264,27 +264,27 @@ func TestWhenDecoratorDescribe(t *testing.T) {
 func TestTryDecorator(t *testing.T) {
 	tests := []struct {
 		name     string
-		params   []decorators.DecoratorParam
-		branches map[string]decorators.CommandSeq
+		params   []decorators.Param
+		branches map[string]ir.CommandSeq
 		wantOut  string
 		wantErr  string
 		wantExit int
 	}{
 		{
 			name:   "successful main execution",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"main": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo success"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo success"},
 						}},
 					},
 				},
 				"catch": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo catch"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo catch"},
 						}},
 					},
 				},
@@ -294,19 +294,19 @@ func TestTryDecorator(t *testing.T) {
 		},
 		{
 			name:   "main fails, catch executes successfully",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"main": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "exit 1"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "exit 1"},
 						}},
 					},
 				},
 				"catch": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo recovered"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo recovered"},
 						}},
 					},
 				},
@@ -316,19 +316,19 @@ func TestTryDecorator(t *testing.T) {
 		},
 		{
 			name:   "main fails, catch also fails",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"main": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "exit 1"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "exit 1"},
 						}},
 					},
 				},
 				"catch": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "exit 2"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "exit 2"},
 						}},
 					},
 				},
@@ -337,19 +337,19 @@ func TestTryDecorator(t *testing.T) {
 		},
 		{
 			name:   "finally block always executes",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"main": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo main"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo main"},
 						}},
 					},
 				},
 				"finally": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo cleanup"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo cleanup"},
 						}},
 					},
 				},
@@ -359,19 +359,19 @@ func TestTryDecorator(t *testing.T) {
 		},
 		{
 			name:   "finally failure overrides success",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"main": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo main"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo main"},
 						}},
 					},
 				},
 				"finally": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "exit 3"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "exit 3"},
 						}},
 					},
 				},
@@ -381,26 +381,26 @@ func TestTryDecorator(t *testing.T) {
 		},
 		{
 			name:   "complete try/catch/finally flow",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"main": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "exit 1"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "exit 1"},
 						}},
 					},
 				},
 				"catch": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo recovered"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo recovered"},
 						}},
 					},
 				},
 				"finally": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo cleanup"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo cleanup"},
 						}},
 					},
 				},
@@ -410,12 +410,12 @@ func TestTryDecorator(t *testing.T) {
 		},
 		{
 			name:   "missing main branch error",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"catch": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo catch"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo catch"},
 						}},
 					},
 				},
@@ -425,12 +425,12 @@ func TestTryDecorator(t *testing.T) {
 		},
 		{
 			name:   "main only (no catch or finally)",
-			params: []decorators.DecoratorParam{},
-			branches: map[string]decorators.CommandSeq{
+			params: []decorators.Param{},
+			branches: map[string]ir.CommandSeq{
 				"main": {
-					Steps: []decorators.CommandStep{
-						{Chain: []decorators.ChainElement{
-							{Kind: decorators.ElementKindShell, Text: "echo main only"},
+					Steps: []ir.CommandStep{
+						{Chain: []ir.ChainElement{
+							{Kind: ir.ElementKindShell, Text: "echo main only"},
 						}},
 					},
 				},
@@ -464,7 +464,7 @@ func TestTryDecorator(t *testing.T) {
 func TestTryDecoratorDescribe(t *testing.T) {
 	tests := []struct {
 		name         string
-		params       []decorators.DecoratorParam
+		params       []decorators.Param
 		branches     map[string]plan.ExecutionStep
 		wantDesc     string
 		wantHasCatch bool
@@ -472,7 +472,7 @@ func TestTryDecoratorDescribe(t *testing.T) {
 	}{
 		{
 			name:   "try with all branches",
-			params: []decorators.DecoratorParam{},
+			params: []decorators.Param{},
 			branches: map[string]plan.ExecutionStep{
 				"main":    {Description: "main operation"},
 				"catch":   {Description: "error handling"},
@@ -484,7 +484,7 @@ func TestTryDecoratorDescribe(t *testing.T) {
 		},
 		{
 			name:   "try with main only",
-			params: []decorators.DecoratorParam{},
+			params: []decorators.Param{},
 			branches: map[string]plan.ExecutionStep{
 				"main": {Description: "main operation"},
 			},
@@ -575,9 +575,9 @@ func TestPatternDecoratorPatternSchemas(t *testing.T) {
 // Helper functions for testing
 
 // createTestCtxWithEnv creates a test context with environment variables
-func createTestCtxWithEnv(envVars map[string]string) *decorators.Ctx {
+func createTestCtxWithEnv(envVars map[string]string) *context.Ctx {
 	env := &ir.EnvSnapshot{Values: envVars}
-	return &decorators.Ctx{
+	return &context.Ctx{
 		Env:     env,
 		Vars:    map[string]string{},
 		WorkDir: "",

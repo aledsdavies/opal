@@ -5,6 +5,8 @@ import (
 
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
+	"github.com/aledsdavies/devcmd/runtime/execution"
+	"github.com/aledsdavies/devcmd/runtime/execution/context"
 )
 
 // Register the @var decorator on package import
@@ -65,11 +67,11 @@ func (v *VarDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (v *VarDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
-		StandardLibrary: []string{},
-		ThirdParty:      []string{},
-		GoModules:       map[string]string{},
+func (v *VarDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
+		Packages: []string{},
+		Binaries: []string{},
+		Env:      map[string]string{},
 	}
 }
 
@@ -78,7 +80,7 @@ func (v *VarDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // Render expands the variable value in the current context
-func (v *VarDecorator) Render(ctx *decorators.Ctx, args []decorators.DecoratorParam) (string, error) {
+func (v *VarDecorator) Render(ctx *context.Ctx, args []decorators.Param) (string, error) {
 	varName, err := v.extractDecoratorVariableName(args)
 	if err != nil {
 		return "", fmt.Errorf("@var parameter error: %w", err)
@@ -94,7 +96,7 @@ func (v *VarDecorator) Render(ctx *decorators.Ctx, args []decorators.DecoratorPa
 }
 
 // Describe returns description for dry-run display
-func (v *VarDecorator) Describe(ctx *decorators.Ctx, args []decorators.DecoratorParam) plan.ExecutionStep {
+func (v *VarDecorator) Describe(args []decorators.Param) plan.ExecutionStep {
 	varName, err := v.extractDecoratorVariableName(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -135,7 +137,7 @@ func (v *VarDecorator) Describe(ctx *decorators.Ctx, args []decorators.Decorator
 // ================================================================================================
 
 // extractDecoratorVariableName extracts the variable name from decorator parameters
-func (v *VarDecorator) extractDecoratorVariableName(params []decorators.DecoratorParam) (string, error) {
+func (v *VarDecorator) extractDecoratorVariableName(params []decorators.Param) (string, error) {
 	// Extract variable name (first positional parameter or named "name")
 	varName, err := decorators.ExtractPositionalString(params, 0, "")
 	if err != nil || varName == "" {
