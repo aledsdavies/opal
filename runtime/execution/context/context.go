@@ -1,8 +1,12 @@
 package context
 
 import (
+	"fmt"
+	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/ir"
 	"io"
+	"os"
+	"os/exec"
 )
 
 // ================================================================================================
@@ -28,7 +32,9 @@ type Ctx struct {
 	Debug  bool `json:"debug"`   // Debug mode - verbose output
 
 	// UI configuration from standardized flags
-	UI *UIConfig `json:"ui,omitempty"` // UI behavior configuration
+	UI       *UIConfig          `json:"ui,omitempty"`        // UI behavior configuration
+	UIConfig *UIConfig          `json:"ui_config,omitempty"` // Alias for backward compatibility
+	Commands map[string]ir.Node `json:"commands,omitempty"`  // Available commands for @cmd decorator
 
 	// Execution delegate for action decorators
 	Executor ExecutionDelegate `json:"-"` // Delegate for executing actions within decorators
@@ -67,6 +73,173 @@ func (r CommandResult) Success() bool {
 func (r CommandResult) Failed() bool {
 	return r.ExitCode != 0
 }
+
+// ================================================================================================
+// INTERFACE COMPLIANCE CHECKS
+// ================================================================================================
+
+// Ensure Ctx implements ExecutionContext interface
+var _ decorators.ExecutionContext = (*Ctx)(nil)
+
+// Ensure CommandResult implements CommandResult interface
+var _ decorators.CommandResult = (*CommandResult)(nil)
+
+// ================================================================================================
+// EXECUTION CONTEXT INTERFACE IMPLEMENTATION
+// ================================================================================================
+
+// ExecShell executes a shell command and returns the result
+func (ctx *Ctx) ExecShell(command string) decorators.CommandResult {
+	if ctx.DryRun {
+		return &CommandResult{
+			Stdout:   fmt.Sprintf("[DRY RUN] Would execute: %s", command),
+			Stderr:   "",
+			ExitCode: 0,
+		}
+	}
+
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Dir = ctx.WorkDir
+
+	// Set up environment
+	cmd.Env = os.Environ()
+
+	var stdout, stderr []byte
+	var err error
+
+	stdout, err = cmd.Output()
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			stderr = exitError.Stderr
+			return &CommandResult{
+				Stdout:   string(stdout),
+				Stderr:   string(stderr),
+				ExitCode: exitError.ExitCode(),
+			}
+		}
+		return &CommandResult{
+			Stdout:   string(stdout),
+			Stderr:   err.Error(),
+			ExitCode: 1,
+		}
+	}
+
+	return &CommandResult{
+		Stdout:   string(stdout),
+		Stderr:   "",
+		ExitCode: 0,
+	}
+}
+
+// GetEnv returns the value of an environment variable
+func (ctx *Ctx) GetEnv(key string) string {
+	if value, exists := ctx.Env.Get(key); exists {
+		return value
+	}
+	return os.Getenv(key)
+}
+
+// SetEnv sets an environment variable (note: this only affects the context, not the actual process)
+func (ctx *Ctx) SetEnv(key, value string) {
+	if ctx.Env.Values == nil {
+		ctx.Env.Values = make(map[string]string)
+	}
+	ctx.Env.Values[key] = value
+}
+
+// GetWorkingDir returns the current working directory
+func (ctx *Ctx) GetWorkingDir() string {
+	return ctx.WorkDir
+}
+
+// SetWorkingDir changes the working directory for subsequent operations
+func (ctx *Ctx) SetWorkingDir(dir string) error {
+	ctx.WorkDir = dir
+	return nil
+}
+
+// Prompt asks the user for input (implementation depends on UI configuration)
+func (ctx *Ctx) Prompt(message string) (string, error) {
+	if ctx.UI != nil && ctx.UI.AutoConfirm {
+		return "", fmt.Errorf("prompt not available in auto-confirm mode")
+	}
+
+	fmt.Fprintf(ctx.Stdout, "%s: ", message)
+	// For now, return empty string - would need actual input handling
+	return "", fmt.Errorf("interactive prompts not yet implemented")
+}
+
+// Confirm asks the user for yes/no confirmation
+func (ctx *Ctx) Confirm(message string) (bool, error) {
+	if ctx.UI != nil && ctx.UI.AutoConfirm {
+		return true, nil
+	}
+
+	fmt.Fprintf(ctx.Stdout, "%s (y/N): ", message)
+	// For now, return false - would need actual input handling
+	return false, fmt.Errorf("interactive confirmation not yet implemented")
+}
+
+// Log outputs a log message at the specified level
+func (ctx *Ctx) Log(level decorators.LogLevel, message string) {
+	if ctx.UI != nil && ctx.UI.Quiet && level != decorators.LogLevelError {
+		return
+	}
+
+	prefix := ""
+	switch level {
+	case decorators.LogLevelDebug:
+		if ctx.Debug {
+			prefix = "[DEBUG] "
+		} else {
+			return
+		}
+	case decorators.LogLevelInfo:
+		prefix = "[INFO] "
+	case decorators.LogLevelWarn:
+		prefix = "[WARN] "
+	case decorators.LogLevelError:
+		prefix = "[ERROR] "
+	}
+
+	fmt.Fprintf(ctx.Stderr, "%s%s\n", prefix, message)
+}
+
+// Printf outputs a formatted message
+func (ctx *Ctx) Printf(format string, args ...any) {
+	if ctx.UI != nil && ctx.UI.Quiet {
+		return
+	}
+	fmt.Fprintf(ctx.Stdout, format, args...)
+}
+
+// ================================================================================================
+// COMMAND RESULT INTERFACE IMPLEMENTATION
+// ================================================================================================
+
+// GetStdout returns the standard output from the command
+func (r *CommandResult) GetStdout() string {
+	return r.Stdout
+}
+
+// GetStderr returns the standard error from the command
+func (r *CommandResult) GetStderr() string {
+	return r.Stderr
+}
+
+// GetExitCode returns the exit code from the command
+func (r *CommandResult) GetExitCode() int {
+	return r.ExitCode
+}
+
+// IsSuccess returns true if the command succeeded (exit code 0)
+func (r *CommandResult) IsSuccess() bool {
+	return r.ExitCode == 0
+}
+
+// ================================================================================================
+// CONTEXT METHODS
+// ================================================================================================
 
 // Clone creates a copy of the context for isolated execution
 func (ctx *Ctx) Clone() *Ctx {
@@ -109,4 +282,49 @@ func (ctx *Ctx) WithWorkDir(workDir string) *Ctx {
 	newCtx := ctx.Clone()
 	newCtx.WorkDir = workDir
 	return newCtx
+}
+
+// ================================================================================================
+// CONTEXT CREATION HELPERS
+// ================================================================================================
+
+// CtxOptions contains options for creating a new execution context
+type CtxOptions struct {
+	WorkDir    string
+	EnvOptions EnvOptions
+	NumCPU     int
+	DryRun     bool
+	Debug      bool
+	UIConfig   *UIConfig
+	Executor   ExecutionDelegate
+	Vars       map[string]string  // CLI variables
+	Commands   map[string]ir.Node // Available commands for @cmd decorator
+}
+
+// EnvOptions contains environment configuration
+type EnvOptions struct {
+	BlockList []string // Environment variables to exclude
+}
+
+// NewCtx creates a new execution context with the given options
+func NewCtx(opts CtxOptions) (*Ctx, error) {
+	// Create environment snapshot
+	env := ir.EnvSnapshot{} // This would be implemented in core/ir if needed
+
+	// Initialize vars map
+	vars := opts.Vars
+	if vars == nil {
+		vars = make(map[string]string)
+	}
+
+	return &Ctx{
+		Env:      env,
+		Vars:     vars,
+		WorkDir:  opts.WorkDir,
+		NumCPU:   opts.NumCPU,
+		DryRun:   opts.DryRun,
+		Debug:    opts.Debug,
+		UI:       opts.UIConfig,
+		Executor: opts.Executor,
+	}, nil
 }

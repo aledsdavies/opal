@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/aledsdavies/devcmd/core/decorators"
-	"github.com/aledsdavies/devcmd/runtime/ir"
+	"github.com/aledsdavies/devcmd/core/ir"
 )
 
 // ================================================================================================

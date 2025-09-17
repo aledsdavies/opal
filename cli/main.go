@@ -10,11 +10,11 @@ import (
 	"github.com/aledsdavies/devcmd/cli/internal/validation"
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/errors"
-	"github.com/aledsdavies/devcmd/runtime/ast"
+	"github.com/aledsdavies/devcmd/core/ir"
+	"github.com/aledsdavies/devcmd/core/ast"
 	_ "github.com/aledsdavies/devcmd/runtime/decorators/builtin" // Import for decorator registration
 	"github.com/aledsdavies/devcmd/runtime/execution"
 	"github.com/aledsdavies/devcmd/runtime/execution/plan"
-	"github.com/aledsdavies/devcmd/runtime/ir"
 	"github.com/spf13/cobra"
 )
 
@@ -255,7 +255,7 @@ func runCommand(cmd *cobra.Command, args []string) error {
 	// Transform all commands to IR for @cmd decorator support
 	commands := make(map[string]ir.Node)
 	for _, command := range program.Commands {
-		irNode, err := ir.TransformCommand(&command)
+		irNode, err := execution.TransformCommand(&command)
 		if err != nil {
 			return fmt.Errorf("failed to transform command '%s' to IR: %w", command.Name, err)
 		}
@@ -263,21 +263,21 @@ func runCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// Transform AST to IR
-	irNode, err := ir.TransformCommand(targetCommand)
+	irNode, err := execution.TransformCommand(targetCommand)
 	if err != nil {
 		return fmt.Errorf("failed to transform command to IR: %w", err)
 	}
 
 	// Create execution context with proper constructor
-	ctx, err := ir.NewCtx(ir.CtxOptions{
-		EnvOptions: ir.EnvOptions{
+	ctx, err := execution.NewCtx(execution.CtxOptions{
+		EnvOptions: execution.EnvOptions{
 			BlockList: []string{"PWD", "OLDPWD", "SHLVL", "RANDOM", "PS*", "TERM"},
 		},
 		Vars:     extractVariables(program), // Extract variables from program AST
 		DryRun:   dryRun,
 		Debug:    debug,
 		Commands: commands, // Add the commands map to context
-		UIConfig: &ir.UIConfig{
+		UIConfig: &execution.UIConfig{
 			ColorMode:   colorMode,
 			Quiet:       quiet,
 			Verbose:     verbose,

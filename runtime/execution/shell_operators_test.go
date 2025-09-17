@@ -7,19 +7,35 @@ import (
 	"testing"
 
 	"github.com/aledsdavies/devcmd/core/decorators"
-	"github.com/aledsdavies/devcmd/runtime/ir"
+	"github.com/aledsdavies/devcmd/core/ir"
+	"github.com/aledsdavies/devcmd/runtime/execution/context"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// Helper function for test
+func newShellElement(cmd string) ir.ChainElement {
+	return ir.ChainElement{
+		Kind: ir.ElementKindShell,
+		Content: &ir.ElementContent{
+			Parts: []ir.ContentPart{
+				{
+					Kind: ir.PartKindLiteral,
+					Text: cmd,
+				},
+			},
+		},
+	}
+}
 
 // TestShellOperatorEdgeCases covers all shell operator combinations and edge cases
 func TestShellOperatorEdgeCases(t *testing.T) {
 	registry := decorators.GlobalRegistry()
 	evaluator := NewNodeEvaluator(registry)
 
-	setupCtx := func() *ir.Ctx {
-		return &ir.Ctx{
-			Env:     &ir.EnvSnapshot{Values: map[string]string{}},
+	setupCtx := func() *context.Ctx {
+		return &context.Ctx{
+			Env:     ir.EnvSnapshot{Values: map[string]string{}},
 			Vars:    map[string]string{},
 			WorkDir: "",
 			Stdout:  &bytes.Buffer{},
@@ -35,9 +51,9 @@ func TestShellOperatorEdgeCases(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("echo first"); e.OpNext = ir.ChainOpAnd; return e }(),
-						func() ir.ChainElement { e := ir.NewShellElement("echo second"); e.OpNext = ir.ChainOpAnd; return e }(),
-						ir.NewShellElement("echo third"),
+						func() ir.ChainElement { e := newShellElement("echo first"); e.OpNext = ir.ChainOpAnd; return e }(),
+						func() ir.ChainElement { e := newShellElement("echo second"); e.OpNext = ir.ChainOpAnd; return e }(),
+						newShellElement("echo third"),
 					},
 				},
 			},
@@ -56,9 +72,9 @@ func TestShellOperatorEdgeCases(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("echo first"); e.OpNext = ir.ChainOpAnd; return e }(),
-						func() ir.ChainElement { e := ir.NewShellElement("exit 1"); e.OpNext = ir.ChainOpAnd; return e }(),
-						ir.NewShellElement("echo should-not-execute"),
+						func() ir.ChainElement { e := newShellElement("echo first"); e.OpNext = ir.ChainOpAnd; return e }(),
+						func() ir.ChainElement { e := newShellElement("exit 1"); e.OpNext = ir.ChainOpAnd; return e }(),
+						newShellElement("echo should-not-execute"),
 					},
 				},
 			},
@@ -76,8 +92,8 @@ func TestShellOperatorEdgeCases(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("echo success"); e.OpNext = ir.ChainOpOr; return e }(),
-						ir.NewShellElement("echo should-not-execute"),
+						func() ir.ChainElement { e := newShellElement("echo success"); e.OpNext = ir.ChainOpOr; return e }(),
+						newShellElement("echo should-not-execute"),
 					},
 				},
 			},
@@ -95,8 +111,8 @@ func TestShellOperatorEdgeCases(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("exit 1"); e.OpNext = ir.ChainOpOr; return e }(),
-						ir.NewShellElement("echo fallback"),
+						func() ir.ChainElement { e := newShellElement("exit 1"); e.OpNext = ir.ChainOpOr; return e }(),
+						newShellElement("echo fallback"),
 					},
 				},
 			},
@@ -113,8 +129,8 @@ func TestShellOperatorEdgeCases(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("echo hello"); e.OpNext = ir.ChainOpPipe; return e }(),
-						ir.NewShellElement("read input && echo got:$input"), // Read from stdin and echo
+						func() ir.ChainElement { e := newShellElement("echo hello"); e.OpNext = ir.ChainOpPipe; return e }(),
+						newShellElement("read input && echo got:$input"), // Read from stdin and echo
 					},
 				},
 			},
@@ -141,7 +157,7 @@ func TestShellOperatorEdgeCases(t *testing.T) {
 				{
 					Chain: []ir.ChainElement{
 						func() ir.ChainElement {
-							e := ir.NewShellElement("echo first")
+							e := newShellElement("echo first")
 							e.OpNext = ir.ChainOpAppend
 							e.Target = testFile
 							return e
@@ -160,7 +176,7 @@ func TestShellOperatorEdgeCases(t *testing.T) {
 				{
 					Chain: []ir.ChainElement{
 						func() ir.ChainElement {
-							e := ir.NewShellElement("echo second")
+							e := newShellElement("echo second")
 							e.OpNext = ir.ChainOpAppend
 							e.Target = testFile
 							return e
@@ -186,8 +202,8 @@ func TestComplexOperatorChains(t *testing.T) {
 	registry := decorators.GlobalRegistry()
 	evaluator := NewNodeEvaluator(registry)
 
-	setupCtx := func() *ir.Ctx {
-		return &ir.Ctx{
+	setupCtx := func() *context.Ctx {
+		return &context.Ctx{
 			Env:     &ir.EnvSnapshot{Values: map[string]string{}},
 			Vars:    map[string]string{},
 			WorkDir: "",
@@ -204,9 +220,9 @@ func TestComplexOperatorChains(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("echo first"); e.OpNext = ir.ChainOpAnd; return e }(),
-						func() ir.ChainElement { e := ir.NewShellElement("exit 1"); e.OpNext = ir.ChainOpOr; return e }(),
-						ir.NewShellElement("echo recovery"),
+						func() ir.ChainElement { e := newShellElement("echo first"); e.OpNext = ir.ChainOpAnd; return e }(),
+						func() ir.ChainElement { e := newShellElement("exit 1"); e.OpNext = ir.ChainOpOr; return e }(),
+						newShellElement("echo recovery"),
 					},
 				},
 			},
@@ -224,9 +240,9 @@ func TestComplexOperatorChains(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("exit 1"); e.OpNext = ir.ChainOpOr; return e }(),
-						func() ir.ChainElement { e := ir.NewShellElement("echo recovery"); e.OpNext = ir.ChainOpAnd; return e }(),
-						ir.NewShellElement("echo final"),
+						func() ir.ChainElement { e := newShellElement("exit 1"); e.OpNext = ir.ChainOpOr; return e }(),
+						func() ir.ChainElement { e := newShellElement("echo recovery"); e.OpNext = ir.ChainOpAnd; return e }(),
+						newShellElement("echo final"),
 					},
 				},
 			},
@@ -244,13 +260,13 @@ func TestComplexOperatorChains(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("echo hello"); e.OpNext = ir.ChainOpPipe; return e }(),
+						func() ir.ChainElement { e := newShellElement("echo hello"); e.OpNext = ir.ChainOpPipe; return e }(),
 						func() ir.ChainElement {
-							e := ir.NewShellElement("read input && echo processed:$input")
+							e := newShellElement("read input && echo processed:$input")
 							e.OpNext = ir.ChainOpAnd
 							return e
 						}(),
-						ir.NewShellElement("echo done"),
+						newShellElement("echo done"),
 					},
 				},
 			},
@@ -268,8 +284,8 @@ func TestOperatorErrorHandling(t *testing.T) {
 	registry := decorators.GlobalRegistry()
 	evaluator := NewNodeEvaluator(registry)
 
-	setupCtx := func() *ir.Ctx {
-		return &ir.Ctx{
+	setupCtx := func() *context.Ctx {
+		return &context.Ctx{
 			Env:     &ir.EnvSnapshot{Values: map[string]string{}},
 			Vars:    map[string]string{},
 			WorkDir: "",
@@ -286,8 +302,8 @@ func TestOperatorErrorHandling(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("echo hello"); e.OpNext = ir.ChainOpPipe; return e }(),
-						ir.NewShellElement("false"), // Command that always fails
+						func() ir.ChainElement { e := newShellElement("echo hello"); e.OpNext = ir.ChainOpPipe; return e }(),
+						newShellElement("false"), // Command that always fails
 					},
 				},
 			},
@@ -306,7 +322,7 @@ func TestOperatorErrorHandling(t *testing.T) {
 				{
 					Chain: []ir.ChainElement{
 						func() ir.ChainElement {
-							e := ir.NewShellElement("echo test")
+							e := newShellElement("echo test")
 							e.OpNext = ir.ChainOpAppend
 							e.Target = invalidPath
 							return e
@@ -328,8 +344,8 @@ func TestOperatorErrorHandling(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement(""); e.OpNext = ir.ChainOpAnd; return e }(),
-						ir.NewShellElement("echo after-empty"),
+						func() ir.ChainElement { e := newShellElement(""); e.OpNext = ir.ChainOpAnd; return e }(),
+						newShellElement("echo after-empty"),
 					},
 				},
 			},
@@ -347,9 +363,9 @@ func TestDryRunModeOperators(t *testing.T) {
 	registry := decorators.GlobalRegistry()
 	evaluator := NewNodeEvaluator(registry)
 
-	setupDryRunCtx := func() *ir.Ctx {
-		return &ir.Ctx{
-			Env:     &ir.EnvSnapshot{Values: map[string]string{}},
+	setupDryRunCtx := func() *context.Ctx {
+		return &context.Ctx{
+			Env:     ir.EnvSnapshot{Values: map[string]string{}},
 			Vars:    map[string]string{},
 			WorkDir: "",
 			Stdout:  &bytes.Buffer{},
@@ -365,10 +381,10 @@ func TestDryRunModeOperators(t *testing.T) {
 			Steps: []ir.CommandStep{
 				{
 					Chain: []ir.ChainElement{
-						func() ir.ChainElement { e := ir.NewShellElement("echo first"); e.OpNext = ir.ChainOpAnd; return e }(),
-						func() ir.ChainElement { e := ir.NewShellElement("echo second"); e.OpNext = ir.ChainOpPipe; return e }(),
-						func() ir.ChainElement { e := ir.NewShellElement("tr 'a-z' 'A-Z'"); e.OpNext = ir.ChainOpOr; return e }(),
-						ir.NewShellElement("echo fallback"),
+						func() ir.ChainElement { e := newShellElement("echo first"); e.OpNext = ir.ChainOpAnd; return e }(),
+						func() ir.ChainElement { e := newShellElement("echo second"); e.OpNext = ir.ChainOpPipe; return e }(),
+						func() ir.ChainElement { e := newShellElement("tr 'a-z' 'A-Z'"); e.OpNext = ir.ChainOpOr; return e }(),
+						newShellElement("echo fallback"),
 					},
 				},
 			},

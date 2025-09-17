@@ -8,7 +8,7 @@ import (
 
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
-	"github.com/aledsdavies/devcmd/runtime/ast"
+	"github.com/aledsdavies/devcmd/core/ast"
 	"github.com/google/go-cmp/cmp"
 
 	// Import builtins to register decorators

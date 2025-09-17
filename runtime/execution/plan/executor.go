@@ -6,7 +6,8 @@ import (
 	"strings"
 
 	"github.com/aledsdavies/devcmd/core/decorators"
-	"github.com/aledsdavies/devcmd/runtime/ir"
+	"github.com/aledsdavies/devcmd/core/ir"
+	"github.com/aledsdavies/devcmd/runtime/execution/context"
 )
 
 // PlanExecutor handles dry-run/plan execution mode
@@ -25,7 +26,7 @@ func NewPlanExecutor(registry *decorators.Registry, output io.Writer) *PlanExecu
 }
 
 // ExecuteNode executes an IR node in plan mode (dry-run)
-func (e *PlanExecutor) ExecuteNode(ctx *ir.Ctx, node ir.Node) ir.CommandResult {
+func (e *PlanExecutor) ExecuteNode(ctx *context.Ctx, node ir.Node) context.CommandResult {
 	if ctx.Debug {
 		_, _ = fmt.Fprintf(e.output, "[DEBUG PlanExecutor] ExecuteNode called with node type: %T\n", node)
 	}
@@ -50,7 +51,7 @@ func (e *PlanExecutor) ExecuteNode(ctx *ir.Ctx, node ir.Node) ir.CommandResult {
 		if ctx.Debug {
 			_, _ = fmt.Fprintf(e.output, "[DEBUG PlanExecutor] Unknown node type: %T\n", node)
 		}
-		return ir.CommandResult{
+		return context.CommandResult{
 			Stderr:   fmt.Sprintf("Unknown node type: %T", node),
 			ExitCode: 1,
 		}
@@ -58,7 +59,7 @@ func (e *PlanExecutor) ExecuteNode(ctx *ir.Ctx, node ir.Node) ir.CommandResult {
 }
 
 // executeCommandSeq shows a sequence of command steps
-func (e *PlanExecutor) executeCommandSeq(ctx *ir.Ctx, seq ir.CommandSeq) ir.CommandResult {
+func (e *PlanExecutor) executeCommandSeq(ctx *context.Ctx, seq ir.CommandSeq) context.CommandResult {
 	_, _ = fmt.Fprintf(e.output, "📋 Plan: Executing %d command steps:\n", len(seq.Steps))
 
 	for i, step := range seq.Steps {
@@ -70,7 +71,7 @@ func (e *PlanExecutor) executeCommandSeq(ctx *ir.Ctx, seq ir.CommandSeq) ir.Comm
 }
 
 // executeWrapper shows a block decorator plan
-func (e *PlanExecutor) executeWrapper(ctx *ir.Ctx, wrapper ir.Wrapper) ir.CommandResult {
+func (e *PlanExecutor) executeWrapper(ctx *context.Ctx, wrapper ir.Wrapper) context.CommandResult {
 	_, exists := e.registry.GetBlock(wrapper.Kind)
 	if !exists {
 		_, _ = fmt.Fprintf(e.output, "❌ Unknown block decorator: @%s\n", wrapper.Kind)

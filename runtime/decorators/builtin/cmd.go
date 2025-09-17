@@ -5,6 +5,7 @@ import (
 
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
+	"github.com/aledsdavies/devcmd/runtime/execution"
 )
 
 // Register the @cmd decorator on package import
@@ -65,11 +66,11 @@ func (c *CmdDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (c *CmdDecorator) ImportRequirements() decorators.ImportRequirement {
-	return decorators.ImportRequirement{
-		StandardLibrary: []string{},
-		ThirdParty:      []string{},
-		GoModules:       map[string]string{},
+func (c *CmdDecorator) ImportRequirements() execution.ImportRequirement {
+	return execution.ImportRequirement{
+		Packages: []string{},
+		Binaries: []string{},
+		Env:      map[string]string{},
 	}
 }
 
@@ -78,13 +79,22 @@ func (c *CmdDecorator) ImportRequirements() decorators.ImportRequirement {
 // ================================================================================================
 
 // Run executes the referenced command
-func (c *CmdDecorator) Run(ctx *decorators.Ctx, args []decorators.DecoratorParam) decorators.CommandResult {
+func (c *CmdDecorator) Run(ctx *execution.Ctx, args []execution.DecoratorParam) execution.CommandResult {
 	cmdName, err := c.extractDecoratorCommandName(args)
 	if err != nil {
-		return decorators.CommandResult{
+		return execution.CommandResult{
 			Stderr:   fmt.Sprintf("@cmd parameter error: %v", err),
 			ExitCode: 1,
 		}
+	}
+
+	result := ctx.ExecShell(cmdName)
+	return execution.CommandResult{
+		Stdout:   result.Stdout,
+		Stderr:   result.Stderr,
+		ExitCode: result.ExitCode,
+	}
+}
 	}
 
 	// Use the execution delegate to execute the command by name

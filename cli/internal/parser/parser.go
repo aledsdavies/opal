@@ -11,7 +11,7 @@ import (
 	"github.com/aledsdavies/devcmd/cli/internal/lexer"
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/types"
-	"github.com/aledsdavies/devcmd/runtime/ast"
+	"github.com/aledsdavies/devcmd/core/ast"
 )
 
 // Parser implements a fast, spec-compliant recursive descent parser for the Devcmd language.
