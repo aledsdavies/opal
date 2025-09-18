@@ -160,13 +160,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
+       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-       - name: Test CLI build and basic functionality
+      - name: Test CLI build and basic functionality
         run: |
           echo "🚀 Testing CLI build and interpreter mode..."
           cd cli
