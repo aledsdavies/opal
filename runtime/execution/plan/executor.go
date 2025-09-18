@@ -179,10 +179,28 @@ func (e *PlanExecutor) showShellElement(ctx *context.Ctx, element ir.ChainElemen
 	}
 
 	// Convert execution context to decorator context for content resolution
-	decorCtx := e.toDecoratorContext(ctx)
 
-	// Show plan description with value decorator resolution using ChainElement method
-	return element.PlanDescription(decorCtx, e.registry)
+	// Create a simple description based on element type
+	if element.Content != nil {
+		// For shell elements with structured content, show resolved content
+		var result strings.Builder
+		for _, part := range element.Content.Parts {
+			switch part.Kind {
+			case ir.PartKindLiteral:
+				result.WriteString(part.Text)
+			case ir.PartKindDecorator:
+				result.WriteString("@" + part.DecoratorName + "(...)")
+			}
+		}
+		return result.String()
+	}
+
+	// For action/block elements, show name with args
+	if element.Name != "" {
+		return fmt.Sprintf("@%s(...)", element.Name)
+	}
+
+	return "shell command"
 }
 
 // formatParams formats wrapper parameters for display
@@ -206,26 +224,24 @@ func (e *PlanExecutor) formatDecoratorArgs(args []decorators.Param) string {
 
 	var parts []string
 	for _, arg := range args {
-		if arg.Name != "" {
-			parts = append(parts, fmt.Sprintf("%s=%v", arg.Name, arg.Value))
+		if arg.GetName() != "" {
+			parts = append(parts, fmt.Sprintf("%s=%v", arg.GetName(), arg.GetValue()))
 		} else {
-			parts = append(parts, fmt.Sprintf("%v", arg.Value))
+			parts = append(parts, fmt.Sprintf("%v", arg.GetValue()))
 		}
 	}
 	return strings.Join(parts, ", ")
 }
 
 // toDecoratorContext converts execution context to decorator context
+//
+//nolint:unused // Helper function for future context conversion needs
 func (e *PlanExecutor) toDecoratorContext(ctx *context.Ctx) *context.Ctx {
 	var ui *context.UIConfig
 	if ctx.UIConfig != nil {
 		ui = &context.UIConfig{
-			ColorMode:   ctx.UIConfig.ColorMode,
-			Quiet:       ctx.UIConfig.Quiet,
-			Verbose:     ctx.UIConfig.Verbose,
-			Interactive: ctx.UIConfig.Interactive,
+			NoColor:     ctx.UIConfig.NoColor,
 			AutoConfirm: ctx.UIConfig.AutoConfirm,
-			CI:          ctx.UIConfig.CI,
 		}
 	}
 

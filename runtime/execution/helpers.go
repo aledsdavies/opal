@@ -22,5 +22,7 @@ func NewCtx(opts context.CtxOptions) (*context.Ctx, error) {
 }
 
 // Re-export types for convenience
-type CtxOptions = context.CtxOptions
-type EnvOptions = context.EnvOptions
+type (
+	CtxOptions = context.CtxOptions
+	EnvOptions = context.EnvOptions
+)

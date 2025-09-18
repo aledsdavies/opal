@@ -1,13 +1,11 @@
 package builtin
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
+	"github.com/aledsdavies/devcmd/runtime/execution/context"
 )
 
 // Register the @confirm decorator on package import
@@ -80,88 +78,24 @@ func (c *ConfirmDecorator) Examples() []decorators.Example {
 	}
 }
 
-// ImportRequirements returns the dependencies needed for code generation
-func (c *ConfirmDecorator) ImportRequirements() execution.ImportRequirement {
-	return execution.ImportRequirement{
-		StandardLibrary: []string{"bufio", "os", "strings"},
-		ThirdParty:      []string{},
-		GoModules:       map[string]string{},
-	}
-}
+// Note: ImportRequirements removed - will be added back when code generation is implemented
 
 // ================================================================================================
 // BLOCK DECORATOR METHODS
 // ================================================================================================
 
 // Wrap prompts for user confirmation before executing inner commands
-func (c *ConfirmDecorator) WrapCommands(ctx *context.Ctx, args []decorators.Param, inner ir.CommandSeq) context.CommandResult {
-	message, defaultYes, err := c.extractParameters(args)
-	if err != nil {
-		return context.CommandResult{
-			Stderr:   fmt.Sprintf("@confirm parameter error: %v", err),
-			ExitCode: 1,
-		}
+func (c *ConfirmDecorator) WrapCommands(ctx decorators.Context, args []decorators.Param, inner interface{}) decorators.CommandResult {
+	// TODO: Runtime execution - implement when interpreter is rebuilt
+	return context.CommandResult{
+		Stdout:   "",
+		Stderr:   "runtime execution not implemented yet - use plan mode",
+		ExitCode: 1,
 	}
-
-	// In dry-run mode, don't prompt - just show what would be prompted
-	if ctx.DryRun {
-		return context.CommandResult{
-			Stdout:   fmt.Sprintf("[DRY-RUN] Would prompt: %s", message),
-			ExitCode: 0,
-		}
-	}
-
-	// Display confirmation prompt
-	prompt := message
-	if defaultYes {
-		prompt += " [Y/n]: "
-	} else {
-		prompt += " [y/N]: "
-	}
-
-	_, _ = fmt.Fprint(ctx.Stderr, prompt)
-
-	// Read user response
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return context.CommandResult{
-			Stderr:   "failed to read user input",
-			ExitCode: 1,
-		}
-	}
-
-	response := strings.TrimSpace(strings.ToLower(scanner.Text()))
-
-	// Determine if user confirmed
-	var confirmed bool
-	switch response {
-	case "":
-		// User just pressed enter - use default
-		confirmed = defaultYes
-	case "y", "yes":
-		confirmed = true
-	case "n", "no":
-		confirmed = false
-	default:
-		return context.CommandResult{
-			Stderr:   fmt.Sprintf("invalid response %q, please answer 'y' or 'n'", response),
-			ExitCode: 1,
-		}
-	}
-
-	if !confirmed {
-		return context.CommandResult{
-			Stdout:   "Operation cancelled by user",
-			ExitCode: 130, // Standard "interrupted by user" exit code
-		}
-	}
-
-	// User confirmed - execute inner commands
-	return ctx.ExecSequential(inner.Steps)
 }
 
 // Describe returns description for dry-run display
-func (c *ConfirmDecorator) Describe(ctx *context.Ctx, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
+func (c *ConfirmDecorator) Describe(ctx decorators.Context, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
 	message, defaultYes, err := c.extractParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -201,28 +135,28 @@ func (c *ConfirmDecorator) extractParameters(params []decorators.Param) (message
 
 	// Extract optional parameters
 	for _, param := range params {
-		switch param.Name {
+		switch param.GetName() {
 		case "":
 			// Positional parameter - assume it's the message
-			if val, ok := param.Value.(string); ok {
+			if val, ok := param.GetValue().(string); ok {
 				message = val
 			} else {
-				return "", false, fmt.Errorf("@confirm message must be a string, got %T", param.Value)
+				return "", false, fmt.Errorf("@confirm message must be a string, got %T", param.GetValue())
 			}
 		case "message":
-			if val, ok := param.Value.(string); ok {
+			if val, ok := param.GetValue().(string); ok {
 				message = val
 			} else {
-				return "", false, fmt.Errorf("@confirm message parameter must be a string, got %T", param.Value)
+				return "", false, fmt.Errorf("@confirm message parameter must be a string, got %T", param.GetValue())
 			}
 		case "defaultYes":
-			if val, ok := param.Value.(bool); ok {
+			if val, ok := param.GetValue().(bool); ok {
 				defaultYes = val
 			} else {
-				return "", false, fmt.Errorf("@confirm defaultYes parameter must be a boolean, got %T", param.Value)
+				return "", false, fmt.Errorf("@confirm defaultYes parameter must be a boolean, got %T", param.GetValue())
 			}
 		default:
-			return "", false, fmt.Errorf("@confirm unknown parameter: %s", param.Name)
+			return "", false, fmt.Errorf("@confirm unknown parameter: %s", param.GetName())
 		}
 	}
 

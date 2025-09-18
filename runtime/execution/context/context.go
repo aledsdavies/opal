@@ -1,12 +1,16 @@
 package context
 
 import (
+	"context"
 	"fmt"
-	"github.com/aledsdavies/devcmd/core/decorators"
-	"github.com/aledsdavies/devcmd/core/ir"
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
+	"runtime"
+
+	"github.com/aledsdavies/devcmd/core/decorators"
+	"github.com/aledsdavies/devcmd/core/ir"
 )
 
 // ================================================================================================
@@ -15,17 +19,16 @@ import (
 
 // Ctx carries state needed for command execution with execution methods
 type Ctx struct {
-	Env     ir.EnvSnapshot    `json:"env"`      // Frozen environment snapshot
-	Vars    map[string]string `json:"vars"`     // CLI variables (@var) resolved to strings
-	WorkDir string            `json:"work_dir"` // Current working directory
+	context.Context                    // Embedded Go context for cancellation
+	Env             ir.EnvSnapshot     `json:"env"`      // Frozen environment snapshot
+	Vars            map[string]string  `json:"vars"`     // CLI variables (@var) resolved to strings
+	WorkDir         string             `json:"work_dir"` // Current working directory
+	SysInfo         SystemInfoSnapshot `json:"sys_info"` // Frozen system information snapshot
 
 	// IO streams
 	Stdout io.Writer `json:"-"` // Standard output
 	Stderr io.Writer `json:"-"` // Standard error
 	Stdin  io.Reader `json:"-"` // Standard input
-
-	// System information
-	NumCPU int `json:"num_cpu"` // Number of CPU cores available
 
 	// Execution flags
 	DryRun bool `json:"dry_run"` // Plan mode - don't actually execute
@@ -40,20 +43,16 @@ type Ctx struct {
 	Executor ExecutionDelegate `json:"-"` // Delegate for executing actions within decorators
 }
 
-// UIConfig contains standardized UI behavior flags
+// UIConfig contains simplified UI behavior flags
 type UIConfig struct {
-	ColorMode   string `json:"color_mode"`   // "auto", "always", "never"
-	Quiet       bool   `json:"quiet"`        // minimal output (errors only)
-	Verbose     bool   `json:"verbose"`      // extra debugging output
-	Interactive string `json:"interactive"`  // "auto", "always", "never"
-	AutoConfirm bool   `json:"auto_confirm"` // auto-confirm all prompts (--yes)
-	CI          bool   `json:"ci"`           // CI mode (optimized for CI environments)
+	NoColor     bool `json:"no_color"`     // disable colored output
+	AutoConfirm bool `json:"auto_confirm"` // auto-confirm all prompts (--yes)
 }
 
 // ExecutionDelegate provides action execution capability for decorator contexts
 type ExecutionDelegate interface {
-	ExecuteAction(ctx *Ctx, name string, args []any) CommandResult
-	ExecuteBlock(ctx *Ctx, name string, args []any, innerSteps []ir.CommandStep) CommandResult
+	ExecuteAction(ctx *Ctx, name string, args []decorators.Param) CommandResult
+	ExecuteBlock(ctx *Ctx, name string, args []decorators.Param, innerSteps []ir.CommandStep) CommandResult
 	ExecuteCommand(ctx *Ctx, commandName string) CommandResult
 }
 
@@ -78,8 +77,8 @@ func (r CommandResult) Failed() bool  { return !r.IsSuccess() }
 // INTERFACE COMPLIANCE CHECKS
 // ================================================================================================
 
-// Ensure Ctx implements ExecutionContext interface
-var _ decorators.ExecutionContext = (*Ctx)(nil)
+// Ensure Ctx implements Context interface
+var _ decorators.Context = (*Ctx)(nil)
 
 // Ensure CommandResult implements decorators.CommandResult interface
 var _ decorators.CommandResult = (*CommandResult)(nil)
@@ -132,11 +131,8 @@ func (ctx *Ctx) ExecShell(command string) decorators.CommandResult {
 }
 
 // GetEnv returns the value of an environment variable
-func (ctx *Ctx) GetEnv(key string) string {
-	if value, exists := ctx.Env.Get(key); exists {
-		return value
-	}
-	return os.Getenv(key)
+func (ctx *Ctx) GetEnv(key string) (string, bool) {
+	return ctx.Env.Get(key)
 }
 
 // SetEnv sets an environment variable (note: this only affects the context, not the actual process)
@@ -158,13 +154,84 @@ func (ctx *Ctx) SetWorkingDir(dir string) error {
 	return nil
 }
 
+// GetVar returns a CLI variable value - immutable during execution
+func (ctx *Ctx) GetVar(key string) (string, bool) {
+	if ctx.Vars == nil {
+		return "", false
+	}
+	value, exists := ctx.Vars[key]
+	return value, exists
+}
+
+// SystemInfo returns system information interface
+func (ctx *Ctx) SystemInfo() decorators.SystemInfo {
+	return &ctx.SysInfo
+}
+
+// ================================================================================================
+// SYSTEM INFO SNAPSHOT - Captured at initialization time
+// ================================================================================================
+
+// SystemInfoSnapshot implements decorators.SystemInfo with values captured at creation time
+type SystemInfoSnapshot struct {
+	NumCPU   int    `json:"num_cpu"`
+	MemoryMB int64  `json:"memory_mb"`
+	Hostname string `json:"hostname"`
+	OS       string `json:"os"`
+	Arch     string `json:"arch"`
+	TempDir  string `json:"temp_dir"`
+	HomeDir  string `json:"home_dir"`
+	UserName string `json:"user_name"`
+}
+
+// CaptureSystemInfo creates a snapshot of current system information
+func CaptureSystemInfo() SystemInfoSnapshot {
+	var sysInfo SystemInfoSnapshot
+
+	// Capture hardware info
+	sysInfo.NumCPU = runtime.NumCPU()
+	sysInfo.MemoryMB = 8192 // TODO: Implement actual memory detection
+
+	// Capture system identification
+	if hostname, err := os.Hostname(); err == nil {
+		sysInfo.Hostname = hostname
+	} else {
+		sysInfo.Hostname = "unknown"
+	}
+	sysInfo.OS = runtime.GOOS
+	sysInfo.Arch = runtime.GOARCH
+
+	// Capture runtime information
+	sysInfo.TempDir = os.TempDir()
+	if home, err := os.UserHomeDir(); err == nil {
+		sysInfo.HomeDir = home
+	}
+	if user, err := user.Current(); err == nil {
+		sysInfo.UserName = user.Username
+	} else {
+		sysInfo.UserName = "unknown"
+	}
+
+	return sysInfo
+}
+
+// Interface implementation methods
+func (s *SystemInfoSnapshot) GetNumCPU() int      { return s.NumCPU }
+func (s *SystemInfoSnapshot) GetMemoryMB() int64  { return s.MemoryMB }
+func (s *SystemInfoSnapshot) GetHostname() string { return s.Hostname }
+func (s *SystemInfoSnapshot) GetOS() string       { return s.OS }
+func (s *SystemInfoSnapshot) GetArch() string     { return s.Arch }
+func (s *SystemInfoSnapshot) GetTempDir() string  { return s.TempDir }
+func (s *SystemInfoSnapshot) GetHomeDir() string  { return s.HomeDir }
+func (s *SystemInfoSnapshot) GetUserName() string { return s.UserName }
+
 // Prompt asks the user for input (implementation depends on UI configuration)
 func (ctx *Ctx) Prompt(message string) (string, error) {
 	if ctx.UI != nil && ctx.UI.AutoConfirm {
 		return "", fmt.Errorf("prompt not available in auto-confirm mode")
 	}
 
-	fmt.Fprintf(ctx.Stdout, "%s: ", message)
+	_, _ = fmt.Fprintf(ctx.Stdout, "%s: ", message)
 	// For now, return empty string - would need actual input handling
 	return "", fmt.Errorf("interactive prompts not yet implemented")
 }
@@ -175,17 +242,13 @@ func (ctx *Ctx) Confirm(message string) (bool, error) {
 		return true, nil
 	}
 
-	fmt.Fprintf(ctx.Stdout, "%s (y/N): ", message)
+	_, _ = fmt.Fprintf(ctx.Stdout, "%s (y/N): ", message)
 	// For now, return false - would need actual input handling
 	return false, fmt.Errorf("interactive confirmation not yet implemented")
 }
 
 // Log outputs a log message at the specified level
 func (ctx *Ctx) Log(level decorators.LogLevel, message string) {
-	if ctx.UI != nil && ctx.UI.Quiet && level != decorators.LogLevelError {
-		return
-	}
-
 	prefix := ""
 	switch level {
 	case decorators.LogLevelDebug:
@@ -202,15 +265,12 @@ func (ctx *Ctx) Log(level decorators.LogLevel, message string) {
 		prefix = "[ERROR] "
 	}
 
-	fmt.Fprintf(ctx.Stderr, "%s%s\n", prefix, message)
+	_, _ = fmt.Fprintf(ctx.Stderr, "%s%s\n", prefix, message)
 }
 
 // Printf outputs a formatted message
 func (ctx *Ctx) Printf(format string, args ...any) {
-	if ctx.UI != nil && ctx.UI.Quiet {
-		return
-	}
-	fmt.Fprintf(ctx.Stdout, format, args...)
+	_, _ = fmt.Fprintf(ctx.Stdout, format, args...)
 }
 
 // ================================================================================================
@@ -232,12 +292,8 @@ func (ctx *Ctx) Clone() *Ctx {
 	var ui *UIConfig
 	if ctx.UI != nil {
 		ui = &UIConfig{
-			ColorMode:   ctx.UI.ColorMode,
-			Quiet:       ctx.UI.Quiet,
-			Verbose:     ctx.UI.Verbose,
-			Interactive: ctx.UI.Interactive,
+			NoColor:     ctx.UI.NoColor,
 			AutoConfirm: ctx.UI.AutoConfirm,
-			CI:          ctx.UI.CI,
 		}
 	}
 
@@ -245,7 +301,7 @@ func (ctx *Ctx) Clone() *Ctx {
 		Env:      ctx.Env, // EnvSnapshot is immutable, safe to share
 		Vars:     newVars,
 		WorkDir:  ctx.WorkDir,
-		NumCPU:   ctx.NumCPU,
+		SysInfo:  ctx.SysInfo, // SystemInfoSnapshot is immutable, safe to share
 		Stdout:   ctx.Stdout,
 		Stderr:   ctx.Stderr,
 		Stdin:    ctx.Stdin,
@@ -272,7 +328,6 @@ func (ctx *Ctx) WithWorkDir(workDir string) *Ctx {
 type CtxOptions struct {
 	WorkDir    string
 	EnvOptions EnvOptions
-	NumCPU     int
 	DryRun     bool
 	Debug      bool
 	UIConfig   *UIConfig
@@ -301,10 +356,12 @@ func NewCtx(opts CtxOptions) (*Ctx, error) {
 		Env:      env,
 		Vars:     vars,
 		WorkDir:  opts.WorkDir,
-		NumCPU:   opts.NumCPU,
+		SysInfo:  CaptureSystemInfo(), // Capture system info at context creation
 		DryRun:   opts.DryRun,
 		Debug:    opts.Debug,
 		UI:       opts.UIConfig,
+		UIConfig: opts.UIConfig, // Set both fields for compatibility
+		Commands: opts.Commands, // FIX: Add missing Commands assignment
 		Executor: opts.Executor,
 	}, nil
 }

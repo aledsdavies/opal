@@ -1,6 +1,8 @@
 package decorators
 
 import (
+	"context"
+
 	"github.com/aledsdavies/devcmd/core/plan"
 )
 
@@ -54,47 +56,58 @@ type Example struct {
 type ValueDecorator interface {
 	DecoratorBase
 	// Plan generation - shows how value will be resolved
-	Describe(args []Param) plan.ExecutionStep
+	Describe(ctx Context, args []Param) plan.ExecutionStep
 }
 
 // ActionDecorator - Standalone action decorators
 type ActionDecorator interface {
 	DecoratorBase
 	// Plan generation - shows what action will be executed
-	Describe(args []Param) plan.ExecutionStep
+	Describe(ctx Context, args []Param) plan.ExecutionStep
 	// Execution method - runtime implementations provide this
-	Run(ctx ExecutionContext, args []Param) CommandResult
+	Run(ctx Context, args []Param) CommandResult
 }
 
 // BlockDecorator - Execution wrapper decorators
 type BlockDecorator interface {
 	DecoratorBase
 	// Plan generation - shows how inner commands will be wrapped
-	Describe(args []Param, inner plan.ExecutionStep) plan.ExecutionStep
+	Describe(ctx Context, args []Param, inner plan.ExecutionStep) plan.ExecutionStep
 }
 
 // PatternDecorator - Conditional execution decorators
 type PatternDecorator interface {
 	DecoratorBase
-	// Plan generation - shows which branch will be selected
-	Describe(args []Param, branches map[string]plan.ExecutionStep) plan.ExecutionStep
+	// Plan generation - shows which branch will be selected, with context for env access
+	Describe(ctx Context, args []Param, branches map[string]plan.ExecutionStep) plan.ExecutionStep
+	// Validation - each decorator validates its own patterns, can return multiple errors
+	Validate(patternNames []string) []error
 }
 
 // ================================================================================================
 // EXECUTION INTERFACES - Runtime contracts that decorators depend on
 // ================================================================================================
 
-// ExecutionContext provides the runtime environment for decorator execution
-// Runtime implementations will provide concrete types that implement this interface
-type ExecutionContext interface {
+// Context provides the runtime environment for decorator execution
+// Wraps Go context.Context for cancellation plus devcmd-specific functionality
+type Context interface {
+	// Go context for cancellation and deadlines
+	context.Context
+
 	// Shell execution
 	ExecShell(command string) CommandResult
 
 	// Environment access
-	GetEnv(key string) string
+	GetEnv(key string) (string, bool)
 	SetEnv(key, value string)
 	GetWorkingDir() string
 	SetWorkingDir(dir string) error
+
+	// Variable access - CLI variables (@var) - immutable during execution
+	GetVar(key string) (string, bool)
+
+	// System information
+	SystemInfo() SystemInfo
 
 	// UI interaction
 	Prompt(message string) (string, error)
@@ -103,6 +116,23 @@ type ExecutionContext interface {
 	// Logging
 	Log(level LogLevel, message string)
 	Printf(format string, args ...any)
+}
+
+// SystemInfo provides system information useful for decorator development
+type SystemInfo interface {
+	// Hardware information
+	GetNumCPU() int
+	GetMemoryMB() int64
+
+	// System identification
+	GetHostname() string
+	GetOS() string   // "linux", "darwin", "windows"
+	GetArch() string // "amd64", "arm64", etc.
+
+	// Runtime information
+	GetTempDir() string
+	GetHomeDir() string
+	GetUserName() string
 }
 
 // CommandResult represents the result of executing a command

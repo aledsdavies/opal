@@ -7,6 +7,7 @@ import (
 
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
+	"github.com/aledsdavies/devcmd/runtime/execution/context"
 )
 
 // Register the @retry decorator on package import
@@ -85,73 +86,24 @@ func (r *RetryDecorator) Examples() []decorators.Example {
 }
 
 // ImportRequirements returns the dependencies needed for code generation
-func (r *RetryDecorator) ImportRequirements() execution.ImportRequirement {
-	return execution.ImportRequirement{
-		StandardLibrary: []string{"time"},
-		ThirdParty:      []string{},
-		GoModules:       map[string]string{},
-	}
-}
+// Note: ImportRequirements removed - will be added back when code generation is implemented
 
 // ================================================================================================
 // BLOCK DECORATOR METHODS
 // ================================================================================================
 
 // Wrap executes the inner commands with retry logic
-func (r *RetryDecorator) WrapCommands(ctx *context.Ctx, args []decorators.Param, inner ir.CommandSeq) context.CommandResult {
-	attempts, delay, exponentialBackoff, err := r.extractParameters(args)
-	if err != nil {
-		return context.CommandResult{
-			Stderr:   fmt.Sprintf("@retry parameter error: %v", err),
-			ExitCode: 1,
-		}
+func (r *RetryDecorator) WrapCommands(ctx decorators.Context, args []decorators.Param, inner interface{}) decorators.CommandResult {
+	// TODO: Runtime execution - implement when interpreter is rebuilt
+	return context.CommandResult{
+		Stdout:   "",
+		Stderr:   "runtime execution not implemented yet - use plan mode",
+		ExitCode: 1,
 	}
-
-	var lastResult context.CommandResult
-	currentDelay := delay
-
-	for attempt := 1; attempt <= attempts; attempt++ {
-		// Execute the inner commands
-		result := ctx.ExecSequential(inner.Steps)
-
-		// If successful, return immediately
-		if result.Success() {
-			if attempt > 1 && ctx.Debug {
-				_, _ = fmt.Fprintf(ctx.Stderr, "[DEBUG] @retry succeeded on attempt %d/%d\n", attempt, attempts)
-			}
-			return result
-		}
-
-		// Store the result (in case this is the last attempt)
-		lastResult = result
-
-		// If this was the last attempt, return the failure
-		if attempt == attempts {
-			if ctx.Debug {
-				_, _ = fmt.Fprintf(ctx.Stderr, "[DEBUG] @retry failed after %d attempts\n", attempts)
-			}
-			break
-		}
-
-		// Wait before retrying (except on the last attempt)
-		if ctx.Debug {
-			_, _ = fmt.Fprintf(ctx.Stderr, "[DEBUG] @retry attempt %d/%d failed (exit code %d), retrying in %v\n",
-				attempt, attempts, result.ExitCode, currentDelay)
-		}
-
-		time.Sleep(currentDelay)
-
-		// Update delay for exponential backoff
-		if exponentialBackoff {
-			currentDelay *= 2
-		}
-	}
-
-	return lastResult
 }
 
 // Describe returns description for dry-run display
-func (r *RetryDecorator) Describe(ctx *context.Ctx, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
+func (r *RetryDecorator) Describe(ctx decorators.Context, args []decorators.Param, inner plan.ExecutionStep) plan.ExecutionStep {
 	attempts, delay, exponentialBackoff, err := r.extractParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{

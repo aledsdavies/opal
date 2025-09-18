@@ -43,15 +43,31 @@ func (t *TryDecorator) ParameterSchema() []decorators.ParameterSchema {
 	}
 }
 
-// PatternSchema defines what patterns @try accepts
-func (t *TryDecorator) PatternSchema() execution.PatternSchema {
-	return execution.PatternSchema{
-		AllowedPatterns:     []string{"main", "catch", "finally"},
-		RequiredPatterns:    []string{"main"}, // main block is required
-		AllowsWildcard:      false,            // No wildcard patterns
-		AllowsAnyIdentifier: false,            // Only specific patterns allowed
-		Description:         "Error handling with main/catch/finally blocks",
+// Validate checks if the provided patterns are valid for @try decorator
+func (t *TryDecorator) Validate(patternNames []string) []error {
+	var errors []error
+
+	// Check for required "main" pattern
+	hasMain := false
+	for _, name := range patternNames {
+		if name == "main" {
+			hasMain = true
+			break
+		}
 	}
+	if !hasMain {
+		errors = append(errors, fmt.Errorf("@try requires a 'main' pattern"))
+	}
+
+	// Check that all patterns are allowed
+	allowed := map[string]bool{"main": true, "catch": true, "finally": true}
+	for _, name := range patternNames {
+		if !allowed[name] {
+			errors = append(errors, fmt.Errorf("@try does not allow pattern '%s' (allowed: main, catch, finally)", name))
+		}
+	}
+
+	return errors
 }
 
 // Examples returns usage examples
@@ -89,14 +105,7 @@ func (t *TryDecorator) Examples() []decorators.Example {
 	}
 }
 
-// ImportRequirements returns the dependencies needed for code generation
-func (t *TryDecorator) ImportRequirements() execution.ImportRequirement {
-	return execution.ImportRequirement{
-		StandardLibrary: []string{},
-		ThirdParty:      []string{},
-		GoModules:       map[string]string{},
-	}
-}
+// Note: ImportRequirements removed - will be added back when code generation is implemented
 
 // ================================================================================================
 // PATTERN DECORATOR METHODS
@@ -105,7 +114,7 @@ func (t *TryDecorator) ImportRequirements() execution.ImportRequirement {
 // SelectBranch executes try/catch/finally logic
 func (t *TryDecorator) SelectBranch(ctx *context.Ctx, args []decorators.Param, branches map[string]ir.CommandSeq) context.CommandResult {
 	// Validate that we have required branches
-	mainBranch, hasMain := branches["main"]
+	_, hasMain := branches["main"]
 	if !hasMain {
 		return context.CommandResult{
 			Stderr:   "@try requires a 'main' branch",
@@ -113,61 +122,16 @@ func (t *TryDecorator) SelectBranch(ctx *context.Ctx, args []decorators.Param, b
 		}
 	}
 
-	catchBranch, hasCatch := branches["catch"]
-	finallyBranch, hasFinally := branches["finally"]
-
-	var mainResult context.CommandResult
-	var finalResult context.CommandResult
-
-	// Execute main branch
-	mainResult = ctx.ExecSequential(mainBranch.Steps)
-
-	// If main failed and we have a catch branch, execute it
-	if mainResult.Failed() && hasCatch {
-		if ctx.Debug {
-			_, _ = fmt.Fprintf(ctx.Stderr, "[DEBUG] @try main failed (exit code %d), executing catch block\n", mainResult.ExitCode)
-		}
-
-		catchResult := ctx.ExecSequential(catchBranch.Steps)
-
-		// Catch result determines the overall success/failure
-		// This allows catch blocks to either:
-		// 1. Return success (exit code 0) to "handle" the error
-		// 2. Return failure to propagate the error
-		finalResult = catchResult
-
-		// Combine output from both main and catch
-		finalResult.Stdout = mainResult.Stdout + catchResult.Stdout
-		finalResult.Stderr = mainResult.Stderr + catchResult.Stderr
-	} else {
-		// Main succeeded or no catch block - use main result
-		finalResult = mainResult
+	// TODO: Runtime execution - implement when interpreter is rebuilt
+	return context.CommandResult{
+		Stdout:   "",
+		Stderr:   "interpreter not implemented",
+		ExitCode: 1,
 	}
-
-	// Always execute finally block if present
-	if hasFinally {
-		if ctx.Debug {
-			_, _ = fmt.Fprintf(ctx.Stderr, "[DEBUG] @try executing finally block\n")
-		}
-
-		finallyResult := ctx.ExecSequential(finallyBranch.Steps)
-
-		// Finally block output is always included
-		finalResult.Stdout += finallyResult.Stdout
-		finalResult.Stderr += finallyResult.Stderr
-
-		// Finally block failure overrides the overall result
-		// This ensures cleanup failures are not ignored
-		if finallyResult.Failed() {
-			finalResult.ExitCode = finallyResult.ExitCode
-		}
-	}
-
-	return finalResult
 }
 
 // Describe returns description for dry-run display
-func (t *TryDecorator) Describe(ctx *context.Ctx, args []decorators.Param, branches map[string]plan.ExecutionStep) plan.ExecutionStep {
+func (t *TryDecorator) Describe(ctx decorators.Context, args []decorators.Param, branches map[string]plan.ExecutionStep) plan.ExecutionStep {
 	description := "@try"
 
 	var children []plan.ExecutionStep
@@ -210,7 +174,7 @@ func (t *TryDecorator) Describe(ctx *context.Ctx, args []decorators.Param, branc
 		Children:    children,
 		Metadata: map[string]string{
 			"decorator":      "try",
-			"execution_mode": string(plan.ModeErrorHandling),
+			"execution_mode": "error_handling",
 			"color":          plan.ColorCyan,
 			"info":           "", // @try doesn't need extra info
 			"branchCount":    fmt.Sprintf("%d", branchCount),

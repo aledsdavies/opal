@@ -7,6 +7,7 @@ import (
 
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
+	"github.com/aledsdavies/devcmd/runtime/execution/context"
 )
 
 // Register the @log decorator on package import
@@ -82,57 +83,24 @@ func (l *LogDecorator) Examples() []decorators.Example {
 	}
 }
 
-// ImportRequirements returns the dependencies needed for code generation
-func (l *LogDecorator) ImportRequirements() execution.ImportRequirement {
-	return execution.ImportRequirement{
-		StandardLibrary: []string{"fmt"},
-		ThirdParty:      []string{},
-		GoModules:       map[string]string{},
-	}
-}
+// Note: ImportRequirements removed - will be added back when code generation is implemented
 
 // ================================================================================================
 // ACTION DECORATOR METHODS
 // ================================================================================================
 
 // Run executes the log command and returns appropriate CommandResult
-func (l *LogDecorator) Run(ctx *context.Ctx, args []decorators.Param) context.CommandResult {
-	message, level, _, err := l.extractDecoratorParameters(args)
-	if err != nil {
-		return context.CommandResult{
-			Stderr:   fmt.Sprintf("@log parameter error: %v", err),
-			ExitCode: 1,
-		}
-	}
-
-	// Process color templates in the message
-	processedMessage := l.processColorTemplates(message)
-
-	// Respect standardized flags - in quiet mode, suppress non-error logs
-	if ctx.UI != nil && ctx.UI.Quiet && level != "error" {
-		// In quiet mode, suppress info/debug logs but keep errors
-		return context.CommandResult{
-			Stdout:   "",
-			Stderr:   "",
-			ExitCode: 0,
-		}
-	}
-
-	// All log levels go to stdout
-	if ctx.Stdout != nil {
-		_, _ = fmt.Fprintln(ctx.Stdout, processedMessage)
-	}
-
-	// Always add trailing newline (like echo command)
+func (l *LogDecorator) Run(ctx decorators.Context, args []decorators.Param) decorators.CommandResult {
+	// TODO: Runtime execution - implement when interpreter is rebuilt
 	return context.CommandResult{
-		Stdout:   processedMessage + "\n",
-		Stderr:   "",
-		ExitCode: 0,
+		Stdout:   "",
+		Stderr:   "runtime execution not implemented yet - use plan mode",
+		ExitCode: 1,
 	}
 }
 
 // Describe returns description for dry-run display
-func (l *LogDecorator) Describe(ctx *context.Ctx, args []decorators.Param) plan.ExecutionStep {
+func (l *LogDecorator) Describe(ctx decorators.Context, args []decorators.Param) plan.ExecutionStep {
 	message, level, plain, err := l.extractDecoratorParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -236,6 +204,8 @@ func (l *LogDecorator) extractDecoratorParameters(params []decorators.Param) (me
 // TODO: Remove when GenerateHint is properly updated
 
 // processColorTemplates processes color template tags like {red}text{/red}
+//
+//nolint:unused // Will be used for future color template support
 func (l *LogDecorator) processColorTemplates(message string) string {
 	// Define ANSI color codes
 	colorCodes := map[string]string{

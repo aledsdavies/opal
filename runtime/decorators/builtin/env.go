@@ -6,12 +6,11 @@ import (
 	"github.com/aledsdavies/devcmd/core/decorators"
 	"github.com/aledsdavies/devcmd/core/plan"
 	"github.com/aledsdavies/devcmd/runtime/execution"
-	"github.com/aledsdavies/devcmd/runtime/execution/context"
 )
 
 // Register the @env decorator on package import
 func init() {
-	decorators.RegisterValue(NewEnvDecorator())
+	decorators.Register(NewEnvDecorator())
 }
 
 // EnvDecorator implements the @env decorator using the core decorator interfaces
@@ -96,14 +95,14 @@ func (e *EnvDecorator) ImportRequirements() execution.ImportRequirement {
 // ================================================================================================
 
 // Render expands the environment variable value from frozen context
-func (e *EnvDecorator) Render(ctx *context.Ctx, args []decorators.Param) (string, error) {
+func (e *EnvDecorator) Render(ctx decorators.Context, args []decorators.Param) (string, error) {
 	key, defaultValue, allowEmpty, err := e.extractDecoratorParameters(args)
 	if err != nil {
 		return "", fmt.Errorf("@env parameter error: %w", err)
 	}
 
 	// ✅ CORRECT: Read from frozen environment (deterministic)
-	value, exists := ctx.Env.Get(key)
+	value, exists := ctx.GetEnv(key)
 
 	// Use default if not exists or empty (unless allowEmpty=true)
 	if !exists || (!allowEmpty && value == "") {
@@ -114,7 +113,7 @@ func (e *EnvDecorator) Render(ctx *context.Ctx, args []decorators.Param) (string
 }
 
 // Describe returns description for dry-run display
-func (e *EnvDecorator) Describe(ctx *context.Ctx, args []decorators.Param) plan.ExecutionStep {
+func (e *EnvDecorator) Describe(ctx decorators.Context, args []decorators.Param) plan.ExecutionStep {
 	key, defaultValue, allowEmpty, err := e.extractDecoratorParameters(args)
 	if err != nil {
 		return plan.ExecutionStep{
@@ -125,7 +124,7 @@ func (e *EnvDecorator) Describe(ctx *context.Ctx, args []decorators.Param) plan.
 	}
 
 	// Get the environment variable value from frozen environment
-	value, exists := ctx.Env.Get(key)
+	value, exists := ctx.GetEnv(key)
 	actualValue := value
 	source := "captured"
 

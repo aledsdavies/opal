@@ -1,5 +1,9 @@
 package ir
 
+import (
+	"github.com/aledsdavies/devcmd/core/decorators"
+)
+
 // ================================================================================================
 // INTERMEDIATE REPRESENTATION (IR) - Structural Types Only
 // ================================================================================================
@@ -30,8 +34,8 @@ type ChainElement struct {
 	Kind ElementKind `json:"kind"` // Type of element
 
 	// For action elements (decorators)
-	Name string `json:"name,omitempty"` // decorator name
-	Args []any  `json:"args,omitempty"` // parameters (generic for core)
+	Name string             `json:"name,omitempty"` // decorator name
+	Args []decorators.Param `json:"args,omitempty"` // parameters using core types
 
 	// For shell elements - structured content preserving value decorators
 	Content *ElementContent `json:"content,omitempty"`
@@ -60,8 +64,8 @@ type ContentPart struct {
 	Text string `json:"text,omitempty"`
 
 	// For value decorator parts (@var, @env, etc.)
-	DecoratorName string `json:"decorator_name,omitempty"`
-	DecoratorArgs []any  `json:"decorator_args,omitempty"`
+	DecoratorName string             `json:"decorator_name,omitempty"`
+	DecoratorArgs []decorators.Param `json:"decorator_args,omitempty"`
 
 	// Source location
 	Span *SourceSpan `json:"span,omitempty"`

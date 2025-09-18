@@ -81,7 +81,7 @@ func (c *CmdDecorator) Examples() []decorators.Example {
 // ================================================================================================
 
 // Run executes the referenced command using core interfaces
-func (c *CmdDecorator) Run(ctx decorators.ExecutionContext, args []decorators.Param) decorators.CommandResult {
+func (c *CmdDecorator) Run(ctx decorators.Context, args []decorators.Param) decorators.CommandResult {
 	cmdName, err := c.extractDecoratorCommandName(args)
 	if err != nil {
 		// Create a simple error result that implements the interface
@@ -96,7 +96,7 @@ func (c *CmdDecorator) Run(ctx decorators.ExecutionContext, args []decorators.Pa
 }
 
 // Describe returns description for dry-run display with expansion hints
-func (c *CmdDecorator) Describe(args []decorators.Param) plan.ExecutionStep {
+func (c *CmdDecorator) Describe(ctx decorators.Context, args []decorators.Param) plan.ExecutionStep {
 	cmdName, err := c.extractDecoratorCommandName(args)
 	if err != nil {
 		return plan.ExecutionStep{

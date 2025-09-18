@@ -122,7 +122,7 @@ func transformShellContent(shell *ast.ShellContent) (*ir.CommandStep, error) {
 			contentParts = append(contentParts, ir.ContentPart{
 				Kind:          ir.PartKindDecorator,
 				DecoratorName: p.Name,
-				DecoratorArgs: convertDecoratorParamsToAny(args),
+				DecoratorArgs: args,
 				Span:          createSourceSpan(p.Position()),
 			})
 		case *ast.ActionDecorator:
@@ -135,7 +135,7 @@ func transformShellContent(shell *ast.ShellContent) (*ir.CommandStep, error) {
 			actionElement := ir.ChainElement{
 				Kind: ir.ElementKindAction,
 				Name: p.Name,
-				Args: convertDecoratorParamsToAny(args),
+				Args: args,
 				Span: createSourceSpan(p.Position()),
 			}
 			elements = append(elements, actionElement)
@@ -197,7 +197,7 @@ func transformShellChain(chain *ast.ShellChain) (*ir.CommandStep, error) {
 				contentParts = append(contentParts, ir.ContentPart{
 					Kind:          ir.PartKindDecorator,
 					DecoratorName: p.Name,
-					DecoratorArgs: convertDecoratorParamsToAny(args),
+					DecoratorArgs: args,
 					Span:          createSourceSpan(p.Position()),
 				})
 			default:
@@ -266,7 +266,7 @@ func transformBlockDecoratorToWrapper(block *ast.BlockDecorator) (ir.Wrapper, er
 				Chain: []ir.ChainElement{{
 					Kind:       ir.ElementKindBlock,
 					Name:       n.Kind,
-					Args:       convertDecoratorParamsToAny(convertParamsToDecoratorParams(n.Params)),
+					Args:       convertParamsToDecoratorParams(n.Params),
 					InnerSteps: n.Inner.Steps, // Use ir.CommandSeq.Steps directly
 				}},
 			}
@@ -315,7 +315,7 @@ func transformPatternDecoratorToPattern(pattern *ast.PatternDecorator) (ir.Patte
 					Chain: []ir.ChainElement{{
 						Kind:       ir.ElementKindBlock,
 						Name:       n.Kind,
-						Args:       convertDecoratorParamsToAny(convertParamsToDecoratorParams(n.Params)),
+						Args:       convertParamsToDecoratorParams(n.Params),
 						InnerSteps: n.Inner.Steps, // Use ir.CommandSeq.Steps directly
 					}},
 				}
@@ -351,7 +351,7 @@ func transformActionDecorator(action *ast.ActionDecorator) (*ir.CommandStep, err
 	actionElement := ir.ChainElement{
 		Kind: ir.ElementKindAction,
 		Name: action.Name,
-		Args: convertDecoratorParamsToAny(convertParamsToDecoratorParams(params)),
+		Args: convertParamsToDecoratorParams(params),
 		Span: createSourceSpan(action.Position()),
 	}
 
@@ -448,15 +448,6 @@ func transformDecoratorArgs(astArgs []ast.NamedParameter) ([]decorators.Param, e
 	}
 
 	return params, nil
-}
-
-// convertDecoratorParamsToAny converts DecoratorParam slice to []any for core IR
-func convertDecoratorParamsToAny(params []decorators.Param) []any {
-	result := make([]any, len(params))
-	for i, param := range params {
-		result[i] = param
-	}
-	return result
 }
 
 // convertParamsToDecoratorParams converts map parameters to DecoratorParam slice
