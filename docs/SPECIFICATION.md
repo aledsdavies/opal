@@ -65,6 +65,8 @@ quick: npm install && npm run build && npm test
 
 ### Shell Operators Split Decorator Units
 
+> **🔑 Key Rule: Newline = fail-fast step; `;` = best-effort continue**
+
 Shell operators like `&&`, `||`, `|`, `;` create separate decorator units with standard shell precedence:
 
 ```devcmd
@@ -78,6 +80,18 @@ complex: @shell("echo \"Starting\"") && @cmd(build) && @log("Complete") || @para
 fallback: command1 || command2 && command3
 // Becomes: (@shell("command1") || @shell("command2")) && @shell("command3")
 ```
+
+**Operator Precedence & Behavior:**
+
+| Operator | Meaning | Precedence | Example |
+|----------|---------|------------|---------|
+| `\|` | Pipe stdout | Highest | `cmd1 \| cmd2` |
+| `&&` | Execute if previous succeeded | High | `cmd1 && cmd2` |
+| `\|\|` | Execute if previous failed | High | `cmd1 \|\| cmd2` |
+| `;` | Execute unconditionally (shell) | Low | `cmd1; cmd2` |
+| Newline | Execute if previous succeeded (fail-fast) | Low | `cmd1`<br>`cmd2` |
+
+**Critical**: Decorators complete their entire block before chain evaluation begins.
 
 ### Line Continuation
 
@@ -614,6 +628,12 @@ deploy-strict: @retry(3) {
 ```
 
 Choose semicolon when you want shell-style "continue on error" behavior, and newlines when you want structured fail-fast execution.
+
+**Formatter & Lint Guardrails:**
+- **Formatter**: Splits multi-operator chains across lines unless user writes `;`
+- **Lint**: D001 enforces blocks for mixed `&&/||/|` outside decorator blocks (see [Clean Code Guidelines](CLEAN_CODE_GUIDELINES.md))
+
+**Note**: Newline semantics imply `pipefail=on` for `|` operators unless overridden.
 
 ### **Error Propagation**
 
