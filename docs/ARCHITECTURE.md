@@ -281,18 +281,45 @@ deploy: @shell("npm run build") && @shell("kubectl apply -f k8s/") || @shell("ec
 - `&&` - Execute next only if previous succeeded
 - `||` - Execute next only if previous failed
 - `|` - Pipe stdout of previous to stdin of next
+- `;` - Execute next unconditionally (shell behavior - continue on failure)
 - `>>` - Append stdout of previous to file
+- **Newline** - Execute next only if previous succeeded (fail-fast behavior)
 
 ## Error Handling and Operator Semantics
 
 ### **Error Propagation Rules**
 
-**Shell operator chains** follow standard shell semantics:
+#### **Semicolon vs Newline Execution Models**
+
+**Semicolon (`;`) - Shell Behavior**:
+```devcmd
+@retry(3) { cmd1; cmd2; cmd3 }
+// Internal: @retry(3) { @shell("cmd1; cmd2; cmd3") }
+// Behavior: Traditional shell execution, all commands run
+// Success: If overall shell sequence exits successfully
+// Failure: If overall shell sequence fails
+```
+
+**Newline - Fail-Fast Behavior**:
+```devcmd
+@retry(3) {
+    cmd1
+    cmd2  
+    cmd3
+}
+// Internal: @retry(3) { @shell("cmd1"); @shell("cmd2"); @shell("cmd3") }
+// Behavior: Structured execution with immediate failure detection
+// Success: Only if ALL commands succeed in sequence
+// Failure: Immediately when ANY command fails
+```
+
+#### **Shell Operator Chains**
+
+**Standard shell operators** follow traditional semantics:
 ```devcmd
 // Success/failure propagation
 cmd1 && cmd2 && cmd3    // Stop on first failure, success if all succeed
 cmd1 || cmd2 || cmd3    // Stop on first success, fail if all fail
-cmd1; cmd2; cmd3        // Execute all regardless, return last exit code
 
 // Mixed operators (standard shell precedence)
 cmd1 && cmd2 || cmd3    // ((cmd1 && cmd2) || cmd3)

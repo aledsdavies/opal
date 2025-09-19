@@ -65,7 +65,7 @@ quick: npm install && npm run build && npm test
 
 ### Shell Operators Split Decorator Units
 
-Shell operators like `&&`, `||`, `|` create separate decorator units with standard shell precedence:
+Shell operators like `&&`, `||`, `|`, `;` create separate decorator units with standard shell precedence:
 
 ```devcmd
 // User syntax: Mixed shell and decorators
@@ -92,6 +92,52 @@ deploy: kubectl apply -f k8s/production/ && \
 // Becomes: Three separate chained @shell decorators
 deploy: @shell("kubectl apply -f k8s/production/") && @shell("kubectl rollout status deployment/app") && @shell("kubectl get pods")
 ```
+
+### Semicolon vs Newline Semantics
+
+**CRITICAL DISTINCTION**: Semicolons and newlines have different error handling behavior:
+
+#### **Semicolon (`;`) - Shell Behavior (Continue on Failure)**
+```devcmd
+@retry(3) { cmd1; cmd2; cmd3 }
+// Becomes: @retry(3) { @shell("cmd1; cmd2; cmd3") }
+// Traditional shell: all commands execute regardless of individual failures
+// @retry succeeds if the overall shell sequence completes
+```
+
+#### **Newline - Fail-Fast Behavior**
+```devcmd
+@retry(3) {
+    cmd1
+    cmd2
+    cmd3
+}
+// Becomes: @retry(3) { @shell("cmd1"); @shell("cmd2"); @shell("cmd3") }
+// Structured execution: cmd2 only runs if cmd1 succeeds
+// cmd3 only runs if both cmd1 AND cmd2 succeed
+// @retry fails immediately on first command failure
+```
+
+#### **Comparison Example**
+```devcmd
+// Semicolon: "Run all commands, handle errors collectively"
+deploy-tolerant: @retry(3) { 
+    kubectl apply -f api/; kubectl apply -f worker/; kubectl apply -f ui/ 
+}
+// If api/ fails, worker/ and ui/ still deploy. Retry if overall sequence fails.
+
+// Newline: "Fail immediately on any error"  
+deploy-strict: @retry(3) {
+    kubectl apply -f api/
+    kubectl apply -f worker/
+    kubectl apply -f ui/
+}
+// If api/ fails, worker/ and ui/ don't deploy. Retry the failed step.
+```
+
+**When to use each**:
+- **Semicolon**: When you want shell-style "best effort" execution
+- **Newline**: When you want structured fail-fast execution (recommended)
 
 ---
 
@@ -457,15 +503,22 @@ literal: echo 'App @var(NAME) running on port @var(PORT)'
 
 ### Sequential vs Chain Execution
 
-**Sequential (Newlines)**: Each command executes independently
+**Sequential (Newlines)**: Fail-fast execution
 ```devcmd
 deploy: {
     @log("Step 1")    // Executes, shows output
-    @log("Step 2")    // Executes, shows output  
-    @log("Step 3")    // Executes, shows output
+    @log("Step 2")    // Executes only if Step 1 succeeds  
+    @log("Step 3")    // Executes only if Step 1 AND Step 2 succeed
 }
-// User sees: All output live
-// Result: Only final command's CommandResult
+// Behavior: Stops immediately on first failure
+// Result: Success only if ALL commands succeed
+```
+
+**Sequential (Semicolons)**: Shell-style execution
+```devcmd
+deploy: { @log("Step 1"); @log("Step 2"); @log("Step 3") }
+// Behavior: All commands execute regardless of individual failures
+// Result: Success if overall shell sequence completes
 ```
 
 **Chain (Operators)**: Commands chain with shell operator semantics
@@ -539,6 +592,28 @@ complex: cmd1 && cmd2 || cmd3    // ((cmd1 && cmd2) || cmd3)
 ```
 
 **Important**: @retry applies to the entire block as a unit. If `kubectl apply` fails, the whole block (including `kubectl rollout status`) is retried.
+
+### **Practical Example: Semicolon vs Newline**
+
+```devcmd
+// Semicolon: "Best effort" deployment
+deploy-tolerant: @retry(3) {
+    kubectl apply -f api/; kubectl apply -f worker/; kubectl apply -f ui/
+}
+// If api/ fails, worker/ and ui/ still attempt to deploy
+// Retry only happens if the entire shell command sequence fails
+
+// Newline: "Strict" deployment  
+deploy-strict: @retry(3) {
+    kubectl apply -f api/
+    kubectl apply -f worker/ 
+    kubectl apply -f ui/
+}
+// If api/ fails, worker/ and ui/ never execute
+// Retry happens immediately when any individual command fails
+```
+
+Choose semicolon when you want shell-style "continue on error" behavior, and newlines when you want structured fail-fast execution.
 
 ### **Error Propagation**
 
