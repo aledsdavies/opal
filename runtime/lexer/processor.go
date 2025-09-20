@@ -52,6 +52,13 @@ func (m *ProcessorManager) Create(reader io.Reader) TokenProcessor {
 	return m.legacyFactory.Create(reader)
 }
 
+// NewProcessor creates a TokenProcessor for the given reader
+// This is the default factory function used by tests
+func NewProcessor(reader io.Reader) TokenProcessor {
+	manager := NewProcessorManager()
+	return manager.Create(reader)
+}
+
 // shouldUseSimplifiedLexer checks environment variables and feature flags
 func shouldUseSimplifiedLexer() bool {
 	// Check environment variable for feature flag
@@ -72,7 +79,7 @@ func shouldUseSimplifiedLexer() bool {
 type LegacyProcessorFactory struct{}
 
 func (f *LegacyProcessorFactory) Create(reader io.Reader) TokenProcessor {
-	return &LegacyTokenProcessor{lexer: NewLegacy(reader)}
+	return &LegacyTokenProcessor{lexer: New(reader)}
 }
 
 // SimplifiedProcessorFactory creates the new simplified lexer (to be implemented)
@@ -82,7 +89,7 @@ func (f *SimplifiedProcessorFactory) Create(reader io.Reader) TokenProcessor {
 	// TODO: Implement SimplifiedLexer
 	// For now, wrap legacy processor
 	return &SimplifiedTokenProcessor{
-		legacy: &LegacyTokenProcessor{lexer: NewLegacy(reader)},
+		legacy: &LegacyTokenProcessor{lexer: New(reader)},
 	}
 }
 
