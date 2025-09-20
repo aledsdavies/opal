@@ -65,14 +65,14 @@ func TestASCIICharacterClassification(t *testing.T) {
 			},
 		},
 		{
-			name: "newline should not be whitespace",
+			name: "newline should be whitespace",
 			char: '\n',
 			expected: map[string]bool{
 				"letter":     false,
 				"identStart": false,
 				"identPart":  false,
 				"digit":      false,
-				"whitespace": false, // Newlines are significant!
+				"whitespace": true, // Newlines are skipped as whitespace
 			},
 		},
 		{

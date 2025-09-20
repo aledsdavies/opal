@@ -193,7 +193,48 @@ func (l *Lexer) lexToken() Token {
 		return l.lexIdentifier(start)
 	}
 
-	// Unrecognized character - for now, advance and mark as illegal
+	// String literals
+	if ch == '"' || ch == '\'' || ch == '`' {
+		return l.lexString(start, ch)
+	}
+
+	// Single character punctuation
+	switch ch {
+	case '=':
+		l.advanceChar()
+		return Token{Type: EQUALS, Text: "=", Position: start}
+	case ':':
+		l.advanceChar()
+		return Token{Type: COLON, Text: ":", Position: start}
+	case '{':
+		l.advanceChar()
+		return Token{Type: LBRACE, Text: "{", Position: start}
+	case '}':
+		l.advanceChar()
+		return Token{Type: RBRACE, Text: "}", Position: start}
+	case '(':
+		l.advanceChar()
+		return Token{Type: LPAREN, Text: "(", Position: start}
+	case ')':
+		l.advanceChar()
+		return Token{Type: RPAREN, Text: ")", Position: start}
+	case '[':
+		l.advanceChar()
+		return Token{Type: LSQUARE, Text: "[", Position: start}
+	case ']':
+		l.advanceChar()
+		return Token{Type: RSQUARE, Text: "]", Position: start}
+	case ',':
+		l.advanceChar()
+		return Token{Type: COMMA, Text: ",", Position: start}
+	case ';':
+		l.advanceChar()
+		return Token{Type: SEMICOLON, Text: ";", Position: start}
+		// NOTE: '\n' is now handled as whitespace and skipped
+		// Meaningful newlines will be implemented when we add statement parsing
+	}
+
+	// Unrecognized character - advance and mark as illegal
 	l.advanceChar()
 	return Token{
 		Type:     ILLEGAL,
@@ -223,8 +264,11 @@ func (l *Lexer) skipWhitespace() {
 func (l *Lexer) updateColumnFromWhitespace(start, end int) {
 	for i := start; i < end; i++ {
 		ch := l.input[i]
-		if ch == '\t' {
-			l.column += 4 // Tab counts as 4 spaces
+		if ch == '\n' {
+			l.line++
+			l.column = 1
+		} else if ch == '\t' {
+			l.column++ // Go standard: column = byte count, tab = 1 byte
 		} else {
 			l.column++
 		}
@@ -252,6 +296,52 @@ func (l *Lexer) lexIdentifier(start Position) Token {
 
 	return Token{
 		Type:     tokenType,
+		Text:     text,
+		Position: start,
+	}
+}
+
+// lexString reads a string literal starting at current position
+func (l *Lexer) lexString(start Position, quote byte) Token {
+	startPos := l.position
+	l.advanceChar() // Skip opening quote
+
+	// Read until closing quote
+	for l.position < len(l.input) {
+		ch := l.currentChar()
+
+		// Found closing quote
+		if ch == quote {
+			l.advanceChar() // Include closing quote
+			break
+		}
+
+		// Handle escape sequences
+		if ch == '\\' && l.position+1 < len(l.input) {
+			l.advanceChar() // Skip backslash
+			l.advanceChar() // Skip escaped character
+			continue
+		}
+
+		// For backticks, newlines are allowed
+		if quote == '`' && ch == '\n' {
+			l.advanceChar()
+			continue
+		}
+
+		// For double/single quotes, newlines end the string (error case)
+		if ch == '\n' && quote != '`' {
+			break // Unterminated string
+		}
+
+		l.advanceChar()
+	}
+
+	// Extract the full string including quotes
+	text := string(l.input[startPos:l.position])
+
+	return Token{
+		Type:     STRING,
 		Text:     text,
 		Position: start,
 	}
@@ -314,7 +404,7 @@ func (l *Lexer) advanceChar() {
 			l.line++
 			l.column = 1
 		} else if ch == '\t' {
-			l.column += 4
+			l.column++ // Go standard: column = byte count, tab = 1 byte
 		} else {
 			l.column++
 		}

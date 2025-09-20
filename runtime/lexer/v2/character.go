@@ -13,7 +13,7 @@ package v2
 //   - Function calls: 11.00 ns/op (20% slower)
 //   - Direct access: 9.82 ns/op (7% slower, unsafe)
 var (
-	isWhitespace  [128]bool // Space, tab, carriage return (not newline - significant)
+	isWhitespace  [128]bool // Space, tab, carriage return, newline
 	isLetter      [128]bool // a-z, A-Z, _
 	isDigit       [128]bool // 0-9
 	isIdentStart  [128]bool // Letter or _
@@ -27,8 +27,8 @@ func init() {
 	for i := 0; i < 128; i++ {
 		ch := byte(i)
 
-		// Whitespace (excluding newline which is significant for chaining)
-		isWhitespace[i] = ch == ' ' || ch == '\t' || ch == '\r'
+		// Whitespace (including newline - meaningful newlines handled at parser level)
+		isWhitespace[i] = ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n'
 
 		// Letters (ASCII + underscore)
 		isLetter[i] = ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_'

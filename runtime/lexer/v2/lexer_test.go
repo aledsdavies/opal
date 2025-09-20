@@ -371,3 +371,174 @@ func TestDebugTelemetryEnabled(t *testing.T) {
 		t.Error("Expected token stats when debug enabled")
 	}
 }
+
+// TestPositionTrackingWithWhitespace tests accurate position tracking through various whitespace scenarios
+func TestPositionTrackingWithWhitespace(t *testing.T) {
+	lexer := NewLexer("")
+
+	tests := []struct {
+		name        string
+		input       string
+		advances    int // How many times to call advanceChar
+		expectedPos struct {
+			position int
+			line     int
+			column   int
+		}
+	}{
+		{
+			name:     "advance through spaces",
+			input:    "   hello",
+			advances: 3, // Advance past the 3 spaces
+			expectedPos: struct {
+				position int
+				line     int
+				column   int
+			}{3, 1, 4}, // position 3, column 4 (at 'h')
+		},
+		{
+			name:     "advance through tabs",
+			input:    "\t\thello",
+			advances: 2, // Advance past 2 tabs
+			expectedPos: struct {
+				position int
+				line     int
+				column   int
+			}{2, 1, 3}, // position 2, column 3 (at 'h')
+		},
+		{
+			name:     "advance through mixed whitespace",
+			input:    " \t hello",
+			advances: 3, // Advance past " \t "
+			expectedPos: struct {
+				position int
+				line     int
+				column   int
+			}{3, 1, 4}, // position 3, column 4 (at 'h')
+		},
+		{
+			name:     "advance through newlines",
+			input:    "line1\nline2",
+			advances: 6, // Advance past "line1\n"
+			expectedPos: struct {
+				position int
+				line     int
+				column   int
+			}{6, 2, 1}, // position 6, line 2, column 1 (at 'l' in line2)
+		},
+		{
+			name:     "advance through multiple newlines",
+			input:    "first\n\n\nsecond",
+			advances: 8, // Advance past "first\n\n\n"
+			expectedPos: struct {
+				position int
+				line     int
+				column   int
+			}{8, 4, 1}, // position 8, line 4, column 1 (at 's' in second)
+		},
+		{
+			name:     "advance through Unicode characters",
+			input:    "café test",
+			advances: 4, // Advance past "café" (é is 2 bytes)
+			expectedPos: struct {
+				position int
+				line     int
+				column   int
+			}{5, 1, 5}, // position 5 (byte position), column 5 (character position)
+		},
+		{
+			name:     "advance through 4-byte Unicode emoji",
+			input:    "😀test",
+			advances: 1, // Advance past emoji (4 bytes)
+			expectedPos: struct {
+				position int
+				line     int
+				column   int
+			}{4, 1, 2}, // position 4 (byte position), column 2 (character position)
+		},
+		{
+			name:     "complex whitespace and Unicode",
+			input:    " \t😀\n 世界",
+			advances: 5, // Advance past " \t😀\n " to be at '世'
+			expectedPos: struct {
+				position int
+				line     int
+				column   int
+			}{8, 2, 2}, // position 8, line 2, column 2 (at '世')
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer.Init([]byte(tt.input))
+
+			// Advance the specified number of characters
+			for i := 0; i < tt.advances; i++ {
+				lexer.advanceChar()
+			}
+
+			// Check position tracking
+			if lexer.position != tt.expectedPos.position {
+				t.Errorf("position = %d, want %d", lexer.position, tt.expectedPos.position)
+			}
+			if lexer.line != tt.expectedPos.line {
+				t.Errorf("line = %d, want %d", lexer.line, tt.expectedPos.line)
+			}
+			if lexer.column != tt.expectedPos.column {
+				t.Errorf("column = %d, want %d", lexer.column, tt.expectedPos.column)
+			}
+		})
+	}
+}
+
+// TestWhitespaceSkipping tests that whitespace is properly skipped without creating tokens
+func TestWhitespaceSkipping(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []tokenExpectation
+	}{
+		{
+			name:  "only spaces",
+			input: "     ",
+			expected: []tokenExpectation{
+				{EOF, "", 1, 6}, // EOF at column 6 (after 5 spaces)
+			},
+		},
+		{
+			name:  "only tabs",
+			input: "\t\t\t",
+			expected: []tokenExpectation{
+				{EOF, "", 1, 4}, // EOF at column 4 (after 3 tabs)
+			},
+		},
+		{
+			name:  "only newlines",
+			input: "\n\n\n",
+			expected: []tokenExpectation{
+				{EOF, "", 4, 1}, // EOF at line 4, column 1
+			},
+		},
+		{
+			name:  "mixed whitespace only",
+			input: " \t\n \t\n ",
+			expected: []tokenExpectation{
+				{EOF, "", 3, 2}, // EOF at line 3, column 2 (after final space)
+			},
+		},
+		{
+			name:  "identifier with surrounding whitespace",
+			input: "  \t hello \n\t ",
+			expected: []tokenExpectation{
+				{IDENTIFIER, "hello", 1, 5}, // "hello" at column 5 (after "  \t ")
+				{EOF, "", 2, 3},             // EOF at line 2, column 3 (after "\t ")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.name, tt.input, tt.expected)
+		})
+	}
+}

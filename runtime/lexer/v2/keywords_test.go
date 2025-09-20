@@ -335,7 +335,7 @@ func TestKeywordPositioning(t *testing.T) {
 	}{
 		{name: "var at start", input: "var", keyword: VAR, expectedLine: 1, expectedCol: 1},
 		{name: "var after spaces", input: "   var", keyword: VAR, expectedLine: 1, expectedCol: 4},
-		{name: "for after tab", input: "\tfor", keyword: FOR, expectedLine: 1, expectedCol: 5},
+		{name: "for after tab", input: "\tfor", keyword: FOR, expectedLine: 1, expectedCol: 2},
 		{name: "if second line", input: "deploy:\nif", keyword: IF, expectedLine: 2, expectedCol: 1},
 	}
 
