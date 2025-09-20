@@ -184,11 +184,21 @@ func (l *Lexer) lexToken() Token {
 		}
 	}
 
-	// For now, just return EOF - we'll add more token recognition incrementally
+	// Capture current position for token
+	start := Position{Line: l.line, Column: l.column}
+	ch := l.currentChar()
+
+	// Identifier or keyword
+	if ch < 128 && isIdentStart[ch] {
+		return l.lexIdentifier(start)
+	}
+
+	// Unrecognized character - for now, advance and mark as illegal
+	l.advanceChar()
 	return Token{
-		Type:     EOF,
-		Text:     "",
-		Position: Position{Line: l.line, Column: l.column},
+		Type:     ILLEGAL,
+		Text:     string(ch),
+		Position: start,
 	}
 }
 
@@ -218,6 +228,58 @@ func (l *Lexer) updateColumnFromWhitespace(start, end int) {
 		} else {
 			l.column++
 		}
+	}
+}
+
+// lexIdentifier reads an identifier or keyword starting at current position
+func (l *Lexer) lexIdentifier(start Position) Token {
+	startPos := l.position
+
+	// Read all identifier characters
+	for l.position < len(l.input) {
+		ch := l.input[l.position]
+		if ch >= 128 || !isIdentPart[ch] {
+			break
+		}
+		l.advanceChar()
+	}
+
+	// Extract the text
+	text := string(l.input[startPos:l.position])
+
+	// Check if it's a keyword
+	tokenType := l.lookupKeyword(text)
+
+	return Token{
+		Type:     tokenType,
+		Text:     text,
+		Position: start,
+	}
+}
+
+// lookupKeyword returns the appropriate token type for keywords, or IDENTIFIER
+func (l *Lexer) lookupKeyword(text string) TokenType {
+	switch text {
+	case "var":
+		return VAR
+	case "for":
+		return FOR
+	case "in":
+		return IN
+	case "if":
+		return IF
+	case "else":
+		return ELSE
+	case "when":
+		return WHEN
+	case "try":
+		return TRY
+	case "catch":
+		return CATCH
+	case "finally":
+		return FINALLY
+	default:
+		return IDENTIFIER
 	}
 }
 
