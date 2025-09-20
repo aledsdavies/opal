@@ -72,8 +72,13 @@ const (
 // Token represents a lexical token
 type Token struct {
 	Type     TokenType
-	Text     string
+	Text     []byte // Use []byte for zero-allocation performance
 	Position Position
+}
+
+// String returns the token text as a string (for testing and debugging)
+func (t Token) String() string {
+	return string(t.Text)
 }
 
 // Position represents a position in the source code

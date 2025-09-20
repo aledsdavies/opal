@@ -259,8 +259,8 @@ func TestKeywordVsIdentifier(t *testing.T) {
 			if token.Type != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, token.Type)
 			}
-			if token.Text != tt.text {
-				t.Errorf("Expected text %q, got %q", tt.text, token.Text)
+			if token.String() != tt.text {
+				t.Errorf("Expected text %q, got %q", tt.text, token.String())
 			}
 		})
 	}

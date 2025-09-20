@@ -57,7 +57,8 @@ type Lexer struct {
 	position  int
 	line      int
 	column    int
-	totalTime time.Duration // Cumulative time spent tokenizing
+	totalTime time.Duration // Total time for entire lexing process
+	startTime time.Time     // Start time for timing the entire process
 
 	// Debug telemetry (nil when debug disabled for zero allocation)
 	debugEnabled bool
@@ -95,7 +96,8 @@ func (l *Lexer) Init(input []byte) {
 	l.position = 0
 	l.line = 1
 	l.column = 1
-	l.totalTime = 0 // Reset timing
+	l.totalTime = 0           // Reset timing
+	l.startTime = time.Time{} // Reset start time
 
 	// Reset debug stats if enabled
 	if l.debugEnabled && l.tokenStats != nil {
@@ -134,19 +136,20 @@ func (l *Lexer) GetTokenStats() map[TokenType]*TokenStats {
 
 // NextToken returns the next token from the input
 func (l *Lexer) NextToken() Token {
-	// Time each token individually
-	start := time.Now()
+	// Start timing on very first call
+	if l.startTime.IsZero() {
+		l.startTime = time.Now()
+	}
 
 	token := l.lexToken() // Do the actual lexing work
 
-	elapsed := time.Since(start)
-
-	// Always accumulate total time (zero-alloc)
-	l.totalTime += elapsed
+	// Always update total time (minimal overhead)
+	l.totalTime = time.Since(l.startTime)
 
 	// Debug telemetry (only when enabled, will allocate)
 	if l.debugEnabled && l.tokenStats != nil {
-		l.recordTokenStats(token.Type, elapsed)
+		// Record token count for debug stats
+		l.recordTokenStats(token.Type, 0) // No per-token timing
 	}
 
 	return token
@@ -179,7 +182,7 @@ func (l *Lexer) lexToken() Token {
 	if l.position >= len(l.input) {
 		return Token{
 			Type:     EOF,
-			Text:     "",
+			Text:     nil,
 			Position: Position{Line: l.line, Column: l.column},
 		}
 	}
@@ -202,34 +205,34 @@ func (l *Lexer) lexToken() Token {
 	switch ch {
 	case '=':
 		l.advanceChar()
-		return Token{Type: EQUALS, Text: "=", Position: start}
+		return Token{Type: EQUALS, Text: []byte{'='}, Position: start}
 	case ':':
 		l.advanceChar()
-		return Token{Type: COLON, Text: ":", Position: start}
+		return Token{Type: COLON, Text: []byte{':'}, Position: start}
 	case '{':
 		l.advanceChar()
-		return Token{Type: LBRACE, Text: "{", Position: start}
+		return Token{Type: LBRACE, Text: []byte{'{'}, Position: start}
 	case '}':
 		l.advanceChar()
-		return Token{Type: RBRACE, Text: "}", Position: start}
+		return Token{Type: RBRACE, Text: []byte{'}'}, Position: start}
 	case '(':
 		l.advanceChar()
-		return Token{Type: LPAREN, Text: "(", Position: start}
+		return Token{Type: LPAREN, Text: []byte{'('}, Position: start}
 	case ')':
 		l.advanceChar()
-		return Token{Type: RPAREN, Text: ")", Position: start}
+		return Token{Type: RPAREN, Text: []byte{')'}, Position: start}
 	case '[':
 		l.advanceChar()
-		return Token{Type: LSQUARE, Text: "[", Position: start}
+		return Token{Type: LSQUARE, Text: []byte{'['}, Position: start}
 	case ']':
 		l.advanceChar()
-		return Token{Type: RSQUARE, Text: "]", Position: start}
+		return Token{Type: RSQUARE, Text: []byte{']'}, Position: start}
 	case ',':
 		l.advanceChar()
-		return Token{Type: COMMA, Text: ",", Position: start}
+		return Token{Type: COMMA, Text: []byte{','}, Position: start}
 	case ';':
 		l.advanceChar()
-		return Token{Type: SEMICOLON, Text: ";", Position: start}
+		return Token{Type: SEMICOLON, Text: []byte{';'}, Position: start}
 		// NOTE: '\n' is now handled as whitespace and skipped
 		// Meaningful newlines will be implemented when we add statement parsing
 	}
@@ -238,7 +241,7 @@ func (l *Lexer) lexToken() Token {
 	l.advanceChar()
 	return Token{
 		Type:     ILLEGAL,
-		Text:     string(ch),
+		Text:     []byte{ch},
 		Position: start,
 	}
 }
@@ -288,11 +291,11 @@ func (l *Lexer) lexIdentifier(start Position) Token {
 		l.advanceChar()
 	}
 
-	// Extract the text
-	text := string(l.input[startPos:l.position])
+	// Extract the text as byte slice (zero allocation)
+	text := l.input[startPos:l.position]
 
-	// Check if it's a keyword
-	tokenType := l.lookupKeyword(text)
+	// Check if it's a keyword (need string for map lookup)
+	tokenType := l.lookupKeyword(string(text))
 
 	return Token{
 		Type:     tokenType,
@@ -337,8 +340,8 @@ func (l *Lexer) lexString(start Position, quote byte) Token {
 		l.advanceChar()
 	}
 
-	// Extract the full string including quotes
-	text := string(l.input[startPos:l.position])
+	// Extract the full string including quotes as byte slice (zero allocation)
+	text := l.input[startPos:l.position]
 
 	return Token{
 		Type:     STRING,
