@@ -206,6 +206,38 @@ const (
 	ResolvedMap      ResolvedType = "map"
 )
 
+// ================================================================================================
+// BLOCK EXECUTION DESIGN - Future Implementation
+// ================================================================================================
+
+// TODO: Implement full DAG-based value resolution and statement execution
+//
+// DESIGN OVERVIEW:
+// 1. Parse Phase: Source → AST → IR
+// 2. DAG Building: Traverse IR, identify value decorators (@var, @env), build dependency graph
+// 3. Value Resolution: Execute value decorators in topological order, substitute into IR
+// 4. Statement Building: Convert resolved IR into ExecutableStatements
+// 5. Execution: Decorators get clean arrays of ready-to-run ExecutableStatements
+//
+// This enables decorators like @retry to simply loop through pre-resolved statements:
+//
+//	for _, stmt := range retryParams.Statements {
+//	    result, err := stmt.Execute(ctx)
+//	}
+//
+// ExecutableStatement (placeholder interface):
+type ExecutableStatement interface {
+	// Execute the resolved statement (all values already substituted)
+	Execute(ctx Context) (CommandResult, error)
+	// Plan generation for resolved statement
+	Plan(ctx Context) plan.ExecutionStep
+	// Display the resolved command
+	String() string
+}
+
+// Block parameter type for decorators that need blocks (@retry, @parallel, @timeout, etc.)
+type ExecutableBlock []ExecutableStatement
+
 // resolved is a basic implementation of the Resolved interface
 type resolved struct {
 	value        any

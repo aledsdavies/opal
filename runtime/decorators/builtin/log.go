@@ -20,6 +20,13 @@ func init() {
 // LogDecorator implements the @log decorator using the core decorator interfaces
 type LogDecorator struct{}
 
+// LogParams represents validated parameters for @log decorator
+type LogParams struct {
+	Message string `json:"message"` // Log message to output
+	Level   string `json:"level"`   // Log level (info, warn, error, debug)
+	Plain   bool   `json:"plain"`   // If true, output plain text without formatting
+}
+
 // NewLogDecorator creates a new log decorator
 func NewLogDecorator() *LogDecorator {
 	return &LogDecorator{}
@@ -345,6 +352,122 @@ func (l *LogDecorator) Execute(ctx decorators.Context, args []decorators.Param) 
 		exitCode: 1,
 	}
 }
+
+// ================================================================================================
+// NEW GENERIC INTERFACE METHODS (ExecutionDecorator[any])
+// ================================================================================================
+
+// Validate validates parameters and returns LogParams
+func (l *LogDecorator) Validate(args []decorators.Param) (any, error) {
+	// Extract message (first positional parameter or named "message")
+	message, err := decorators.ExtractPositionalString(args, 0, "")
+	if err != nil || message == "" {
+		// Try named parameter "message"
+		message, err = decorators.ExtractString(args, "message", "")
+		if err != nil || message == "" {
+			return nil, fmt.Errorf("@log requires a message")
+		}
+	}
+
+	// Extract level (optional, defaults to "info")
+	level, err := decorators.ExtractString(args, "level", "info")
+	if err != nil {
+		return nil, fmt.Errorf("@log level parameter error: %w", err)
+	}
+
+	// Validate level
+	validLevels := map[string]bool{
+		"debug": true,
+		"info":  true,
+		"warn":  true,
+		"error": true,
+	}
+	if !validLevels[level] {
+		return nil, fmt.Errorf("@log invalid level %q, must be one of: debug, info, warn, error", level)
+	}
+
+	// Extract plain flag (optional, defaults to false)
+	plain, err := decorators.ExtractBool(args, "plain", false)
+	if err != nil {
+		return nil, fmt.Errorf("@log plain parameter error: %w", err)
+	}
+
+	return LogParams{
+		Message: message,
+		Level:   level,
+		Plain:   plain,
+	}, nil
+}
+
+// Plan generates an execution plan using validated parameters
+func (l *LogDecorator) Plan(ctx decorators.Context, validated any) plan.ExecutionStep {
+	params, ok := validated.(LogParams)
+	if !ok {
+		return plan.ExecutionStep{
+			Type:        plan.StepShell,
+			Description: "@log(<invalid params>)",
+			Command:     "",
+			Metadata: map[string]string{
+				"decorator": "log",
+				"error":     "invalid_params",
+			},
+		}
+	}
+
+	description := fmt.Sprintf("@log(%q, level=%s)", params.Message, params.Level)
+	if params.Plain {
+		description += " [plain]"
+	}
+
+	return plan.ExecutionStep{
+		Type:        plan.StepDecorator,
+		Description: description,
+		Command:     "",
+		Metadata: map[string]string{
+			"decorator": "log",
+			"message":   params.Message,
+			"level":     params.Level,
+			"plain":     fmt.Sprintf("%t", params.Plain),
+		},
+	}
+}
+
+// Execute performs the actual logging using validated parameters
+func (l *LogDecorator) Execute(ctx decorators.Context, validated any) (decorators.CommandResult, error) {
+	params, ok := validated.(LogParams)
+	if !ok {
+		return nil, fmt.Errorf("@log: invalid parameters")
+	}
+
+	// Map our level to the context's LogLevel
+	var logLevel decorators.LogLevel
+	switch params.Level {
+	case "debug":
+		logLevel = decorators.LogLevelDebug
+	case "info":
+		logLevel = decorators.LogLevelInfo
+	case "warn":
+		logLevel = decorators.LogLevelWarn
+	case "error":
+		logLevel = decorators.LogLevelError
+	default:
+		logLevel = decorators.LogLevelInfo
+	}
+
+	// Log the message using the context
+	ctx.Log(logLevel, params.Message)
+
+	// @log always succeeds and returns empty result
+	return &LogResult{}, nil
+}
+
+// LogResult implements CommandResult for @log operations
+type LogResult struct{}
+
+func (r *LogResult) GetStdout() string { return "" }
+func (r *LogResult) GetStderr() string { return "" }
+func (r *LogResult) GetExitCode() int  { return 0 }
+func (r *LogResult) IsSuccess() bool   { return true }
 
 // RequiresBlock returns the block requirements for @log
 func (l *LogDecorator) RequiresBlock() decorators.BlockRequirement {

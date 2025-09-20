@@ -34,6 +34,12 @@ func init() {
 // RetryDecorator implements the @retry decorator using the core decorator interfaces
 type RetryDecorator struct{}
 
+// RetryParams represents validated parameters for @retry decorator
+type RetryParams struct {
+	Attempts int           `json:"attempts"` // Maximum number of attempts (default: 3)
+	Delay    time.Duration `json:"delay"`    // Delay between attempts (default: 1s)
+}
+
 // NewRetryDecorator creates a new retry decorator
 func NewRetryDecorator() *RetryDecorator {
 	return &RetryDecorator{}
@@ -262,6 +268,74 @@ func (r *RetryDecorator) Execute(ctx decorators.Context, args []decorators.Param
 		stderr:   "retry execution not implemented yet - use plan mode",
 		exitCode: 1,
 	}
+}
+
+// ================================================================================================
+// NEW GENERIC INTERFACE METHODS (ExecutionDecorator[any])
+// ================================================================================================
+
+// Validate validates parameters and returns RetryParams
+func (r *RetryDecorator) Validate(args []decorators.Param) (any, error) {
+	// Extract attempts (first positional parameter or named "attempts")
+	attempts, err := decorators.ExtractInt(args, "attempts", 3) // default 3 attempts
+	if err != nil {
+		return nil, fmt.Errorf("@retry attempts parameter error: %w", err)
+	}
+
+	// Extract delay (second positional parameter or named "delay")
+	delay, err := decorators.ExtractDuration(args, "delay", 1*time.Second) // default 1s delay
+	if err != nil {
+		return nil, fmt.Errorf("@retry delay parameter error: %w", err)
+	}
+
+	if attempts < 1 {
+		return nil, fmt.Errorf("@retry attempts must be at least 1")
+	}
+
+	return RetryParams{
+		Attempts: attempts,
+		Delay:    delay,
+	}, nil
+}
+
+// Plan generates an execution plan using validated parameters
+func (r *RetryDecorator) Plan(ctx decorators.Context, validated any) plan.ExecutionStep {
+	params, ok := validated.(RetryParams)
+	if !ok {
+		return plan.ExecutionStep{
+			Type:        plan.StepShell,
+			Description: "@retry(<invalid params>)",
+			Command:     "",
+			Metadata: map[string]string{
+				"decorator": "retry",
+				"error":     "invalid_params",
+			},
+		}
+	}
+
+	return plan.ExecutionStep{
+		Type:        plan.StepDecorator,
+		Description: fmt.Sprintf("@retry(attempts=%d, delay=%v)", params.Attempts, params.Delay),
+		Command:     "",
+		Metadata: map[string]string{
+			"decorator": "retry",
+			"attempts":  fmt.Sprintf("%d", params.Attempts),
+			"delay":     params.Delay.String(),
+		},
+	}
+}
+
+// Execute performs the actual retry logic using validated parameters
+func (r *RetryDecorator) Execute(ctx decorators.Context, validated any) (decorators.CommandResult, error) {
+	params, ok := validated.(RetryParams)
+	if !ok {
+		return nil, fmt.Errorf("@retry: invalid parameters")
+	}
+
+	// Note: This is a simplified implementation
+	// In reality, @retry would need to execute a block of commands with retry logic
+	// For now, just return an error indicating this needs block execution support
+	return nil, fmt.Errorf("@retry: block execution not yet implemented in generic interface")
 }
 
 // RequiresBlock returns the block requirements for @retry
