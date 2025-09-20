@@ -18,7 +18,7 @@
 - **Error handling**: Use typed error constants from `core/errors` (e.g., `ErrCommandNotFound`)
 - **Testing**: Use `github.com/google/go-cmp/cmp` for diffs, `testify` for assertions
   - **CRITICAL**: Always test complete, exact output with `cmp.Diff` - no lazy partial tests with `assert.Contains`
-  - Use table-driven tests for multiple scenarios
+  - **Table-driven tests**: Always prefer table-driven test patterns for multiple scenarios
   - Test the entire output format, not just parts of it
   - **Bug reproduction**: Always reproduce parser/CLI bugs in existing test files before fixing
   - Add failing tests to `runtime/lexer/*_test.go` and `runtime/parser/*_test.go` for parsing issues
@@ -100,7 +100,20 @@ The CLI is now just a thin wrapper around runtime, and we have proper module bou
 4. **Preserve execution semantics**: Decorator blocks complete before chain evaluation
 5. **Support dual mode**: Both command mode and script mode execution
 
+### TDD Development Rules
+- **Test-Driven Development**: Always write failing tests before implementation
+- **Test categories**: Golden tests (exact token output), performance tests (5000+ lines/ms), error tests (precise error messages)
+- **Red-Green-Refactor**: See test fail → make it pass → run full suite → refactor safely
+- **Logical test groups**: Group tests by language feature (control flow, decorators, interpolation)
+- **No implementation without tests**: Every new feature starts with a failing test
+
 ### When Making Changes
+- **Write test first**: Create failing test for new feature
+- **Minimal implementation**: Write just enough code to pass the test
+- **Run full suite**: Ensure no regressions in existing functionality
+- **Follow coding guidelines**: Apply all code style and conventions
+- **Follow docs specifications**: Implement according to SPECIFICATION.md and ARCHITECTURE.md
+- **Update WORK.md**: Keep work tracking clean and terse throughout development
 - **AST/IR changes**: Must support single Decorator/DecoratorNode types
 - **New decorators**: Must use unified interfaces and parameter system
 - **Parser changes**: Must convert shell syntax to `@shell` decorators
