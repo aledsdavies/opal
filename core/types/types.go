@@ -43,8 +43,6 @@ const (
 	VAR      // var
 	WATCH    // watch
 	STOP     // stop
-	WHEN     // when (for @when pattern decorator)
-	TRY      // try (for @try pattern decorator)
 	AT       // @
 	COLON    // :
 	EQUALS   // =
@@ -84,8 +82,6 @@ var tokenNames = [...]string{
 	VAR:        "VAR",
 	WATCH:      "WATCH",
 	STOP:       "STOP",
-	WHEN:       "WHEN",
-	TRY:        "TRY",
 	AT:         "AT",
 	COLON:      "COLON",
 	EQUALS:     "EQUALS",
@@ -133,7 +129,7 @@ const (
 type SemanticTokenType int
 
 const (
-	SemKeyword   SemanticTokenType = iota // var, watch, stop, when, try
+	SemKeyword   SemanticTokenType = iota // var, watch, stop
 	SemCommand                            // command names
 	SemVariable                           // variable names
 	SemString                             // string literals
@@ -141,8 +137,8 @@ const (
 	SemComment                            // comments
 	SemOperator                           // :, =, {, }, (, ), @, *
 	SemShellText                          // shell text content
-	SemDecorator                          // decorators like @timeout, @retry
-	SemPattern                            // pattern-matching decorators (@when, @try)
+	SemDecorator                          // all decorators (@timeout, @retry, @when, @try, etc.)
+	SemPattern                            // pattern identifiers within pattern decorators
 	SemBoolean                            // boolean literals (true, false)
 	SemParameter                          // parameter names in decorators
 )
