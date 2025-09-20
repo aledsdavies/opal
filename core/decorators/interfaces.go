@@ -22,16 +22,13 @@ type DecoratorBase interface {
 type ArgType string
 
 const (
-	ArgTypeString               ArgType = "string"
-	ArgTypeBool                 ArgType = "bool"
-	ArgTypeInt                  ArgType = "int"
-	ArgTypeFloat                ArgType = "float"
-	ArgTypeDuration             ArgType = "duration"   // Duration strings like "30s", "5m", "1h"
-	ArgTypeIdentifier           ArgType = "identifier" // Variable/command identifiers
-	ArgTypeList                 ArgType = "list"
-	ArgTypeMap                  ArgType = "map"
-	ArgTypeBlockFunction        ArgType = "block_function"         // Shell command blocks { commands }
-	ArgTypePatternBlockFunction ArgType = "pattern_block_function" // Pattern blocks { branch: commands }
+	ArgTypeString        ArgType = "string"
+	ArgTypeNumber        ArgType = "number"   // Unified int/float as number
+	ArgTypeDuration      ArgType = "duration" // Duration strings like "30s", "5m", "1h"
+	ArgTypeBoolean       ArgType = "boolean"
+	ArgTypeArray         ArgType = "array"
+	ArgTypeMap           ArgType = "map"
+	ArgTypeBlockFunction ArgType = "block_function" // Shell command blocks { commands }
 )
 
 // ParameterSchema describes a decorator parameter
@@ -169,41 +166,49 @@ type ImportRequirement interface {
 // UNIFIED DECORATOR INTERFACES - Target architecture (2-interface system)
 // ================================================================================================
 
-// BlockRequirement describes structural requirements for execution decorators
-type BlockRequirement struct {
-	Type     BlockType `json:"type"`     // Type of block required
-	Required bool      `json:"required"` // Whether block is required
+// Resolved represents the result of decorator resolution with type flexibility
+type Resolved interface {
+	// The actual resolved value (string, bool, int, array, map, etc.)
+	Value() any
+	// Type classification matching our expression type system
+	Type() ResolvedType
+	// Hash for contract verification and change detection
+	Hash() string
 }
 
-// BlockType represents the type of block a decorator requires
-type BlockType string
+// ResolvedType uses our existing expression type system
+type ResolvedType string
 
 const (
-	BlockNone    BlockType = "none"    // No block needed: @cmd(build)
-	BlockShell   BlockType = "shell"   // Shell command block: @retry(3) { commands }
-	BlockPattern BlockType = "pattern" // Pattern matching block: @when(ENV) { prod: ..., dev: ... }
+	ResolvedString   ResolvedType = "string"
+	ResolvedNumber   ResolvedType = "number"
+	ResolvedDuration ResolvedType = "duration"
+	ResolvedBoolean  ResolvedType = "boolean"
+	ResolvedArray    ResolvedType = "array"
+	ResolvedMap      ResolvedType = "map"
 )
 
-// ValueDecorator - Target interface for inline value substitution decorators
-// Clean interface for the unified architecture
-type ValueDecorator interface {
+// Decorator - Base interface for all decorators with validated parameters
+type Decorator[T any] interface {
 	DecoratorBase
-	// Plan generation - shows how value will be resolved
-	Plan(ctx Context, args []Param) plan.ExecutionStep
-	// Value resolution - resolves the actual value during execution
-	Resolve(ctx Context, args []Param) (string, error)
+	// Validate parameters and return decorator-specific validated type
+	Validate(args []Param) (T, error)
+	// Plan generation using validated parameters
+	Plan(ctx Context, validated T) plan.ExecutionStep
+}
+
+// ValueDecorator - Target interface for inline value substitution decorators
+type ValueDecorator[T any] interface {
+	Decorator[T]
+	// Value resolution using validated parameters
+	Resolve(ctx Context, validated T) (Resolved, error)
 	// Performance optimization - expensive decorators resolved lazily
 	IsExpensive() bool
 }
 
 // ExecutionDecorator - Target interface for command execution decorators
-// Clean interface for the unified architecture
-type ExecutionDecorator interface {
-	DecoratorBase
-	// Plan generation - shows what will be executed
-	Plan(ctx Context, args []Param) plan.ExecutionStep
-	// Execution - performs the actual work
-	Execute(ctx Context, args []Param) CommandResult
-	// Block requirements - describes structural needs for parsing
-	RequiresBlock() BlockRequirement
+type ExecutionDecorator[T any] interface {
+	Decorator[T]
+	// Execution using validated parameters
+	Execute(ctx Context, validated T) (CommandResult, error)
 }

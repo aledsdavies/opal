@@ -11,7 +11,7 @@ The key insight: instead of managing state like Terraform, we verify contracts. 
 ## The Big Picture
 
 ```
-User writes natural syntax  →  Parser converts to decorators  →  Unified execution
+User writes natural syntax  →  Parser converts to decorators  →  Contract execution
 ```
 
 Every piece of syntax becomes a decorator:
@@ -43,7 +43,7 @@ npm run build
 @shell("npm run build")
 ```
 
-This unified model means new features integrate seamlessly - no special parsing rules or execution paths.
+This decorator model means new features integrate seamlessly - no special parsing rules or execution paths.
 
 ## Decorator Design Requirements
 
@@ -300,7 +300,7 @@ Like other control flow, try/catch can't be chained with operators. Keep error h
 The compilation flow ensures contract verification works reliably:
 
 1. **Lexer**: Fast tokenization with mode detection (command vs script mode)
-2. **Parser**: Unified decorator AST generation  
+2. **Parser**: Decorator AST generation  
 3. **Transform**: Meta-programming expansion (loops, conditionals)
 4. **Plan**: Deterministic execution sequence with stable step IDs
 5. **Resolve**: Value materialization with security placeholders
@@ -329,7 +329,7 @@ The key insight: meta-programming happens during transform, so all downstream st
 
 **Performance validation**: Lexer throughput, resolution DAG efficiency, and memory usage under load.
 
-## Unified IaC + Operations
+## IaC + Operations Together
 
 A novel capability emerges from the decorator architecture: seamless mixing of infrastructure-as-code with operations scripts in a single language.
 
@@ -369,7 +369,7 @@ This eliminates the traditional boundary between "infrastructure tools" and "con
 
 ## Example: Advanced Infrastructure Execution
 
-Here's how complex scenarios work within the unified model:
+Here's how complex scenarios work within the decorator model:
 
 ```devcmd
 maintenance: {
@@ -418,19 +418,19 @@ maintenance: {
 - Retry/timeout on individual commands
 - Aggregated results with failure policy
 
-This level of infrastructure operations was traditionally split across multiple tools. The unified decorator model handles it seamlessly.
+This level of infrastructure operations was traditionally split across multiple tools. The decorator model handles it seamlessly.
 
 ## Why This Architecture Works
 
 **Contract-first development**: Resolved plans are immutable execution contracts with verification, giving teams deployment confidence.
 
-**Unified IaC + ops**: Mix infrastructure provisioning with operations scripts in one language, eliminating tool boundaries.
+**IaC + ops together**: Mix infrastructure provisioning with operations scripts in one language, eliminating tool boundaries.
 
 **Plugin extensibility**: Organizations can build custom decorators through verified, source-hashed plugins while maintaining security guarantees.
 
 **Stateless simplicity**: No state files to corrupt or manage - decorators query reality fresh each time and use contract verification for consistency.
 
-**Unified execution model**: Everything becomes a decorator internally, making the system predictable and extensible without special cases.
+**Consistent execution model**: Everything becomes a decorator internally, making the system predictable and extensible without special cases.
 
 **Performance optimization**: Plan-time expansion, parallel resolution, and dead code elimination ensure efficient execution at scale.
 
