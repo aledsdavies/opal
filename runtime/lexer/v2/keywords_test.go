@@ -22,7 +22,7 @@ func TestVarKeyword(t *testing.T) {
 			input: "  var  ",
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 3},
-				{EOF, "", 1, 7},
+				{EOF, "", 1, 8}, // EOF after skipping trailing whitespace
 			},
 		},
 		{
