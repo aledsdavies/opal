@@ -65,10 +65,10 @@ func Parse(reader io.Reader) (*ast.Program, error) {
 		},
 	}))
 
-	processor := lexer.NewProcessor(strings.NewReader(input))
+	lex := lexer.New(strings.NewReader(input))
 	p := &Parser{
 		input:  input, // Store the raw input
-		tokens: processor.AllTokens(),
+		tokens: lex.TokenizeToSlice(),
 		logger: logger,
 	}
 	program := p.parseProgram()

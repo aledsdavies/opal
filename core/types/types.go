@@ -11,8 +11,6 @@ const (
 	DurationType
 	BooleanType
 	IdentifierType
-	ArrayType
-	MapType
 )
 
 // String returns a string representation of the ExpressionType
@@ -28,10 +26,6 @@ func (t ExpressionType) String() string {
 		return "boolean"
 	case IdentifierType:
 		return "identifier"
-	case ArrayType:
-		return "array"
-	case MapType:
-		return "map"
 	default:
 		return "unknown"
 	}
@@ -47,18 +41,10 @@ const (
 
 	// Language structure tokens
 	VAR      // var
-	FOR      // for
-	IN       // in
-	IF       // if
-	ELSE     // else
-	EMPTY    // empty (for handling empty arrays/maps in for loops)
-	TRY      // try
-	CATCH    // catch
-	FINALLY  // finally
-	WHEN     // when
-	SWITCH   // switch
-	CASE     // case
-	DEFAULT  // default
+	WATCH    // watch
+	STOP     // stop
+	WHEN     // when (for @when pattern decorator)
+	TRY      // try (for @try pattern decorator)
 	AT       // @
 	COLON    // :
 	EQUALS   // =
@@ -67,9 +53,6 @@ const (
 	RPAREN   // )
 	LBRACE   // {
 	RBRACE   // }
-	LBRACKET // [
-	RBRACKET // ]
-	DOT      // .
 	ASTERISK // * (wildcard in patterns)
 
 	// Shell operators
@@ -99,15 +82,10 @@ var tokenNames = [...]string{
 	EOF:        "EOF",
 	ILLEGAL:    "ILLEGAL",
 	VAR:        "VAR",
-	FOR:        "FOR",
-	IN:         "IN",
-	IF:         "IF",
-	ELSE:       "ELSE",
-	EMPTY:      "EMPTY",
-	TRY:        "TRY",
-	CATCH:      "CATCH",
-	FINALLY:    "FINALLY",
+	WATCH:      "WATCH",
+	STOP:       "STOP",
 	WHEN:       "WHEN",
+	TRY:        "TRY",
 	AT:         "AT",
 	COLON:      "COLON",
 	EQUALS:     "EQUALS",
@@ -116,9 +94,6 @@ var tokenNames = [...]string{
 	RPAREN:     "RPAREN",
 	LBRACE:     "LBRACE",
 	RBRACE:     "RBRACE",
-	LBRACKET:   "LBRACKET",
-	RBRACKET:   "RBRACKET",
-	DOT:        "DOT",
 	ASTERISK:   "ASTERISK",
 	AND:        "AND",
 	OR:         "OR",
@@ -158,7 +133,7 @@ const (
 type SemanticTokenType int
 
 const (
-	SemKeyword   SemanticTokenType = iota // var, watch, stop
+	SemKeyword   SemanticTokenType = iota // var, watch, stop, when, try
 	SemCommand                            // command names
 	SemVariable                           // variable names
 	SemString                             // string literals
@@ -166,8 +141,8 @@ const (
 	SemComment                            // comments
 	SemOperator                           // :, =, {, }, (, ), @, *
 	SemShellText                          // shell text content
-	SemDecorator                          // all decorators (@timeout, @retry, @when, @try, etc.)
-	SemPattern                            // pattern identifiers within pattern decorators
+	SemDecorator                          // decorators like @timeout, @retry
+	SemPattern                            // pattern-matching decorators (@when, @try)
 	SemBoolean                            // boolean literals (true, false)
 	SemParameter                          // parameter names in decorators
 )

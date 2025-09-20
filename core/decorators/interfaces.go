@@ -22,13 +22,16 @@ type DecoratorBase interface {
 type ArgType string
 
 const (
-	ArgTypeString        ArgType = "string"
-	ArgTypeNumber        ArgType = "number"   // Unified int/float as number
-	ArgTypeDuration      ArgType = "duration" // Duration strings like "30s", "5m", "1h"
-	ArgTypeBoolean       ArgType = "boolean"
-	ArgTypeArray         ArgType = "array"
-	ArgTypeMap           ArgType = "map"
-	ArgTypeBlockFunction ArgType = "block_function" // Shell command blocks { commands }
+	ArgTypeString               ArgType = "string"
+	ArgTypeBool                 ArgType = "bool"
+	ArgTypeInt                  ArgType = "int"
+	ArgTypeFloat                ArgType = "float"
+	ArgTypeDuration             ArgType = "duration"   // Duration strings like "30s", "5m", "1h"
+	ArgTypeIdentifier           ArgType = "identifier" // Variable/command identifiers
+	ArgTypeList                 ArgType = "list"
+	ArgTypeMap                  ArgType = "map"
+	ArgTypeBlockFunction        ArgType = "block_function"         // Shell command blocks { commands }
+	ArgTypePatternBlockFunction ArgType = "pattern_block_function" // Pattern blocks { branch: commands }
 )
 
 // ParameterSchema describes a decorator parameter
@@ -166,6 +169,21 @@ type ImportRequirement interface {
 // UNIFIED DECORATOR INTERFACES - Target architecture (2-interface system)
 // ================================================================================================
 
+// BlockRequirement describes structural requirements for execution decorators
+type BlockRequirement struct {
+	Type     BlockType `json:"type"`     // Type of block required
+	Required bool      `json:"required"` // Whether block is required
+}
+
+// BlockType represents the type of block a decorator requires
+type BlockType string
+
+const (
+	BlockNone    BlockType = "none"    // No block needed: @cmd(build)
+	BlockShell   BlockType = "shell"   // Shell command block: @retry(3) { commands }
+	BlockPattern BlockType = "pattern" // Pattern matching block: @when(ENV) { prod: ..., dev: ... }
+)
+
 // Resolved represents the result of decorator resolution with type flexibility
 type Resolved interface {
 	// The actual resolved value (string, bool, int, array, map, etc.)
@@ -188,7 +206,35 @@ const (
 	ResolvedMap      ResolvedType = "map"
 )
 
-// Decorator - Base interface for all decorators with validated parameters
+// resolved is a basic implementation of the Resolved interface
+type resolved struct {
+	value        any
+	resolvedType ResolvedType
+	hash         string
+}
+
+func (r *resolved) Value() any {
+	return r.value
+}
+
+func (r *resolved) Type() ResolvedType {
+	return r.resolvedType
+}
+
+func (r *resolved) Hash() string {
+	return r.hash
+}
+
+// NewResolved creates a new resolved value
+func NewResolved(value any, resolvedType ResolvedType, hash string) Resolved {
+	return &resolved{
+		value:        value,
+		resolvedType: resolvedType,
+		hash:         hash,
+	}
+}
+
+// Decorator - Base generic interface for all decorators with validated parameters
 type Decorator[T any] interface {
 	DecoratorBase
 	// Validate parameters and return decorator-specific validated type
@@ -197,7 +243,7 @@ type Decorator[T any] interface {
 	Plan(ctx Context, validated T) plan.ExecutionStep
 }
 
-// ValueDecorator - Target interface for inline value substitution decorators
+// ValueDecorator - Generic interface for inline value substitution decorators
 type ValueDecorator[T any] interface {
 	Decorator[T]
 	// Value resolution using validated parameters
@@ -206,7 +252,7 @@ type ValueDecorator[T any] interface {
 	IsExpensive() bool
 }
 
-// ExecutionDecorator - Target interface for command execution decorators
+// ExecutionDecorator - Generic interface for command execution decorators
 type ExecutionDecorator[T any] interface {
 	Decorator[T]
 	// Execution using validated parameters
