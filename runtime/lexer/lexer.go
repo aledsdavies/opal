@@ -126,8 +126,8 @@ func (l *Lexer) getShellEndPosition(fallbackPos, fallbackLine, fallbackColumn in
 	return fallbackPos, fallbackLine, max(1, fallbackColumn)
 }
 
-// New creates a new Lexer from an io.Reader
-func New(reader io.Reader) *Lexer {
+// NewLegacy creates a new legacy Lexer from an io.Reader
+func NewLegacy(reader io.Reader) *Lexer {
 	// Read entire input into string (simpler approach for now)
 	data, err := io.ReadAll(reader)
 	if err != nil {
@@ -166,6 +166,18 @@ func New(reader io.Reader) *Lexer {
 	}
 	l.readChar()
 	return l
+}
+
+// New creates a new legacy Lexer from an io.Reader (maintains backward compatibility)
+func New(reader io.Reader) *Lexer {
+	return NewLegacy(reader)
+}
+
+// NewProcessor creates a new TokenProcessor using the configured processor type
+// This is the new entry point that supports switching between legacy and simplified lexers
+func NewProcessor(reader io.Reader) TokenProcessor {
+	manager := NewProcessorManager()
+	return manager.Create(reader)
 }
 
 // isAfterPatternDecorator checks if we just parsed a pattern decorator by looking back
