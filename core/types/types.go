@@ -11,6 +11,8 @@ const (
 	DurationType
 	BooleanType
 	IdentifierType
+	ArrayType
+	MapType
 )
 
 // String returns a string representation of the ExpressionType
@@ -26,6 +28,10 @@ func (t ExpressionType) String() string {
 		return "boolean"
 	case IdentifierType:
 		return "identifier"
+	case ArrayType:
+		return "array"
+	case MapType:
+		return "map"
 	default:
 		return "unknown"
 	}
@@ -41,8 +47,18 @@ const (
 
 	// Language structure tokens
 	VAR      // var
-	WATCH    // watch
-	STOP     // stop
+	FOR      // for
+	IN       // in
+	IF       // if
+	ELSE     // else
+	EMPTY    // empty (for handling empty arrays/maps in for loops)
+	TRY      // try
+	CATCH    // catch
+	FINALLY  // finally
+	WHEN     // when
+	SWITCH   // switch
+	CASE     // case
+	DEFAULT  // default
 	AT       // @
 	COLON    // :
 	EQUALS   // =
@@ -51,6 +67,9 @@ const (
 	RPAREN   // )
 	LBRACE   // {
 	RBRACE   // }
+	LBRACKET // [
+	RBRACKET // ]
+	DOT      // .
 	ASTERISK // * (wildcard in patterns)
 
 	// Shell operators
@@ -80,8 +99,15 @@ var tokenNames = [...]string{
 	EOF:        "EOF",
 	ILLEGAL:    "ILLEGAL",
 	VAR:        "VAR",
-	WATCH:      "WATCH",
-	STOP:       "STOP",
+	FOR:        "FOR",
+	IN:         "IN",
+	IF:         "IF",
+	ELSE:       "ELSE",
+	EMPTY:      "EMPTY",
+	TRY:        "TRY",
+	CATCH:      "CATCH",
+	FINALLY:    "FINALLY",
+	WHEN:       "WHEN",
 	AT:         "AT",
 	COLON:      "COLON",
 	EQUALS:     "EQUALS",
@@ -90,6 +116,9 @@ var tokenNames = [...]string{
 	RPAREN:     "RPAREN",
 	LBRACE:     "LBRACE",
 	RBRACE:     "RBRACE",
+	LBRACKET:   "LBRACKET",
+	RBRACKET:   "RBRACKET",
+	DOT:        "DOT",
 	ASTERISK:   "ASTERISK",
 	AND:        "AND",
 	OR:         "OR",
