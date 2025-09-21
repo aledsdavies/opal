@@ -36,9 +36,9 @@ func init() {
 		// Digits
 		isDigit[i] = '0' <= ch && ch <= '9'
 
-		// Identifier characters
+		// Identifier characters (no hyphens per specification)
 		isIdentStart[i] = isLetter[i]
-		isIdentPart[i] = isLetter[i] || isDigit[i] || ch == '-'
+		isIdentPart[i] = isLetter[i] || isDigit[i]
 
 		// Hex digits
 		isHexDigit[i] = isDigit[i] || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
@@ -51,9 +51,9 @@ func init() {
 
 // Identifier specification: ASCII-only for maximum compatibility
 //
-// Identifiers: [a-zA-Z_][a-zA-Z0-9_-]*
+// Identifiers: [a-zA-Z_][a-zA-Z0-9_]*
 // - Must start with letter or underscore
-// - Can contain letters, digits, underscore, hyphen
+// - Can contain letters, digits, underscore (no hyphens per spec)
 // - No case requirements (user choice)
 //
 // Unicode handling: Only for position tracking and string content

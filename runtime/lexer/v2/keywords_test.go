@@ -225,7 +225,7 @@ func TestKeywordVsIdentifier(t *testing.T) {
 		{name: "forEach identifier", input: "forEach", expected: IDENTIFIER, text: "forEach"},
 		{name: "for_each identifier", input: "for_each", expected: IDENTIFIER, text: "for_each"},
 		{name: "ifTrue identifier", input: "ifTrue", expected: IDENTIFIER, text: "ifTrue"},
-		{name: "if-condition identifier", input: "if-condition", expected: IDENTIFIER, text: "if-condition"},
+		{name: "ifCondition identifier", input: "ifCondition", expected: IDENTIFIER, text: "ifCondition"},
 		{name: "tryAgain identifier", input: "tryAgain", expected: IDENTIFIER, text: "tryAgain"},
 		{name: "try_catch identifier", input: "try_catch", expected: IDENTIFIER, text: "try_catch"},
 		{name: "when_clause identifier", input: "when_clause", expected: IDENTIFIER, text: "when_clause"},
@@ -293,7 +293,9 @@ func TestKeywordBoundaries(t *testing.T) {
 			name:  "if followed by hyphen",
 			input: "if-statement",
 			expected: []tokenExpectation{
-				{IDENTIFIER, "if-statement", 1, 1}, // Should be one identifier
+				{IF, "if", 1, 1},                // keyword 'if'
+				{MINUS, "-", 1, 3},              // minus operator
+				{IDENTIFIER, "statement", 1, 4}, // identifier 'statement'
 				{EOF, "", 1, 13},
 			},
 		},

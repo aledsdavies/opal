@@ -354,8 +354,15 @@ func (l *Lexer) lexToken() Token {
 		l.advanceChar()
 		return Token{Type: SEMICOLON, Text: []byte{';'}, Position: start}
 	case '-':
-		l.advanceChar()
-		return Token{Type: MINUS, Text: []byte{'-'}, Position: start}
+		return l.lexMinus(start)
+	case '+':
+		return l.lexPlus(start)
+	case '*':
+		return l.lexMultiply(start)
+	case '/':
+		return l.lexDivide(start)
+	case '%':
+		return l.lexModulo(start)
 		// NOTE: '\n' is now handled as whitespace and skipped
 		// Meaningful newlines will be implemented when we add statement parsing
 	}
@@ -607,4 +614,86 @@ func (l *Lexer) readDigits() bool {
 	}
 
 	return l.position > startPos
+}
+
+// lexMinus handles '-', '--', and '-=' operators
+func (l *Lexer) lexMinus(start Position) Token {
+	l.advanceChar() // consume '-'
+
+	// Check for '--' (decrement)
+	if l.position < len(l.input) && l.currentChar() == '-' {
+		l.advanceChar() // consume second '-'
+		return Token{Type: DECREMENT, Text: []byte("--"), Position: start}
+	}
+
+	// Check for '-=' (minus assign)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume '='
+		return Token{Type: MINUS_ASSIGN, Text: []byte("-="), Position: start}
+	}
+
+	// Just '-' (minus)
+	return Token{Type: MINUS, Text: []byte("-"), Position: start}
+}
+
+// lexPlus handles '+', '++', and '+=' operators
+func (l *Lexer) lexPlus(start Position) Token {
+	l.advanceChar() // consume '+'
+
+	// Check for '++' (increment)
+	if l.position < len(l.input) && l.currentChar() == '+' {
+		l.advanceChar() // consume second '+'
+		return Token{Type: INCREMENT, Text: []byte("++"), Position: start}
+	}
+
+	// Check for '+=' (plus assign)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume '='
+		return Token{Type: PLUS_ASSIGN, Text: []byte("+="), Position: start}
+	}
+
+	// Just '+' (plus)
+	return Token{Type: PLUS, Text: []byte("+"), Position: start}
+}
+
+// lexMultiply handles '*' and '*=' operators
+func (l *Lexer) lexMultiply(start Position) Token {
+	l.advanceChar() // consume '*'
+
+	// Check for '*=' (multiply assign)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume '='
+		return Token{Type: MULTIPLY_ASSIGN, Text: []byte("*="), Position: start}
+	}
+
+	// Just '*' (multiply)
+	return Token{Type: MULTIPLY, Text: []byte("*"), Position: start}
+}
+
+// lexDivide handles '/' and '/=' operators
+func (l *Lexer) lexDivide(start Position) Token {
+	l.advanceChar() // consume '/'
+
+	// Check for '/=' (divide assign)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume '='
+		return Token{Type: DIVIDE_ASSIGN, Text: []byte("/="), Position: start}
+	}
+
+	// Just '/' (divide)
+	return Token{Type: DIVIDE, Text: []byte("/"), Position: start}
+}
+
+// lexModulo handles '%' and '%=' operators
+func (l *Lexer) lexModulo(start Position) Token {
+	l.advanceChar() // consume '%'
+
+	// Check for '%=' (modulo assign)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume '='
+		return Token{Type: MODULO_ASSIGN, Text: []byte("%="), Position: start}
+	}
+
+	// Just '%' (modulo)
+	return Token{Type: MODULO, Text: []byte("%"), Position: start}
 }

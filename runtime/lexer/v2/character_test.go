@@ -76,12 +76,12 @@ func TestASCIICharacterClassification(t *testing.T) {
 			},
 		},
 		{
-			name: "hyphen in identifier",
+			name: "hyphen not in identifier",
 			char: '-',
 			expected: map[string]bool{
 				"letter":     false,
 				"identStart": false,
-				"identPart":  true, // Hyphens allowed in identifier parts
+				"identPart":  false, // Hyphens NOT allowed per specification
 				"digit":      false,
 				"whitespace": false,
 			},
@@ -195,10 +195,10 @@ func TestASCIIIdentifierValidation(t *testing.T) {
 			reason: "snake_case is fine",
 		},
 		{
-			name:   "valid kebab style",
+			name:   "invalid kebab style",
 			input:  "start-api",
-			valid:  true,
-			reason: "kebab-case is fine",
+			valid:  false,
+			reason: "kebab-case not allowed per specification",
 		},
 		{
 			name:   "valid with numbers",
@@ -213,10 +213,10 @@ func TestASCIIIdentifierValidation(t *testing.T) {
 			reason: "underscore is valid start character",
 		},
 		{
-			name:   "mixed styles",
+			name:   "mixed styles invalid",
 			input:  "API_v2-final",
-			valid:  true,
-			reason: "any ASCII combo is allowed",
+			valid:  false,
+			reason: "hyphens not allowed per specification",
 		},
 		{
 			name:   "starts with number",
