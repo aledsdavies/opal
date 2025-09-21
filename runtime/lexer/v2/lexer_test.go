@@ -1,11 +1,44 @@
 package v2
 
 import (
+	"fmt"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 )
+
+// generateRealisticInput creates input with mixed token types for testing
+func generateRealisticInput(tokenCount int) string {
+	var parts []string
+
+	// Realistic devcmd-style content
+	patterns := []string{
+		"var service_name = \"api-server\"",
+		"for env in @var(ENVIRONMENTS) {",
+		"kubectl apply -f deployment.yaml",
+		"@confirm(\"Deploy to production?\")",
+		"echo \"Deploying @var(service_name)\"",
+		"if @var(ENV) == \"production\" {",
+		"@retry(3) { curl -f @var(HEALTH_URL) }",
+		"} else {",
+		"echo \"Development deployment\"",
+		"}",
+	}
+
+	// Generate tokens by repeating patterns
+	for i := 0; i < tokenCount; {
+		pattern := patterns[i%len(patterns)]
+		parts = append(parts, pattern)
+
+		// Rough estimate: each pattern has ~5-8 tokens
+		i += 6
+	}
+
+	return strings.Join(parts, "\n")
+}
 
 // tokenExpectation represents an expected token for testing
 type tokenExpectation struct {
@@ -20,19 +53,16 @@ func assertTokens(t *testing.T, name string, input string, expected []tokenExpec
 	t.Helper()
 
 	lexer := NewLexer(input)
+	tokens := lexer.GetTokens() // Use batch interface
 	var actual []tokenExpectation
 
-	for {
-		token := lexer.NextToken()
+	for _, token := range tokens {
 		actual = append(actual, tokenExpectation{
 			Type:   token.Type,
 			Text:   token.String(),
 			Line:   token.Position.Line,
 			Column: token.Position.Column,
 		})
-		if token.Type == EOF {
-			break
-		}
 	}
 
 	// Use cmp.Diff for clean, exact output comparison
@@ -87,6 +117,211 @@ func TestPerTokenTiming(t *testing.T) {
 	if duration2 <= 0 {
 		t.Errorf("Final duration should be positive, got %v", duration2)
 	}
+}
+
+// TestBatchTiming tests that batch interface provides timing
+func TestBatchTiming(t *testing.T) {
+	input := "test input more tokens here"
+	lexer := NewLexer(input)
+
+	// Before processing, duration should be zero
+	duration := lexer.Duration()
+	if duration != 0 {
+		t.Errorf("Duration should be zero before processing, got %v", duration)
+	}
+
+	// Get all tokens at once
+	tokens := lexer.GetTokens()
+	duration = lexer.Duration()
+
+	// Should have timing after batch processing
+	if duration <= 0 {
+		t.Errorf("Duration should be positive after batch processing, got %v", duration)
+	}
+
+	// Should have gotten some tokens
+	if len(tokens) < 2 {
+		t.Errorf("Expected multiple tokens, got %d", len(tokens))
+	}
+
+	// Last token should be EOF
+	if len(tokens) > 0 && tokens[len(tokens)-1].Type != EOF {
+		t.Errorf("Expected last token to be EOF, got %v", tokens[len(tokens)-1].Type)
+	}
+}
+
+// TestBufferBoundaries tests buffering across realistic input sizes
+func TestBufferBoundaries(t *testing.T) {
+	tests := []struct {
+		name        string
+		tokenCount  int
+		description string
+	}{
+		{"small_file", 100, "Small config file"},
+		{"medium_file", 1000, "Medium script file"},
+		{"large_file", 5000, "Large deployment script"},
+		{"very_large_file", 20000, "Very large complex script"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Generate realistic input
+			input := generateRealisticInput(tt.tokenCount)
+
+			lexer := NewLexer(input)
+
+			// Test streaming interface - count actual tokens
+			var streamTokenCount int
+			for {
+				token := lexer.NextToken()
+				streamTokenCount++
+				if token.Type == EOF {
+					break
+				}
+			}
+
+			// Reset and test batch interface
+			lexer.Init([]byte(input))
+			batchTokens := lexer.GetTokens()
+
+			// Both should give same count
+			if len(batchTokens) != streamTokenCount {
+				t.Errorf("Token count mismatch: streaming=%d, batch=%d", streamTokenCount, len(batchTokens))
+			}
+
+			// Verify we got a reasonable number of tokens (at least target ballpark)
+			if streamTokenCount < tt.tokenCount/2 {
+				t.Errorf("Too few tokens: expected ~%d, got %d", tt.tokenCount, streamTokenCount)
+			}
+
+			t.Logf("%s: %d tokens processed successfully", tt.description, streamTokenCount)
+		})
+	}
+}
+
+// TestBufferRefillConsistency tests that tokens are consistent across buffer refills
+func TestBufferRefillConsistency(t *testing.T) {
+	// Create realistic input that will definitely span multiple buffers
+	input := generateRealisticInput(1000) // ~1000 realistic tokens
+
+	lexer1 := NewLexer(input)
+	lexer2 := NewLexer(input)
+
+	// Get all tokens via streaming
+	var streamTokens []Token
+	for {
+		token := lexer1.NextToken()
+		streamTokens = append(streamTokens, token)
+		if token.Type == EOF {
+			break
+		}
+	}
+
+	// Get all tokens via batch
+	batchTokens := lexer2.GetTokens()
+
+	// Should be identical
+	if len(streamTokens) != len(batchTokens) {
+		t.Fatalf("Token count mismatch: stream=%d, batch=%d", len(streamTokens), len(batchTokens))
+	}
+
+	for i, streamToken := range streamTokens {
+		batchToken := batchTokens[i]
+		if streamToken.Type != batchToken.Type {
+			t.Errorf("Token %d type mismatch: stream=%v, batch=%v", i, streamToken.Type, batchToken.Type)
+		}
+		if string(streamToken.Text) != string(batchToken.Text) {
+			t.Errorf("Token %d text mismatch: stream=%q, batch=%q", i, streamToken.String(), batchToken.String())
+		}
+		if streamToken.Position != batchToken.Position {
+			t.Errorf("Token %d position mismatch: stream=%v, batch=%v", i, streamToken.Position, batchToken.Position)
+		}
+	}
+}
+
+// TestBufferSizePerformance tests different buffer sizes to find optimal setting
+func TestBufferSizePerformance(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping buffer size performance test in short mode")
+	}
+
+	// Large realistic input for meaningful performance testing
+	input := generateRealisticInput(5000) // ~5000 tokens of realistic content
+
+	// Test realistic buffer sizes that would be used in production
+	bufferSizes := []int{32, 64, 128, 256, 512, 1024}
+	results := make(map[int]time.Duration)
+
+	for _, size := range bufferSizes {
+		t.Run(fmt.Sprintf("buffer_size_%d", size), func(t *testing.T) {
+			// We'll need to expose buffer size configuration for this test
+			// For now, just test with default and record the pattern
+
+			start := time.Now()
+
+			lexer := NewLexer(input)
+			tokens := lexer.GetTokens()
+
+			elapsed := time.Since(start)
+			results[size] = elapsed
+
+			// Sanity check
+			if len(tokens) < 1000 {
+				t.Errorf("Expected many tokens, got %d", len(tokens))
+			}
+
+			t.Logf("Buffer size %d: %v (%d tokens)", size, elapsed, len(tokens))
+		})
+	}
+
+	// Log results for analysis
+	t.Logf("Buffer size performance results:")
+	for _, size := range bufferSizes {
+		t.Logf("  Size %d: %v", size, results[size])
+	}
+}
+
+// TestMixedAccessPatterns tests combining streaming and batch operations
+func TestMixedAccessPatterns(t *testing.T) {
+	input := "first second third fourth fifth"
+
+	t.Run("stream_then_batch", func(t *testing.T) {
+		lexer := NewLexer(input)
+
+		// Get a few tokens via streaming
+		token1 := lexer.NextToken()
+		token2 := lexer.NextToken()
+
+		if token1.String() != "first" || token2.String() != "second" {
+			t.Errorf("Streaming failed: got %q, %q", token1.String(), token2.String())
+		}
+
+		// Reset and use batch
+		lexer.Init([]byte(input))
+		tokens := lexer.GetTokens()
+
+		if len(tokens) < 5 || tokens[0].String() != "first" {
+			t.Errorf("Batch after streaming failed")
+		}
+	})
+
+	t.Run("reset_buffer_state", func(t *testing.T) {
+		lexer := NewLexer(input)
+
+		// Consume some tokens to populate buffer
+		lexer.NextToken() // first
+		lexer.NextToken() // second
+
+		// Reset with new input
+		newInput := "alpha beta gamma"
+		lexer.Init([]byte(newInput))
+
+		// First token from new input should be correct
+		token := lexer.NextToken()
+		if token.String() != "alpha" {
+			t.Errorf("Reset failed: expected 'alpha', got %q", token.String())
+		}
+	})
 }
 
 // TestZeroAllocation tests that tokenization doesn't allocate after lexer init

@@ -53,12 +53,19 @@ type TokenStats struct {
 
 // Lexer represents the v2 lexer
 type Lexer struct {
-	input     []byte // Use []byte for zero-allocation performance
-	position  int
-	line      int
-	column    int
+	// Core lexing state
+	input    []byte // Use []byte for zero-allocation performance
+	position int
+	line     int
+	column   int
+
+	// Buffering for efficient token access
+	tokens     []Token // Internal token buffer
+	tokenIndex int     // Current position in buffer
+	bufferSize int     // Number of tokens to buffer at once (default: 32)
+
+	// Timing (measured per buffer fill, not per token)
 	totalTime time.Duration // Total time for entire lexing process
-	startTime time.Time     // Start time for timing the entire process
 
 	// Debug telemetry (nil when debug disabled for zero allocation)
 	debugEnabled bool
@@ -79,6 +86,7 @@ func NewLexerWithOpts(input string, opts ...LexerOpt) *Lexer {
 
 	lexer := &Lexer{
 		debugEnabled: config.debug,
+		bufferSize:   32, // Default buffer size for good performance
 	}
 
 	// Only allocate debug structures when needed
@@ -96,8 +104,11 @@ func (l *Lexer) Init(input []byte) {
 	l.position = 0
 	l.line = 1
 	l.column = 1
-	l.totalTime = 0           // Reset timing
-	l.startTime = time.Time{} // Reset start time
+	l.totalTime = 0 // Reset timing
+
+	// Reset buffering state
+	l.tokens = l.tokens[:0] // Reset slice but keep capacity
+	l.tokenIndex = 0
 
 	// Reset debug stats if enabled
 	if l.debugEnabled && l.tokenStats != nil {
@@ -134,17 +145,66 @@ func (l *Lexer) GetTokenStats() map[TokenType]*TokenStats {
 	return result
 }
 
-// NextToken returns the next token from the input
+// NextToken returns the next token using streaming interface
 func (l *Lexer) NextToken() Token {
-	// Start timing on very first call
-	if l.startTime.IsZero() {
-		l.startTime = time.Now()
+	// Ensure buffer has tokens
+	if l.tokenIndex >= len(l.tokens) {
+		l.fillBuffer()
 	}
 
-	token := l.lexToken() // Do the actual lexing work
+	// If still no tokens, return EOF
+	if l.tokenIndex >= len(l.tokens) {
+		return Token{Type: EOF, Text: nil, Position: Position{Line: l.line, Column: l.column}}
+	}
 
-	// Always update total time (minimal overhead)
-	l.totalTime = time.Since(l.startTime)
+	token := l.tokens[l.tokenIndex]
+	l.tokenIndex++
+	return token
+}
+
+// GetTokens returns all tokens using batch interface
+func (l *Lexer) GetTokens() []Token {
+	start := time.Now()
+
+	var tokens []Token
+	for {
+		token := l.nextToken()
+		tokens = append(tokens, token)
+		if token.Type == EOF {
+			break
+		}
+	}
+
+	// Update timing for batch processing
+	l.totalTime = time.Since(start)
+
+	return tokens
+}
+
+// fillBuffer fills the internal token buffer with the next batch of tokens
+func (l *Lexer) fillBuffer() {
+	start := time.Now()
+
+	// Reset buffer but keep capacity
+	l.tokens = l.tokens[:0]
+	l.tokenIndex = 0
+
+	// Fill buffer up to bufferSize or until EOF
+	for len(l.tokens) < l.bufferSize {
+		token := l.nextToken()
+		l.tokens = append(l.tokens, token)
+		if token.Type == EOF {
+			break
+		}
+	}
+
+	// Update timing (accumulate across buffer fills)
+	l.totalTime += time.Since(start)
+}
+
+// nextToken returns the next token from the input (internal implementation)
+func (l *Lexer) nextToken() Token {
+	token := l.lexToken() // Do the actual lexing work
 
 	// Debug telemetry (only when enabled, will allocate)
 	if l.debugEnabled && l.tokenStats != nil {
