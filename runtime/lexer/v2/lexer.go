@@ -560,6 +560,9 @@ func (l *Lexer) advanceChar() {
 func (l *Lexer) lexNumber(start Position) Token {
 	startPos := l.position
 
+	// Handle both integer and decimal number patterns
+	isFloat := false
+
 	// Check if starting with decimal point
 	if l.currentChar() == '.' {
 		l.advanceChar()
@@ -567,25 +570,51 @@ func (l *Lexer) lexNumber(start Position) Token {
 			// No digits after decimal - shouldn't happen given our caller check
 			return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start}
 		}
-		// This is a decimal number like .5
-		return Token{
-			Type:     FLOAT,
-			Text:     l.input[startPos:l.position],
-			Position: start,
+		isFloat = true
+	} else {
+		// Read integer part
+		if !l.readDigits() {
+			// No digits found - this shouldn't happen given our caller check
+			return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start}
+		}
+
+		// Check for decimal point
+		if l.position < len(l.input) && l.currentChar() == '.' {
+			l.advanceChar()
+			// Read decimal part (optional - Go allows 5.)
+			l.readDigits()
+			isFloat = true
 		}
 	}
 
-	// Read integer part
-	if !l.readDigits() {
-		// No digits found - this shouldn't happen given our caller check
-		return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start}
+	// Check for scientific notation (e/E)
+	if l.position < len(l.input) {
+		ch := l.currentChar()
+		if ch == 'e' || ch == 'E' {
+			l.advanceChar() // consume 'e' or 'E'
+
+			// Check for optional sign (+/-)
+			if l.position < len(l.input) {
+				signChar := l.currentChar()
+				if signChar == '+' || signChar == '-' {
+					l.advanceChar() // consume sign
+				}
+			}
+
+			// Read exponent digits (Go allows incomplete exponents like "1e")
+			l.readDigits()
+
+			// This is scientific notation
+			return Token{
+				Type:     SCIENTIFIC,
+				Text:     l.input[startPos:l.position],
+				Position: start,
+			}
+		}
 	}
 
-	// Check for decimal point
-	if l.position < len(l.input) && l.currentChar() == '.' {
-		l.advanceChar()
-		// Read decimal part (optional - Go allows 5.)
-		l.readDigits()
+	// Return appropriate type based on whether we found a decimal point
+	if isFloat {
 		return Token{
 			Type:     FLOAT,
 			Text:     l.input[startPos:l.position],
