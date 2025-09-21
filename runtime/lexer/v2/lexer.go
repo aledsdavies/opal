@@ -699,6 +699,17 @@ func (l *Lexer) lexNumber(start Position) Token {
 		}
 	}
 
+	// Check for duration units (only for integers, not floats or scientific)
+	if !isFloat {
+		if l.tryParseDuration(startPos) {
+			return Token{
+				Type:     DURATION,
+				Text:     l.input[startPos:l.position],
+				Position: start,
+			}
+		}
+	}
+
 	// Return appropriate type based on whether we found a decimal point
 	if isFloat {
 		return Token{
@@ -729,6 +740,76 @@ func (l *Lexer) readDigits() bool {
 	}
 
 	return l.position > startPos
+}
+
+// tryParseDuration attempts to parse duration units after a number
+// Returns true if duration units were found and consumed
+func (l *Lexer) tryParseDuration(startPos int) bool {
+	savedPosition := l.position
+
+	// Try to read compound duration units
+	hasUnits := false
+	for {
+		// Try to read a duration unit
+		if !l.readDurationUnit() {
+			break // No more valid units
+		}
+		hasUnits = true
+
+		// After reading a unit, check if there are more digits for compound duration
+		if l.position >= len(l.input) {
+			break // End of input
+		}
+
+		// Check if next character could start another unit (digit)
+		ch := l.currentChar()
+		if ch >= 128 || !isDigit[ch] {
+			break // No more units - this is normal for simple durations
+		}
+
+		// Read digits for next unit
+		if !l.readDigits() {
+			break // No digits found, we're done
+		}
+	}
+
+	// If we found at least one unit, this is a duration
+	if hasUnits {
+		return true
+	}
+
+	// No units found, restore position
+	l.position = savedPosition
+	return false
+}
+
+// readDurationUnit reads a single duration unit (s, m, h, d, w, y, ms, us, ns)
+// Returns true if a valid unit was consumed
+func (l *Lexer) readDurationUnit() bool {
+	if l.position >= len(l.input) {
+		return false
+	}
+
+	// Check for two-character units first (ms, us, ns)
+	if l.position+1 < len(l.input) {
+		twoChar := string(l.input[l.position : l.position+2])
+		switch twoChar {
+		case "ms", "us", "ns":
+			l.advanceChar() // Advance first character
+			l.advanceChar() // Advance second character
+			return true
+		}
+	}
+
+	// Check for single-character units
+	ch := l.currentChar()
+	switch ch {
+	case 's', 'm', 'h', 'd', 'w', 'y':
+		l.advanceChar() // Properly advance with line/column tracking
+		return true
+	}
+
+	return false
 }
 
 // lexMinus handles '-', '--', and '-=' operators
