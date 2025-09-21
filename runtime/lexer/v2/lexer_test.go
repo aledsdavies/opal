@@ -84,7 +84,7 @@ func TestEmptyInput(t *testing.T) {
 // TestPerTokenTiming tests that lexer accumulates timing per token
 func TestPerTokenTiming(t *testing.T) {
 	input := "test"
-	lexer := NewLexer(input)
+	lexer := NewLexerWithOpts(input, WithTiming(TimingStream))
 
 	// Before any tokens, duration should be zero
 	duration := lexer.Duration()
@@ -122,7 +122,7 @@ func TestPerTokenTiming(t *testing.T) {
 // TestBatchTiming tests that batch interface provides timing
 func TestBatchTiming(t *testing.T) {
 	input := "test input more tokens here"
-	lexer := NewLexer(input)
+	lexer := NewLexerWithOpts(input, WithBatchTiming())
 
 	// Before processing, duration should be zero
 	duration := lexer.Duration()
@@ -324,6 +324,49 @@ func TestMixedAccessPatterns(t *testing.T) {
 	})
 }
 
+// TestTimingLevels tests that different timing levels work correctly
+func TestTimingLevels(t *testing.T) {
+	input := "test input"
+
+	t.Run("no_timing", func(t *testing.T) {
+		lexer := NewLexerWithOpts(input, WithNoTiming())
+
+		_ = lexer.NextToken()
+		if lexer.Duration() != 0 {
+			t.Errorf("Expected no timing with TimingNone, got %v", lexer.Duration())
+		}
+
+		_ = lexer.GetTokens()
+		if lexer.Duration() != 0 {
+			t.Errorf("Expected no timing with TimingNone, got %v", lexer.Duration())
+		}
+	})
+
+	t.Run("batch_timing", func(t *testing.T) {
+		lexer := NewLexerWithOpts(input, WithBatchTiming())
+
+		_ = lexer.NextToken()
+		if lexer.Duration() != 0 {
+			t.Errorf("Expected no timing for streaming with TimingBatch, got %v", lexer.Duration())
+		}
+
+		lexer.Init([]byte(input))
+		_ = lexer.GetTokens()
+		if lexer.Duration() <= 0 {
+			t.Errorf("Expected timing for batch with TimingBatch, got %v", lexer.Duration())
+		}
+	})
+
+	t.Run("stream_timing", func(t *testing.T) {
+		lexer := NewLexerWithOpts(input, WithTiming(TimingStream))
+
+		_ = lexer.NextToken()
+		if lexer.Duration() <= 0 {
+			t.Errorf("Expected timing for streaming with TimingStream, got %v", lexer.Duration())
+		}
+	})
+}
+
 // TestZeroAllocation tests that tokenization doesn't allocate after lexer init
 func TestZeroAllocation(t *testing.T) {
 	input := "test input"
@@ -367,7 +410,7 @@ func TestZeroAllocation(t *testing.T) {
 
 // TestLexerResetWithInit tests that lexer can be reset with new input using Init
 func TestLexerResetWithInit(t *testing.T) {
-	lexer := NewLexer("first")
+	lexer := NewLexerWithOpts("first", WithTiming(TimingStream))
 
 	// Process first input
 	token1 := lexer.NextToken()
@@ -446,9 +489,9 @@ func TestBenchmarkPerformanceRequirements(t *testing.T) {
 	// Run the benchmark
 	result := testing.Benchmark(BenchmarkLexerZeroAlloc)
 
-	// Performance requirements - realistic target for actual lexing work with timing
-	// With always-available timing: 250ns is excellent performance (4000+ lines/ms)
-	maxNsPerOp := int64(250)   // Realistic target: 250ns per token with timing (4000+ lines/ms)
+	// Performance requirements - no timing overhead (default mode)
+	// With no timing: 200ns is excellent performance (5000+ lines/ms)
+	maxNsPerOp := int64(200)   // Realistic target: 200ns per token without timing (5000+ lines/ms)
 	maxAllocsPerOp := int64(0) // Zero allocations required
 	maxBytesPerOp := int64(0)  // Zero bytes allocated required
 

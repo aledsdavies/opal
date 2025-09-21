@@ -16,10 +16,21 @@ const (
 // LexerOpt represents a lexer configuration option
 type LexerOpt func(*LexerConfig)
 
+// TimingLevel controls how much timing information to collect
+type TimingLevel int
+
+const (
+	TimingNone     TimingLevel = iota // No timing (fastest)
+	TimingBatch                       // Only time batch operations (GetTokens)
+	TimingStream                      // Time streaming operations (NextToken buffers)
+	TimingDetailed                    // Detailed timing with per-token stats (debug)
+)
+
 // LexerConfig holds lexer configuration
 type LexerConfig struct {
-	debug bool
-	mode  LexerMode
+	debug  bool
+	mode   LexerMode
+	timing TimingLevel
 }
 
 // WithDebug enables debug telemetry (will allocate for token stats)
@@ -43,6 +54,27 @@ func WithCommandMode() LexerOpt {
 	}
 }
 
+// WithTiming enables timing collection at the specified level
+func WithTiming(level TimingLevel) LexerOpt {
+	return func(c *LexerConfig) {
+		c.timing = level
+	}
+}
+
+// WithNoTiming disables all timing (fastest performance)
+func WithNoTiming() LexerOpt {
+	return func(c *LexerConfig) {
+		c.timing = TimingNone
+	}
+}
+
+// WithBatchTiming enables timing only for batch operations
+func WithBatchTiming() LexerOpt {
+	return func(c *LexerConfig) {
+		c.timing = TimingBatch
+	}
+}
+
 // TokenStats holds per-token timing statistics (debug mode only)
 type TokenStats struct {
 	Type      TokenType
@@ -62,10 +94,11 @@ type Lexer struct {
 	// Buffering for efficient token access
 	tokens     []Token // Internal token buffer
 	tokenIndex int     // Current position in buffer
-	bufferSize int     // Number of tokens to buffer at once (default: 32)
+	bufferSize int     // Number of tokens to buffer at once (default: 2500)
 
-	// Timing (measured per buffer fill, not per token)
-	totalTime time.Duration // Total time for entire lexing process
+	// Timing (configurable level)
+	totalTime   time.Duration // Total time for entire lexing process
+	timingLevel TimingLevel   // How much timing to collect
 
 	// Debug telemetry (nil when debug disabled for zero allocation)
 	debugEnabled bool
@@ -86,7 +119,9 @@ func NewLexerWithOpts(input string, opts ...LexerOpt) *Lexer {
 
 	lexer := &Lexer{
 		debugEnabled: config.debug,
-		bufferSize:   32, // Default buffer size for good performance
+		bufferSize:   2500,                   // Large enough for 90%+ of devcmd files
+		tokens:       make([]Token, 0, 2500), // Pre-allocate capacity
+		timingLevel:  config.timing,          // Default is TimingNone (0)
 	}
 
 	// Only allocate debug structures when needed
@@ -164,7 +199,10 @@ func (l *Lexer) NextToken() Token {
 
 // GetTokens returns all tokens using batch interface
 func (l *Lexer) GetTokens() []Token {
-	start := time.Now()
+	var start time.Time
+	if l.timingLevel >= TimingBatch {
+		start = time.Now()
+	}
 
 	var tokens []Token
 	for {
@@ -176,30 +214,49 @@ func (l *Lexer) GetTokens() []Token {
 	}
 
 	// Update timing for batch processing
-	l.totalTime = time.Since(start)
+	if l.timingLevel >= TimingBatch {
+		l.totalTime = time.Since(start)
+	}
 
 	return tokens
 }
 
 // fillBuffer fills the internal token buffer with the next batch of tokens
 func (l *Lexer) fillBuffer() {
-	start := time.Now()
+	var start time.Time
+	if l.timingLevel >= TimingStream {
+		start = time.Now()
+	}
 
 	// Reset buffer but keep capacity
 	l.tokens = l.tokens[:0]
 	l.tokenIndex = 0
 
-	// Fill buffer up to bufferSize or until EOF
-	for len(l.tokens) < l.bufferSize {
+	// Fill buffer up to current capacity
+	targetSize := cap(l.tokens)
+	for len(l.tokens) < targetSize {
 		token := l.nextToken()
+
+		// Check if we need to grow the buffer
+		if len(l.tokens) == cap(l.tokens) {
+			// Double the capacity for very large files
+			newCapacity := cap(l.tokens) * 2
+			newTokens := make([]Token, len(l.tokens), newCapacity)
+			copy(newTokens, l.tokens)
+			l.tokens = newTokens
+		}
+
 		l.tokens = append(l.tokens, token)
+
 		if token.Type == EOF {
 			break
 		}
 	}
 
 	// Update timing (accumulate across buffer fills)
-	l.totalTime += time.Since(start)
+	if l.timingLevel >= TimingStream {
+		l.totalTime += time.Since(start)
+	}
 }
 
 // nextToken returns the next token from the input (internal implementation)
