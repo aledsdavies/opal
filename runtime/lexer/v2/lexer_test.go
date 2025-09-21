@@ -84,7 +84,7 @@ func TestEmptyInput(t *testing.T) {
 // TestPerTokenTiming tests that lexer accumulates timing per token
 func TestPerTokenTiming(t *testing.T) {
 	input := "test"
-	lexer := NewLexerWithOpts(input, WithTiming(TimingStream))
+	lexer := NewLexer(input, WithTiming())
 
 	// Before any tokens, duration should be zero
 	duration := lexer.Duration()
@@ -122,7 +122,7 @@ func TestPerTokenTiming(t *testing.T) {
 // TestBatchTiming tests that batch interface provides timing
 func TestBatchTiming(t *testing.T) {
 	input := "test input more tokens here"
-	lexer := NewLexerWithOpts(input, WithBatchTiming())
+	lexer := NewLexer(input, WithTiming())
 
 	// Before processing, duration should be zero
 	duration := lexer.Duration()
@@ -379,7 +379,7 @@ func TestTimingLevels(t *testing.T) {
 	input := "test input"
 
 	t.Run("no_timing", func(t *testing.T) {
-		lexer := NewLexerWithOpts(input, WithNoTiming())
+		lexer := NewLexer(input, WithNoTiming())
 
 		_ = lexer.NextToken()
 		if lexer.Duration() != 0 {
@@ -392,27 +392,28 @@ func TestTimingLevels(t *testing.T) {
 		}
 	})
 
-	t.Run("batch_timing", func(t *testing.T) {
-		lexer := NewLexerWithOpts(input, WithBatchTiming())
+	t.Run("timing_enabled", func(t *testing.T) {
+		lexer := NewLexer(input, WithTiming())
 
+		// With timing enabled, both streaming and batch should have timing
 		_ = lexer.NextToken()
-		if lexer.Duration() != 0 {
-			t.Errorf("Expected no timing for streaming with TimingBatch, got %v", lexer.Duration())
+		if lexer.Duration() <= 0 {
+			t.Errorf("Expected timing for streaming with WithTiming(), got %v", lexer.Duration())
 		}
 
 		lexer.Init([]byte(input))
 		_ = lexer.GetTokens()
 		if lexer.Duration() <= 0 {
-			t.Errorf("Expected timing for batch with TimingBatch, got %v", lexer.Duration())
+			t.Errorf("Expected timing for batch with WithTiming(), got %v", lexer.Duration())
 		}
 	})
 
-	t.Run("stream_timing", func(t *testing.T) {
-		lexer := NewLexerWithOpts(input, WithTiming(TimingStream))
+	t.Run("fine_grain_timing", func(t *testing.T) {
+		lexer := NewLexer(input, WithFineGrainTiming())
 
 		_ = lexer.NextToken()
 		if lexer.Duration() <= 0 {
-			t.Errorf("Expected timing for streaming with TimingStream, got %v", lexer.Duration())
+			t.Errorf("Expected timing for streaming with WithFineGrainTiming(), got %v", lexer.Duration())
 		}
 	})
 }
@@ -585,7 +586,7 @@ func TestZeroAllocation(t *testing.T) {
 
 // TestLexerResetWithInit tests that lexer can be reset with new input using Init
 func TestLexerResetWithInit(t *testing.T) {
-	lexer := NewLexerWithOpts("first", WithTiming(TimingStream))
+	lexer := NewLexer("first", WithTiming())
 
 	// Process first input
 	token1 := lexer.NextToken()
@@ -638,7 +639,7 @@ func BenchmarkLexerZeroAlloc(b *testing.B) {
 // BenchmarkLexerWithDebug benchmarks lexing performance with debug enabled
 func BenchmarkLexerWithDebug(b *testing.B) {
 	inputBytes := []byte("echo hello world")
-	lexer := NewLexerWithOpts("", WithDebug()) // Debug enabled
+	lexer := NewLexer("", WithDebug()) // Debug enabled
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -802,8 +803,8 @@ func TestUnicodePositionTracking(t *testing.T) {
 func TestDebugTelemetryEnabled(t *testing.T) {
 	input := "test input"
 
-	// Create lexer with debug enabled
-	lexer := NewLexerWithOpts(input, WithDebug())
+	// Create lexer with debug and fine-grain timing enabled (required for token stats)
+	lexer := NewLexer(input, WithDebug(), WithFineGrainTiming())
 
 	// Process tokens
 	for {
@@ -818,10 +819,10 @@ func TestDebugTelemetryEnabled(t *testing.T) {
 		t.Error("Expected debug telemetry to be available when debug enabled")
 	}
 
-	// Should be able to get token timing stats
+	// Should be able to get token timing stats (requires fine-grain timing)
 	stats := lexer.GetTokenStats()
 	if len(stats) == 0 {
-		t.Error("Expected token stats when debug enabled")
+		t.Error("Expected token stats when debug and fine-grain timing enabled")
 	}
 }
 

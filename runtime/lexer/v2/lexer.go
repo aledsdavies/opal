@@ -16,21 +16,20 @@ const (
 // LexerOpt represents a lexer configuration option
 type LexerOpt func(*LexerConfig)
 
-// TimingLevel controls how much timing information to collect
-type TimingLevel int
+// TimingMode controls timing behavior
+type TimingMode int
 
 const (
-	TimingNone     TimingLevel = iota // No timing (fastest)
-	TimingBatch                       // Only time batch operations (GetTokens)
-	TimingStream                      // Time streaming operations (NextToken buffers)
-	TimingDetailed                    // Detailed timing with per-token stats (debug)
+	TimingOff  TimingMode = iota // No timing (fastest, default)
+	TimingOn                     // Basic timing for buffer operations
+	TimingFine                   // Fine-grained timing with debug stats
 )
 
 // LexerConfig holds lexer configuration
 type LexerConfig struct {
 	debug  bool
 	mode   LexerMode
-	timing TimingLevel
+	timing TimingMode
 }
 
 // WithDebug enables debug telemetry (will allocate for token stats)
@@ -54,24 +53,24 @@ func WithCommandMode() LexerOpt {
 	}
 }
 
-// WithTiming enables timing collection at the specified level
-func WithTiming(level TimingLevel) LexerOpt {
+// WithTiming enables basic timing (buffer-level)
+func WithTiming() LexerOpt {
 	return func(c *LexerConfig) {
-		c.timing = level
+		c.timing = TimingOn
 	}
 }
 
-// WithNoTiming disables all timing (fastest performance)
+// WithFineGrainTiming enables detailed timing with debug stats
+func WithFineGrainTiming() LexerOpt {
+	return func(c *LexerConfig) {
+		c.timing = TimingFine
+	}
+}
+
+// WithNoTiming disables all timing (fastest performance, default)
 func WithNoTiming() LexerOpt {
 	return func(c *LexerConfig) {
-		c.timing = TimingNone
-	}
-}
-
-// WithBatchTiming enables timing only for batch operations
-func WithBatchTiming() LexerOpt {
-	return func(c *LexerConfig) {
-		c.timing = TimingBatch
+		c.timing = TimingOff
 	}
 }
 
@@ -96,22 +95,17 @@ type Lexer struct {
 	tokenIndex int     // Current position in buffer
 	bufferSize int     // Number of tokens to buffer at once (default: 2500)
 
-	// Timing (configurable level)
-	totalTime   time.Duration // Total time for entire lexing process
-	timingLevel TimingLevel   // How much timing to collect
+	// Timing (configurable mode)
+	totalTime  time.Duration // Total time for entire lexing process
+	timingMode TimingMode    // How much timing to collect
 
 	// Debug telemetry (nil when debug disabled for zero allocation)
 	debugEnabled bool
 	tokenStats   map[TokenType]*TokenStats // Per-token timing stats (debug only)
 }
 
-// NewLexer creates a new lexer instance (debug disabled by default)
-func NewLexer(input string) *Lexer {
-	return NewLexerWithOpts(input)
-}
-
-// NewLexerWithOpts creates a new lexer instance with options
-func NewLexerWithOpts(input string, opts ...LexerOpt) *Lexer {
+// NewLexer creates a new lexer instance with optional configuration
+func NewLexer(input string, opts ...LexerOpt) *Lexer {
 	config := &LexerConfig{}
 	for _, opt := range opts {
 		opt(config)
@@ -121,7 +115,7 @@ func NewLexerWithOpts(input string, opts ...LexerOpt) *Lexer {
 		debugEnabled: config.debug,
 		bufferSize:   2500,                   // Large enough for 90%+ of devcmd files
 		tokens:       make([]Token, 0, 2500), // Pre-allocate capacity
-		timingLevel:  config.timing,          // Default is TimingNone (0)
+		timingMode:   config.timing,          // Default is TimingOff (0)
 	}
 
 	// Only allocate debug structures when needed
@@ -198,13 +192,9 @@ func (l *Lexer) NextToken() Token {
 }
 
 // GetTokens returns all tokens using batch interface
-// If tokens have already been consumed via NextToken(), this continues from current position
+// If tokens have already been consumed via NextToken(), this includes those tokens
+// No timing logic - timing is handled by NextToken() calls
 func (l *Lexer) GetTokens() []Token {
-	var start time.Time
-	if l.timingLevel >= TimingBatch {
-		start = time.Now()
-	}
-
 	var tokens []Token
 
 	// First, collect any tokens already consumed via NextToken()
@@ -221,18 +211,13 @@ func (l *Lexer) GetTokens() []Token {
 		}
 	}
 
-	// Update timing for batch processing
-	if l.timingLevel >= TimingBatch {
-		l.totalTime = time.Since(start)
-	}
-
 	return tokens
 }
 
 // fillBuffer fills the internal token buffer with the next batch of tokens
 func (l *Lexer) fillBuffer() {
 	var start time.Time
-	if l.timingLevel >= TimingStream {
+	if l.timingMode >= TimingOn {
 		start = time.Now()
 	}
 
@@ -262,7 +247,7 @@ func (l *Lexer) fillBuffer() {
 	}
 
 	// Update timing (accumulate across buffer fills)
-	if l.timingLevel >= TimingStream {
+	if l.timingMode >= TimingOn {
 		l.totalTime += time.Since(start)
 	}
 }
@@ -271,8 +256,8 @@ func (l *Lexer) fillBuffer() {
 func (l *Lexer) nextToken() Token {
 	token := l.lexToken() // Do the actual lexing work
 
-	// Debug telemetry (only when enabled, will allocate)
-	if l.debugEnabled && l.tokenStats != nil {
+	// Debug telemetry (only when enabled with fine-grain timing, will allocate)
+	if l.debugEnabled && l.timingMode >= TimingFine && l.tokenStats != nil {
 		// Record token count for debug stats
 		l.recordTokenStats(token.Type, 0) // No per-token timing
 	}
@@ -326,6 +311,16 @@ func (l *Lexer) lexToken() Token {
 		return l.lexString(start, ch)
 	}
 
+	// Numbers (integers, floats, etc.) - no longer handle negative sign here
+	if ch < 128 && isDigit[ch] {
+		return l.lexNumber(start)
+	}
+
+	// Decimal numbers starting with dot (.5, .123)
+	if ch == '.' && l.position+1 < len(l.input) && l.input[l.position+1] < 128 && isDigit[l.input[l.position+1]] {
+		return l.lexNumber(start)
+	}
+
 	// Single character punctuation
 	switch ch {
 	case '=':
@@ -358,6 +353,9 @@ func (l *Lexer) lexToken() Token {
 	case ';':
 		l.advanceChar()
 		return Token{Type: SEMICOLON, Text: []byte{';'}, Position: start}
+	case '-':
+		l.advanceChar()
+		return Token{Type: MINUS, Text: []byte{'-'}, Position: start}
 		// NOTE: '\n' is now handled as whitespace and skipped
 		// Meaningful newlines will be implemented when we add statement parsing
 	}
@@ -549,4 +547,64 @@ func (l *Lexer) advanceChar() {
 
 	l.position += size
 	l.column++ // Unicode characters count as 1 column for display
+}
+
+// lexNumber tokenizes numeric literals (integers, floats, scientific notation)
+func (l *Lexer) lexNumber(start Position) Token {
+	startPos := l.position
+
+	// Check if starting with decimal point
+	if l.currentChar() == '.' {
+		l.advanceChar()
+		if !l.readDigits() {
+			// No digits after decimal - shouldn't happen given our caller check
+			return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start}
+		}
+		// This is a decimal number like .5
+		return Token{
+			Type:     FLOAT,
+			Text:     l.input[startPos:l.position],
+			Position: start,
+		}
+	}
+
+	// Read integer part
+	if !l.readDigits() {
+		// No digits found - this shouldn't happen given our caller check
+		return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start}
+	}
+
+	// Check for decimal point
+	if l.position < len(l.input) && l.currentChar() == '.' {
+		l.advanceChar()
+		// Read decimal part (optional - Go allows 5.)
+		l.readDigits()
+		return Token{
+			Type:     FLOAT,
+			Text:     l.input[startPos:l.position],
+			Position: start,
+		}
+	}
+
+	// Just an integer
+	return Token{
+		Type:     INTEGER,
+		Text:     l.input[startPos:l.position],
+		Position: start,
+	}
+}
+
+// readDigits reads a sequence of digits and returns true if at least one was found
+func (l *Lexer) readDigits() bool {
+	startPos := l.position
+
+	for l.position < len(l.input) {
+		ch := l.currentChar()
+		if ch >= 128 || !isDigit[ch] {
+			break
+		}
+		l.advanceChar()
+	}
+
+	return l.position > startPos
 }

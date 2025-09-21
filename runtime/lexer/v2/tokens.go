@@ -51,6 +51,24 @@ const (
 	OR_OR   // || (logical or)
 	NOT     // !
 
+	// Arithmetic operators
+	PLUS     // +
+	MINUS    // -
+	MULTIPLY // *
+	DIVIDE   // /
+	MODULO   // %
+
+	// Increment/Decrement
+	INCREMENT // ++
+	DECREMENT // --
+
+	// Assignment operators
+	PLUS_ASSIGN     // +=
+	MINUS_ASSIGN    // -=
+	MULTIPLY_ASSIGN // *=
+	DIVIDE_ASSIGN   // /=
+	MODULO_ASSIGN   // %=
+
 	// Shell chain operators
 	AND    // && (chain success)
 	OR     // || (chain failure)
@@ -60,9 +78,11 @@ const (
 	// Literals and content
 	IDENTIFIER // command names, variable names, decorator names
 	SHELL_TEXT // shell command text
-	NUMBER     // 8080, 3.14, -100
+	INTEGER    // 123, 0, -456
+	FLOAT      // 3.14, -0.5, 123.0
+	SCIENTIFIC // 1e6, 2.5e-3, 1.23e+4
 	STRING     // "string" or 'string' content
-	DURATION   // 30s, 5m, 1h
+	DURATION   // 30s, 5m, 1h30m, 500ms
 	BOOLEAN    // true, false
 
 	// Comments
@@ -157,6 +177,30 @@ func (t TokenType) String() string {
 		return "OR_OR"
 	case NOT:
 		return "NOT"
+	case PLUS:
+		return "PLUS"
+	case MINUS:
+		return "MINUS"
+	case MULTIPLY:
+		return "MULTIPLY"
+	case DIVIDE:
+		return "DIVIDE"
+	case MODULO:
+		return "MODULO"
+	case INCREMENT:
+		return "INCREMENT"
+	case DECREMENT:
+		return "DECREMENT"
+	case PLUS_ASSIGN:
+		return "PLUS_ASSIGN"
+	case MINUS_ASSIGN:
+		return "MINUS_ASSIGN"
+	case MULTIPLY_ASSIGN:
+		return "MULTIPLY_ASSIGN"
+	case DIVIDE_ASSIGN:
+		return "DIVIDE_ASSIGN"
+	case MODULO_ASSIGN:
+		return "MODULO_ASSIGN"
 	case AND:
 		return "AND"
 	case OR:
@@ -169,8 +213,12 @@ func (t TokenType) String() string {
 		return "IDENTIFIER"
 	case SHELL_TEXT:
 		return "SHELL_TEXT"
-	case NUMBER:
-		return "NUMBER"
+	case INTEGER:
+		return "INTEGER"
+	case FLOAT:
+		return "FLOAT"
+	case SCIENTIFIC:
+		return "SCIENTIFIC"
 	case STRING:
 		return "STRING"
 	case DURATION:
@@ -215,6 +263,11 @@ var SingleCharTokens = map[byte]TokenType{
 	'<':  LT,
 	'>':  GT,
 	'!':  NOT,
+	'+':  PLUS,
+	'-':  MINUS,
+	'*':  MULTIPLY,
+	'/':  DIVIDE,
+	'%':  MODULO,
 	'\n': NEWLINE,
 	';':  SEMICOLON,
 }
@@ -229,4 +282,11 @@ var TwoCharTokens = map[string]TokenType{
 	"&&": AND_AND,
 	"||": OR_OR,
 	">>": APPEND,
+	"++": INCREMENT,
+	"--": DECREMENT,
+	"+=": PLUS_ASSIGN,
+	"-=": MINUS_ASSIGN,
+	"*=": MULTIPLY_ASSIGN,
+	"/=": DIVIDE_ASSIGN,
+	"%=": MODULO_ASSIGN,
 }
