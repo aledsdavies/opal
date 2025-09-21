@@ -352,14 +352,18 @@ func (l *Lexer) recordDebugEvent(event, context string) {
 
 // lexToken performs the actual tokenization work
 func (l *Lexer) lexToken() Token {
-	l.recordDebugEvent("enter_lexToken", "starting tokenization")
+	if l.debugLevel > DebugOff {
+		l.recordDebugEvent("enter_lexToken", "starting tokenization")
+	}
 
 	// Skip whitespace (except newlines which are significant)
 	l.skipWhitespace()
 
 	// Check for EOF
 	if l.position >= len(l.input) {
-		l.recordDebugEvent("found_EOF", "end of input")
+		if l.debugLevel > DebugOff {
+			l.recordDebugEvent("found_EOF", "end of input")
+		}
 		return Token{
 			Type:     EOF,
 			Text:     nil,
@@ -370,7 +374,9 @@ func (l *Lexer) lexToken() Token {
 	// Capture current position for token
 	start := Position{Line: l.line, Column: l.column}
 	ch := l.currentChar()
-	l.recordDebugEvent("current_char", string(ch))
+	if l.debugLevel > DebugOff {
+		l.recordDebugEvent("current_char", string(ch))
+	}
 
 	// Identifier or keyword
 	if ch < 128 && isIdentStart[ch] {
@@ -481,7 +487,9 @@ func (l *Lexer) updateColumnFromWhitespace(start, end int) {
 
 // lexIdentifier reads an identifier or keyword starting at current position
 func (l *Lexer) lexIdentifier(start Position) Token {
-	l.recordDebugEvent("enter_lexIdentifier", "reading identifier/keyword")
+	if l.debugLevel > DebugOff {
+		l.recordDebugEvent("enter_lexIdentifier", "reading identifier/keyword")
+	}
 	startPos := l.position
 
 	// Read all identifier characters
@@ -495,7 +503,9 @@ func (l *Lexer) lexIdentifier(start Position) Token {
 
 	// Extract the text as byte slice (zero allocation)
 	text := l.input[startPos:l.position]
-	l.recordDebugEvent("found_identifier", string(text))
+	if l.debugLevel > DebugOff {
+		l.recordDebugEvent("found_identifier", string(text))
+	}
 
 	// Check if it's a keyword (need string for map lookup)
 	tokenType := l.lookupKeyword(string(text))
@@ -631,7 +641,9 @@ func (l *Lexer) advanceChar() {
 
 // lexNumber tokenizes numeric literals (integers, floats, scientific notation)
 func (l *Lexer) lexNumber(start Position) Token {
-	l.recordDebugEvent("enter_lexNumber", "reading numeric literal")
+	if l.debugLevel > DebugOff {
+		l.recordDebugEvent("enter_lexNumber", "reading numeric literal")
+	}
 	startPos := l.position
 
 	// Handle both integer and decimal number patterns
