@@ -198,6 +198,7 @@ func (l *Lexer) NextToken() Token {
 }
 
 // GetTokens returns all tokens using batch interface
+// If tokens have already been consumed via NextToken(), this continues from current position
 func (l *Lexer) GetTokens() []Token {
 	var start time.Time
 	if l.timingLevel >= TimingBatch {
@@ -205,8 +206,15 @@ func (l *Lexer) GetTokens() []Token {
 	}
 
 	var tokens []Token
+
+	// First, collect any tokens already consumed via NextToken()
+	for i := 0; i < l.tokenIndex; i++ {
+		tokens = append(tokens, l.tokens[i])
+	}
+
+	// Then continue collecting remaining tokens via NextToken()
 	for {
-		token := l.nextToken()
+		token := l.NextToken()
 		tokens = append(tokens, token)
 		if token.Type == EOF {
 			break

@@ -285,6 +285,56 @@ func TestBufferSizePerformance(t *testing.T) {
 func TestMixedAccessPatterns(t *testing.T) {
 	input := "first second third fourth fifth"
 
+	t.Run("get_tokens_after_next_token", func(t *testing.T) {
+		lexer := NewLexer(input)
+
+		// Consume first two tokens via streaming
+		token1 := lexer.NextToken()
+		token2 := lexer.NextToken()
+
+		if token1.String() != "first" || token2.String() != "second" {
+			t.Errorf("Streaming failed: got %q, %q", token1.String(), token2.String())
+		}
+
+		// Now get all tokens (should include the ones already consumed)
+		allTokens := lexer.GetTokens()
+
+		// Should get all tokens including the previously consumed ones
+		expectedTexts := []string{"first", "second", "third", "fourth", "fifth", ""}
+		if len(allTokens) != len(expectedTexts) {
+			t.Fatalf("Expected %d tokens, got %d", len(expectedTexts), len(allTokens))
+		}
+
+		for i, expected := range expectedTexts {
+			if allTokens[i].String() != expected {
+				t.Errorf("Token %d: expected %q, got %q", i, expected, allTokens[i].String())
+			}
+		}
+
+		// Last token should be EOF
+		if allTokens[len(allTokens)-1].Type != EOF {
+			t.Errorf("Expected last token to be EOF, got %v", allTokens[len(allTokens)-1].Type)
+		}
+	})
+
+	t.Run("next_token_after_get_tokens", func(t *testing.T) {
+		lexer := NewLexer(input)
+
+		// Get all tokens first
+		allTokens := lexer.GetTokens()
+
+		// Verify we got all tokens
+		if len(allTokens) < 5 || allTokens[len(allTokens)-1].Type != EOF {
+			t.Errorf("GetTokens failed: got %d tokens", len(allTokens))
+		}
+
+		// Now try NextToken() - should return EOF since we're at the end
+		nextToken := lexer.NextToken()
+		if nextToken.Type != EOF {
+			t.Errorf("Expected EOF after GetTokens(), got %v", nextToken.Type)
+		}
+	})
+
 	t.Run("stream_then_batch", func(t *testing.T) {
 		lexer := NewLexer(input)
 
@@ -365,6 +415,131 @@ func TestTimingLevels(t *testing.T) {
 			t.Errorf("Expected timing for streaming with TimingStream, got %v", lexer.Duration())
 		}
 	})
+}
+
+// BenchmarkGetTokensAfterConsuming measures performance impact of including consumed tokens
+func BenchmarkGetTokensAfterConsuming(b *testing.B) {
+	input := generateRealisticInput(1000) // ~1000 tokens
+
+	b.Run("fresh_get_tokens", func(b *testing.B) {
+		lexer := NewLexer("")
+		inputBytes := []byte(input)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			lexer.Init(inputBytes)
+			_ = lexer.GetTokens() // Get all tokens fresh
+		}
+	})
+
+	b.Run("get_tokens_after_consuming_10", func(b *testing.B) {
+		lexer := NewLexer("")
+		inputBytes := []byte(input)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			lexer.Init(inputBytes)
+
+			// Consume 10 tokens first
+			for j := 0; j < 10; j++ {
+				lexer.NextToken()
+			}
+
+			_ = lexer.GetTokens() // Get remaining + consumed tokens
+		}
+	})
+
+	b.Run("get_tokens_after_consuming_100", func(b *testing.B) {
+		lexer := NewLexer("")
+		inputBytes := []byte(input)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			lexer.Init(inputBytes)
+
+			// Consume 100 tokens first
+			for j := 0; j < 100; j++ {
+				lexer.NextToken()
+			}
+
+			_ = lexer.GetTokens() // Get remaining + consumed tokens
+		}
+	})
+}
+
+// BenchmarkTokenCopyOverhead measures just the copying overhead
+func BenchmarkTokenCopyOverhead(b *testing.B) {
+	// Create a buffer with 1000 tokens
+	tokens := make([]Token, 1000)
+	for i := range tokens {
+		tokens[i] = Token{Type: IDENTIFIER, Text: []byte("test"), Position: Position{Line: 1, Column: i}}
+	}
+
+	b.Run("copy_0_tokens", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var result []Token
+			// Copy 0 tokens
+			for j := 0; j < 0; j++ {
+				result = append(result, tokens[j])
+			}
+			_ = result
+		}
+	})
+
+	b.Run("copy_10_tokens", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var result []Token
+			// Copy 10 tokens
+			for j := 0; j < 10; j++ {
+				result = append(result, tokens[j])
+			}
+			_ = result
+		}
+	})
+
+	b.Run("copy_100_tokens", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var result []Token
+			// Copy 100 tokens
+			for j := 0; j < 100; j++ {
+				result = append(result, tokens[j])
+			}
+			_ = result
+		}
+	})
+}
+
+// TestConsistentAPI demonstrates the consistent behavior between NextToken and GetTokens
+func TestConsistentAPI(t *testing.T) {
+	input := "var name = value"
+
+	// Scenario: Parser consumes a few tokens, then formatter wants all tokens
+	lexer := NewLexer(input)
+
+	// Parser consumes first few tokens
+	varToken := lexer.NextToken()  // "var"
+	nameToken := lexer.NextToken() // "name"
+
+	// Formatter wants all tokens (including the ones parser already consumed)
+	allTokens := lexer.GetTokens()
+
+	// Should get: ["var", "name", "=", "value", EOF]
+	expected := []string{"var", "name", "=", "value", ""}
+	if len(allTokens) != len(expected) {
+		t.Fatalf("Expected %d tokens, got %d", len(expected), len(allTokens))
+	}
+
+	for i, expectedText := range expected {
+		if allTokens[i].String() != expectedText {
+			t.Errorf("Token %d: expected %q, got %q", i, expectedText, allTokens[i].String())
+		}
+	}
+
+	t.Logf("✓ Parser consumed: %q, %q", varToken.String(), nameToken.String())
+	t.Logf("✓ GetTokens() returned all %d tokens correctly", len(allTokens))
 }
 
 // TestZeroAllocation tests that tokenization doesn't allocate after lexer init
