@@ -401,8 +401,13 @@ func (l *Lexer) lexToken() Token {
 	// Single character punctuation
 	switch ch {
 	case '=':
-		l.advanceChar()
-		return Token{Type: EQUALS, Text: []byte{'='}, Position: start}
+		return l.lexEquals(start)
+	case '<':
+		return l.lexLessThan(start)
+	case '>':
+		return l.lexGreaterThan(start)
+	case '!':
+		return l.lexExclamation(start)
 	case ':':
 		l.advanceChar()
 		return Token{Type: COLON, Text: []byte{':'}, Position: start}
@@ -892,4 +897,60 @@ func (l *Lexer) lexModulo(start Position) Token {
 
 	// Just '%' (modulo)
 	return Token{Type: MODULO, Text: []byte("%"), Position: start}
+}
+
+// lexEquals handles '=' and '==' operators
+func (l *Lexer) lexEquals(start Position) Token {
+	l.advanceChar() // consume '='
+
+	// Check for '==' (equality)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume second '='
+		return Token{Type: EQ_EQ, Text: []byte("=="), Position: start}
+	}
+
+	// Just '=' (assignment)
+	return Token{Type: EQUALS, Text: []byte("="), Position: start}
+}
+
+// lexLessThan handles '<' and '<=' operators
+func (l *Lexer) lexLessThan(start Position) Token {
+	l.advanceChar() // consume '<'
+
+	// Check for '<=' (less than or equal)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume '='
+		return Token{Type: LT_EQ, Text: []byte("<="), Position: start}
+	}
+
+	// Just '<' (less than)
+	return Token{Type: LT, Text: []byte("<"), Position: start}
+}
+
+// lexGreaterThan handles '>' and '>=' operators
+func (l *Lexer) lexGreaterThan(start Position) Token {
+	l.advanceChar() // consume '>'
+
+	// Check for '>=' (greater than or equal)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume '='
+		return Token{Type: GT_EQ, Text: []byte(">="), Position: start}
+	}
+
+	// Just '>' (greater than)
+	return Token{Type: GT, Text: []byte(">"), Position: start}
+}
+
+// lexExclamation handles '!' and '!=' operators
+func (l *Lexer) lexExclamation(start Position) Token {
+	l.advanceChar() // consume '!'
+
+	// Check for '!=' (not equal)
+	if l.position < len(l.input) && l.currentChar() == '=' {
+		l.advanceChar() // consume '='
+		return Token{Type: NOT_EQ, Text: []byte("!="), Position: start}
+	}
+
+	// Just '!' (logical not)
+	return Token{Type: NOT, Text: []byte("!"), Position: start}
 }
