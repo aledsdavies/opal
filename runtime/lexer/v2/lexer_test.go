@@ -81,75 +81,6 @@ func TestEmptyInput(t *testing.T) {
 	assertTokens(t, "empty input", input, expected)
 }
 
-// TestPerTokenTiming tests that lexer accumulates timing per token
-func TestPerTokenTiming(t *testing.T) {
-	input := "test"
-	lexer := NewLexer(input, WithTiming())
-
-	// Before any tokens, duration should be zero
-	duration := lexer.Duration()
-	if duration != 0 {
-		t.Errorf("Duration should be zero before tokenizing, got %v", duration)
-	}
-
-	// Process first token - timing should be available immediately
-	token1 := lexer.NextToken()
-	duration1 := lexer.Duration()
-
-	if duration1 <= 0 {
-		t.Errorf("Duration should be positive after first token, got %v", duration1)
-	}
-
-	// Process second token - should have more time
-	token2 := lexer.NextToken()
-	duration2 := lexer.Duration()
-
-	if duration2 < duration1 {
-		t.Errorf("Duration should not decrease, was %v now %v", duration1, duration2)
-	}
-
-	// Verify tokens are meaningful (not all ILLEGAL)
-	if token1.Type == ILLEGAL && token2.Type == ILLEGAL {
-		t.Errorf("Expected some meaningful tokens, got ILLEGAL for both")
-	}
-
-	// Duration should be measurable (not zero, not negative)
-	if duration2 <= 0 {
-		t.Errorf("Final duration should be positive, got %v", duration2)
-	}
-}
-
-// TestBatchTiming tests that batch interface provides timing
-func TestBatchTiming(t *testing.T) {
-	input := "test input more tokens here"
-	lexer := NewLexer(input, WithTiming())
-
-	// Before processing, duration should be zero
-	duration := lexer.Duration()
-	if duration != 0 {
-		t.Errorf("Duration should be zero before processing, got %v", duration)
-	}
-
-	// Get all tokens at once
-	tokens := lexer.GetTokens()
-	duration = lexer.Duration()
-
-	// Should have timing after batch processing
-	if duration <= 0 {
-		t.Errorf("Duration should be positive after batch processing, got %v", duration)
-	}
-
-	// Should have gotten some tokens
-	if len(tokens) < 2 {
-		t.Errorf("Expected multiple tokens, got %d", len(tokens))
-	}
-
-	// Last token should be EOF
-	if len(tokens) > 0 && tokens[len(tokens)-1].Type != EOF {
-		t.Errorf("Expected last token to be EOF, got %v", tokens[len(tokens)-1].Type)
-	}
-}
-
 // TestBufferBoundaries tests buffering across realistic input sizes
 func TestBufferBoundaries(t *testing.T) {
 	tests := []struct {
@@ -374,50 +305,6 @@ func TestMixedAccessPatterns(t *testing.T) {
 	})
 }
 
-// TestTimingLevels tests that different timing levels work correctly
-func TestTimingLevels(t *testing.T) {
-	input := "test input"
-
-	t.Run("no_timing", func(t *testing.T) {
-		lexer := NewLexer(input, WithNoTiming())
-
-		_ = lexer.NextToken()
-		if lexer.Duration() != 0 {
-			t.Errorf("Expected no timing with TimingNone, got %v", lexer.Duration())
-		}
-
-		_ = lexer.GetTokens()
-		if lexer.Duration() != 0 {
-			t.Errorf("Expected no timing with TimingNone, got %v", lexer.Duration())
-		}
-	})
-
-	t.Run("timing_enabled", func(t *testing.T) {
-		lexer := NewLexer(input, WithTiming())
-
-		// With timing enabled, both streaming and batch should have timing
-		_ = lexer.NextToken()
-		if lexer.Duration() <= 0 {
-			t.Errorf("Expected timing for streaming with WithTiming(), got %v", lexer.Duration())
-		}
-
-		lexer.Init([]byte(input))
-		_ = lexer.GetTokens()
-		if lexer.Duration() <= 0 {
-			t.Errorf("Expected timing for batch with WithTiming(), got %v", lexer.Duration())
-		}
-	})
-
-	t.Run("fine_grain_timing", func(t *testing.T) {
-		lexer := NewLexer(input, WithFineGrainTiming())
-
-		_ = lexer.NextToken()
-		if lexer.Duration() <= 0 {
-			t.Errorf("Expected timing for streaming with WithFineGrainTiming(), got %v", lexer.Duration())
-		}
-	})
-}
-
 // BenchmarkGetTokensAfterConsuming measures performance impact of including consumed tokens
 func BenchmarkGetTokensAfterConsuming(b *testing.B) {
 	input := generateRealisticInput(1000) // ~1000 tokens
@@ -584,37 +471,6 @@ func TestZeroAllocation(t *testing.T) {
 	}
 }
 
-// TestLexerResetWithInit tests that lexer can be reset with new input using Init
-func TestLexerResetWithInit(t *testing.T) {
-	lexer := NewLexer("first", WithTiming())
-
-	// Process first input
-	token1 := lexer.NextToken()
-	_ = lexer.Duration() // Ignore first duration
-
-	// Reset with new input using Init pattern (like Go's scanner)
-	lexer.Init([]byte("second"))
-
-	// Duration should reset to zero
-	if lexer.Duration() != 0 {
-		t.Errorf("Duration should reset to zero after Init, got %v", lexer.Duration())
-	}
-
-	// Should be able to process new input
-	token2 := lexer.NextToken()
-	duration2 := lexer.Duration()
-
-	// Verify reset worked - should have positive duration immediately
-	if duration2 <= 0 {
-		t.Errorf("Duration should be positive after processing reset input, got %v", duration2)
-	}
-
-	// Tokens should be meaningful
-	if token1.Type == ILLEGAL || token2.Type == ILLEGAL {
-		t.Errorf("Expected meaningful tokens, got %v and %v", token1.Type, token2.Type)
-	}
-}
-
 // BenchmarkLexerZeroAlloc benchmarks lexing performance with allocation tracking
 func BenchmarkLexerZeroAlloc(b *testing.B) {
 	inputBytes := []byte("echo hello world") // Pre-convert to avoid allocation in benchmark
@@ -627,26 +483,6 @@ func BenchmarkLexerZeroAlloc(b *testing.B) {
 		lexer.Init(inputBytes) // Reset with pre-converted bytes
 
 		// This inner loop should have zero allocations
-		for {
-			token := lexer.NextToken()
-			if token.Type == EOF {
-				break
-			}
-		}
-	}
-}
-
-// BenchmarkLexerWithDebug benchmarks lexing performance with debug enabled
-func BenchmarkLexerWithDebug(b *testing.B) {
-	inputBytes := []byte("echo hello world")
-	lexer := NewLexer("", WithDebug()) // Debug enabled
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		lexer.Init(inputBytes)
-
 		for {
 			token := lexer.NextToken()
 			if token.Type == EOF {
@@ -796,33 +632,6 @@ func TestUnicodePositionTracking(t *testing.T) {
 				t.Errorf("column = %d, want %d", lexer.column, tt.expectedPos.column)
 			}
 		})
-	}
-}
-
-// TestDebugTelemetryEnabled tests that debug mode provides telemetry
-func TestDebugTelemetryEnabled(t *testing.T) {
-	input := "test input"
-
-	// Create lexer with debug and fine-grain timing enabled (required for token stats)
-	lexer := NewLexer(input, WithDebug(), WithFineGrainTiming())
-
-	// Process tokens
-	for {
-		token := lexer.NextToken()
-		if token.Type == EOF {
-			break
-		}
-	}
-
-	// Should have debug telemetry available
-	if !lexer.HasDebugTelemetry() {
-		t.Error("Expected debug telemetry to be available when debug enabled")
-	}
-
-	// Should be able to get token timing stats (requires fine-grain timing)
-	stats := lexer.GetTokenStats()
-	if len(stats) == 0 {
-		t.Error("Expected token stats when debug and fine-grain timing enabled")
 	}
 }
 

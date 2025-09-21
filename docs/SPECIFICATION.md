@@ -168,6 +168,46 @@ var API_TIMEOUT = 1s500ms       // 1 second 500 milliseconds
 - Can skip units: `1d30m` ✓ (skipping hours is fine)
 - Integer values only: `1h30m` ✓, `1.5h` ✗ (use compound format for precision)
 
+**Duration arithmetic**:
+```devcmd
+// Duration arithmetic with other durations
+var total = 1h30m + 45m        // total = 2h15m
+var remaining = 5m - 2m30s     // remaining = 2m30s
+var scaled = 30s * 3           // scaled = 1m30s
+
+// Variables can hold negative durations
+var grace = 1m - 5m            // grace = -4m (preserved for logic)
+var timeout = 30s - 1h         // timeout = -29m30s (preserved for logic)
+
+// Conditional logic with negative durations
+if grace < 0s {
+    echo "No grace period remaining"
+    exit 1
+} else {
+    @timeout(grace) { deploy() }
+}
+```
+
+**Duration execution rules**:
+```devcmd
+// Runtime functions clamp negative durations to zero
+@timeout(-4m) { cmd }          // Executes with 0s timeout
+@retry(attempts=3, delay=-30s) { cmd }  // Uses 0s delay
+sleep(-1h)                     // Sleeps for 0s (no-op)
+
+// Variables preserve negative values for arithmetic/logic
+var remaining = deadline - current_time
+echo "Time remaining: ${remaining}"     // Shows "-5m" if past deadline
+@timeout(remaining) { task() }          // Uses max(remaining, 0s) = 0s
+```
+
+**Duration evaluation rules**:
+- All duration arithmetic evaluated at plan time with resolved values
+- Variables can store negative durations for conditional logic
+- Runtime functions automatically clamp negative durations to zero
+- Duration literals are always non-negative (`30s`, `1h30m`)
+- Negative expressions use minus operator: `-30s` = `MINUS` + `DURATION`
+
 ### Accessing Data
 
 Use dot notation for nested access:

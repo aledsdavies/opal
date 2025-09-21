@@ -16,26 +16,56 @@ const (
 // LexerOpt represents a lexer configuration option
 type LexerOpt func(*LexerConfig)
 
-// TimingMode controls timing behavior
-type TimingMode int
+// TelemetryMode controls telemetry collection (production-safe)
+type TelemetryMode int
 
 const (
-	TimingOff  TimingMode = iota // No timing (fastest, default)
-	TimingOn                     // Basic timing for buffer operations
-	TimingFine                   // Fine-grained timing with debug stats
+	TelemetryOff    TelemetryMode = iota // Zero overhead (default)
+	TelemetryBasic                       // Token counts only
+	TelemetryTiming                      // Token counts + timing per type
+)
+
+// DebugLevel controls debug tracing (development only)
+type DebugLevel int
+
+const (
+	DebugOff      DebugLevel = iota // No debug info (default)
+	DebugPaths                      // Method call tracing
+	DebugDetailed                   // Character-level tracing
 )
 
 // LexerConfig holds lexer configuration
 type LexerConfig struct {
-	debug  bool
-	mode   LexerMode
-	timing TimingMode
+	telemetry TelemetryMode
+	debug     DebugLevel
+	mode      LexerMode
 }
 
-// WithDebug enables debug telemetry (will allocate for token stats)
-func WithDebug() LexerOpt {
+// WithTelemetryBasic enables basic telemetry (token counts only)
+func WithTelemetryBasic() LexerOpt {
 	return func(c *LexerConfig) {
-		c.debug = true
+		c.telemetry = TelemetryBasic
+	}
+}
+
+// WithTelemetryTiming enables timing telemetry (counts + timing per type)
+func WithTelemetryTiming() LexerOpt {
+	return func(c *LexerConfig) {
+		c.telemetry = TelemetryTiming
+	}
+}
+
+// WithDebugPaths enables debug path tracing (development only)
+func WithDebugPaths() LexerOpt {
+	return func(c *LexerConfig) {
+		c.debug = DebugPaths
+	}
+}
+
+// WithDebugDetailed enables detailed debug tracing (development only)
+func WithDebugDetailed() LexerOpt {
+	return func(c *LexerConfig) {
+		c.debug = DebugDetailed
 	}
 }
 
@@ -53,33 +83,22 @@ func WithCommandMode() LexerOpt {
 	}
 }
 
-// WithTiming enables basic timing (buffer-level)
-func WithTiming() LexerOpt {
-	return func(c *LexerConfig) {
-		c.timing = TimingOn
-	}
-}
-
-// WithFineGrainTiming enables detailed timing with debug stats
-func WithFineGrainTiming() LexerOpt {
-	return func(c *LexerConfig) {
-		c.timing = TimingFine
-	}
-}
-
-// WithNoTiming disables all timing (fastest performance, default)
-func WithNoTiming() LexerOpt {
-	return func(c *LexerConfig) {
-		c.timing = TimingOff
-	}
-}
-
-// TokenStats holds per-token timing statistics (debug mode only)
-type TokenStats struct {
+// TokenTelemetry holds per-token type telemetry (production-safe)
+type TokenTelemetry struct {
 	Type      TokenType
 	Count     int
 	TotalTime time.Duration
 	AvgTime   time.Duration
+	MinTime   time.Duration
+	MaxTime   time.Duration
+}
+
+// DebugEvent holds debug tracing information (development only)
+type DebugEvent struct {
+	Timestamp time.Time
+	Event     string   // "enter_lexNumber", "found_digit", "exit_lexNumber"
+	Position  Position // Current lexer position
+	Context   string   // Current character, token being built, etc.
 }
 
 // Lexer represents the v2 lexer
@@ -95,13 +114,13 @@ type Lexer struct {
 	tokenIndex int     // Current position in buffer
 	bufferSize int     // Number of tokens to buffer at once (default: 2500)
 
-	// Timing (configurable mode)
-	totalTime  time.Duration // Total time for entire lexing process
-	timingMode TimingMode    // How much timing to collect
+	// Telemetry (nil when disabled for zero allocation)
+	telemetryMode  TelemetryMode
+	tokenTelemetry map[TokenType]*TokenTelemetry // Per-token type telemetry (production safe)
 
-	// Debug telemetry (nil when debug disabled for zero allocation)
-	debugEnabled bool
-	tokenStats   map[TokenType]*TokenStats // Per-token timing stats (debug only)
+	// Debug (nil when disabled for zero allocation)
+	debugLevel  DebugLevel
+	debugEvents []DebugEvent // Debug event tracing (development only)
 }
 
 // NewLexer creates a new lexer instance with optional configuration
@@ -112,15 +131,20 @@ func NewLexer(input string, opts ...LexerOpt) *Lexer {
 	}
 
 	lexer := &Lexer{
-		debugEnabled: config.debug,
-		bufferSize:   2500,                   // Large enough for 90%+ of devcmd files
-		tokens:       make([]Token, 0, 2500), // Pre-allocate capacity
-		timingMode:   config.timing,          // Default is TimingOff (0)
+		bufferSize:    2500,                   // Large enough for 90%+ of devcmd files
+		tokens:        make([]Token, 0, 2500), // Pre-allocate capacity
+		telemetryMode: config.telemetry,       // Default is TelemetryOff (0)
+		debugLevel:    config.debug,           // Default is DebugOff (0)
+	}
+
+	// Only allocate telemetry structures when needed
+	if config.telemetry > TelemetryOff {
+		lexer.tokenTelemetry = make(map[TokenType]*TokenTelemetry)
 	}
 
 	// Only allocate debug structures when needed
-	if config.debug {
-		lexer.tokenStats = make(map[TokenType]*TokenStats)
+	if config.debug > DebugOff {
+		lexer.debugEvents = make([]DebugEvent, 0, 1000) // Pre-allocate debug events
 	}
 
 	lexer.Init([]byte(input))
@@ -133,44 +157,50 @@ func (l *Lexer) Init(input []byte) {
 	l.position = 0
 	l.line = 1
 	l.column = 1
-	l.totalTime = 0 // Reset timing
 
 	// Reset buffering state
 	l.tokens = l.tokens[:0] // Reset slice but keep capacity
 	l.tokenIndex = 0
 
-	// Reset debug stats if enabled
-	if l.debugEnabled && l.tokenStats != nil {
+	// Reset telemetry stats if enabled
+	if l.telemetryMode > TelemetryOff && l.tokenTelemetry != nil {
 		// Clear existing stats without reallocating map
-		for k := range l.tokenStats {
-			delete(l.tokenStats, k)
+		for k := range l.tokenTelemetry {
+			delete(l.tokenTelemetry, k)
 		}
+	}
+
+	// Reset debug events if enabled
+	if l.debugLevel > DebugOff && l.debugEvents != nil {
+		l.debugEvents = l.debugEvents[:0] // Reset slice but keep capacity
 	}
 }
 
-// Duration returns the total cumulative time spent tokenizing
-func (l *Lexer) Duration() time.Duration {
-	return l.totalTime
-}
-
-// HasDebugTelemetry returns true if debug telemetry is enabled
-func (l *Lexer) HasDebugTelemetry() bool {
-	return l.debugEnabled
-}
-
-// GetTokenStats returns per-token timing statistics (debug mode only)
-func (l *Lexer) GetTokenStats() map[TokenType]*TokenStats {
-	if !l.debugEnabled || l.tokenStats == nil {
+// GetTokenTelemetry returns per-token type telemetry (production safe)
+func (l *Lexer) GetTokenTelemetry() map[TokenType]*TokenTelemetry {
+	if l.telemetryMode == TelemetryOff || l.tokenTelemetry == nil {
 		return nil
 	}
 
 	// Return a copy to prevent external modification
-	result := make(map[TokenType]*TokenStats, len(l.tokenStats))
-	for k, v := range l.tokenStats {
-		// Copy the stats struct
-		statsCopy := *v
-		result[k] = &statsCopy
+	result := make(map[TokenType]*TokenTelemetry, len(l.tokenTelemetry))
+	for k, v := range l.tokenTelemetry {
+		// Copy the telemetry struct
+		telemetryCopy := *v
+		result[k] = &telemetryCopy
 	}
+	return result
+}
+
+// GetDebugEvents returns debug events (development only)
+func (l *Lexer) GetDebugEvents() []DebugEvent {
+	if l.debugLevel == DebugOff || l.debugEvents == nil {
+		return nil
+	}
+
+	// Return a copy to prevent external modification
+	result := make([]DebugEvent, len(l.debugEvents))
+	copy(result, l.debugEvents)
 	return result
 }
 
@@ -217,7 +247,7 @@ func (l *Lexer) GetTokens() []Token {
 // fillBuffer fills the internal token buffer with the next batch of tokens
 func (l *Lexer) fillBuffer() {
 	var start time.Time
-	if l.timingMode >= TimingOn {
+	if l.telemetryMode >= TelemetryTiming {
 		start = time.Now()
 	}
 
@@ -247,49 +277,89 @@ func (l *Lexer) fillBuffer() {
 	}
 
 	// Update timing (accumulate across buffer fills)
-	if l.timingMode >= TimingOn {
-		l.totalTime += time.Since(start)
+	if l.telemetryMode >= TelemetryTiming {
+		// TODO: Implement buffer-level timing telemetry
+		_ = time.Since(start)
 	}
 }
 
 // nextToken returns the next token from the input (internal implementation)
 func (l *Lexer) nextToken() Token {
+	var start time.Time
+	if l.telemetryMode >= TelemetryTiming {
+		start = time.Now()
+	}
+
 	token := l.lexToken() // Do the actual lexing work
 
-	// Debug telemetry (only when enabled with fine-grain timing, will allocate)
-	if l.debugEnabled && l.timingMode >= TimingFine && l.tokenStats != nil {
-		// Record token count for debug stats
-		l.recordTokenStats(token.Type, 0) // No per-token timing
+	// Record telemetry when enabled
+	if l.telemetryMode > TelemetryOff {
+		var elapsed time.Duration
+		if l.telemetryMode >= TelemetryTiming {
+			elapsed = time.Since(start)
+		}
+		l.recordTokenTelemetry(token.Type, elapsed)
 	}
 
 	return token
 }
 
-// recordTokenStats records per-token timing statistics (debug mode only)
-func (l *Lexer) recordTokenStats(tokenType TokenType, elapsed time.Duration) {
-	stats, exists := l.tokenStats[tokenType]
+// recordTokenTelemetry records per-token type telemetry (production safe)
+func (l *Lexer) recordTokenTelemetry(tokenType TokenType, elapsed time.Duration) {
+	telemetry, exists := l.tokenTelemetry[tokenType]
 	if !exists {
-		// Allocate new stats (only in debug mode)
-		stats = &TokenStats{
+		// Allocate new telemetry (only when telemetry enabled)
+		telemetry = &TokenTelemetry{
 			Type:      tokenType,
 			Count:     0,
 			TotalTime: 0,
+			MinTime:   elapsed,
+			MaxTime:   elapsed,
 		}
-		l.tokenStats[tokenType] = stats
+		l.tokenTelemetry[tokenType] = telemetry
 	}
 
-	stats.Count++
-	stats.TotalTime += elapsed
-	stats.AvgTime = stats.TotalTime / time.Duration(stats.Count)
+	telemetry.Count++
+
+	// Update timing if we're collecting it
+	if l.telemetryMode >= TelemetryTiming {
+		telemetry.TotalTime += elapsed
+		telemetry.AvgTime = telemetry.TotalTime / time.Duration(telemetry.Count)
+
+		// Update min/max
+		if elapsed < telemetry.MinTime || telemetry.Count == 1 {
+			telemetry.MinTime = elapsed
+		}
+		if elapsed > telemetry.MaxTime || telemetry.Count == 1 {
+			telemetry.MaxTime = elapsed
+		}
+	}
+}
+
+// recordDebugEvent records debug events when debug tracing is enabled
+func (l *Lexer) recordDebugEvent(event, context string) {
+	if l.debugLevel == DebugOff || l.debugEvents == nil {
+		return
+	}
+
+	l.debugEvents = append(l.debugEvents, DebugEvent{
+		Timestamp: time.Now(),
+		Event:     event,
+		Position:  Position{Line: l.line, Column: l.column},
+		Context:   context,
+	})
 }
 
 // lexToken performs the actual tokenization work
 func (l *Lexer) lexToken() Token {
+	l.recordDebugEvent("enter_lexToken", "starting tokenization")
+
 	// Skip whitespace (except newlines which are significant)
 	l.skipWhitespace()
 
 	// Check for EOF
 	if l.position >= len(l.input) {
+		l.recordDebugEvent("found_EOF", "end of input")
 		return Token{
 			Type:     EOF,
 			Text:     nil,
@@ -300,6 +370,7 @@ func (l *Lexer) lexToken() Token {
 	// Capture current position for token
 	start := Position{Line: l.line, Column: l.column}
 	ch := l.currentChar()
+	l.recordDebugEvent("current_char", string(ch))
 
 	// Identifier or keyword
 	if ch < 128 && isIdentStart[ch] {
@@ -410,6 +481,7 @@ func (l *Lexer) updateColumnFromWhitespace(start, end int) {
 
 // lexIdentifier reads an identifier or keyword starting at current position
 func (l *Lexer) lexIdentifier(start Position) Token {
+	l.recordDebugEvent("enter_lexIdentifier", "reading identifier/keyword")
 	startPos := l.position
 
 	// Read all identifier characters
@@ -423,6 +495,7 @@ func (l *Lexer) lexIdentifier(start Position) Token {
 
 	// Extract the text as byte slice (zero allocation)
 	text := l.input[startPos:l.position]
+	l.recordDebugEvent("found_identifier", string(text))
 
 	// Check if it's a keyword (need string for map lookup)
 	tokenType := l.lookupKeyword(string(text))
@@ -558,6 +631,7 @@ func (l *Lexer) advanceChar() {
 
 // lexNumber tokenizes numeric literals (integers, floats, scientific notation)
 func (l *Lexer) lexNumber(start Position) Token {
+	l.recordDebugEvent("enter_lexNumber", "reading numeric literal")
 	startPos := l.position
 
 	// Handle both integer and decimal number patterns
