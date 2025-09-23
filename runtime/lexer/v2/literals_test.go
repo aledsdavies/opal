@@ -65,7 +65,7 @@ func TestNegativeIntegers(t *testing.T) {
 			name:  "negative_single",
 			input: "-5",
 			expected: []tokenExpectation{
-				{MINUS, "-", 1, 1},
+				{MINUS, "", 1, 1},
 				{INTEGER, "5", 1, 2},
 				{EOF, "", 1, 3},
 			},
@@ -74,7 +74,7 @@ func TestNegativeIntegers(t *testing.T) {
 			name:  "negative_multiple",
 			input: "-123",
 			expected: []tokenExpectation{
-				{MINUS, "-", 1, 1},
+				{MINUS, "", 1, 1},
 				{INTEGER, "123", 1, 2},
 				{EOF, "", 1, 5},
 			},
@@ -83,7 +83,7 @@ func TestNegativeIntegers(t *testing.T) {
 			name:  "negative_zero",
 			input: "-0",
 			expected: []tokenExpectation{
-				{MINUS, "-", 1, 1},
+				{MINUS, "", 1, 1},
 				{INTEGER, "0", 1, 2},
 				{EOF, "", 1, 3},
 			},
@@ -118,7 +118,7 @@ func TestIntegerBoundaries(t *testing.T) {
 			input: "123,456",
 			expected: []tokenExpectation{
 				{INTEGER, "123", 1, 1},
-				{COMMA, ",", 1, 4},
+				{COMMA, "", 1, 4},
 				{INTEGER, "456", 1, 5},
 				{EOF, "", 1, 8},
 			},
@@ -154,7 +154,7 @@ func TestIntegerInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "PORT", 1, 5},
-				{EQUALS, "=", 1, 10},
+				{EQUALS, "", 1, 10},
 				{INTEGER, "3000", 1, 12},
 				{EOF, "", 1, 16},
 			},
@@ -164,9 +164,9 @@ func TestIntegerInContext(t *testing.T) {
 			input: "services[0]",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "services", 1, 1},
-				{LSQUARE, "[", 1, 9},
+				{LSQUARE, "", 1, 9},
 				{INTEGER, "0", 1, 10},
-				{RSQUARE, "]", 1, 11},
+				{RSQUARE, "", 1, 11},
 				{EOF, "", 1, 12},
 			},
 		},
@@ -175,8 +175,8 @@ func TestIntegerInContext(t *testing.T) {
 			input: "offset = -100",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "offset", 1, 1},
-				{EQUALS, "=", 1, 8},
-				{MINUS, "-", 1, 10},
+				{EQUALS, "", 1, 8},
+				{MINUS, "", 1, 10},
 				{INTEGER, "100", 1, 11},
 				{EOF, "", 1, 14},
 			},
@@ -267,7 +267,7 @@ func TestNegativeFloats(t *testing.T) {
 			name:  "negative_decimal",
 			input: "-3.14",
 			expected: []tokenExpectation{
-				{MINUS, "-", 1, 1},
+				{MINUS, "", 1, 1},
 				{FLOAT, "3.14", 1, 2},
 				{EOF, "", 1, 6},
 			},
@@ -276,7 +276,7 @@ func TestNegativeFloats(t *testing.T) {
 			name:  "negative_zero",
 			input: "-0.0",
 			expected: []tokenExpectation{
-				{MINUS, "-", 1, 1},
+				{MINUS, "", 1, 1},
 				{FLOAT, "0.0", 1, 2},
 				{EOF, "", 1, 5},
 			},
@@ -285,7 +285,7 @@ func TestNegativeFloats(t *testing.T) {
 			name:  "negative_small",
 			input: "-0.5",
 			expected: []tokenExpectation{
-				{MINUS, "-", 1, 1},
+				{MINUS, "", 1, 1},
 				{FLOAT, "0.5", 1, 2},
 				{EOF, "", 1, 5},
 			},
@@ -320,7 +320,7 @@ func TestFloatBoundaries(t *testing.T) {
 			input: "3.14,2.71",
 			expected: []tokenExpectation{
 				{FLOAT, "3.14", 1, 1},
-				{COMMA, ",", 1, 5},
+				{COMMA, "", 1, 5},
 				{FLOAT, "2.71", 1, 6},
 				{EOF, "", 1, 10},
 			},
@@ -357,7 +357,7 @@ func TestFloatInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "VERSION", 1, 5},
-				{EQUALS, "=", 1, 13},
+				{EQUALS, "", 1, 13},
 				{FLOAT, "1.5", 1, 15},
 				{EOF, "", 1, 18},
 			},
@@ -367,7 +367,7 @@ func TestFloatInContext(t *testing.T) {
 			input: "timeout = 2.5",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "timeout", 1, 1},
-				{EQUALS, "=", 1, 9},
+				{EQUALS, "", 1, 9},
 				{FLOAT, "2.5", 1, 11},
 				{EOF, "", 1, 14},
 			},
@@ -376,13 +376,13 @@ func TestFloatInContext(t *testing.T) {
 			name:  "array_of_floats",
 			input: "[1.0, 2.5, 3.14]",
 			expected: []tokenExpectation{
-				{LSQUARE, "[", 1, 1},
+				{LSQUARE, "", 1, 1},
 				{FLOAT, "1.0", 1, 2},
-				{COMMA, ",", 1, 5},
+				{COMMA, "", 1, 5},
 				{FLOAT, "2.5", 1, 7},
-				{COMMA, ",", 1, 10},
+				{COMMA, "", 1, 10},
 				{FLOAT, "3.14", 1, 12},
-				{RSQUARE, "]", 1, 16},
+				{RSQUARE, "", 1, 16},
 				{EOF, "", 1, 17},
 			},
 		},
@@ -440,8 +440,8 @@ func TestFloatEdgeCases(t *testing.T) {
 			name:  "just_decimal",
 			input: ".",
 			expected: []tokenExpectation{
-				// Need to add DOT token for this - it's punctuation, not ILLEGAL
-				{ILLEGAL, ".", 1, 1}, // TODO: Should be DOT token when we add operators
+				// Standalone dot is DOT token for decorator syntax like @aws.secret
+				{DOT, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},

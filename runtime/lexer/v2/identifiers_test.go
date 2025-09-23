@@ -137,7 +137,7 @@ func TestIdentifierBoundaries(t *testing.T) {
 			input: "var1=var2",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "var1", 1, 1},
-				{EQUALS, "=", 1, 5},
+				{EQUALS, "", 1, 5},
 				{IDENTIFIER, "var2", 1, 6},
 				{EOF, "", 1, 10},
 			},
@@ -229,7 +229,7 @@ func TestIdentifierInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "myService", 1, 5},
-				{EQUALS, "=", 1, 15},
+				{EQUALS, "", 1, 15},
 				{IDENTIFIER, "value", 1, 17},
 				{EOF, "", 1, 22},
 			},
@@ -239,7 +239,7 @@ func TestIdentifierInContext(t *testing.T) {
 			input: "deployToProduction:",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "deployToProduction", 1, 1},
-				{COLON, ":", 1, 19},
+				{COLON, "", 1, 19},
 				{EOF, "", 1, 20},
 			},
 		},
@@ -248,8 +248,8 @@ func TestIdentifierInContext(t *testing.T) {
 			input: "checkHealth()",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "checkHealth", 1, 1},
-				{LPAREN, "(", 1, 12},
-				{RPAREN, ")", 1, 13},
+				{LPAREN, "", 1, 12},
+				{RPAREN, "", 1, 13},
 				{EOF, "", 1, 14},
 			},
 		},

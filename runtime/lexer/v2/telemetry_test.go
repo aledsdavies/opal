@@ -320,38 +320,5 @@ func TestTelemetryPerformanceRegression(t *testing.T) {
 	t.Logf("Performance: Off=%v, Basic=%v, Timing=%v", timeOff, timeBasic, timeTiming)
 }
 
-// BenchmarkTelemetryOff benchmarks lexer with no telemetry
-func BenchmarkTelemetryOff(b *testing.B) {
-	input := "var test = 123 + 456 * 789"
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
-		lexer := NewLexer(input)
-		tokens := lexer.GetTokens()
-		_ = tokens
-	}
-}
 
-// BenchmarkTelemetryBasic benchmarks lexer with basic telemetry
-func BenchmarkTelemetryBasic(b *testing.B) {
-	input := "var test = 123 + 456 * 789"
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		lexer := NewLexer(input, WithTelemetryBasic())
-		tokens := lexer.GetTokens()
-		_ = tokens
-	}
-}
-
-// BenchmarkTelemetryTiming benchmarks lexer with timing telemetry
-func BenchmarkTelemetryTiming(b *testing.B) {
-	input := "var test = 123 + 456 * 789"
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		lexer := NewLexer(input, WithTelemetryTiming())
-		tokens := lexer.GetTokens()
-		_ = tokens
-	}
-}

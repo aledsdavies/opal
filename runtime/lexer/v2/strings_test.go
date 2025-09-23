@@ -207,7 +207,7 @@ func TestStringInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "MESSAGE", 1, 5},
-				{EQUALS, "=", 1, 13},
+				{EQUALS, "", 1, 13},
 				{STRING, `"Hello World"`, 1, 15},
 				{EOF, "", 1, 28},
 			},
@@ -225,13 +225,13 @@ func TestStringInContext(t *testing.T) {
 			name:  "array of strings",
 			input: `["api", "worker", "ui"]`,
 			expected: []tokenExpectation{
-				{LSQUARE, "[", 1, 1},
+				{LSQUARE, "", 1, 1},
 				{STRING, `"api"`, 1, 2},
-				{COMMA, ",", 1, 7},
+				{COMMA, "", 1, 7},
 				{STRING, `"worker"`, 1, 9},
-				{COMMA, ",", 1, 17},
+				{COMMA, "", 1, 17},
 				{STRING, `"ui"`, 1, 19},
-				{RSQUARE, "]", 1, 23},
+				{RSQUARE, "", 1, 23},
 				{EOF, "", 1, 24},
 			},
 		},
@@ -240,11 +240,11 @@ func TestStringInContext(t *testing.T) {
 			input: "deploy: {\n    echo `Starting deployment\n    of @var(SERVICE)`\n}",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "deploy", 1, 1},
-				{COLON, ":", 1, 7},
-				{LBRACE, "{", 1, 9},
+				{COLON, "", 1, 7},
+				{LBRACE, "", 1, 9},
 				{IDENTIFIER, "echo", 2, 5}, // Newlines skipped as whitespace
 				{STRING, "`Starting deployment\n    of @var(SERVICE)`", 2, 10},
-				{RBRACE, "}", 4, 1}, // Newlines skipped as whitespace
+				{RBRACE, "", 4, 1}, // Newlines skipped as whitespace
 				{EOF, "", 4, 2},
 			},
 		},

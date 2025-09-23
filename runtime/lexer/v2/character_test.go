@@ -155,24 +155,6 @@ func TestHexDigitClassification(t *testing.T) {
 	}
 }
 
-// BenchmarkCharacterClassification benchmarks optimal inline bounds-checked lookups
-func BenchmarkCharacterClassification(b *testing.B) {
-	testBytes := []byte("hello_world123-test")
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	var count int
-	for i := 0; i < b.N; i++ {
-		for _, ch := range testBytes {
-			// Optimal: inline bounds-checked lookup
-			if ch < 128 && (isLetter[ch] || isDigit[ch]) {
-				count++
-			}
-		}
-	}
-	_ = count
-}
 
 // TestASCIIIdentifierValidation tests ASCII-only identifier rules
 func TestASCIIIdentifierValidation(t *testing.T) {
@@ -296,99 +278,5 @@ func TestUnicodeInTokens(t *testing.T) {
 	}
 }
 
-// BenchmarkASCIIIdentifierValidation benchmarks identifier validation performance
-func BenchmarkASCIIIdentifierValidation(b *testing.B) {
-	identifiers := []string{
-		"apiKey", "start-api", "service_v2", "_private", "DEPLOY_TIMEOUT",
-		"user", "a", "very_long_identifier_name_that_might_be_used",
-	}
 
-	b.ResetTimer()
-	b.ReportAllocs()
 
-	var validCount int
-	for i := 0; i < b.N; i++ {
-		for _, ident := range identifiers {
-			if isValidASCIIIdentifier(ident) {
-				validCount++
-			}
-		}
-	}
-	_ = validCount
-}
-
-// BenchmarkSkipWhitespace benchmarks hybrid whitespace skipping performance
-func BenchmarkSkipWhitespace(b *testing.B) {
-	input := []byte("    \t\r  hello world")
-	lexer := NewLexer("")
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		lexer.Init(input)
-		lexer.skipWhitespace() // Hybrid array jumping with column tracking
-	}
-}
-
-// BenchmarkWhitespaceScenarios benchmarks different whitespace patterns
-func BenchmarkWhitespaceScenarios(b *testing.B) {
-	scenarios := []struct {
-		name  string
-		input []byte
-	}{
-		{
-			"light_whitespace",
-			[]byte(" token"),
-		},
-		{
-			"heavy_prefix",
-			[]byte("                    token"),
-		},
-		{
-			"command_chain",
-			[]byte("token1 && token2"),
-		},
-		{
-			"heavy_chain",
-			[]byte("token1 &&                              token2"),
-		},
-		{
-			"script_formatting",
-			[]byte(`    if condition {
-        command1
-        command2
-    }`),
-		},
-		{
-			"mixed_whitespace",
-			[]byte("  \t\r    \t  token  \t\r  "),
-		},
-	}
-
-	for _, scenario := range scenarios {
-		b.Run(scenario.name, func(b *testing.B) {
-			lexer := NewLexer("")
-
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			for i := 0; i < b.N; i++ {
-				lexer.Init(scenario.input)
-
-				// Simulate typical lexing pattern
-				for lexer.position < len(lexer.input) {
-					lexer.skipWhitespace()
-					if lexer.position < len(lexer.input) {
-						// Simulate reading a token (just advance past first char)
-						if lexer.input[lexer.position] != '\n' {
-							lexer.position++
-						} else {
-							break
-						}
-					}
-				}
-			}
-		})
-	}
-}

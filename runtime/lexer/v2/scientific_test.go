@@ -155,7 +155,7 @@ func TestScientificInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "timeout", 1, 5},
-				{EQUALS, "=", 1, 13},
+				{EQUALS, "", 1, 13},
 				{SCIENTIFIC, "1e6", 1, 15},
 				{EOF, "", 1, 18},
 			},
@@ -165,9 +165,9 @@ func TestScientificInContext(t *testing.T) {
 			input: "total = base + 2.5e-3",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "total", 1, 1},
-				{EQUALS, "=", 1, 7},
+				{EQUALS, "", 1, 7},
 				{IDENTIFIER, "base", 1, 9},
-				{PLUS, "+", 1, 14},
+				{PLUS, "", 1, 14},
 				{SCIENTIFIC, "2.5e-3", 1, 16},
 				{EOF, "", 1, 22},
 			},
@@ -178,8 +178,8 @@ func TestScientificInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "small", 1, 5},
-				{EQUALS, "=", 1, 11},
-				{MINUS, "-", 1, 13},
+				{EQUALS, "", 1, 11},
+				{MINUS, "", 1, 13},
 				{SCIENTIFIC, "1.5e-10", 1, 14},
 				{EOF, "", 1, 21},
 			},
@@ -189,7 +189,7 @@ func TestScientificInContext(t *testing.T) {
 			input: "1e6 + 2.5e-3",
 			expected: []tokenExpectation{
 				{SCIENTIFIC, "1e6", 1, 1},
-				{PLUS, "+", 1, 5},
+				{PLUS, "", 1, 5},
 				{SCIENTIFIC, "2.5e-3", 1, 7},
 				{EOF, "", 1, 13},
 			},
@@ -224,7 +224,7 @@ func TestScientificBoundaries(t *testing.T) {
 			input: "1e6,",
 			expected: []tokenExpectation{
 				{SCIENTIFIC, "1e6", 1, 1},
-				{COMMA, ",", 1, 4},
+				{COMMA, "", 1, 4},
 				{EOF, "", 1, 5},
 			},
 		},
@@ -233,7 +233,7 @@ func TestScientificBoundaries(t *testing.T) {
 			input: "1e6+2",
 			expected: []tokenExpectation{
 				{SCIENTIFIC, "1e6", 1, 1},
-				{PLUS, "+", 1, 4},
+				{PLUS, "", 1, 4},
 				{INTEGER, "2", 1, 5},
 				{EOF, "", 1, 6},
 			},

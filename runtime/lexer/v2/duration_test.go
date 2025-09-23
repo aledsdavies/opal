@@ -246,7 +246,7 @@ func TestDurationInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "timeout", 1, 5},
-				{EQUALS, "=", 1, 13},
+				{EQUALS, "", 1, 13},
 				{DURATION, "30s", 1, 15},
 				{EOF, "", 1, 18},
 			},
@@ -256,9 +256,9 @@ func TestDurationInContext(t *testing.T) {
 			input: "total = base + 5m30s",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "total", 1, 1},
-				{EQUALS, "=", 1, 7},
+				{EQUALS, "", 1, 7},
 				{IDENTIFIER, "base", 1, 9},
-				{PLUS, "+", 1, 14},
+				{PLUS, "", 1, 14},
 				{DURATION, "5m30s", 1, 16},
 				{EOF, "", 1, 21},
 			},
@@ -269,8 +269,8 @@ func TestDurationInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "grace", 1, 5},
-				{EQUALS, "=", 1, 11},
-				{MINUS, "-", 1, 13},
+				{EQUALS, "", 1, 11},
+				{MINUS, "", 1, 13},
 				{DURATION, "30s", 1, 14},
 				{EOF, "", 1, 17},
 			},
@@ -280,9 +280,9 @@ func TestDurationInContext(t *testing.T) {
 			input: "1h + 30m - 15s",
 			expected: []tokenExpectation{
 				{DURATION, "1h", 1, 1},
-				{PLUS, "+", 1, 4},
+				{PLUS, "", 1, 4},
 				{DURATION, "30m", 1, 6},
-				{MINUS, "-", 1, 10},
+				{MINUS, "", 1, 10},
 				{DURATION, "15s", 1, 12},
 				{EOF, "", 1, 15},
 			},
@@ -317,7 +317,7 @@ func TestDurationBoundaries(t *testing.T) {
 			input: "1h30m,",
 			expected: []tokenExpectation{
 				{DURATION, "1h30m", 1, 1},
-				{COMMA, ",", 1, 6},
+				{COMMA, "", 1, 6},
 				{EOF, "", 1, 7},
 			},
 		},
@@ -326,7 +326,7 @@ func TestDurationBoundaries(t *testing.T) {
 			input: "5m+10s",
 			expected: []tokenExpectation{
 				{DURATION, "5m", 1, 1},
-				{PLUS, "+", 1, 3},
+				{PLUS, "", 1, 3},
 				{DURATION, "10s", 1, 4},
 				{EOF, "", 1, 7},
 			},

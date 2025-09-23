@@ -25,6 +25,7 @@ const (
 	// Language structure
 	VAR    // var
 	AT     // @
+	DOT    // .
 	COLON  // :
 	EQUALS // =
 	COMMA  // ,
@@ -139,6 +140,8 @@ func (t TokenType) String() string {
 		return "VAR"
 	case AT:
 		return "AT"
+	case DOT:
+		return "DOT"
 	case COLON:
 		return "COLON"
 	case EQUALS:
@@ -250,6 +253,7 @@ var Keywords = map[string]TokenType{
 // SingleCharTokens maps single characters to their token types
 var SingleCharTokens = map[byte]TokenType{
 	'@':  AT,
+	'.':  DOT,
 	':':  COLON,
 	'=':  EQUALS,
 	',':  COMMA,

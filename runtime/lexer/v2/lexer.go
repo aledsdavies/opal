@@ -414,31 +414,31 @@ func (l *Lexer) lexToken() Token {
 		return l.lexPipe(start)
 	case ':':
 		l.advanceChar()
-		return Token{Type: COLON, Text: []byte{':'}, Position: start}
+		return Token{Type: COLON, Text: nil, Position: start}
 	case '{':
 		l.advanceChar()
-		return Token{Type: LBRACE, Text: []byte{'{'}, Position: start}
+		return Token{Type: LBRACE, Text: nil, Position: start}
 	case '}':
 		l.advanceChar()
-		return Token{Type: RBRACE, Text: []byte{'}'}, Position: start}
+		return Token{Type: RBRACE, Text: nil, Position: start}
 	case '(':
 		l.advanceChar()
-		return Token{Type: LPAREN, Text: []byte{'('}, Position: start}
+		return Token{Type: LPAREN, Text: nil, Position: start}
 	case ')':
 		l.advanceChar()
-		return Token{Type: RPAREN, Text: []byte{')'}, Position: start}
+		return Token{Type: RPAREN, Text: nil, Position: start}
 	case '[':
 		l.advanceChar()
-		return Token{Type: LSQUARE, Text: []byte{'['}, Position: start}
+		return Token{Type: LSQUARE, Text: nil, Position: start}
 	case ']':
 		l.advanceChar()
-		return Token{Type: RSQUARE, Text: []byte{']'}, Position: start}
+		return Token{Type: RSQUARE, Text: nil, Position: start}
 	case ',':
 		l.advanceChar()
-		return Token{Type: COMMA, Text: []byte{','}, Position: start}
+		return Token{Type: COMMA, Text: nil, Position: start}
 	case ';':
 		l.advanceChar()
-		return Token{Type: SEMICOLON, Text: []byte{';'}, Position: start}
+		return Token{Type: SEMICOLON, Text: nil, Position: start}
 	case '-':
 		return l.lexMinus(start)
 	case '+':
@@ -449,6 +449,19 @@ func (l *Lexer) lexToken() Token {
 		return l.lexDivide(start)
 	case '%':
 		return l.lexModulo(start)
+	case '@':
+		l.advanceChar()
+		return Token{Type: AT, Text: nil, Position: start}
+	case '.':
+		// Only handle as DOT if not followed by a digit (which would be a decimal number)
+		if l.position+1 >= len(l.input) || l.input[l.position+1] >= 128 || !isDigit[l.input[l.position+1]] {
+			l.advanceChar()
+			return Token{Type: DOT, Text: nil, Position: start}
+		}
+		// If followed by digit, it will be handled by the decimal number case above
+		// This is an edge case that shouldn't happen due to the check above, but we'll return ILLEGAL
+		l.advanceChar()
+		return Token{Type: ILLEGAL, Text: []byte{'.'}, Position: start}
 		// NOTE: '\n' is now handled as whitespace and skipped
 		// Meaningful newlines will be implemented when we add statement parsing
 	}
@@ -828,17 +841,17 @@ func (l *Lexer) lexMinus(start Position) Token {
 	// Check for '--' (decrement)
 	if l.position < len(l.input) && l.currentChar() == '-' {
 		l.advanceChar() // consume second '-'
-		return Token{Type: DECREMENT, Text: []byte("--"), Position: start}
+		return Token{Type: DECREMENT, Text: nil, Position: start}
 	}
 
 	// Check for '-=' (minus assign)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: MINUS_ASSIGN, Text: []byte("-="), Position: start}
+		return Token{Type: MINUS_ASSIGN, Text: nil, Position: start}
 	}
 
 	// Just '-' (minus)
-	return Token{Type: MINUS, Text: []byte("-"), Position: start}
+	return Token{Type: MINUS, Text: nil, Position: start}
 }
 
 // lexPlus handles '+', '++', and '+=' operators
@@ -848,17 +861,17 @@ func (l *Lexer) lexPlus(start Position) Token {
 	// Check for '++' (increment)
 	if l.position < len(l.input) && l.currentChar() == '+' {
 		l.advanceChar() // consume second '+'
-		return Token{Type: INCREMENT, Text: []byte("++"), Position: start}
+		return Token{Type: INCREMENT, Text: nil, Position: start}
 	}
 
 	// Check for '+=' (plus assign)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: PLUS_ASSIGN, Text: []byte("+="), Position: start}
+		return Token{Type: PLUS_ASSIGN, Text: nil, Position: start}
 	}
 
 	// Just '+' (plus)
-	return Token{Type: PLUS, Text: []byte("+"), Position: start}
+	return Token{Type: PLUS, Text: nil, Position: start}
 }
 
 // lexMultiply handles '*' and '*=' operators
@@ -868,25 +881,39 @@ func (l *Lexer) lexMultiply(start Position) Token {
 	// Check for '*=' (multiply assign)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: MULTIPLY_ASSIGN, Text: []byte("*="), Position: start}
+		return Token{Type: MULTIPLY_ASSIGN, Text: nil, Position: start}
 	}
 
 	// Just '*' (multiply)
-	return Token{Type: MULTIPLY, Text: []byte("*"), Position: start}
+	return Token{Type: MULTIPLY, Text: nil, Position: start}
 }
 
-// lexDivide handles '/' and '/=' operators
+// lexDivide handles '/', '/=', '//', and '/*' operators and comments
 func (l *Lexer) lexDivide(start Position) Token {
 	l.advanceChar() // consume '/'
 
-	// Check for '/=' (divide assign)
-	if l.position < len(l.input) && l.currentChar() == '=' {
-		l.advanceChar() // consume '='
-		return Token{Type: DIVIDE_ASSIGN, Text: []byte("/="), Position: start}
+	if l.position < len(l.input) {
+		nextChar := l.currentChar()
+
+		// Check for '/*' (block comment start)
+		if nextChar == '*' {
+			return l.lexBlockComment(start)
+		}
+
+		// Check for '//' (line comment start)
+		if nextChar == '/' {
+			return l.lexLineComment(start)
+		}
+
+		// Check for '/=' (divide assign)
+		if nextChar == '=' {
+			l.advanceChar() // consume '='
+			return Token{Type: DIVIDE_ASSIGN, Text: nil, Position: start}
+		}
 	}
 
 	// Just '/' (divide)
-	return Token{Type: DIVIDE, Text: []byte("/"), Position: start}
+	return Token{Type: DIVIDE, Text: nil, Position: start}
 }
 
 // lexModulo handles '%' and '%=' operators
@@ -896,11 +923,11 @@ func (l *Lexer) lexModulo(start Position) Token {
 	// Check for '%=' (modulo assign)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: MODULO_ASSIGN, Text: []byte("%="), Position: start}
+		return Token{Type: MODULO_ASSIGN, Text: nil, Position: start}
 	}
 
 	// Just '%' (modulo)
-	return Token{Type: MODULO, Text: []byte("%"), Position: start}
+	return Token{Type: MODULO, Text: nil, Position: start}
 }
 
 // lexEquals handles '=' and '==' operators
@@ -910,11 +937,11 @@ func (l *Lexer) lexEquals(start Position) Token {
 	// Check for '==' (equality)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume second '='
-		return Token{Type: EQ_EQ, Text: []byte("=="), Position: start}
+		return Token{Type: EQ_EQ, Text: nil, Position: start}
 	}
 
 	// Just '=' (assignment)
-	return Token{Type: EQUALS, Text: []byte("="), Position: start}
+	return Token{Type: EQUALS, Text: nil, Position: start}
 }
 
 // lexLessThan handles '<' and '<=' operators
@@ -924,11 +951,11 @@ func (l *Lexer) lexLessThan(start Position) Token {
 	// Check for '<=' (less than or equal)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: LT_EQ, Text: []byte("<="), Position: start}
+		return Token{Type: LT_EQ, Text: nil, Position: start}
 	}
 
 	// Just '<' (less than)
-	return Token{Type: LT, Text: []byte("<"), Position: start}
+	return Token{Type: LT, Text: nil, Position: start}
 }
 
 // lexGreaterThan handles '>' and '>=' operators
@@ -938,11 +965,11 @@ func (l *Lexer) lexGreaterThan(start Position) Token {
 	// Check for '>=' (greater than or equal)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: GT_EQ, Text: []byte(">="), Position: start}
+		return Token{Type: GT_EQ, Text: nil, Position: start}
 	}
 
 	// Just '>' (greater than)
-	return Token{Type: GT, Text: []byte(">"), Position: start}
+	return Token{Type: GT, Text: nil, Position: start}
 }
 
 // lexExclamation handles '!' and '!=' operators
@@ -952,11 +979,11 @@ func (l *Lexer) lexExclamation(start Position) Token {
 	// Check for '!=' (not equal)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: NOT_EQ, Text: []byte("!="), Position: start}
+		return Token{Type: NOT_EQ, Text: nil, Position: start}
 	}
 
 	// Just '!' (logical not)
-	return Token{Type: NOT, Text: []byte("!"), Position: start}
+	return Token{Type: NOT, Text: nil, Position: start}
 }
 
 // lexAmpersand handles '&' and '&&' operators
@@ -966,11 +993,11 @@ func (l *Lexer) lexAmpersand(start Position) Token {
 	// Check for '&&' (logical and)
 	if l.position < len(l.input) && l.currentChar() == '&' {
 		l.advanceChar() // consume second '&'
-		return Token{Type: AND_AND, Text: []byte("&&"), Position: start}
+		return Token{Type: AND_AND, Text: nil, Position: start}
 	}
 
 	// Single '&' is illegal for now (future: bitwise and)
-	return Token{Type: ILLEGAL, Text: []byte("&"), Position: start}
+	return Token{Type: ILLEGAL, Text: nil, Position: start}
 }
 
 // lexPipe handles '|' and '||' operators
@@ -980,9 +1007,71 @@ func (l *Lexer) lexPipe(start Position) Token {
 	// Check for '||' (logical or)
 	if l.position < len(l.input) && l.currentChar() == '|' {
 		l.advanceChar() // consume second '|'
-		return Token{Type: OR_OR, Text: []byte("||"), Position: start}
+		return Token{Type: OR_OR, Text: nil, Position: start}
 	}
 
 	// Single '|' is illegal for now (future: bitwise or)
-	return Token{Type: ILLEGAL, Text: []byte("|"), Position: start}
+	return Token{Type: ILLEGAL, Text: nil, Position: start}
+}
+
+// lexLineComment handles // style comments, excluding the // prefix
+func (l *Lexer) lexLineComment(start Position) Token {
+	l.advanceChar() // consume second '/'
+
+	startContentPos := l.position
+
+	// Read until end of line or EOF
+	for l.position < len(l.input) {
+		ch := l.currentChar()
+		if ch == '\n' {
+			break // Don't consume the newline - it's meaningful whitespace
+		}
+		l.advanceChar()
+	}
+
+	// Extract comment content (without the // prefix)
+	content := l.input[startContentPos:l.position]
+
+	return Token{
+		Type:     COMMENT,
+		Text:     content,
+		Position: start,
+	}
+}
+
+// lexBlockComment handles /* */ style comments, excluding the delimiters
+func (l *Lexer) lexBlockComment(start Position) Token {
+	l.advanceChar() // consume '*'
+
+	startContentPos := l.position
+
+	// Read until */ or EOF
+	for l.position < len(l.input) {
+		ch := l.currentChar()
+		if ch == '*' && l.position+1 < len(l.input) && l.input[l.position+1] == '/' {
+			// Found closing */
+			endContentPos := l.position
+			l.advanceChar() // consume '*'
+			l.advanceChar() // consume '/'
+
+			// Extract comment content (without the /* */ delimiters)
+			content := l.input[startContentPos:endContentPos]
+
+			return Token{
+				Type:     COMMENT,
+				Text:     content,
+				Position: start,
+			}
+		}
+		l.advanceChar()
+	}
+
+	// Unterminated block comment - return content up to EOF
+	content := l.input[startContentPos:l.position]
+
+	return Token{
+		Type:     COMMENT,
+		Text:     content,
+		Position: start,
+	}
 }

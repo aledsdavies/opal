@@ -13,7 +13,7 @@ func TestBasicPunctuation(t *testing.T) {
 			name:  "equals sign",
 			input: "=",
 			expected: []tokenExpectation{
-				{EQUALS, "=", 1, 1},
+				{EQUALS, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -21,7 +21,7 @@ func TestBasicPunctuation(t *testing.T) {
 			name:  "colon",
 			input: ":",
 			expected: []tokenExpectation{
-				{COLON, ":", 1, 1},
+				{COLON, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -29,7 +29,7 @@ func TestBasicPunctuation(t *testing.T) {
 			name:  "left brace",
 			input: "{",
 			expected: []tokenExpectation{
-				{LBRACE, "{", 1, 1},
+				{LBRACE, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -37,7 +37,7 @@ func TestBasicPunctuation(t *testing.T) {
 			name:  "right brace",
 			input: "}",
 			expected: []tokenExpectation{
-				{RBRACE, "}", 1, 1},
+				{RBRACE, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -45,7 +45,7 @@ func TestBasicPunctuation(t *testing.T) {
 			name:  "left paren",
 			input: "(",
 			expected: []tokenExpectation{
-				{LPAREN, "(", 1, 1},
+				{LPAREN, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -53,7 +53,15 @@ func TestBasicPunctuation(t *testing.T) {
 			name:  "right paren",
 			input: ")",
 			expected: []tokenExpectation{
-				{RPAREN, ")", 1, 1},
+				{RPAREN, "", 1, 1},
+				{EOF, "", 1, 2},
+			},
+		},
+		{
+			name:  "at symbol",
+			input: "@",
+			expected: []tokenExpectation{
+				{AT, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -77,7 +85,7 @@ func TestPunctuationWithWhitespace(t *testing.T) {
 			name:  "equals with spaces",
 			input: " = ",
 			expected: []tokenExpectation{
-				{EQUALS, "=", 1, 2},
+				{EQUALS, "", 1, 2},
 				{EOF, "", 1, 4},
 			},
 		},
@@ -85,8 +93,8 @@ func TestPunctuationWithWhitespace(t *testing.T) {
 			name:  "braces with tabs",
 			input: "\t{\t}",
 			expected: []tokenExpectation{
-				{LBRACE, "{", 1, 2}, // Tab = 1 byte
-				{RBRACE, "}", 1, 4}, // Tab after { = 1 more byte
+				{LBRACE, "", 1, 2}, // Tab = 1 byte
+				{RBRACE, "", 1, 4}, // Tab after { = 1 more byte
 				{EOF, "", 1, 5},
 			},
 		},
@@ -94,7 +102,7 @@ func TestPunctuationWithWhitespace(t *testing.T) {
 			name:  "colon with newline",
 			input: ":\n",
 			expected: []tokenExpectation{
-				{COLON, ":", 1, 1},
+				{COLON, "", 1, 1},
 				{EOF, "", 2, 1}, // Newline skipped as whitespace
 			},
 		},
@@ -120,7 +128,7 @@ func TestPunctuationInContext(t *testing.T) {
 			expected: []tokenExpectation{
 				{VAR, "var", 1, 1},
 				{IDENTIFIER, "name", 1, 5},
-				{EQUALS, "=", 1, 10},
+				{EQUALS, "", 1, 10},
 				{IDENTIFIER, "value", 1, 12},
 				{EOF, "", 1, 17},
 			},
@@ -130,8 +138,8 @@ func TestPunctuationInContext(t *testing.T) {
 			input: "deploy: {",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "deploy", 1, 1},
-				{COLON, ":", 1, 7},
-				{LBRACE, "{", 1, 9},
+				{COLON, "", 1, 7},
+				{LBRACE, "", 1, 9},
 				{EOF, "", 1, 10},
 			},
 		},
@@ -140,9 +148,9 @@ func TestPunctuationInContext(t *testing.T) {
 			input: "func(arg)",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "func", 1, 1},
-				{LPAREN, "(", 1, 5},
+				{LPAREN, "", 1, 5},
 				{IDENTIFIER, "arg", 1, 6},
-				{RPAREN, ")", 1, 9},
+				{RPAREN, "", 1, 9},
 				{EOF, "", 1, 10},
 			},
 		},
@@ -150,11 +158,23 @@ func TestPunctuationInContext(t *testing.T) {
 			name:  "nested braces",
 			input: "{ { } }",
 			expected: []tokenExpectation{
-				{LBRACE, "{", 1, 1},
-				{LBRACE, "{", 1, 3},
-				{RBRACE, "}", 1, 5},
-				{RBRACE, "}", 1, 7},
+				{LBRACE, "", 1, 1},
+				{LBRACE, "", 1, 3},
+				{RBRACE, "", 1, 5},
+				{RBRACE, "", 1, 7},
 				{EOF, "", 1, 8},
+			},
+		},
+		{
+			name:  "decorator syntax",
+			input: "@env(NAME)",
+			expected: []tokenExpectation{
+				{AT, "", 1, 1},
+				{IDENTIFIER, "env", 1, 2},
+				{LPAREN, "", 1, 5},
+				{IDENTIFIER, "NAME", 1, 6},
+				{RPAREN, "", 1, 10},
+				{EOF, "", 1, 11},
 			},
 		},
 	}
@@ -177,7 +197,7 @@ func TestSquareBrackets(t *testing.T) {
 			name:  "left square bracket",
 			input: "[",
 			expected: []tokenExpectation{
-				{LSQUARE, "[", 1, 1},
+				{LSQUARE, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -185,7 +205,7 @@ func TestSquareBrackets(t *testing.T) {
 			name:  "right square bracket",
 			input: "]",
 			expected: []tokenExpectation{
-				{RSQUARE, "]", 1, 1},
+				{RSQUARE, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -194,9 +214,9 @@ func TestSquareBrackets(t *testing.T) {
 			input: "items[index]", // Use identifier instead of number for now
 			expected: []tokenExpectation{
 				{IDENTIFIER, "items", 1, 1},
-				{LSQUARE, "[", 1, 6},
+				{LSQUARE, "", 1, 6},
 				{IDENTIFIER, "index", 1, 7},
-				{RSQUARE, "]", 1, 12},
+				{RSQUARE, "", 1, 12},
 				{EOF, "", 1, 13},
 			},
 		},
@@ -220,7 +240,7 @@ func TestCommaAndSemicolon(t *testing.T) {
 			name:  "comma",
 			input: ",",
 			expected: []tokenExpectation{
-				{COMMA, ",", 1, 1},
+				{COMMA, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -228,7 +248,7 @@ func TestCommaAndSemicolon(t *testing.T) {
 			name:  "semicolon",
 			input: ";",
 			expected: []tokenExpectation{
-				{SEMICOLON, ";", 1, 1},
+				{SEMICOLON, "", 1, 1},
 				{EOF, "", 1, 2},
 			},
 		},
@@ -236,13 +256,13 @@ func TestCommaAndSemicolon(t *testing.T) {
 			name:  "array literal",
 			input: "[a, b, c]",
 			expected: []tokenExpectation{
-				{LSQUARE, "[", 1, 1},
+				{LSQUARE, "", 1, 1},
 				{IDENTIFIER, "a", 1, 2},
-				{COMMA, ",", 1, 3},
+				{COMMA, "", 1, 3},
 				{IDENTIFIER, "b", 1, 5},
-				{COMMA, ",", 1, 6},
+				{COMMA, "", 1, 6},
 				{IDENTIFIER, "c", 1, 8},
-				{RSQUARE, "]", 1, 9},
+				{RSQUARE, "", 1, 9},
 				{EOF, "", 1, 10},
 			},
 		},
@@ -251,7 +271,7 @@ func TestCommaAndSemicolon(t *testing.T) {
 			input: "cmd1; cmd2",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "cmd1", 1, 1},
-				{SEMICOLON, ";", 1, 5},
+				{SEMICOLON, "", 1, 5},
 				{IDENTIFIER, "cmd2", 1, 7},
 				{EOF, "", 1, 11},
 			},
