@@ -408,6 +408,10 @@ func (l *Lexer) lexToken() Token {
 		return l.lexGreaterThan(start)
 	case '!':
 		return l.lexExclamation(start)
+	case '&':
+		return l.lexAmpersand(start)
+	case '|':
+		return l.lexPipe(start)
 	case ':':
 		l.advanceChar()
 		return Token{Type: COLON, Text: []byte{':'}, Position: start}
@@ -953,4 +957,32 @@ func (l *Lexer) lexExclamation(start Position) Token {
 
 	// Just '!' (logical not)
 	return Token{Type: NOT, Text: []byte("!"), Position: start}
+}
+
+// lexAmpersand handles '&' and '&&' operators
+func (l *Lexer) lexAmpersand(start Position) Token {
+	l.advanceChar() // consume '&'
+
+	// Check for '&&' (logical and)
+	if l.position < len(l.input) && l.currentChar() == '&' {
+		l.advanceChar() // consume second '&'
+		return Token{Type: AND_AND, Text: []byte("&&"), Position: start}
+	}
+
+	// Single '&' is illegal for now (future: bitwise and)
+	return Token{Type: ILLEGAL, Text: []byte("&"), Position: start}
+}
+
+// lexPipe handles '|' and '||' operators
+func (l *Lexer) lexPipe(start Position) Token {
+	l.advanceChar() // consume '|'
+
+	// Check for '||' (logical or)
+	if l.position < len(l.input) && l.currentChar() == '|' {
+		l.advanceChar() // consume second '|'
+		return Token{Type: OR_OR, Text: []byte("||"), Position: start}
+	}
+
+	// Single '|' is illegal for now (future: bitwise or)
+	return Token{Type: ILLEGAL, Text: []byte("|"), Position: start}
 }
