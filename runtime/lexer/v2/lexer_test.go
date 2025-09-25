@@ -677,14 +677,16 @@ func TestWhitespaceSkipping(t *testing.T) {
 			name:  "only newlines",
 			input: "\n\n\n",
 			expected: []tokenExpectation{
-				{EOF, "", 4, 1}, // EOF at line 4, column 1
+				{NEWLINE, "\n", 1, 1}, // First newline is meaningful
+				{EOF, "", 4, 1},       // EOF at line 4, column 1 (after skipping consecutive newlines)
 			},
 		},
 		{
 			name:  "mixed whitespace only",
 			input: " \t\n \t\n ",
 			expected: []tokenExpectation{
-				{EOF, "", 3, 2}, // EOF at line 3, column 2 (after final space)
+				{NEWLINE, "\n", 1, 3}, // First newline is meaningful (after space+tab)
+				{EOF, "", 3, 2},       // EOF at line 3, column 2 (after final space)
 			},
 		},
 		{
@@ -692,6 +694,7 @@ func TestWhitespaceSkipping(t *testing.T) {
 			input: "  \t hello \n\t ",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "hello", 1, 5}, // "hello" at column 5 (after "  \t ")
+				{NEWLINE, "\n", 1, 11},      // Meaningful newline after "hello "
 				{EOF, "", 2, 3},             // EOF at line 2, column 3 (after "\t ")
 			},
 		},

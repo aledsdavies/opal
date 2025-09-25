@@ -128,6 +128,7 @@ func TestIntegerBoundaries(t *testing.T) {
 			input: "123\n456",
 			expected: []tokenExpectation{
 				{INTEGER, "123", 1, 1},
+				{NEWLINE, "\n", 1, 4},
 				{INTEGER, "456", 2, 1},
 				{EOF, "", 2, 4},
 			},
