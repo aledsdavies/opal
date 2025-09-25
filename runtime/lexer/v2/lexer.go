@@ -109,6 +109,9 @@ type Lexer struct {
 	line     int
 	column   int
 
+	// Simple newline state
+	lastWasNewline bool // Track if last emitted token was NEWLINE (to skip consecutive ones)
+
 	// Buffering for efficient token access
 	tokens     []Token // Internal token buffer
 	tokenIndex int     // Current position in buffer
@@ -358,6 +361,31 @@ func (l *Lexer) lexToken() Token {
 
 	// Skip whitespace (except newlines which are significant)
 	l.skipWhitespace()
+
+	// Handle newlines - emit NEWLINE token, skip consecutive ones
+	if l.position < len(l.input) && l.input[l.position] == '\n' {
+		if !l.lastWasNewline {
+			// Emit first newline
+			start := Position{Line: l.line, Column: l.column}
+			l.advanceChar() // Consume the newline
+			l.lastWasNewline = true
+			return Token{
+				Type:     NEWLINE,
+				Text:     []byte{'\n'},
+				Position: start,
+			}
+		} else {
+			// Skip consecutive newlines
+			for l.position < len(l.input) && l.input[l.position] == '\n' {
+				l.advanceChar()
+			}
+			// After skipping newlines, recurse to continue lexing
+			return l.lexToken()
+		}
+	}
+
+	// Reset newline flag for non-newline tokens
+	l.lastWasNewline = false
 
 	// Check for EOF
 	if l.position >= len(l.input) {

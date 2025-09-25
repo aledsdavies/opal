@@ -65,14 +65,14 @@ func TestASCIICharacterClassification(t *testing.T) {
 			},
 		},
 		{
-			name: "newline should be whitespace",
+			name: "newline should not be whitespace",
 			char: '\n',
 			expected: map[string]bool{
 				"letter":     false,
 				"identStart": false,
 				"identPart":  false,
 				"digit":      false,
-				"whitespace": true, // Newlines are skipped as whitespace
+				"whitespace": false, // Newlines are meaningful tokens
 			},
 		},
 		{
@@ -154,7 +154,6 @@ func TestHexDigitClassification(t *testing.T) {
 		})
 	}
 }
-
 
 // TestASCIIIdentifierValidation tests ASCII-only identifier rules
 func TestASCIIIdentifierValidation(t *testing.T) {
@@ -277,6 +276,3 @@ func TestUnicodeInTokens(t *testing.T) {
 		})
 	}
 }
-
-
-

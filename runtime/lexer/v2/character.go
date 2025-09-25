@@ -27,8 +27,8 @@ func init() {
 	for i := 0; i < 128; i++ {
 		ch := byte(i)
 
-		// Whitespace (including newline - meaningful newlines handled at parser level)
-		isWhitespace[i] = ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n'
+		// Whitespace (excluding newline - newlines are meaningful tokens)
+		isWhitespace[i] = ch == ' ' || ch == '\t' || ch == '\r' || ch == '\f'
 
 		// Letters (ASCII + underscore)
 		isLetter[i] = ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_'
