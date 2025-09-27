@@ -413,33 +413,33 @@ func (l *Lexer) lexToken() Token {
 
 	// String literals
 	if ch == '"' || ch == '\'' || ch == '`' {
-		return l.lexString(start, ch)
+		return l.lexString(start, ch, hadWhitespace)
 	}
 
 	// Numbers (integers, floats, etc.) - no longer handle negative sign here
 	if ch < 128 && isDigit[ch] {
-		return l.lexNumber(start)
+		return l.lexNumber(start, hadWhitespace)
 	}
 
 	// Decimal numbers starting with dot (.5, .123)
 	if ch == '.' && l.position+1 < len(l.input) && l.input[l.position+1] < 128 && isDigit[l.input[l.position+1]] {
-		return l.lexNumber(start)
+		return l.lexNumber(start, hadWhitespace)
 	}
 
 	// Single character punctuation
 	switch ch {
 	case '=':
-		return l.lexEquals(start)
+		return l.lexEquals(start, hadWhitespace)
 	case '<':
-		return l.lexLessThan(start)
+		return l.lexLessThan(start, hadWhitespace)
 	case '>':
-		return l.lexGreaterThan(start)
+		return l.lexGreaterThan(start, hadWhitespace)
 	case '!':
-		return l.lexExclamation(start)
+		return l.lexExclamation(start, hadWhitespace)
 	case '&':
-		return l.lexAmpersand(start)
+		return l.lexAmpersand(start, hadWhitespace)
 	case '|':
-		return l.lexPipe(start)
+		return l.lexPipe(start, hadWhitespace)
 	case ':':
 		l.advanceChar()
 		return Token{Type: COLON, Text: nil, Position: start, HasSpaceBefore: hadWhitespace}
@@ -470,13 +470,13 @@ func (l *Lexer) lexToken() Token {
 	case '-':
 		return l.lexMinus(start, hadWhitespace)
 	case '+':
-		return l.lexPlus(start)
+		return l.lexPlus(start, hadWhitespace)
 	case '*':
-		return l.lexMultiply(start)
+		return l.lexMultiply(start, hadWhitespace)
 	case '/':
-		return l.lexDivide(start)
+		return l.lexDivide(start, hadWhitespace)
 	case '%':
-		return l.lexModulo(start)
+		return l.lexModulo(start, hadWhitespace)
 	case '@':
 		l.advanceChar()
 		return Token{Type: AT, Text: nil, Position: start}
@@ -573,7 +573,7 @@ func (l *Lexer) lexIdentifier(start Position, hasSpaceBefore bool) Token {
 }
 
 // lexString reads a string literal starting at current position
-func (l *Lexer) lexString(start Position, quote byte) Token {
+func (l *Lexer) lexString(start Position, quote byte, hasSpaceBefore bool) Token {
 	startPos := l.position
 	l.advanceChar() // Skip opening quote
 
@@ -612,9 +612,10 @@ func (l *Lexer) lexString(start Position, quote byte) Token {
 	text := l.input[startPos:l.position]
 
 	return Token{
-		Type:     STRING,
-		Text:     text,
-		Position: start,
+		Type:           STRING,
+		Text:           text,
+		Position:       start,
+		HasSpaceBefore: hasSpaceBefore,
 	}
 }
 
@@ -695,7 +696,7 @@ func (l *Lexer) advanceChar() {
 }
 
 // lexNumber tokenizes numeric literals (integers, floats, scientific notation)
-func (l *Lexer) lexNumber(start Position) Token {
+func (l *Lexer) lexNumber(start Position, hasSpaceBefore bool) Token {
 	if l.debugLevel > DebugOff {
 		l.recordDebugEvent("enter_lexNumber", "reading numeric literal")
 	}
@@ -709,14 +710,14 @@ func (l *Lexer) lexNumber(start Position) Token {
 		l.advanceChar()
 		if !l.readDigits() {
 			// No digits after decimal - shouldn't happen given our caller check
-			return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start}
+			return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start, HasSpaceBefore: hasSpaceBefore}
 		}
 		isFloat = true
 	} else {
 		// Read integer part
 		if !l.readDigits() {
 			// No digits found - this shouldn't happen given our caller check
-			return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start}
+			return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start, HasSpaceBefore: hasSpaceBefore}
 		}
 
 		// Check for decimal point
@@ -747,9 +748,10 @@ func (l *Lexer) lexNumber(start Position) Token {
 
 			// This is scientific notation
 			return Token{
-				Type:     SCIENTIFIC,
-				Text:     l.input[startPos:l.position],
-				Position: start,
+				Type:           SCIENTIFIC,
+				Text:           l.input[startPos:l.position],
+				Position:       start,
+				HasSpaceBefore: hasSpaceBefore,
 			}
 		}
 	}
@@ -758,9 +760,10 @@ func (l *Lexer) lexNumber(start Position) Token {
 	if !isFloat {
 		if l.tryParseDuration(startPos) {
 			return Token{
-				Type:     DURATION,
-				Text:     l.input[startPos:l.position],
-				Position: start,
+				Type:           DURATION,
+				Text:           l.input[startPos:l.position],
+				Position:       start,
+				HasSpaceBefore: hasSpaceBefore,
 			}
 		}
 	}
@@ -768,17 +771,19 @@ func (l *Lexer) lexNumber(start Position) Token {
 	// Return appropriate type based on whether we found a decimal point
 	if isFloat {
 		return Token{
-			Type:     FLOAT,
-			Text:     l.input[startPos:l.position],
-			Position: start,
+			Type:           FLOAT,
+			Text:           l.input[startPos:l.position],
+			Position:       start,
+			HasSpaceBefore: hasSpaceBefore,
 		}
 	}
 
 	// Just an integer
 	return Token{
-		Type:     INTEGER,
-		Text:     l.input[startPos:l.position],
-		Position: start,
+		Type:           INTEGER,
+		Text:           l.input[startPos:l.position],
+		Position:       start,
+		HasSpaceBefore: hasSpaceBefore,
 	}
 }
 
@@ -874,55 +879,55 @@ func (l *Lexer) lexMinus(start Position, hasSpaceBefore bool) Token {
 	// Check for '--' (decrement)
 	if l.position < len(l.input) && l.currentChar() == '-' {
 		l.advanceChar() // consume second '-'
-		return Token{Type: DECREMENT, Text: nil, Position: start}
+		return Token{Type: DECREMENT, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Check for '-=' (minus assign)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: MINUS_ASSIGN, Text: nil, Position: start}
+		return Token{Type: MINUS_ASSIGN, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Just '-' (minus)
-	return Token{Type: MINUS, Text: nil, Position: start}
+	return Token{Type: MINUS, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexPlus handles '+', '++', and '+=' operators
-func (l *Lexer) lexPlus(start Position) Token {
+func (l *Lexer) lexPlus(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '+'
 
 	// Check for '++' (increment)
 	if l.position < len(l.input) && l.currentChar() == '+' {
 		l.advanceChar() // consume second '+'
-		return Token{Type: INCREMENT, Text: nil, Position: start}
+		return Token{Type: INCREMENT, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Check for '+=' (plus assign)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: PLUS_ASSIGN, Text: nil, Position: start}
+		return Token{Type: PLUS_ASSIGN, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Just '+' (plus)
-	return Token{Type: PLUS, Text: nil, Position: start}
+	return Token{Type: PLUS, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexMultiply handles '*' and '*=' operators
-func (l *Lexer) lexMultiply(start Position) Token {
+func (l *Lexer) lexMultiply(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '*'
 
 	// Check for '*=' (multiply assign)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: MULTIPLY_ASSIGN, Text: nil, Position: start}
+		return Token{Type: MULTIPLY_ASSIGN, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Just '*' (multiply)
-	return Token{Type: MULTIPLY, Text: nil, Position: start}
+	return Token{Type: MULTIPLY, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexDivide handles '/', '/=', '//', and '/*' operators and comments
-func (l *Lexer) lexDivide(start Position) Token {
+func (l *Lexer) lexDivide(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '/'
 
 	if l.position < len(l.input) {
@@ -930,125 +935,125 @@ func (l *Lexer) lexDivide(start Position) Token {
 
 		// Check for '/*' (block comment start)
 		if nextChar == '*' {
-			return l.lexBlockComment(start)
+			return l.lexBlockComment(start, hasSpaceBefore)
 		}
 
 		// Check for '//' (line comment start)
 		if nextChar == '/' {
-			return l.lexLineComment(start)
+			return l.lexLineComment(start, hasSpaceBefore)
 		}
 
 		// Check for '/=' (divide assign)
 		if nextChar == '=' {
 			l.advanceChar() // consume '='
-			return Token{Type: DIVIDE_ASSIGN, Text: nil, Position: start}
+			return Token{Type: DIVIDE_ASSIGN, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 		}
 	}
 
 	// Just '/' (divide)
-	return Token{Type: DIVIDE, Text: nil, Position: start}
+	return Token{Type: DIVIDE, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexModulo handles '%' and '%=' operators
-func (l *Lexer) lexModulo(start Position) Token {
+func (l *Lexer) lexModulo(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '%'
 
 	// Check for '%=' (modulo assign)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: MODULO_ASSIGN, Text: nil, Position: start}
+		return Token{Type: MODULO_ASSIGN, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Just '%' (modulo)
-	return Token{Type: MODULO, Text: nil, Position: start}
+	return Token{Type: MODULO, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexEquals handles '=' and '==' operators
-func (l *Lexer) lexEquals(start Position) Token {
+func (l *Lexer) lexEquals(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '='
 
 	// Check for '==' (equality)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume second '='
-		return Token{Type: EQ_EQ, Text: nil, Position: start}
+		return Token{Type: EQ_EQ, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Just '=' (assignment)
-	return Token{Type: EQUALS, Text: nil, Position: start}
+	return Token{Type: EQUALS, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexLessThan handles '<' and '<=' operators
-func (l *Lexer) lexLessThan(start Position) Token {
+func (l *Lexer) lexLessThan(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '<'
 
 	// Check for '<=' (less than or equal)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: LT_EQ, Text: nil, Position: start}
+		return Token{Type: LT_EQ, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Just '<' (less than)
-	return Token{Type: LT, Text: nil, Position: start}
+	return Token{Type: LT, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexGreaterThan handles '>' and '>=' operators
-func (l *Lexer) lexGreaterThan(start Position) Token {
+func (l *Lexer) lexGreaterThan(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '>'
 
 	// Check for '>=' (greater than or equal)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: GT_EQ, Text: nil, Position: start}
+		return Token{Type: GT_EQ, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Just '>' (greater than)
-	return Token{Type: GT, Text: nil, Position: start}
+	return Token{Type: GT, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexExclamation handles '!' and '!=' operators
-func (l *Lexer) lexExclamation(start Position) Token {
+func (l *Lexer) lexExclamation(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '!'
 
 	// Check for '!=' (not equal)
 	if l.position < len(l.input) && l.currentChar() == '=' {
 		l.advanceChar() // consume '='
-		return Token{Type: NOT_EQ, Text: nil, Position: start}
+		return Token{Type: NOT_EQ, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Just '!' (logical not)
-	return Token{Type: NOT, Text: nil, Position: start}
+	return Token{Type: NOT, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexAmpersand handles '&' and '&&' operators
-func (l *Lexer) lexAmpersand(start Position) Token {
+func (l *Lexer) lexAmpersand(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '&'
 
 	// Check for '&&' (logical and)
 	if l.position < len(l.input) && l.currentChar() == '&' {
 		l.advanceChar() // consume second '&'
-		return Token{Type: AND_AND, Text: nil, Position: start}
+		return Token{Type: AND_AND, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Single '&' is illegal for now (future: bitwise and)
-	return Token{Type: ILLEGAL, Text: nil, Position: start}
+	return Token{Type: ILLEGAL, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexPipe handles '|' and '||' operators
-func (l *Lexer) lexPipe(start Position) Token {
+func (l *Lexer) lexPipe(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '|'
 
 	// Check for '||' (logical or)
 	if l.position < len(l.input) && l.currentChar() == '|' {
 		l.advanceChar() // consume second '|'
-		return Token{Type: OR_OR, Text: nil, Position: start}
+		return Token{Type: OR_OR, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
 	// Single '|' is illegal for now (future: bitwise or)
-	return Token{Type: ILLEGAL, Text: nil, Position: start}
+	return Token{Type: ILLEGAL, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexLineComment handles // style comments, excluding the // prefix
-func (l *Lexer) lexLineComment(start Position) Token {
+func (l *Lexer) lexLineComment(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume second '/'
 
 	startContentPos := l.position
@@ -1073,7 +1078,7 @@ func (l *Lexer) lexLineComment(start Position) Token {
 }
 
 // lexBlockComment handles /* */ style comments, excluding the delimiters
-func (l *Lexer) lexBlockComment(start Position) Token {
+func (l *Lexer) lexBlockComment(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '*'
 
 	startContentPos := l.position
@@ -1091,9 +1096,10 @@ func (l *Lexer) lexBlockComment(start Position) Token {
 			content := l.input[startContentPos:endContentPos]
 
 			return Token{
-				Type:     COMMENT,
-				Text:     content,
-				Position: start,
+				Type:           COMMENT,
+				Text:           content,
+				Position:       start,
+				HasSpaceBefore: hasSpaceBefore,
 			}
 		}
 		l.advanceChar()

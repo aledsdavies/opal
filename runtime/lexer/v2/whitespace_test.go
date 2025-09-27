@@ -153,7 +153,79 @@ func reconstructShellCommand(tokens []Token) string {
 		if i > 0 && token.HasSpaceBefore {
 			result += " "
 		}
-		result += string(token.Text)
+
+		// Get token text - handle punctuation tokens that have Text: nil
+		tokenText := getTokenText(token)
+		result += tokenText
 	}
 	return result
+}
+
+// getTokenText returns the string representation of a token
+func getTokenText(token Token) string {
+	if token.Text != nil {
+		return string(token.Text)
+	}
+
+	// Handle punctuation tokens that have Text: nil
+	switch token.Type {
+	case DECREMENT:
+		return "--"
+	case INCREMENT:
+		return "++"
+	case PLUS:
+		return "+"
+	case MINUS:
+		return "-"
+	case MULTIPLY:
+		return "*"
+	case DIVIDE:
+		return "/"
+	case MODULO:
+		return "%"
+	case EQUALS:
+		return "="
+	case EQ_EQ:
+		return "=="
+	case NOT_EQ:
+		return "!="
+	case LT:
+		return "<"
+	case LT_EQ:
+		return "<="
+	case GT:
+		return ">"
+	case GT_EQ:
+		return ">="
+	case AND_AND:
+		return "&&"
+	case OR_OR:
+		return "||"
+	case NOT:
+		return "!"
+	case COLON:
+		return ":"
+	case COMMA:
+		return ","
+	case SEMICOLON:
+		return ";"
+	case LPAREN:
+		return "("
+	case RPAREN:
+		return ")"
+	case LBRACE:
+		return "{"
+	case RBRACE:
+		return "}"
+	case LSQUARE:
+		return "["
+	case RSQUARE:
+		return "]"
+	case AT:
+		return "@"
+	case DOT:
+		return "."
+	default:
+		return ""
+	}
 }
