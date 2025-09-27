@@ -383,6 +383,12 @@ func TestBenchmarkPerformanceRequirements(t *testing.T) {
 		t.Skip("Skipping benchmark performance test in short mode")
 	}
 
+	// In CI, only validate zero allocations (skip timing which is unreliable on shared runners)
+	skipTiming := os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true"
+	if skipTiming {
+		t.Log("CI environment detected: validating zero allocations only (skipping timing requirements)")
+	}
+
 	// Run the benchmark - use arithmetic scenario for realistic performance test
 	result := testing.Benchmark(func(b *testing.B) {
 		inputBytes := []byte("var x = 5")
@@ -400,23 +406,19 @@ func TestBenchmarkPerformanceRequirements(t *testing.T) {
 		}
 	})
 
-	// Performance requirements - adjust for CI environment
-	// Local development: ~250ns is excellent performance (4000+ lines/ms)
-	// CI environment: GitHub Actions runners are much slower (shared VMs, variable CPU)
-	maxNsPerOp := int64(250)
-	if os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true" {
-		maxNsPerOp = int64(15000) // Allow ~60x slower for CI runners (still validates basic performance)
-	}
-	maxAllocsPerOp := int64(0) // Zero allocations required (strict regardless of environment)
-	maxBytesPerOp := int64(0)  // Zero bytes allocated required (strict regardless of environment)
+	// Performance requirements for local development
+	// Target: ~250ns is excellent performance (4000+ lines/ms)
+	maxNsPerOp := int64(250)   // Strict local performance requirement
+	maxAllocsPerOp := int64(0) // Zero allocations required
+	maxBytesPerOp := int64(0)  // Zero bytes allocated required
 
-	// Check timing requirement
-	if result.NsPerOp() > maxNsPerOp {
+	// Check timing requirement (skip in CI due to unreliable shared runners)
+	if !skipTiming && result.NsPerOp() > maxNsPerOp {
 		t.Errorf("Performance regression: %d ns/op exceeds limit of %d ns/op",
 			result.NsPerOp(), maxNsPerOp)
 	}
 
-	// Check allocation requirements
+	// Check allocation requirements (always validate - deterministic regardless of environment)
 	if result.AllocsPerOp() > maxAllocsPerOp {
 		t.Errorf("Allocation regression: %d allocs/op exceeds limit of %d allocs/op",
 			result.AllocsPerOp(), maxAllocsPerOp)
