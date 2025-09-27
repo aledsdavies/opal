@@ -360,7 +360,7 @@ func (l *Lexer) lexToken() Token {
 	}
 
 	// Skip whitespace (except newlines which are significant)
-	l.skipWhitespace()
+	hadWhitespace := l.skipWhitespace()
 
 	// Handle newlines - emit NEWLINE token, skip consecutive ones
 	if l.position < len(l.input) && l.input[l.position] == '\n' {
@@ -408,7 +408,7 @@ func (l *Lexer) lexToken() Token {
 
 	// Identifier or keyword
 	if ch < 128 && isIdentStart[ch] {
-		return l.lexIdentifier(start)
+		return l.lexIdentifier(start, hadWhitespace)
 	}
 
 	// String literals
@@ -442,13 +442,13 @@ func (l *Lexer) lexToken() Token {
 		return l.lexPipe(start)
 	case ':':
 		l.advanceChar()
-		return Token{Type: COLON, Text: nil, Position: start}
+		return Token{Type: COLON, Text: nil, Position: start, HasSpaceBefore: hadWhitespace}
 	case '{':
 		l.advanceChar()
-		return Token{Type: LBRACE, Text: nil, Position: start}
+		return Token{Type: LBRACE, Text: nil, Position: start, HasSpaceBefore: hadWhitespace}
 	case '}':
 		l.advanceChar()
-		return Token{Type: RBRACE, Text: nil, Position: start}
+		return Token{Type: RBRACE, Text: nil, Position: start, HasSpaceBefore: hadWhitespace}
 	case '(':
 		l.advanceChar()
 		return Token{Type: LPAREN, Text: nil, Position: start}
@@ -468,7 +468,7 @@ func (l *Lexer) lexToken() Token {
 		l.advanceChar()
 		return Token{Type: SEMICOLON, Text: nil, Position: start}
 	case '-':
-		return l.lexMinus(start)
+		return l.lexMinus(start, hadWhitespace)
 	case '+':
 		return l.lexPlus(start)
 	case '*':
@@ -504,7 +504,8 @@ func (l *Lexer) lexToken() Token {
 }
 
 // skipWhitespace skips whitespace characters except newlines
-func (l *Lexer) skipWhitespace() {
+// Returns true if any whitespace was skipped
+func (l *Lexer) skipWhitespace() bool {
 	start := l.position
 
 	// Array jumping: fast scan for non-whitespace
@@ -518,6 +519,9 @@ func (l *Lexer) skipWhitespace() {
 
 	// Update column position based on characters skipped
 	l.updateColumnFromWhitespace(start, l.position)
+
+	// Return true if we skipped any characters
+	return l.position > start
 }
 
 // updateColumnFromWhitespace updates column position after array jumping
@@ -536,7 +540,7 @@ func (l *Lexer) updateColumnFromWhitespace(start, end int) {
 }
 
 // lexIdentifier reads an identifier or keyword starting at current position
-func (l *Lexer) lexIdentifier(start Position) Token {
+func (l *Lexer) lexIdentifier(start Position, hasSpaceBefore bool) Token {
 	if l.debugLevel > DebugOff {
 		l.recordDebugEvent("enter_lexIdentifier", "reading identifier/keyword")
 	}
@@ -561,9 +565,10 @@ func (l *Lexer) lexIdentifier(start Position) Token {
 	tokenType := l.lookupKeyword(string(text))
 
 	return Token{
-		Type:     tokenType,
-		Text:     text,
-		Position: start,
+		Type:           tokenType,
+		Text:           text,
+		Position:       start,
+		HasSpaceBefore: hasSpaceBefore,
 	}
 }
 
@@ -863,7 +868,7 @@ func (l *Lexer) readDurationUnit() bool {
 }
 
 // lexMinus handles '-', '--', and '-=' operators
-func (l *Lexer) lexMinus(start Position) Token {
+func (l *Lexer) lexMinus(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '-'
 
 	// Check for '--' (decrement)

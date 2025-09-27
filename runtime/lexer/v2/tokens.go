@@ -91,9 +91,10 @@ const (
 
 // Token represents a lexical token
 type Token struct {
-	Type     TokenType
-	Text     []byte // Use []byte for zero-allocation performance
-	Position Position
+	Type           TokenType
+	Text           []byte // Use []byte for zero-allocation performance
+	Position       Position
+	HasSpaceBefore bool // True if whitespace preceded this token
 }
 
 // String returns the token text as a string (for testing and debugging)
