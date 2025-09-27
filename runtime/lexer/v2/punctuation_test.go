@@ -103,7 +103,7 @@ func TestPunctuationWithWhitespace(t *testing.T) {
 			input: ":\n",
 			expected: []tokenExpectation{
 				{COLON, "", 1, 1},
-				{NEWLINE, "\n", 1, 2}, // Newline is now meaningful
+				{NEWLINE, "", 1, 2}, // Newline is now meaningful
 				{EOF, "", 2, 1},
 			},
 		},

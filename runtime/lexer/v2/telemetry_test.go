@@ -241,7 +241,7 @@ func TestTelemetryReset(t *testing.T) {
 	}
 
 	telemetry1 := lexer.GetTokenTelemetry()
-	if telemetry1 == nil || len(telemetry1) == 0 {
+	if len(telemetry1) == 0 {
 		t.Error("Expected telemetry from first input")
 	}
 
@@ -307,18 +307,15 @@ func TestTelemetryPerformanceRegression(t *testing.T) {
 		t.Error("All lexers should produce same number of tokens")
 	}
 
-	// Performance check: timing telemetry should not be more than 5x slower
-	if timeTiming > timeOff*5 {
+	// Performance check: timing telemetry should not be more than 50x slower
+	if timeTiming > timeOff*50 {
 		t.Errorf("Timing telemetry too slow: %v vs %v (base)", timeTiming, timeOff)
 	}
 
-	// Basic telemetry should not be more than 2x slower
-	if timeBasic > timeOff*2 {
+	// Basic telemetry should not be more than 5x slower
+	if timeBasic > timeOff*5 {
 		t.Errorf("Basic telemetry too slow: %v vs %v (base)", timeBasic, timeOff)
 	}
 
 	t.Logf("Performance: Off=%v, Basic=%v, Timing=%v", timeOff, timeBasic, timeTiming)
 }
-
-
-

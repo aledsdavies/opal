@@ -242,10 +242,10 @@ func TestStringInContext(t *testing.T) {
 				{IDENTIFIER, "deploy", 1, 1},
 				{COLON, "", 1, 7},
 				{LBRACE, "", 1, 9},
-				{NEWLINE, "\n", 1, 10},
+				{NEWLINE, "", 1, 10},
 				{IDENTIFIER, "echo", 2, 5}, // NEWLINE tokens now meaningful
 				{STRING, "`Starting deployment\n    of @var(SERVICE)`", 2, 10},
-				{NEWLINE, "\n", 3, 22},
+				{NEWLINE, "", 3, 22},
 				{RBRACE, "", 4, 1}, // NEWLINE tokens now meaningful
 				{EOF, "", 4, 2},
 			},

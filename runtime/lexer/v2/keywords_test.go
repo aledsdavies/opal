@@ -294,7 +294,7 @@ func TestKeywordBoundaries(t *testing.T) {
 			input: "if-statement",
 			expected: []tokenExpectation{
 				{IF, "if", 1, 1},                // keyword 'if'
-				{MINUS, "", 1, 3},              // minus operator
+				{MINUS, "", 1, 3},               // minus operator
 				{IDENTIFIER, "statement", 1, 4}, // identifier 'statement'
 				{EOF, "", 1, 13},
 			},

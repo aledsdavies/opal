@@ -371,7 +371,7 @@ func (l *Lexer) lexToken() Token {
 			l.lastWasNewline = true
 			return Token{
 				Type:     NEWLINE,
-				Text:     []byte{'\n'},
+				Text:     nil, // Self-identifying token
 				Position: start,
 			}
 		} else {
@@ -528,12 +528,13 @@ func (l *Lexer) skipWhitespace() bool {
 func (l *Lexer) updateColumnFromWhitespace(start, end int) {
 	for i := start; i < end; i++ {
 		ch := l.input[i]
-		if ch == '\n' {
+		switch ch {
+		case '\n':
 			l.line++
 			l.column = 1
-		} else if ch == '\t' {
+		case '\t':
 			l.column++ // Go standard: column = byte count, tab = 1 byte
-		} else {
+		default:
 			l.column++
 		}
 	}
@@ -653,15 +654,6 @@ func (l *Lexer) currentChar() byte {
 	return l.input[l.position]
 }
 
-// peekChar returns the character at offset from current position without advancing
-func (l *Lexer) peekChar(offset int) byte {
-	pos := l.position + offset
-	if pos >= len(l.input) {
-		return 0 // EOF
-	}
-	return l.input[pos]
-}
-
 // advanceChar moves to the next character, handling Unicode for position tracking only
 func (l *Lexer) advanceChar() {
 	if l.position >= len(l.input) {
@@ -672,12 +664,13 @@ func (l *Lexer) advanceChar() {
 
 	// Fast path for ASCII (majority case)
 	if ch < 128 {
-		if ch == '\n' {
+		switch ch {
+		case '\n':
 			l.line++
 			l.column = 1
-		} else if ch == '\t' {
+		case '\t':
 			l.column++ // Go standard: column = byte count, tab = 1 byte
-		} else {
+		default:
 			l.column++
 		}
 		l.position++
@@ -809,11 +802,7 @@ func (l *Lexer) tryParseDuration(startPos int) bool {
 
 	// Try to read compound duration units
 	hasUnits := false
-	for {
-		// Try to read a duration unit
-		if !l.readDurationUnit() {
-			break // No more valid units
-		}
+	for l.readDurationUnit() {
 		hasUnits = true
 
 		// After reading a unit, check if there are more digits for compound duration

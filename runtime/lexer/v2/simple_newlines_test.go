@@ -15,7 +15,7 @@ func TestSimpleNewlines(t *testing.T) {
 			input: "hello\nworld",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "hello", 1, 1},
-				{NEWLINE, "\n", 1, 6},
+				{NEWLINE, "", 1, 6},
 				{IDENTIFIER, "world", 2, 1},
 				{EOF, "", 2, 6},
 			},
@@ -25,7 +25,7 @@ func TestSimpleNewlines(t *testing.T) {
 			input: "hello\n\n\nworld",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "hello", 1, 1},
-				{NEWLINE, "\n", 1, 6},
+				{NEWLINE, "", 1, 6},
 				{IDENTIFIER, "world", 4, 1},
 				{EOF, "", 4, 6},
 			},
@@ -34,7 +34,7 @@ func TestSimpleNewlines(t *testing.T) {
 			name:  "leading newlines",
 			input: "\n\nhello",
 			expected: []tokenExpectation{
-				{NEWLINE, "\n", 1, 1},
+				{NEWLINE, "", 1, 1},
 				{IDENTIFIER, "hello", 3, 1},
 				{EOF, "", 3, 6},
 			},
@@ -43,7 +43,7 @@ func TestSimpleNewlines(t *testing.T) {
 			name:  "only newlines",
 			input: "\n\n\n",
 			expected: []tokenExpectation{
-				{NEWLINE, "\n", 1, 1},
+				{NEWLINE, "", 1, 1},
 				{EOF, "", 4, 1},
 			},
 		},

@@ -147,7 +147,7 @@ func TestIdentifierBoundaries(t *testing.T) {
 			input: "var1\nvar2",
 			expected: []tokenExpectation{
 				{IDENTIFIER, "var1", 1, 1},
-				{NEWLINE, "\n", 1, 5},
+				{NEWLINE, "", 1, 5},
 				{IDENTIFIER, "var2", 2, 1},
 				{EOF, "", 2, 5},
 			},
