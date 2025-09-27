@@ -139,23 +139,57 @@ jobs:
           # Only test execution package as other runtime tests depend on unregistered decorators
           go test -v -race -coverprofile=../coverage-runtime.out -covermode=atomic ./execution/...
 
-      - name: Upload runtime coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-runtime
-          path: coverage-runtime.out
+       - name: Upload runtime coverage
+         uses: actions/upload-artifact@v4
+         with:
+           name: coverage-runtime
+           path: coverage-runtime.out
 
-  # Skip testing module for now (has failures due to unregistered decorators)
+   # Lexer V2 module (zero-allocation, production-ready)
+   # Tests comprehensive tokenization with 0 allocs/op performance
+   test-lexer-v2:
+     name: Test Lexer V2 Module
+     runs-on: ubuntu-latest
+     needs: [test-core]
+     steps:
+       - name: Checkout
+         uses: actions/checkout@v4
+
+       - name: Setup Go
+         uses: actions/setup-go@v5
+         with:
+           go-version: ${{ env.GO_VERSION }}
+           cache: true
+
+       - name: Run lexer v2 tests
+         run: |
+           echo "🚀 Running lexer v2 tests (zero-allocation tokenization)..."
+           cd runtime
+           go test -v -race -coverprofile=../coverage-lexer-v2.out -covermode=atomic ./lexer/v2/...
+
+       - name: Run lexer v2 benchmarks
+         run: |
+           echo "⚡ Running lexer v2 performance benchmarks..."
+           cd runtime
+           go test -bench=BenchmarkLexerCore -benchmem ./lexer/v2/...
+
+       - name: Upload lexer v2 coverage
+         uses: actions/upload-artifact@v4
+         with:
+           name: coverage-lexer-v2
+           path: coverage-lexer-v2.out
+
+   # Skip testing module for now (has failures due to unregistered decorators)
   # test-testing:
   #   name: Test Testing Module
   #   runs-on: ubuntu-latest
   #   needs: [test-core, test-runtime]
 
   # CLI module build test (interpreter mode functionality)
-  test-cli:
-    name: Test CLI Module Build
-    runs-on: ubuntu-latest
-    needs: [test-core, test-runtime]
+   test-cli:
+     name: Test CLI Module Build
+     runs-on: ubuntu-latest
+     needs: [test-core, test-runtime, test-lexer-v2]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -182,10 +216,10 @@ jobs:
           # Note: Runtime execution not implemented yet - only plan mode works
 
   # Aggregate coverage reports
-  aggregate-coverage:
-    name: Aggregate Coverage
-    runs-on: ubuntu-latest
-    needs: [test-core, test-runtime]
+   aggregate-coverage:
+     name: Aggregate Coverage
+     runs-on: ubuntu-latest
+     needs: [test-core, test-runtime, test-lexer-v2]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -321,7 +355,7 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [format-check, module-lint, test-core, test-runtime, test-cli, aggregate-coverage, build-binaries, nix-development]
+     needs: [format-check, module-lint, test-core, test-runtime, test-lexer-v2, test-cli, aggregate-coverage, build-binaries, nix-development]
     if: always()
     steps:
       - name: Check job statuses
@@ -329,13 +363,14 @@ jobs:
           echo "📋 CI Pipeline Summary"
           echo "════════════════════════════════════════"
 
-          jobs=(
-            "${{ needs.format-check.result }}:Format Check"
-            "${{ needs.module-lint.result }}:Module Lint"
-            "${{ needs.test-core.result }}:Test Core"
+           jobs=(
+             "${{ needs.format-check.result }}:Format Check"
+             "${{ needs.module-lint.result }}:Module Lint"
+             "${{ needs.test-core.result }}:Test Core"
 
-            "${{ needs.test-runtime.result }}:Test Runtime"
-            "${{ needs.test-cli.result }}:Test CLI"
+             "${{ needs.test-runtime.result }}:Test Runtime"
+             "${{ needs.test-lexer-v2.result }}:Test Lexer V2"
+             "${{ needs.test-cli.result }}:Test CLI"
             "${{ needs.aggregate-coverage.result }}:Coverage Report"
             "${{ needs.build-binaries.result }}:Build Binaries"
             "${{ needs.nix-development.result }}:Nix Development"
