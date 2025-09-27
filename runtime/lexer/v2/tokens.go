@@ -78,7 +78,6 @@ const (
 
 	// Literals and content
 	IDENTIFIER // command names, variable names, decorator names
-	SHELL_TEXT // shell command text
 	INTEGER    // 123, 0, -456
 	FLOAT      // 3.14, -0.5, 123.0
 	SCIENTIFIC // 1e6, 2.5e-3, 1.23e+4
@@ -214,8 +213,7 @@ func (t TokenType) String() string {
 		return "APPEND"
 	case IDENTIFIER:
 		return "IDENTIFIER"
-	case SHELL_TEXT:
-		return "SHELL_TEXT"
+
 	case INTEGER:
 		return "INTEGER"
 	case FLOAT:
