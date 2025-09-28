@@ -6,6 +6,8 @@
 
 Opal is a Plan-Verify-Execute engine for automating risky, stateful processes with confidence. Perfect for any domain where mistakes are expensive and auditability matters - from infrastructure deployment to data pipelines to security incident response.
 
+> **Domain-agnostic design**: Opal itself is domain-agnostic. It becomes useful in a given field through the decorator sets provided. The DevOps examples here use `@shell` and `@kubectl`, but the same rules apply equally to data, science, security, or any other domain.
+
 **Key principle**: Resolved plans are execution contracts that get verified before running.
 
 ## The Core Idea

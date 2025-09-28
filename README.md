@@ -4,6 +4,8 @@
 
 Write automation that shows you exactly what it will do before it does it. Perfect for any domain where mistakes are expensive and auditability matters.
 
+> **Domain-agnostic design**: Opal itself is domain-agnostic. It becomes useful in a given field through the decorator sets provided. The DevOps examples here use `@shell` and `@kubectl`, but the same rules apply equally to data, science, security, or any other domain.
+
 ## Quick Start
 
 Define your operations:

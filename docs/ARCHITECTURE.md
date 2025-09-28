@@ -6,6 +6,8 @@
 
 Build a system where resolved plans are execution contracts that get verified before running. This creates a universal framework for safe automation across any domain where mistakes are expensive.
 
+> **Domain-agnostic design**: Opal itself is domain-agnostic. It becomes useful in a given field through the decorator sets provided. The DevOps examples here use `@shell` and `@kubectl`, but the same rules apply equally to data, science, security, or any other domain.
+
 The key insight: instead of managing state like traditional tools, we verify contracts. Plans aren't just previews, they're promises about what will execute. This pattern works for infrastructure, data pipelines, security automation, scientific computing, and any domain requiring predictable, auditable automation.
 
 **Halting and determinism guarantees**: Opal is designed as a halting, deterministic automation engine. All plans are guaranteed to terminate with predictable, reproducible results across any domain.
