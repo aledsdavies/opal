@@ -1,12 +1,14 @@
 # Opal Architecture
 
-**Implementation requirements for humans building contract-based operations**
+**Implementation requirements for building a Plan-Verify-Execute engine**
 
 ## Design Philosophy
 
-Build a system where resolved plans are execution contracts that get verified before running. Everything becomes a value decorator or execution decorator internally - no special cases, no surprises.
+Build a system where resolved plans are execution contracts that get verified before running. This creates a universal framework for safe automation across any domain where mistakes are expensive.
 
-The key insight: instead of managing state like Terraform, we verify contracts. Plans aren't just previews, they're promises about what will execute.
+The key insight: instead of managing state like traditional tools, we verify contracts. Plans aren't just previews, they're promises about what will execute. This pattern works for infrastructure, data pipelines, security automation, scientific computing, and any domain requiring predictable, auditable automation.
+
+**Halting and determinism guarantees**: Opal is designed as a halting, deterministic automation engine. All plans are guaranteed to terminate with predictable, reproducible results across any domain.
 
 ## The Big Picture
 
@@ -79,6 +81,44 @@ Runtime Layer (Work Execution):
 ```
 
 **Key insight**: `try/catch` is a metaprogramming construct (not a decorator) that defines deterministic error handling paths. Unlike `for`/`if`/`when` which resolve to a single path at plan-time, `try/catch` creates multiple **known paths** where execution selects which one based on actual results (exceptions). The plan includes **all possible paths** through try/catch blocks.
+
+## Safety Guarantees
+
+Opal guarantees that all operations halt with deterministic results.
+
+### Plan-Time Safety
+
+**Finite loops**: All loops must terminate during plan generation.
+- `for item in collection` - collection size is known
+- `while count > 0` - count value is resolved at plan-time
+- Loop iteration happens during planning, not execution
+
+**Command repetition detection**: Commands can call each other, but infinite cycles are detected.
+- `build → test → build` ✓ - single cycle allowed
+- `build → test → build → test` ❌ - repetition detected, planning fails
+- Like chess repetition rule: hitting the same call stack twice triggers failure
+
+**Finite parallelism**: `@parallel` blocks have a known number of tasks after loop expansion.
+
+### Runtime Safety
+
+**Default timeouts**: Operations have time limits (configurable but never removable).
+- Per-step: 30 minutes (via `@timeout()`)
+- Total run: 4 hours
+
+**Resource limits**: Memory and process limits prevent system exhaustion.
+
+### Determinism
+
+**Reproducible plans**: Same source + environment = identical plan.
+- Value decorators are referentially transparent
+- Random values use cryptographic seeding (resolved plans only)
+- Output ordering is deterministic
+
+**Contract verification**: Resolved plans are execution contracts.
+- Values re-resolved at runtime and hash-compared against plan
+- Execution fails if any value changed since planning
+- Exception: `try/catch` path selection based on actual runtime results
 
 ## Decorator Design Requirements
 

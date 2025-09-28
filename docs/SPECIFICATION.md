@@ -1,10 +1,10 @@
 # Opal Language Specification
 
-**Write operations scripts that show you exactly what they'll do before they do it.**
+**Write automation that shows you exactly what it will do before it does it.**
 
 ## What is Opal?
 
-Opal is an operations language for teams who want the reliability of infrastructure-as-code without the complexity of state files. Write scripts that feel like shell but generate auditable plans.
+Opal is a Plan-Verify-Execute engine for automating risky, stateful processes with confidence. Perfect for any domain where mistakes are expensive and auditability matters - from infrastructure deployment to data pipelines to security incident response.
 
 **Key principle**: Resolved plans are execution contracts that get verified before running.
 
@@ -72,6 +72,69 @@ logs: kubectl logs app | grep ERROR
 ```
 
 **Operator precedence**: `|` (pipe) > `&&`, `||` > `;` > newlines
+
+## Domain Examples
+
+Opal's Plan-Verify-Execute model works across any domain requiring safe, auditable automation:
+
+### Infrastructure & DevOps
+```opal
+deploy: {
+    when @env("ENV") {
+        "production" -> {
+            kubectl apply -f k8s/prod/
+            @retry(attempts=3) { kubectl rollout status deployment/app }
+        }
+        else -> kubectl apply -f k8s/dev/
+    }
+}
+```
+
+### Data Engineering
+```opal
+daily_etl: {
+    @snowflake.load(
+        table="raw_events", 
+        from_s3=@env("S3_DATA_BUCKET")
+    )
+    @dbt.run(model="daily_user_summary")
+    @slack.notify(
+        channel="#data-team",
+        message="Daily ETL completed: ${@dbt.row_count} rows processed"
+    )
+}
+```
+
+### Security Incident Response
+```opal
+contain_threat: {
+    @log("Starting containment for user: ${@var(ALERT_USER)}")
+    @okta.suspend_user(email=@var(ALERT_USER))
+    @crowdstrike.isolate_host(hostname=@var(ALERT_HOST))
+    @pagerduty.escalate(incident_id=@var(INCIDENT_ID))
+}
+```
+
+### Scientific Computing
+```opal
+run_analysis: {
+    @dataset.fetch(
+        doi="10.1000/xyz123",
+        checksum="sha256:abc123..."
+    )
+    var job_id = @hpc.submit_job(
+        cluster=@env("SLURM_CLUSTER"),
+        script="analysis.py",
+        cores=64
+    )
+    @plot.generate(
+        template="results.gnu",
+        data=@hpc.job_output(job_id)
+    )
+}
+```
+
+Each domain uses the same safety guarantees but with domain-specific decorators.
 
 ## Variables
 
