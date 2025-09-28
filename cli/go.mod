@@ -15,6 +15,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/aledsdavies/opal/core => ../core
-
 replace github.com/aledsdavies/opal/runtime => ../runtime
