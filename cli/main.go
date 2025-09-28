@@ -10,11 +10,10 @@ import (
 
 func main() {
 	var (
-		file        string
-		dryRun      bool
-		debug       bool
-		noColor     bool
-		autoConfirm bool
+		file    string
+		dryRun  bool
+		debug   bool
+		noColor bool
 	)
 
 	rootCmd := &cobra.Command{
@@ -22,7 +21,7 @@ func main() {
 		Short: "Execute commands defined in opal files",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommand(cmd, args, file, dryRun, debug, noColor, autoConfirm)
+			return runCommand(cmd, args, file, dryRun, debug, noColor)
 		},
 	}
 
@@ -31,7 +30,6 @@ func main() {
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Show execution plan without running commands")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
-	rootCmd.PersistentFlags().BoolVar(&autoConfirm, "yes", false, "Auto-confirm all prompts")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -39,7 +37,7 @@ func main() {
 	}
 }
 
-func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, noColor, autoConfirm bool) error {
+func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, noColor bool) error {
 	commandName := args[0]
 
 	// Get input reader based on file options
