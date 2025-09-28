@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/aledsdavies/opal/runtime"
 	"github.com/spf13/cobra"
 )
 
@@ -50,18 +49,11 @@ func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, n
 	}
 	defer func() { _ = closeFunc() }()
 
-	// Execute using runtime
-	opts := runtime.ExecutionOptions{
-		Command:     commandName,
-		DryRun:      dryRun,
-		Debug:       debug,
-		NoColor:     noColor,
-		AutoConfirm: autoConfirm,
-		Stdout:      os.Stdout,
-		Stderr:      os.Stderr,
-	}
-
-	return runtime.Execute(reader, opts)
+	// TODO: Execute using new runtime implementation
+	_ = reader // Ignore unused reader for now
+	fmt.Fprintf(os.Stderr, "Runtime execution not yet implemented - AST redesign in progress\n")
+	fmt.Fprintf(os.Stderr, "Command: %s, File: %s, DryRun: %t\n", commandName, file, dryRun)
+	return fmt.Errorf("runtime execution not yet implemented")
 }
 
 // getInputReader handles the 3 modes of input:

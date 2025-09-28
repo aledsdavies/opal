@@ -14,15 +14,28 @@ The key insight: instead of managing state like Terraform, we verify contracts. 
 User writes natural syntax  →  Parser converts to value decorators and execution decorators  →  Contract execution
 ```
 
-Every piece of syntax becomes a value decorator or execution decorator:
+Opal has two distinct layers that work together:
+
+**Metaprogramming constructs** decide execution structure:
+
+*Plan-time deterministic:*
+- `for service in [...] { ... }` → unrolls loops into concrete steps
+- `when ENV { ... }` → selects branches based on conditions  
+- `if condition { ... } else { ... }` → evaluates conditionals at plan-time
+
+*Execution-dependent path selection:*
+- `try/catch/finally` → defines deterministic error handling paths, but which path executes depends on actual execution results (exceptions)
+
+**Work execution** happens through decorators at runtime:
 - `npm run build` → `@shell("npm run build")`
 - `@retry(3) { ... }` → execution decorator with block
-- `when ENV { ... }` → plan-time conditional expansion
-- `for service in [...] { ... }` → plan-time loop unrolling
+- `@var(NAME)` → value decorator for interpolation
 
-## Everything is a Decorator
+## Everything is a Decorator (For Work Execution)
 
-The core architectural principle: every operation becomes one of two types: value decorators or execution decorators.
+The core architectural principle: **every operation that performs work** becomes one of two decorator types: value decorators or execution decorators.
+
+This means metaprogramming constructs like `for`, `if`, `when` are **not** decorators - they're language constructs that decide what work gets done. The actual work is always performed by decorators.
 
 **Value decorators** inject values inline:
 - `@env("PORT")` pulls environment variables
@@ -43,7 +56,29 @@ npm run build
 @shell("npm run build")
 ```
 
-This decorator model means new features integrate seamlessly - no special parsing rules or execution paths.
+This separation means:
+- **AST structure** represents both metaprogramming constructs and decorators appropriately
+- **Execution model** is unified through decorators (no special cases for different work types)  
+- **New features** integrate by adding decorators, not special execution paths
+
+## Two-Layer Architecture
+
+```
+Plan-time Layer (Metaprogramming):
+├─ for loops unroll into concrete steps (deterministic)
+├─ if/when conditionals select execution paths (deterministic)
+├─ try/catch defines error handling structure (execution-dependent paths)
+└─ AST represents all language constructs
+
+Runtime Layer (Work Execution):
+├─ @shell decorators execute commands
+├─ @retry/@parallel decorators modify execution
+├─ @var/@env decorators provide values
+├─ try/catch path selection based on actual exceptions
+└─ Unified decorator interfaces handle all work
+```
+
+**Key insight**: `try/catch` is a metaprogramming construct (not a decorator) that defines deterministic error handling paths. Unlike `for`/`if`/`when` which resolve to a single path at plan-time, `try/catch` creates multiple **known paths** where execution selects which one based on actual results (exceptions). The plan includes **all possible paths** through try/catch blocks.
 
 ## Decorator Design Requirements
 

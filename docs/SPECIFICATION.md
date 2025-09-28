@@ -541,24 +541,23 @@ opal deploy --dry-run
 ```
 
 **What happens**:
-- Resolves control flow (if/when/for conditions) using cheap value decorators
-- Shows all possible execution branches that code could take
+- Resolves control flow (`if`/`when`/`for` conditions) using cheap value decorators only
+- Shows single execution path after metaprogramming expansion
 - Defers expensive value decorators (`@aws.secret`, `@http.get`, etc.)
-- Calculates execution paths based on current variable values
+- Displays which branches/iterations were taken for auditability
 
 ```
 deploy:
 ├─ kubectl apply -f k8s/
 ├─ kubectl create secret --token=¹@aws.secret("api-token")
-└─ kubectl rollout status deployment/app
-
-Possible Branches:
-├─ if ENV == "production" → [kubectl scale --replicas=3]
-└─ else → [kubectl scale --replicas=1]
+└─ @if(ENV == "production")
+   └─ kubectl scale --replicas=<1:sha256:def789> deployment/app
 
 Deferred Values:
 1. @aws.secret("api-token") → <expensive: AWS lookup>
 ```
+
+**Visual format note**: This tree structure is optimized for human readability. The internal contract format uses an optimized structure for efficient parsing and verification.
 
 ### Resolved Plans (`--dry-run --resolve`)
 
@@ -570,22 +569,24 @@ opal deploy --dry-run --resolve > prod.plan
 
 **What happens**:
 - Resolves ALL value decorators (including expensive ones)
-- Determines exact execution path (no branches, single success path)
-- Creates deterministic execution contract
+- Expands all metaprogramming constructs into concrete execution steps
+- Creates deterministic execution contract with hash placeholders
 - Generates plan file for later contract-verified execution
 
 ```
 deploy:
 ├─ kubectl apply -f k8s/
-├─ kubectl create secret --token=¹<32:a1b2c3>
-├─ kubectl scale --replicas=<1:3> deployment/app
-└─ kubectl rollout status deployment/app
+├─ kubectl create secret --token=<32:sha256:a1b2c3>
+└─ @if(ENV == "production")
+   └─ kubectl scale --replicas=<1:sha256:def789> deployment/app
 
-Resolved Values:
-1. @aws.secret("api-token") → <32:a1b2c3>
-
-Contract Hash: sha256:def456...
+Contract Hash: sha256:abc123...
 ```
+
+**Key principles**:
+- All resolved values use `<length:algorithm:hash>` format (security by default)
+- Metaprogramming constructs (`@if`, `@for`, `@when`) show which path was taken
+- Original constructs are preserved for audit trails while showing expanded results
 
 ### Execution Plans (always happens)
 
@@ -676,6 +677,70 @@ opal deploy
 3. **Execute**: Run commands with resolved values (no hash verification)
 
 This mode is ideal for development and immediate execution where you want current values, not contracted values.
+
+## Plan Visual Structure
+
+Plans show the execution path after metaprogramming expansion using a consistent tree format. This visual structure is optimized for human readability and audit trails, while the internal contract format uses an optimized binary structure for efficient parsing and verification.
+
+### Metaprogramming Expansion Patterns
+
+**For loops** expand into sequential steps:
+```opal
+// Source: for service in ["api", "worker"] { kubectl apply -f k8s/${service}/ }
+
+// Plan shows:
+deploy:
+└─ @for(service in ["api", "worker"])
+   ├─ kubectl apply -f k8s/api/
+   └─ kubectl apply -f k8s/worker/
+```
+
+**If statements** show the taken branch:
+```opal
+// Source: if ENV == "production" { kubectl scale --replicas=3 }
+
+// Plan shows:
+deploy:
+└─ @if(ENV == "production")
+   └─ kubectl scale --replicas=<1:sha256:abc123> deployment/app
+```
+
+**When patterns** show the matched pattern:
+```opal
+// Source: when ENV { "production" -> kubectl scale --replicas=3; else -> kubectl scale --replicas=1 }
+
+// Plan shows:
+deploy:
+└─ @when(ENV == "production")
+   └─ kubectl scale --replicas=<1:sha256:abc123> deployment/app
+```
+
+**Try/catch blocks** show all possible paths:
+```opal
+// Source: try { kubectl apply } catch { kubectl rollout undo } finally { kubectl clean }
+
+// Plan shows:
+deploy:
+└─ @try
+   ├─ kubectl apply -f k8s/
+   ├─ @catch
+   │  └─ kubectl rollout undo deployment/app
+   └─ @finally
+      └─ kubectl delete pod -l job=temp
+```
+
+### Security and Hash Format
+
+**All resolved values** use the security placeholder format `<length:algorithm:hash>`:
+- `<1:sha256:abc123>` - single character value (e.g., "3")
+- `<32:sha256:def456>` - 32 character value (e.g., secret token)
+- `<8:sha256:xyz789>` - 8 character value (e.g., hostname)
+
+This format ensures:
+- **No value leakage** in plans or logs
+- **Contract verification** via hash comparison
+- **Debugging support** via length hints
+- **Algorithm agility** for future hash upgrades
 
 ## Planning Mode Summary
 
