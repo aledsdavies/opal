@@ -95,18 +95,21 @@ Opal guarantees that all operations halt with deterministic results.
 - `while count > 0` - count value is resolved at plan-time
 - Loop iteration happens during planning, not execution
 
-**Command repetition detection**: Commands can call each other, but infinite cycles are detected.
-- `build → test → build` ✓ - single cycle allowed
-- `build → test → build → test` ❌ - repetition detected, planning fails
-- Like chess repetition rule: hitting the same call stack twice triggers failure
+**Command call DAG constraint**: Commands can call each other, but must form a directed acyclic graph.
+- `fun` definitions called via `@cmd()` expand at plan-time with parameter binding
+- Call graph analysis prevents cycles: `A → B → A` results in plan generation error  
+- Parameters must be plan-time resolvable (value decorators, variables, literals)
+- No dynamic dispatch - all calls resolved during planning
 
 **Finite parallelism**: `@parallel` blocks have a known number of tasks after loop expansion.
 
 ### Runtime Safety
 
-**Default timeouts**: Operations have time limits (configurable but never removable).
-- Per-step: 30 minutes (via `@timeout()`)
-- Total run: 4 hours
+**User-controlled timeouts**: No automatic timeouts - users control when they want limits.
+- Commands run until completion or manual termination (Ctrl+C)
+- `@timeout(1h) { ... }` - explicit timeout when desired
+- `--timeout 30m` flag - global safety net when needed
+- Long-running processes (`dev servers`, `monitoring`) run naturally
 
 **Resource limits**: Memory and process limits prevent system exhaustion.
 
@@ -121,6 +124,13 @@ Opal guarantees that all operations halt with deterministic results.
 - Values re-resolved at runtime and hash-compared against plan
 - Execution fails if any value changed since planning
 - Exception: `try/catch` path selection based on actual runtime results
+
+### Cancellation and Cleanup
+
+**Graceful cancellation**: `finally` blocks run on interruption for safe cleanup.
+- **First Ctrl+C**: Triggers cleanup sequence, shows "Cleaning up..."
+- **Second Ctrl+C**: Force immediate termination, skips cleanup
+- Allows resource cleanup (PIDs, temp files, containers) while providing escape hatch
 
 ## Decorator Design Requirements
 

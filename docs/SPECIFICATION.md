@@ -35,9 +35,9 @@ deploy: {
 **Command mode** - organized tasks:
 ```opal
 // commands.opl
-install: npm install
-test: npm test
-deploy: kubectl apply -f k8s/
+fun install = npm install
+fun test = npm test  
+fun deploy = kubectl apply -f k8s/
 ```
 ```bash
 opal deploy    # Run specific task
@@ -137,6 +137,81 @@ run_analysis: {
 ```
 
 Each domain uses the same safety guarantees but with domain-specific decorators.
+
+### Command Definitions with `fun` (Metaprogramming)
+
+`fun` enables **template-based code generation** at plan-time. Command definitions can be parameterized and dynamically generated through metaprogramming constructs.
+
+```opal
+var MODULES = ["cli", "runtime"]
+
+# Template command definitions with parameters
+fun build_module(module) {
+    @workdir(path=@var(module)) {
+        npm ci
+        npm run build
+    }
+}
+
+fun test_module(module, retries=2) {
+    @workdir(path=@var(module)) {
+        @retry(attempts=@var(retries), delay=5s) { npm test }
+    }
+}
+
+# Generate multiple commands via metaprogramming
+for module in @var(MODULES) {
+    fun @var(module)_build() {
+        @cmd(build_module, module=@var(module))
+    }
+    
+    fun @var(module)_test() {
+        @cmd(test_module, module=@var(module), retries=3)
+    }
+}
+
+# Results in generated commands: cli_build(), cli_test(), runtime_build(), runtime_test()
+```
+
+**Metaprogramming semantics**:
+- **Plan-time expansion**: `for` loops and `@var()` resolve during plan construction
+- **Parameter binding**: All parameters resolve to concrete values when `@cmd()` is called  
+- **Template inlining**: `@cmd(fun_name, args...)` expands to the `fun` body with parameters substituted
+- **Code generation**: `for` + `fun` creates multiple command definitions dynamically
+- **Static command names**: After metaprogramming expansion, all command names are concrete identifiers
+- **No runtime reflection**: All metaprogramming happens at plan-time, execution is deterministic
+
+**Syntax forms**:
+```opal
+# Assignment form (concise one-liners)
+fun deploy = kubectl apply -f k8s/
+fun greet(name) = echo "Hello, @var(name)!"
+
+# Block form (multi-line)  
+fun complex {
+    kubectl apply -f k8s/
+    kubectl rollout status deployment/app
+}
+
+fun build_module(module, target="dist") {
+    @workdir(@var(module)) {
+        npm ci
+        npm run build --output=@var(target)
+    }
+}
+```
+
+**Example expansion**:
+```opal
+# Source code with metaprogramming
+for module in ["cli", "runtime"] {
+    fun @var(module)_test = @workdir(@var(module)) { go test ./... }
+}
+
+# Expands at plan-time to:
+fun cli_test = @workdir("cli") { go test ./... }
+fun runtime_test = @workdir("runtime") { go test ./... }
+```
 
 ## Variables
 
@@ -415,6 +490,48 @@ Every `{ ... }` block in opal represents a **phase** - a unit of execution with 
 **Outputs are deterministically merged.** Each step produces its own stdout and stderr streams. When these need to be combined (for logging or display), they're merged in the canonical order, ensuring the same plan always produces the same combined output.
 
 Block-specific constructs like `for`, `if`, `when`, `try/catch`, and `@parallel` work within this framework. They define how blocks expand (unrolling loops, selecting branches) or add constraints (parallel independence), but they all inherit the same phase execution guarantees.
+
+### Command Definitions
+
+Commands are defined using the `fun` keyword for reusable, parameterized blocks that expand at plan-time:
+
+```opal
+// Simple one-liner definitions
+fun deploy = kubectl apply -f k8s/
+fun hello = echo "Hello World!"
+
+// Parameterized one-liners  
+fun greet(name) = echo "Hello, @var(name)!"
+
+// Multi-line block form
+fun build_module(module, target="dist") {
+    @workdir(@var(module)) {
+        npm ci
+        npm run build --output=@var(target)
+    }
+}
+
+// Metaprogramming command generation
+for module in ["api", "worker"] {
+    fun @var(module)_test = @workdir(@var(module)) { go test ./... }
+}
+
+// Calling parameterized commands
+build_all: {
+    @cmd(build_module, module="frontend", target="public")
+    @cmd(build_module, module="backend")  // uses default target="dist"
+}
+```
+
+**Plan-time expansion**: `fun` definitions are **macros** that expand at plan-time when called via `@cmd()`. All parameters must be resolvable at plan-time using value decorators.
+
+**DAG constraint**: Command calls must form a directed acyclic graph. Recursive calls or cycles result in plan generation errors.
+
+**Parameter binding**: Arguments are bound to their resolved values at plan-time. Default values are supported and must be plan-time expressions.
+
+**Deterministic**: All `fun` bodies must have finite execution paths - no unbounded loops or dynamic fan-out beyond normal metaprogramming expansion.
+
+**Scope isolation**: `fun` bodies follow the same scope rules as other blocks - regular statements propagate mutations to outer scope, execution decorator blocks isolate scope.
 
 ### Loops
 
