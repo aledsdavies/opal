@@ -1,4 +1,4 @@
-package v2
+package lexer
 
 // ASCII character lookup tables for fast classification (zero-allocation)
 //

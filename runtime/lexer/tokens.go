@@ -1,4 +1,4 @@
-package v2
+package lexer
 
 // TokenType represents lexical tokens for the v2 language design
 type TokenType int
