@@ -59,10 +59,10 @@ var REPLICAS = @env("REPLICAS", default=1)
 
 # Conditional operations
 deploy: {
-    when @var(ENV) {
+    when @var.ENV {
         "production" -> {
             kubectl apply -f k8s/prod/
-            kubectl scale --replicas=@var(REPLICAS) deployment/app
+            kubectl scale --replicas=@var.REPLICAS deployment/app
         }
         else -> kubectl apply -f k8s/dev/
     }
@@ -79,7 +79,7 @@ migrate: @retry(attempts=3, delay=10s) {
 ### Value Decorators
 Inject values inline:
 - `@env("PORT", default=3000)` - Environment variables
-- `@var(REPLICAS)` - Script variables  
+- `@var.REPLICAS` - Script variables  
 - `@aws.secret("api-key")` - External value lookups
 
 ### Execution Decorators  
@@ -101,7 +101,7 @@ deploy: {
 ### Data Engineering  
 ```opal
 etl_pipeline: {
-    @snowflake.load(table="events", from_s3=@var(RAW_BUCKET))
+    @snowflake.load(table="events", from_s3=@var.RAW_BUCKET)
     @dbt.run(model="daily_summary")
 }
 ```
@@ -109,8 +109,8 @@ etl_pipeline: {
 ### Security Automation
 ```opal
 incident_response: {
-    @okta.suspend_user(email=@var(ALERT.user))
-    @crowdstrike.isolate_host(hostname=@var(ALERT.host))
+    @okta.suspend_user(email=@var.ALERT.user)
+    @crowdstrike.isolate_host(hostname=@var.ALERT.host)
 }
 ```
 
@@ -146,13 +146,13 @@ var ENV = @env("ENVIRONMENT", default="dev")
 var VERSION = @env("APP_VERSION", default="latest")
 
 deploy: {
-    echo "Deploying @var(VERSION) to @var(ENV)"
+    echo "Deploying @var.VERSION to @var.ENV"
     
-    when @var(ENV) {
+    when @var.ENV {
         "production" -> {
             @retry(attempts=3) {
                 kubectl apply -f k8s/prod/
-                kubectl set image deployment/app app=@var(VERSION)
+                kubectl set image deployment/app app=@var.VERSION
                 kubectl rollout status deployment/app
             }
         }

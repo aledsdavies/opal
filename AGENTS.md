@@ -14,14 +14,25 @@
 
 ## Code Style & Conventions
 - **Go 1.25.0** with workspace modules (`core/`, `runtime/`, `cli/`)
+- **Imports**: Standard library first, blank line, then third-party, blank line, then local packages
 - **Error handling**: Use typed error constants from `core/errors` (e.g., `ErrCommandNotFound`)
 - **Testing**: Use `github.com/google/go-cmp/cmp` for diffs, `testify` for assertions
   - **CRITICAL**: Always test complete, exact output with `cmp.Diff` - no lazy partial tests with `assert.Contains`
   - **Bug reproduction**: Always reproduce parser/CLI bugs in existing test files before fixing
   - Add failing tests to `runtime/lexer/*_test.go` and `runtime/parser/*_test.go` for parsing issues
+  - **Golden tests**: Byte-exact plan output for contract verification (see `docs/TESTING_STRATEGY.md`)
 - **Types**: Define in `core/types/types.go`, use `TokenType` and `ExpressionType` enums
 - **Registry pattern**: All decorators use global registry, no hardcoded implementations
+- **Naming**: Use `lower_snake_case` for decorator parameters, verb-first for decorator names (see `docs/CLEAN_CODE_GUIDELINES.md`)
 - **Temporary debugging files**: ALWAYS prefix with `DELETE_ME_DEBUG_` (e.g., `DELETE_ME_DEBUG_main.go`, `DELETE_ME_DEBUG_memory_alloc_test.go`) so they're clearly identified as temporary and excluded from version control
+- **Opal syntax in tests**:
+  - Use `@var.NAME` for all Opal variables (strings, paths, args)
+  - Example: `echo "Hello @var.name!"`
+  - Example: `kubectl apply -f k8s/@var.service/`
+  - Example: `kubectl scale --replicas=@var.COUNT deployment/@var.NAME`
+  - Terminate with `()` if followed by ASCII: `@var.service()_backup`
+  - **NEVER use `${var}`** - that's shell syntax, not Opal
+  - Exception: Actual shell variables inside `@shell()` commands
 
 ## Architecture Rules
 - **Module deps**: `core/` (foundation) → `runtime/` → `cli/` (top-level)
@@ -81,9 +92,10 @@ jj git push -b feature-name
 ### Code Changes Must
 1. **Read specification first**: Check `docs/SPECIFICATION.md` for user-facing behavior
 2. **Follow architecture**: Implement according to `docs/ARCHITECTURE.md` design patterns
-3. **Maintain unified model**: No special cases that break "everything is a decorator"
+3. **Maintain unified model**: No special cases that break "everything is a decorator" (for work execution)
 4. **Preserve execution semantics**: Decorator blocks complete before chain evaluation
 5. **Support dual mode**: Both command mode and script mode execution
+6. **Follow clean code guidelines**: Apply naming and composition rules from `docs/CLEAN_CODE_GUIDELINES.md`
 
 ### TDD Development Rules
 - **Test-Driven Development**: Always write failing tests before implementation

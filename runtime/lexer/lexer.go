@@ -127,17 +127,39 @@ type Lexer struct {
 }
 
 // NewLexer creates a new lexer instance with optional configuration
-func NewLexer(input string, opts ...LexerOpt) *Lexer {
+// NewLexer creates a reusable lexer instance with pre-allocated buffers.
+// Call Init(input) to set the source before lexing.
+// The lexer can be reused across multiple files by calling Init() with new input.
+//
+// Example - single file:
+//
+//	lex := NewLexer()
+//	lex.Init(source)
+//	tokens := lex.GetTokens()
+//
+// Example - multiple files (reuse buffers, zero extra allocs):
+//
+//	lex := NewLexer()
+//	for _, file := range files {
+//	    lex.Init(file.source)
+//	    tokens := lex.GetTokens()
+//	    // process tokens...
+//	}
+func NewLexer(opts ...LexerOpt) *Lexer {
 	config := &LexerConfig{}
 	for _, opt := range opts {
 		opt(config)
 	}
 
+	// Start with smaller buffer (256 tokens ~= 50 lines of code)
+	// Will grow automatically if needed, but most files fit in this
+	initialCap := 256
+
 	lexer := &Lexer{
-		bufferSize:    2500,                   // Large enough for 90%+ of opal files
-		tokens:        make([]Token, 0, 2500), // Pre-allocate capacity
-		telemetryMode: config.telemetry,       // Default is TelemetryOff (0)
-		debugLevel:    config.debug,           // Default is DebugOff (0)
+		bufferSize:    initialCap,
+		tokens:        make([]Token, 0, initialCap),
+		telemetryMode: config.telemetry,
+		debugLevel:    config.debug,
 	}
 
 	// Only allocate telemetry structures when needed
@@ -147,10 +169,9 @@ func NewLexer(input string, opts ...LexerOpt) *Lexer {
 
 	// Only allocate debug structures when needed
 	if config.debug > DebugOff {
-		lexer.debugEvents = make([]DebugEvent, 0, 1000) // Pre-allocate debug events
+		lexer.debugEvents = make([]DebugEvent, 0, 256)
 	}
 
-	lexer.Init([]byte(input))
 	return lexer
 }
 

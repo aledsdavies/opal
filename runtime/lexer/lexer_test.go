@@ -53,7 +53,7 @@ type tokenExpectation struct {
 func assertTokens(t *testing.T, name string, input string, expected []tokenExpectation) {
 	t.Helper()
 
-	lexer := NewLexer(input)
+	lexer := newTestLexer(input)
 	tokens := lexer.GetTokens() // Use batch interface
 	var actual []tokenExpectation
 
@@ -100,7 +100,7 @@ func TestBufferBoundaries(t *testing.T) {
 			// Generate realistic input
 			input := generateRealisticInput(tt.tokenCount)
 
-			lexer := NewLexer(input)
+			lexer := newTestLexer(input)
 
 			// Test streaming interface - count actual tokens
 			var streamTokenCount int
@@ -136,8 +136,8 @@ func TestBufferRefillConsistency(t *testing.T) {
 	// Create realistic input that will definitely span multiple buffers
 	input := generateRealisticInput(1000) // ~1000 realistic tokens
 
-	lexer1 := NewLexer(input)
-	lexer2 := NewLexer(input)
+	lexer1 := newTestLexer(input)
+	lexer2 := newTestLexer(input)
 
 	// Get all tokens via streaming
 	var streamTokens []Token
@@ -191,7 +191,7 @@ func TestBufferSizePerformance(t *testing.T) {
 
 			start := time.Now()
 
-			lexer := NewLexer(input)
+			lexer := newTestLexer(input)
 			tokens := lexer.GetTokens()
 
 			elapsed := time.Since(start)
@@ -218,7 +218,7 @@ func TestMixedAccessPatterns(t *testing.T) {
 	input := "first second third fourth fifth"
 
 	t.Run("get_tokens_after_next_token", func(t *testing.T) {
-		lexer := NewLexer(input)
+		lexer := newTestLexer(input)
 
 		// Consume first two tokens via streaming
 		token1 := lexer.NextToken()
@@ -250,7 +250,7 @@ func TestMixedAccessPatterns(t *testing.T) {
 	})
 
 	t.Run("next_token_after_get_tokens", func(t *testing.T) {
-		lexer := NewLexer(input)
+		lexer := newTestLexer(input)
 
 		// Get all tokens first
 		allTokens := lexer.GetTokens()
@@ -268,7 +268,7 @@ func TestMixedAccessPatterns(t *testing.T) {
 	})
 
 	t.Run("stream_then_batch", func(t *testing.T) {
-		lexer := NewLexer(input)
+		lexer := newTestLexer(input)
 
 		// Get a few tokens via streaming
 		token1 := lexer.NextToken()
@@ -288,7 +288,7 @@ func TestMixedAccessPatterns(t *testing.T) {
 	})
 
 	t.Run("reset_buffer_state", func(t *testing.T) {
-		lexer := NewLexer(input)
+		lexer := newTestLexer(input)
 
 		// Consume some tokens to populate buffer
 		lexer.NextToken() // first
@@ -311,7 +311,7 @@ func TestConsistentAPI(t *testing.T) {
 	input := "var name = value"
 
 	// Scenario: Parser consumes a few tokens, then formatter wants all tokens
-	lexer := NewLexer(input)
+	lexer := newTestLexer(input)
 
 	// Parser consumes first few tokens
 	varToken := lexer.NextToken()  // "var"
@@ -339,7 +339,7 @@ func TestConsistentAPI(t *testing.T) {
 // TestZeroAllocation tests that tokenization doesn't allocate after lexer init
 func TestZeroAllocation(t *testing.T) {
 	input := "test input"
-	lexer := NewLexer(input)
+	lexer := newTestLexer(input)
 
 	// Force garbage collection and get baseline memory stats
 	runtime.GC()
@@ -392,7 +392,7 @@ func TestBenchmarkPerformanceRequirements(t *testing.T) {
 	// Run the benchmark - use arithmetic scenario for realistic performance test
 	result := testing.Benchmark(func(b *testing.B) {
 		inputBytes := []byte("var x = 5")
-		lexer := NewLexer("")
+		lexer := newTestLexer("")
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -439,7 +439,7 @@ func TestDebugTelemetryZeroAlloc(t *testing.T) {
 	input := "test input"
 
 	// Create lexer without debug (should be zero alloc)
-	lexer := NewLexer(input)
+	lexer := newTestLexer(input)
 
 	runtime.GC()
 	var m1, m2 runtime.MemStats
@@ -463,7 +463,7 @@ func TestDebugTelemetryZeroAlloc(t *testing.T) {
 
 // TestUnicodePositionTracking tests that position tracking works correctly with Unicode
 func TestUnicodePositionTracking(t *testing.T) {
-	lexer := NewLexer("")
+	lexer := newTestLexer("")
 
 	tests := []struct {
 		name        string
@@ -542,7 +542,7 @@ func TestUnicodePositionTracking(t *testing.T) {
 
 // TestPositionTrackingWithWhitespace tests accurate position tracking through various whitespace scenarios
 func TestPositionTrackingWithWhitespace(t *testing.T) {
-	lexer := NewLexer("")
+	lexer := newTestLexer("")
 
 	tests := []struct {
 		name        string

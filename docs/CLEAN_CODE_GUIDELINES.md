@@ -88,8 +88,8 @@ Guidelines for maintaining clean, discoverable, and scalable decorator compositi
 
 **Logical nesting order** (outside to inside):
 1. **Time constraints**: `@timeout`
-2. **Error handling**: `@retry`, `@try` 
-3. **Control flow**: `@when`, `@parallel`
+2. **Error handling**: `@retry` 
+3. **Control flow**: `@parallel`
 4. **Logging/monitoring**: `@log`
 5. **Execution**: shell commands, `@cmd`
 
@@ -99,7 +99,7 @@ Guidelines for maintaining clean, discoverable, and scalable decorator compositi
 ✅ Good nesting order:
 @timeout(10m) {
     @retry(attempts=3) {
-        @when(ENV) {
+        when @var.ENV {
             production: @log("prod deploy") && kubectl apply -f prod/
             staging: @log("staging deploy") && kubectl apply -f staging/
         }
@@ -143,7 +143,7 @@ opal help @retry --examples               # Show usage examples
 ### **Decorator Categories**
 
 **Official taxonomy** (registry contract - all decorators must declare):
-- `control` - Flow control (@retry, @timeout, @when, @parallel)
+- `control` - Flow control (@retry, @timeout, @parallel)
 - `io` - Input/output (@log(message, level="info"), @file(path), @http(url))
 - `cloud` - Cloud providers (@aws.secret(name), @gcp.storage(bucket), @azure.vault(key))
 - `k8s` - Kubernetes (@k8s.apply(manifest), @k8s.rollout(deployment))
@@ -265,7 +265,7 @@ deploy: @timeout(TIMEOUT) {
     @log("Starting deployment to @var(ENV)", level="info")
     
     @retry(attempts=3, delay=5s) {
-        @when(ENV) {
+        when @var.ENV {
             production: {
                 kubectl apply -f k8s/prod/
                 kubectl rollout status deployment/app --timeout=300s
@@ -285,10 +285,10 @@ deploy: @timeout(TIMEOUT) {
 ```
 
 **Why this works**:
-- Clear nesting hierarchy (timeout → retry → conditional → execution)
+- Clear nesting hierarchy (timeout → retry → execution)
 - Named parameters throughout
 - Logical block structure
-- Readable variable interpolation
+- Readable variable interpolation with @var.NAME syntax
 - Mixed decorator types working together
 
 ## Tooling Configuration

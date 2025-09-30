@@ -139,8 +139,8 @@ opal verify plan.json --sig ...   # Confirm approved plan executed
     }
   ],
   "resolved_values": {
-    "1": "@env(API_TOKEN) → <redacted:32chars>",
-    "2": "@var(REPLICAS) → 3"
+    "1": "@env.API_TOKEN → <redacted:32chars>",
+    "2": "@var.REPLICAS → 3"
   }
 }
 ```
@@ -182,11 +182,11 @@ opal automatically tracks all value decorator and execution decorator usage for 
 ```bash
 # Complete decorator audit - see all value decorator and execution decorator usage
 opal runs audit-decorators --env prod --since 24h
-# Shows: @env(AWS_SECRET_KEY) at deploy.opl:23, @shell("kubectl apply") at deploy.opl:45
+# Shows: @env.AWS_SECRET_KEY at deploy.opl:23, @shell("kubectl apply") at deploy.opl:45
 
 # Security-focused audit - track sensitive data access  
 opal runs audit-security --env prod --since 24h
-# Shows: @env(SECRET_*), @var(PROD_*), @file(*.key), @shell("sudo *")
+# Shows: @env.SECRET_*, @var.PROD_*, @file.*.key, @shell("sudo *")
 
 # Performance audit - find bottlenecks
 opal runs audit-performance --env prod --since 24h --slowest 10
@@ -198,7 +198,7 @@ opal runs export-audit --env prod --format soc2 --month 2025-01
 ```
 
 #### Built-in Security & Audit Features
-- **Complete decorator tracking**: Every `@env()`, `@var()`, `@file()`, `@shell()`, `@http()` value decorator and execution decorator call logged
+- **Complete decorator tracking**: Every `@env.NAME`, `@var.NAME`, `@file.NAME`, `@shell()`, `@http()` value decorator and execution decorator call logged
 - **Security pattern detection**: Automatic flagging of sensitive value decorator usage
 - **Access pattern analysis**: Detect unusual value decorator and execution decorator combinations or frequencies  
 - **Performance bottleneck identification**: Find slow value decorators and execution decorators across all runs

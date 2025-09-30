@@ -30,7 +30,7 @@ func BenchmarkLexerCore(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			// Pre-convert to bytes to avoid allocation in benchmark (like BenchmarkLexerZeroAlloc)
 			inputBytes := []byte(input)
-			lexer := NewLexer("") // Create with empty string, we'll use Init()
+			lexer := newTestLexer("") // Create with empty string, we'll use Init()
 
 			b.ResetTimer()
 			b.ReportAllocs()
@@ -68,7 +68,7 @@ func BenchmarkTelemetryModes(b *testing.B) {
 	for mode, opts := range modes {
 		b.Run(mode, func(b *testing.B) {
 			// Create lexer outside benchmark
-			lexer := NewLexer(input, opts...)
+			lexer := newTestLexer(input, opts...)
 
 			b.ResetTimer()
 			b.ReportAllocs()
@@ -108,7 +108,7 @@ func BenchmarkLexerScaling(b *testing.B) {
 
 		b.Run(size, func(b *testing.B) {
 			// Create lexer outside benchmark
-			lexer := NewLexer(input)
+			lexer := newTestLexer(input)
 
 			b.ResetTimer()
 			b.ReportAllocs()
@@ -147,7 +147,7 @@ func BenchmarkLexerInitialization(b *testing.B) {
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
-				lexer := NewLexer(input)
+				lexer := newTestLexer(input)
 				_ = lexer
 			}
 		})

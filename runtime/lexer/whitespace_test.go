@@ -75,7 +75,7 @@ type tokenExpectationWithSpace struct {
 
 // assertTokensWithWhitespace validates tokens including HasSpaceBefore flag
 func assertTokensWithWhitespace(t *testing.T, testName, input string, expected []tokenExpectationWithSpace) {
-	lexer := NewLexer(input)
+	lexer := newTestLexer(input)
 	tokens := lexer.GetTokens()
 
 	if len(tokens) != len(expected) {
@@ -130,7 +130,7 @@ func TestShellCommandReconstruction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lexer := NewLexer(tt.input)
+			lexer := newTestLexer(tt.input)
 			tokens := lexer.GetTokens()
 
 			// Remove EOF token for reconstruction

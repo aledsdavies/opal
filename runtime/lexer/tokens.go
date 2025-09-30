@@ -92,10 +92,15 @@ const (
 
 // Token represents a lexical token
 type Token struct {
-	Type           TokenType
-	Text           []byte // Use []byte for zero-allocation performance
-	Position       Position
-	HasSpaceBefore bool // True if whitespace preceded this token
+	Type     TokenType
+	Text     []byte // Use []byte for zero-allocation performance
+	Position Position
+	// HasSpaceBefore is a parsing hint, not semantic data.
+	// Helps parser distinguish cases like "-- released" vs "--release" (two tokens vs one).
+	// Parser uses this during parsing then discards it.
+	// Not part of token identity - "fun greet()" and "  fun greet()" are semantically identical.
+	// We capture it here because we're already scanning whitespace in the lexer.
+	HasSpaceBefore bool
 }
 
 // String returns the token text as a string (for testing and debugging)

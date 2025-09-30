@@ -33,7 +33,7 @@ Opal has two distinct layers that work together:
 **Work execution** happens through decorators at runtime:
 - `npm run build` → `@shell("npm run build")`
 - `@retry(3) { ... }` → execution decorator with block
-- `@var(NAME)` → value decorator for interpolation
+- `@var.NAME` → value decorator for interpolation
 
 ## Everything is a Decorator (For Work Execution)
 
@@ -42,9 +42,9 @@ The core architectural principle: **every operation that performs work** becomes
 This means metaprogramming constructs like `for`, `if`, `when` are **not** decorators - they're language constructs that decide what work gets done. The actual work is always performed by decorators.
 
 **Value decorators** inject values inline:
-- `@env("PORT")` pulls environment variables
-- `@var(REPLICAS)` references script variables  
-- `@aws.secret("api-key")` fetches from AWS (expensive)
+- `@env.PORT` pulls environment variables
+- `@var.REPLICAS` references script variables  
+- `@aws.secret.api_key` fetches from AWS (expensive)
 
 **Execution decorators** run commands:
 - `@shell("npm run build")` executes shell commands
@@ -83,6 +83,262 @@ Runtime Layer (Work Execution):
 ```
 
 **Key insight**: `try/catch` is a metaprogramming construct (not a decorator) that defines deterministic error handling paths. Unlike `for`/`if`/`when` which resolve to a single path at plan-time, `try/catch` creates multiple **known paths** where execution selects which one based on actual results (exceptions). The plan includes **all possible paths** through try/catch blocks.
+
+## Event-Based Plan Generation
+
+Opal's interpreter generates execution plans directly from parser events without constructing an intermediate AST. This zero-copy pipeline enables sub-millisecond plan generation with natural support for branch pruning and parallel resolution.
+
+### The Zero-Copy Pipeline
+
+```
+Source Code → Lexer → Tokens → Parser → Events → Interpreter → Execution Plan
+              <2ms              <1ms              <1ms
+                                        ^^^^^^^^
+                                   No AST needed!
+```
+
+**Traditional approach:**
+```
+Parse → Build AST → Walk AST → Generate Plan
+2ms     3ms         2ms        1ms            = 8ms total
+Memory: Events + AST nodes + Plan
+```
+
+**Event-based approach:**
+```
+Parse → Generate Plan (from events)
+2ms     1ms                                   = 3ms total
+Memory: Events + Plan (no AST allocation)
+```
+
+### Direct Event Consumption
+
+The interpreter consumes parse events as a stream, making plan-time decisions without materializing an AST:
+
+```go
+func (i *Interpreter) generatePlan(events []Event) *ExecutionPlan {
+    plan := &ExecutionPlan{Steps: make([]Step, 0, 100)}
+    
+    for i.pos < len(events) {
+        event := events[i.pos]
+        
+        switch event.Kind {
+        case EventOpen:
+            switch event.Data {
+            case NodeWhen:
+                // Resolve condition at plan-time
+                value := i.resolveValue("@var.ENV")  // "production"
+                
+                // Scan branches, process only the matching one
+                for branch := range i.scanBranches() {
+                    if branch.matches(value) {
+                        i.processBranch(branch)  // ✅ Emit steps
+                    } else {
+                        i.skipBranch(branch)     // ❌ Prune events
+                    }
+                }
+            
+            case NodeFor:
+                // Resolve collection at plan-time
+                items := i.resolveValue("@var.SERVICES")
+                loopBody := i.captureLoopBody()
+                
+                // Unroll loop - replay events for each item
+                for _, item := range items {
+                    i.setVar("service", item)
+                    i.processEvents(loopBody)  // Emit concrete steps
+                }
+            }
+        }
+    }
+    
+    return plan
+}
+```
+
+### Natural Branch Pruning
+
+When the interpreter encounters a conditional, it evaluates the condition and skips events for branches not taken:
+
+**Source:**
+```opal
+when @var.ENV {
+    "production" -> kubectl apply -f k8s/prod/
+    "staging" -> kubectl apply -f k8s/staging/
+    else -> echo "Unknown environment"
+}
+```
+
+**Events (all branches present):**
+```
+[Open(When), Token(@var.ENV),
+  Open(Branch), Token("production"), Token(kubectl), ..., Close(Branch),
+  Open(Branch), Token("staging"), Token(kubectl), ..., Close(Branch),
+  Open(Branch), Token(else), Token(echo), ..., Close(Branch),
+Close(When)]
+```
+
+**Plan with ENV="production" (pruned):**
+```
+Step 1: kubectl apply -f k8s/prod/
+// Staging and else branches pruned - never processed
+```
+
+**Pruning implementation:**
+```go
+func (i *Interpreter) skipBranch(branch BranchInfo) {
+    depth := 1
+    for depth > 0 {
+        i.pos++
+        if events[i.pos].Kind == EventOpen { depth++ }
+        if events[i.pos].Kind == EventClose { depth-- }
+    }
+    // Entire branch skipped without processing - zero cost
+}
+```
+
+### Loop Unrolling
+
+Loops are unrolled at plan-time by replaying loop body events with different variable bindings:
+
+**Source:**
+```opal
+for service in ["api", "worker", "scheduler"] {
+    kubectl scale deployment/@var.service --replicas=3
+}
+```
+
+**Plan (unrolled):**
+```
+Step 1: kubectl scale deployment/api --replicas=3
+Step 2: kubectl scale deployment/worker --replicas=3
+Step 3: kubectl scale deployment/scheduler --replicas=3
+```
+
+The interpreter captures the loop body events once, then replays them for each iteration with updated variable bindings. No AST traversal needed.
+
+### Concurrency Opportunities
+
+Event-based plan generation enables natural parallelization:
+
+**1. Independent branch resolution:**
+```opal
+when @var.ENV {
+    "production" -> @aws.secret.prod_key    // Resolve in parallel
+    "staging" -> @aws.secret.staging_key    // Resolve in parallel
+}
+```
+
+Both branches can resolve their decorators concurrently during planning, even though only one will be selected.
+
+**2. Parallel decorator resolution:**
+```opal
+deploy: {
+    @env.DATABASE_URL              // Resolve concurrently
+    @aws.secret.api_key            // Resolve concurrently
+    @http.get("https://status")    // Resolve concurrently
+    
+    kubectl apply -f k8s/
+}
+```
+
+All value decorators can be resolved in parallel before generating the sequential execution steps.
+
+**3. Multi-file planning:**
+```
+commands.opl  → Events → Plan (parallel)
+deploy.opl    → Events → Plan (parallel)
+test.opl      → Events → Plan (parallel)
+```
+
+Independent files can be planned concurrently, then merged.
+
+### Performance Characteristics
+
+**Target metrics (10K line file):**
+- Lexing: <2ms (already achieved: >5000 lines/ms)
+- Parsing: <2ms (event generation)
+- Planning: <1ms (event consumption + pruning)
+- **Total: <4ms** (lex + parse + plan)
+
+**Memory profile:**
+- Events: ~5 bytes per event (EventKind + Data)
+- Plan: ~50 bytes per step (command + metadata)
+- No AST: Saves ~100+ bytes per node
+
+**Comparison to shell:**
+
+| Metric | Shell | Opal |
+|--------|-------|------|
+| Parse | Immediate | <2ms |
+| Plan | None | <1ms |
+| Verify | None | <1ms |
+| Total overhead | 0ms | <4ms |
+| Pruning | No | Yes |
+| Parallelization | No | Yes |
+| Verification | No | Yes |
+| Auditability | No | Yes |
+
+Shell executes immediately without planning, but Opal's <4ms overhead buys:
+- **Safety**: Verify before execute
+- **Speed**: Parallel decorator resolution
+- **Auditability**: Immutable execution contract
+- **Determinism**: Same inputs → same plan
+
+For automation where mistakes are expensive, 4ms is negligible compared to the value of plan verification.
+
+### When AST Construction Is Needed
+
+The interpreter generates plans directly from events, but AST construction is still needed for:
+
+**1. IDE features:**
+- Go-to-definition
+- Symbol search
+- Refactoring tools
+- Autocomplete
+
+**2. Static analysis:**
+- Linting
+- Type checking (if types are added)
+- Dead code detection
+- Complexity metrics
+
+**3. Code generation:**
+- Compiling to standalone binaries
+- Cross-compilation
+- Optimization passes
+
+**4. Advanced transformations:**
+- Macro expansion
+- Template instantiation
+- Code rewriting
+
+For Opal's primary use case (plan generation and execution), events are sufficient. AST construction is deferred until actually needed, keeping the hot path fast.
+
+### Implementation Strategy
+
+```go
+// Phase 1: Lex and parse (zero-copy)
+tree := parser.Parse(source)  // Returns events, not AST
+
+// Phase 2: Generate plan from events (streaming)
+plan := interpreter.GeneratePlan(tree.Events, variables)
+
+// Phase 3: Verify plan contract
+if err := plan.Verify(); err != nil {
+    return err
+}
+
+// Phase 4: Execute plan
+executor.Execute(plan)
+
+// Optional: Build AST only if needed (IDE, analysis)
+if needsAST {
+    ast := tree.BuildAST()  // Construct from events
+}
+```
+
+This architecture makes Opal faster than shell script execution while providing safety guarantees that shell cannot offer.
 
 ## Safety Guarantees
 
@@ -201,14 +457,14 @@ Two-phase resolution optimizes for both speed and determinism:
 
 **Quick plans** defer expensive operations and show placeholders:
 ```
-kubectl create secret --token=¹@aws.secret("api-token")
-Deferred: 1. @aws.secret("api-token") → <expensive: AWS lookup>
+kubectl create secret --token=¹@aws.secret.api_token
+Deferred: 1. @aws.secret.api_token → <expensive: AWS lookup>
 ```
 
 **Resolved plans** materialize all values for deterministic execution:
 ```  
 kubectl create secret --token=¹<32:sha256:a1b2c3>
-Resolved: 1. @aws.secret("api-token") → <32:sha256:a1b2c3>
+Resolved: 1. @aws.secret.api_token → <32:sha256:a1b2c3>
 ```
 
 Smart optimizations happen automatically:
@@ -222,7 +478,7 @@ The placeholder system protects sensitive values while enabling change detection
 
 **Placeholder format**: `<length:algorithm:hash>` like `<32:sha256:a1b2c3>`. The length gives size hints for debugging, the algorithm future-proofs against changes, and the hash detects value changes without exposing content.
 
-**Security invariant**: Raw secrets never appear in plans, logs, or error messages. This applies to all value decorators - `@env()`, `@aws.secret()`, whatever. Compliance teams can review plans confidently.
+**Security invariant**: Raw secrets never appear in plans, logs, or error messages. This applies to all value decorators - `@env.NAME`, `@aws.secret.NAME`, whatever. Compliance teams can review plans confidently.
 
 **Hash scope**: Plan hashes cover ordered steps, arguments, operator graphs, and timing flags. They exclude ephemeral data like run IDs or timestamps that shouldn't invalidate a plan.
 
@@ -333,7 +589,7 @@ var DB_PASS = @random.password(length=24, alphabet="A-Za-z0-9!@#")
 var API_KEY = @crypto.generate_key(type="ed25519")
 
 deploy: {
-    kubectl create secret generic db --from-literal=password=@var(DB_PASS)
+    kubectl create secret generic db --from-literal=password=@var.DB_PASS
 }
 ```
 
@@ -420,7 +676,7 @@ Control flow expands during plan generation, not execution:
 ```opal
 // Source code
 for service in ["api", "worker"] {
-    kubectl apply -f k8s/${service}/
+    kubectl apply -f k8s/@var.service/
 }
 
 // Plan shows expanded steps

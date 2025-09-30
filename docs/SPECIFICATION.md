@@ -102,7 +102,7 @@ daily_etl: {
     @dbt.run(model="daily_user_summary")
     @slack.notify(
         channel="#data-team",
-        message="Daily ETL completed: ${@dbt.row_count} rows processed"
+        message="Daily ETL completed: @dbt.row_count rows processed"
     )
 }
 ```
@@ -110,7 +110,7 @@ daily_etl: {
 ### Security Incident Response
 ```opal
 contain_threat: {
-    @log("Starting containment for user: ${@var.ALERT_USER}")
+    @log("Starting containment for user: @var.ALERT_USER")
     @okta.suspend_user(email=@var.ALERT_USER)
     @crowdstrike.isolate_host(hostname=@var.ALERT_HOST)
     @pagerduty.escalate(incident_id=@var.INCIDENT_ID)
@@ -277,6 +277,52 @@ echo "Version: @env.APP_VERSION(default="latest")"
 
 ## Variables
 
+### Variable Access and Interpolation
+
+**Opal uses `@var.NAME` syntax for all variable access.** Variables are plan-time values that get expanded during plan generation.
+
+```opal
+var service = "api"
+var replicas = 3
+
+// In command arguments (unquoted)
+kubectl scale --replicas=@var.replicas deployment/@var.service
+
+// In strings (quoted)
+echo "Deploying @var.service with @var.replicas replicas"
+
+// In paths
+kubectl apply -f k8s/@var.service/
+
+// Terminate decorator with () if followed by ASCII with no spaces
+echo "@var.service()_backup"  // Expands to "api_backup"
+```
+
+**Plan-time expansion:** The parser expands `@var.NAME` during plan generation into literal values:
+
+```opal
+// Source code
+for service in ["api", "worker"] {
+    kubectl apply -f k8s/@var.service/
+}
+
+// Expands to plan
+kubectl apply -f k8s/api/
+kubectl apply -f k8s/worker/
+```
+
+**Shell variables (`${}`) are NOT Opal syntax.** If you need actual shell environment variables, they stay inside shell commands and are evaluated by the shell at runtime, not by Opal:
+
+```opal
+// Shell variable (rare - evaluated by shell at runtime)
+@shell("echo Current user: $USER")
+
+// Opal variable (common - expanded by Opal at plan-time)
+echo "Deploying to: @var.ENV"
+```
+
+### Variable Declaration
+
 Pull values from real sources:
 
 ```opal
@@ -399,7 +445,7 @@ sleep(-1h)                     // Sleeps for 0s (no-op)
 
 // Variables preserve negative values for arithmetic/logic
 var remaining = deadline - current_time
-echo "Time remaining: ${remaining}"     // Shows "-5m" if past deadline
+echo "Time remaining: @var.remaining"     // Shows "-5m" if past deadline
 @timeout(remaining) { task() }          // Uses max(remaining, 0s) = 0s
 ```
 
@@ -481,7 +527,7 @@ replicas += 1                          // add monitoring replica
 var remaining = total_items
 for batch in batches {
     remaining -= batch.size
-    echo "Processing batch, ${remaining} items left"
+    echo "Processing batch, @var.remaining items left"
 }
 ```
 
@@ -499,14 +545,14 @@ for batch in batches {
 var counter = 0
 for service in @var.SERVICES {
     counter++
-    echo "Processing service ${counter}: ${service}"
+    echo "Processing service @var.counter: @var.service"
 }
 
 // Countdown operations
 var attempts = max_retries
 while attempts > 0 {
     attempts--
-    echo "Retry attempt ${max_retries - attempts}"
+    echo "Retry attempt @var.attempts"
 }
 ```
 
@@ -600,9 +646,9 @@ build_all: {
 ```opal
 deploy-all: {
     for service in @var.SERVICES {
-        echo "Deploying ${service}"
-        kubectl apply -f k8s/${service}/
-        kubectl rollout status deployment/${service}
+        echo "Deploying @var.service"
+        kubectl apply -f k8s/@var.service/
+        kubectl rollout status deployment/@var.service
     }
 }
 
@@ -681,7 +727,7 @@ var status = "pending"
 
 try {
     // Can READ outer scope values
-    echo "Starting with counter=${counter}"  // counter = 0 ✓
+    echo "Starting with counter=@var.counter"  // counter = 0 ✓
 
     // Can MODIFY local copies
     counter++           // Local counter = 1
@@ -690,7 +736,7 @@ try {
     kubectl apply -f k8s/
 } catch {
     // Can READ outer scope values
-    echo "Failed with counter=${counter}"    // counter = 0 ✓
+    echo "Failed with counter=@var.counter"    // counter = 0 ✓
 
     // Can MODIFY local copies
     counter += 5        // Local counter = 5
@@ -698,7 +744,7 @@ try {
 }
 
 // Outer scope unchanged after try/catch
-echo "Final: counter=${counter}, status=${status}"  // counter=0, status="pending" ✓
+echo "Final: counter=@var.counter, status=@var.status"  // counter=0, status="pending" ✓
 ```
 
 **Decorator blocks work the same way:**
@@ -709,7 +755,7 @@ var result = ""
 
 @retry(attempts=3) {
     // Can READ outer scope
-    echo "Base attempts: ${attempts}"  // attempts = 0 ✓
+    echo "Base attempts: @var.attempts"  // attempts = 0 ✓
 
     // Can MODIFY local copies
     attempts++         // Local attempts = 1, 2, 3...
@@ -719,7 +765,7 @@ var result = ""
 }
 
 // Outer scope unchanged after execution decorator
-echo "Final: attempts=${attempts}, result=${result}"  // attempts=0, result="" ✓
+echo "Final: attempts=@var.attempts, result=@var.result"  // attempts=0, result="" ✓
 ```
 
 This pattern ensures that both non-deterministic execution (try/catch) and execution decorator behaviors don't create unpredictable state mutations in the outer scope.
@@ -930,7 +976,7 @@ Plans show the execution path after metaprogramming expansion using a consistent
 
 **For loops** expand into sequential steps:
 ```opal
-// Source: for service in ["api", "worker"] { kubectl apply -f k8s/${service}/ }
+// Source: for service in ["api", "worker"] { kubectl apply -f k8s/@var.service/ }
 
 // Plan shows:
 deploy:
@@ -1169,7 +1215,7 @@ Independent expensive operations resolve concurrently:
 
 ```opal
 var CLUSTER = @env.KUBE_CLUSTER(default="minikube")
-var DB_HOST = @aws.secret("${CLUSTER}-db-host")
+var DB_HOST = @aws.secret("@var.CLUSTER()-db-host")
 var API_KEY = @http.get("https://keygen.com/api/new")
 
 deploy: {
@@ -1260,10 +1306,10 @@ deploy: {
         "production" -> {
             for service in @var.SERVICES {
                 @retry(attempts=3, delay=10s) {
-                    kubectl apply -f k8s/prod/${service}/
-                    kubectl set image deployment/${service} app=@var.VERSION
-                    kubectl scale --replicas=@var.REPLICAS deployment/${service}
-                    kubectl rollout status deployment/${service} --timeout=300s
+                    kubectl apply -f k8s/prod/@var.service/
+                    kubectl set image deployment/@var.service app=@var.VERSION
+                    kubectl scale --replicas=@var.REPLICAS deployment/@var.service
+                    kubectl rollout status deployment/@var.service --timeout=300s
                 }
             }
         }
@@ -1318,7 +1364,7 @@ migrate: {
         LATEST_BACKUP=$(aws s3 ls s3://@var.BACKUP_BUCKET/ | tail -1 | awk '{print $4}')
 
         # Restore
-        aws s3 cp s3://@var.BACKUP_BUCKET/${LATEST_BACKUP} - | gunzip | psql @var.DB_URL
+        aws s3 cp s3://@var.BACKUP_BUCKET/@var.LATEST_BACKUP - | gunzip | psql @var.DB_URL
 
         echo "Database restored from backup"
 

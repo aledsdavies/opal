@@ -368,9 +368,9 @@ func TestPlanTimeExpansion(t *testing.T) {
             name: "for-loop-unrolling",
             input: `
 deploy: {
-    for service in @var(SERVICES) {
-        kubectl apply -f k8s/${service}/
-        kubectl rollout status deployment/${service}
+    for service in @var.SERVICES {
+        kubectl apply -f k8s/@var.service/
+        kubectl rollout status deployment/@var.service
     }
 }`,
             variables: map[string]interface{}{
@@ -393,13 +393,13 @@ deploy: {
             name: "when-pattern-selection",
             input: `
 deploy: {
-    when @var(ENV) {
+    when @var.ENV {
         "production" -> {
             kubectl apply -f k8s/prod/
             kubectl scale --replicas=3 deployment/app
         }
         "staging" -> kubectl apply -f k8s/staging/
-        else -> echo "Unknown environment: @var(ENV)"
+        else -> echo "Unknown environment: @var.ENV"
     }
 }`,
             variables: map[string]interface{}{
@@ -438,13 +438,13 @@ deploy: {
             planString := plan.String()
             assert.NotContains(t, planString, "for service in",
                 "Plan should not contain unexpanded for loops")
-            assert.NotContains(t, planString, "when @var(ENV)",
+            assert.NotContains(t, planString, "when @var.ENV",
                 "Plan should not contain unexpanded when statements")
                 
             // Verify no chaining allowed per specification
             invalidInputs := []string{
-                "for service in @var(SERVICES) { echo $service } && echo 'done'",
-                "when @var(ENV) { prod: kubectl apply } || echo 'failed'",
+                "for service in @var.SERVICES { echo @var.service } && echo 'done'",
+                "when @var.ENV { prod: kubectl apply } || echo 'failed'",
                 "try { kubectl apply } catch { rollback } | tee log.txt",
             }
             
@@ -526,7 +526,7 @@ func TestPSEContractVerification(t *testing.T) {
     input := `
 deploy: {
     var API_KEY = @random.password(length=32, regen_key="api-key-v1")
-    kubectl create secret generic api --from-literal=key=@var(API_KEY)
+    kubectl create secret generic api --from-literal=key=@var.API_KEY
 }`
     
     // Generate resolved plan with PSE

@@ -8,7 +8,7 @@ import (
 // TestTelemetryOff_ZeroOverhead tests that TelemetryOff has zero allocation overhead
 func TestTelemetryOff_ZeroOverhead(t *testing.T) {
 	input := "var test = 123"
-	lexer := NewLexer(input) // Default is TelemetryOff
+	lexer := newTestLexer(input) // Default is TelemetryOff
 
 	// Should have no telemetry structures allocated
 	if lexer.tokenTelemetry != nil {
@@ -41,7 +41,7 @@ func TestTelemetryOff_ZeroOverhead(t *testing.T) {
 // TestTelemetryBasic_TokenCounts tests that TelemetryBasic tracks token counts accurately
 func TestTelemetryBasic_TokenCounts(t *testing.T) {
 	input := "var test = 123"
-	lexer := NewLexer(input, WithTelemetryBasic())
+	lexer := newTestLexer(input, WithTelemetryBasic())
 
 	// Should have telemetry structures allocated
 	if lexer.tokenTelemetry == nil {
@@ -97,7 +97,7 @@ func TestTelemetryBasic_TokenCounts(t *testing.T) {
 // TestTelemetryTiming_PerTokenTypeTiming tests that TelemetryTiming captures per-token-type timing
 func TestTelemetryTiming_PerTokenTypeTiming(t *testing.T) {
 	input := "var test = 123"
-	lexer := NewLexer(input, WithTelemetryTiming())
+	lexer := newTestLexer(input, WithTelemetryTiming())
 
 	// Should have telemetry structures allocated
 	if lexer.tokenTelemetry == nil {
@@ -152,7 +152,7 @@ func TestTelemetryTiming_PerTokenTypeTiming(t *testing.T) {
 // TestDebugPaths_MethodTracing tests that DebugPaths captures method entry/exit
 func TestDebugPaths_MethodTracing(t *testing.T) {
 	input := "123"
-	lexer := NewLexer(input, WithDebugPaths())
+	lexer := newTestLexer(input, WithDebugPaths())
 
 	// Should have debug structures allocated
 	if lexer.debugEvents == nil {
@@ -193,7 +193,7 @@ func TestDebugPaths_MethodTracing(t *testing.T) {
 // TestMixedTelemetryAndDebug tests that telemetry and debug work together
 func TestMixedTelemetryAndDebug(t *testing.T) {
 	input := "var x = 42"
-	lexer := NewLexer(input, WithTelemetryTiming(), WithDebugPaths())
+	lexer := newTestLexer(input, WithTelemetryTiming(), WithDebugPaths())
 
 	// Should have both structures allocated
 	if lexer.tokenTelemetry == nil {
@@ -232,7 +232,7 @@ func TestMixedTelemetryAndDebug(t *testing.T) {
 // TestTelemetryReset tests that telemetry resets correctly with Init
 func TestTelemetryReset(t *testing.T) {
 	input1 := "var test"
-	lexer := NewLexer(input1, WithTelemetryTiming())
+	lexer := newTestLexer(input1, WithTelemetryTiming())
 
 	// Process first input
 	tokens1 := lexer.GetTokens()
@@ -286,19 +286,19 @@ func TestTelemetryPerformanceRegression(t *testing.T) {
 
 	// Time without telemetry
 	start := time.Now()
-	lexerOff := NewLexer(input) // TelemetryOff
+	lexerOff := newTestLexer(input) // TelemetryOff
 	tokensOff := lexerOff.GetTokens()
 	timeOff := time.Since(start)
 
 	// Time with basic telemetry
 	start = time.Now()
-	lexerBasic := NewLexer(input, WithTelemetryBasic())
+	lexerBasic := newTestLexer(input, WithTelemetryBasic())
 	tokensBasic := lexerBasic.GetTokens()
 	timeBasic := time.Since(start)
 
 	// Time with timing telemetry
 	start = time.Now()
-	lexerTiming := NewLexer(input, WithTelemetryTiming())
+	lexerTiming := newTestLexer(input, WithTelemetryTiming())
 	tokensTiming := lexerTiming.GetTokens()
 	timeTiming := time.Since(start)
 

@@ -318,7 +318,7 @@ func TestKeywordVsIdentifier(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lexer := NewLexer(tt.input)
+			lexer := newTestLexer(tt.input)
 			token := lexer.NextToken()
 
 			if token.Type != tt.expected {
@@ -408,7 +408,7 @@ func TestKeywordPositioning(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lexer := NewLexer(tt.input)
+			lexer := newTestLexer(tt.input)
 
 			// Find the keyword token
 			for {
