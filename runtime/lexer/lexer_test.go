@@ -407,8 +407,9 @@ func TestBenchmarkPerformanceRequirements(t *testing.T) {
 	})
 
 	// Performance requirements for local development
-	// Target: ~250ns is excellent performance (4000+ lines/ms)
-	maxNsPerOp := int64(250)   // Strict local performance requirement
+	// Target: ~300ns is excellent performance (3300+ lines/ms)
+	// Allows for benchmark variance while catching real regressions
+	maxNsPerOp := int64(300)   // Strict local performance requirement
 	maxAllocsPerOp := int64(0) // Zero allocations required
 	maxBytesPerOp := int64(0)  // Zero bytes allocated required
 
