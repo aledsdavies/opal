@@ -118,3 +118,71 @@ func TestFunctionEventStructure(t *testing.T) {
 		}
 	}
 }
+
+// TDD Iteration 2, Step 1: Parse function with single parameter
+
+func TestParseFunctionWithParameter(t *testing.T) {
+	input := "fun greet(name) {}"
+
+	tree := ParseString(input)
+
+	// Should have no errors
+	if len(tree.Errors) != 0 {
+		t.Errorf("Expected no errors, got: %v", tree.Errors)
+	}
+
+	// Expected event structure:
+	// Open(Source)
+	//   Open(Function)
+	//     Token(FUN)
+	//     Token(IDENTIFIER "greet")
+	//     Open(ParamList)
+	//       Token(LPAREN)
+	//       Open(Param)
+	//         Token(IDENTIFIER "name")
+	//       Close(Param)
+	//       Token(RPAREN)
+	//     Close(ParamList)
+	//     Open(Block)
+	//       Token(LBRACE)
+	//       Token(RBRACE)
+	//     Close(Block)
+	//   Close(Function)
+	// Close(Source)
+
+	expectedEvents := []struct {
+		kind EventKind
+		data uint32
+	}{
+		{EventOpen, 0},  // Source
+		{EventOpen, 1},  // Function
+		{EventToken, 0}, // fun
+		{EventToken, 1}, // greet
+		{EventOpen, 2},  // ParamList
+		{EventToken, 2}, // (
+		{EventOpen, 4},  // Param (new node kind)
+		{EventToken, 3}, // name
+		{EventClose, 4}, // Param
+		{EventToken, 4}, // )
+		{EventClose, 2}, // ParamList
+		{EventOpen, 3},  // Block
+		{EventToken, 5}, // {
+		{EventToken, 6}, // }
+		{EventClose, 3}, // Block
+		{EventClose, 1}, // Function
+		{EventClose, 0}, // Source
+	}
+
+	if len(tree.Events) != len(expectedEvents) {
+		t.Fatalf("Expected %d events, got %d", len(expectedEvents), len(tree.Events))
+	}
+
+	for i, expected := range expectedEvents {
+		if tree.Events[i].Kind != expected.kind {
+			t.Errorf("Event %d: expected kind %v, got %v", i, expected.kind, tree.Events[i].Kind)
+		}
+		if tree.Events[i].Data != expected.data {
+			t.Errorf("Event %d: expected data %v, got %v", i, expected.data, tree.Events[i].Data)
+		}
+	}
+}

@@ -244,7 +244,14 @@ func (p *parser) paramList() {
 		p.token()
 	}
 
-	// TODO: Parse parameters (for now just skip to ')')
+	// Parse parameters
+	for !p.at(lexer.RPAREN) && !p.at(lexer.EOF) {
+		p.param()
+
+		// TODO: Handle comma-separated parameters in next iteration
+		// For now, just parse one parameter
+		break
+	}
 
 	// Consume ')'
 	if p.at(lexer.RPAREN) {
@@ -255,6 +262,29 @@ func (p *parser) paramList() {
 
 	if p.config.debug > DebugOff {
 		p.recordDebugEvent("exit_paramList", "param list complete")
+	}
+}
+
+// param parses a single parameter: IDENTIFIER
+func (p *parser) param() {
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("enter_param", "parsing parameter")
+	}
+
+	kind := p.start(NodeParam)
+
+	// Consume parameter name
+	if p.at(lexer.IDENTIFIER) {
+		p.token()
+	}
+
+	// TODO: Parse type annotation in next iteration
+	// TODO: Parse default value in next iteration
+
+	p.finish(kind)
+
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("exit_param", "parameter complete")
 	}
 }
 

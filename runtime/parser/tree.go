@@ -37,6 +37,7 @@ const (
 	NodeFunction
 	NodeParamList
 	NodeBlock
+	NodeParam // Function parameter
 )
 
 // ParseError represents a parse error
