@@ -1,16 +1,23 @@
 # Opal Architecture
 
-**Implementation requirements for building a Plan-Verify-Execute engine**
+**Implementation requirements for the plan-verify-execute model**
 
-## Design Philosophy
+## Target Scope
 
-Build a system where resolved plans are execution contracts that get verified before running. This creates a universal framework for safe automation across any domain where mistakes are expensive.
+Operations and developer task automation - the gap between "infrastructure is up" and "services are reliably operated."
 
-> **Domain-agnostic design**: Opal itself is domain-agnostic. It becomes useful in a given field through the decorator sets provided. The DevOps examples here use `@shell` and `@kubectl`, but the same rules apply equally to data, science, security, or any other domain.
+**Why this scope?** Operations tasks are simpler than infrastructure provisioning, letting us prove the plan-verify-execute model works. The architecture supports future extension to IaC through the same decorator model.
 
-The key insight: instead of managing state like traditional tools, we verify contracts. Plans aren't just previews, they're promises about what will execute. This pattern works for infrastructure, data pipelines, security automation, scientific computing, and any domain requiring predictable, auditable automation.
+## Core Requirements
 
-**Halting and determinism guarantees**: Opal is designed as a halting, deterministic automation engine. All plans are guaranteed to terminate with predictable, reproducible results across any domain.
+- **Deterministic planning**: Same inputs → identical plan
+- **Contract verification**: Detect environment changes between plan and execute
+- **Fail-fast**: Errors at plan-time, not execution
+- **Halting guarantee**: All plans terminate with predictable results
+
+## Key Architectural Principle
+
+Plans aren't previews - they're immutable execution contracts. Instead of managing state like traditional tools, we verify contracts before execution.
 
 ## The Big Picture
 

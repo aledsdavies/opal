@@ -1,18 +1,22 @@
 # Opal Language Specification
 
-**Write automation that shows you exactly what it will do before it does it.**
+Deterministic task runner for operations and developer workflows.
 
-## What is Opal?
+## The Gap
 
-Opal is a Plan-Verify-Execute engine for automating risky, stateful processes with confidence. Perfect for any domain where mistakes are expensive and auditability matters - from infrastructure deployment to data pipelines to security incident response.
+After infrastructure is provisioned, teams use shell scripts or Makefiles for:
+- Deployments and migrations
+- Health checks and restarts
+- Build, test, release workflows
+- Day-2 operational tasks
 
-> **Domain-agnostic design**: Opal itself is domain-agnostic. It becomes useful in a given field through the decorator sets provided. The DevOps examples here use `@shell` and `@kubectl`, but the same rules apply equally to data, science, security, or any other domain.
+These are brittle, non-deterministic, and hard to audit. Opal fills this gap.
 
-**Key principle**: Resolved plans are execution contracts that get verified before running.
+## Core Principles
 
-## The Core Idea
+**Plans as execution contracts**: Resolved plans show exactly what will execute, with hash-based verification to catch changes between planning and execution.
 
-Everything becomes a value decorator or execution decorator internally. No special cases.
+**Decorator-based execution**: Everything that performs work becomes a decorator internally - no special cases. You write natural syntax, the parser converts to decorators.
 
 ```opal
 // You write natural syntax
@@ -29,6 +33,10 @@ deploy: {
     @shell("kubectl apply -f k8s/")
 }
 ```
+
+**Deterministic planning**: Same inputs always produce the same plan. Control flow resolves at plan-time.
+
+**Scope**: Operations and task running. We're proving the model here before extending to infrastructure provisioning.
 
 ## Two Ways to Run
 
@@ -75,11 +83,8 @@ logs: kubectl logs app | grep ERROR
 
 **Operator precedence**: `|` (pipe) > `&&`, `||` > `;` > newlines
 
-## Domain Examples
+## Example: Deployment with Conditionals
 
-Opal's Plan-Verify-Execute model works across any domain requiring safe, auditable automation:
-
-### Infrastructure & DevOps
 ```opal
 deploy: {
     when @env.ENV {
@@ -91,52 +96,6 @@ deploy: {
     }
 }
 ```
-
-### Data Engineering
-```opal
-daily_etl: {
-    @snowflake.load(
-        table="raw_events",
-        from_s3=@env.S3_DATA_BUCKET
-    )
-    @dbt.run(model="daily_user_summary")
-    @slack.notify(
-        channel="#data-team",
-        message="Daily ETL completed: @dbt.row_count rows processed"
-    )
-}
-```
-
-### Security Incident Response
-```opal
-contain_threat: {
-    @log("Starting containment for user: @var.ALERT_USER")
-    @okta.suspend_user(email=@var.ALERT_USER)
-    @crowdstrike.isolate_host(hostname=@var.ALERT_HOST)
-    @pagerduty.escalate(incident_id=@var.INCIDENT_ID)
-}
-```
-
-### Scientific Computing
-```opal
-run_analysis: {
-    @dataset.fetch(
-        doi="10.1000/xyz123",
-        checksum="sha256:abc123..."
-    )
-    var job_id = @hpc.submit_job(
-        cluster=@env.SLURM_CLUSTER,
-        script="analysis.py",
-        cores=64
-    )
-    @plot.generate(
-        template="results.gnu",
-        data=@hpc.job_output(job_id)
-    )
-}
-```
-
-Each domain uses the same safety guarantees but with domain-specific decorators.
 
 ### Command Definitions with `fun` (Template Functions)
 
