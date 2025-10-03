@@ -84,9 +84,73 @@ Runtime Layer (Work Execution):
 
 **Key insight**: `try/catch` is a metaprogramming construct (not a decorator) that defines deterministic error handling paths. Unlike `for`/`if`/`when` which resolve to a single path at plan-time, `try/catch` creates multiple **known paths** where execution selects which one based on actual results (exceptions). The plan includes **all possible paths** through try/catch blocks.
 
-## Event-Based Plan Generation
+## Dual-Path Architecture: Execution vs Tooling
 
-Opal's interpreter generates execution plans directly from parser events without constructing an intermediate AST. This zero-copy pipeline enables sub-millisecond plan generation with natural support for branch pruning and parallel resolution.
+Opal's parser produces a stream of events that can be consumed in two different ways, depending on the use case:
+
+### Path 1: Events → Plan (Execution - Fast Path)
+
+For **runtime execution**, the interpreter consumes events directly to generate execution plans:
+
+```
+Source → Lexer → Parser → Events → Interpreter → Plan → Execute
+         <1ms    <1ms     <1ms                   <1ms
+                          ^^^^^^^^
+                     No AST construction!
+```
+
+**Use cases:**
+- CLI execution: `opal deploy production`
+- Script execution: `opal run build.opl`
+- CI/CD pipelines
+- Automated workflows
+
+**Benefits:**
+- Sub-millisecond plan generation (<3ms total)
+- Zero AST allocation overhead
+- Natural branch pruning (skip unused code paths)
+- Minimal memory footprint
+
+### Path 2: Events → AST (Tooling - Analysis Path)
+
+For **development tooling**, events are materialized into a typed AST:
+
+```
+Source → Lexer → Parser → Events → AST Builder → Typed AST
+         <1ms    <1ms     <2ms                   
+                          ^^^^^^^^
+                     Lazy construction
+```
+
+**Use cases:**
+- LSP (Language Server Protocol): go-to-definition, find references, hover
+- Code formatters: preserve comments and whitespace
+- Linters: static analysis, style checking
+- Documentation generators: extract function signatures
+- Refactoring tools: rename, extract function
+
+**Benefits:**
+- Strongly typed node access
+- Parent/child relationships
+- Symbol table construction
+- Semantic analysis
+- Source location mapping
+
+### When to Use Each Path
+
+| Feature | Execution Path | Tooling Path |
+|---------|---------------|--------------|
+| **Speed** | <3ms | ~5ms |
+| **Memory** | Events only | Events + AST |
+| **Use case** | Run commands | Analyze code |
+| **Construction** | Never builds AST | Lazy AST from events |
+| **Optimization** | Branch pruning | Full tree |
+
+**Key insight**: The AST is **optional**. For execution, we never build it. For tooling, we build it lazily only when needed. This dual-path design gives us both speed (for execution) and rich analysis (for development).
+
+## Event-Based Plan Generation (Execution Path)
+
+The interpreter generates execution plans directly from parser events without constructing an intermediate AST. This zero-copy pipeline enables sub-millisecond plan generation with natural support for branch pruning and parallel resolution.
 
 ### The Zero-Copy Pipeline
 

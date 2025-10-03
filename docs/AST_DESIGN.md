@@ -2,6 +2,8 @@
 
 **Goal**: Fast, resilient parser that complements the high-performance lexer (>5000 lines/ms) and supports LSP tooling.
 
+**Important**: The AST is **optional** and only built for tooling (LSP, formatters, linters). For execution, Opal generates plans directly from parser events without constructing an AST. See [ARCHITECTURE.md](ARCHITECTURE.md#dual-path-architecture-execution-vs-tooling) for the dual-path design.
+
 ## Design Constraints (from existing implementation)
 
 ### Performance Requirements
@@ -34,18 +36,36 @@ type Position struct {
 
 ## AST Architecture
 
-### Two-Phase Approach
+### Two-Path Design
 
-**Phase 1: Parse Tree** (what parser builds)
-- Flat event stream (inspired by rust-analyzer)
+Opal's parser produces events that can be consumed in two ways:
+
+**Path 1: Events → Plan (Execution)**
+- Direct event consumption by interpreter
+- No AST construction
+- Sub-millisecond plan generation
+- Used by: CLI execution, runtime
+
+**Path 2: Events → AST (Tooling)**
+- Lazy AST construction from events
+- Strongly typed node access
+- Full semantic analysis
+- Used by: LSP, formatters, linters, analysis tools
+
+### Parse Tree (Event-Based)
+
+The parser always produces a flat event stream (inspired by rust-analyzer):
 - Resilient: errors don't stop parsing
 - Fast: minimal allocations
-- Used by: Parser, formatter, LSP
+- Universal: consumed by both execution and tooling paths
 
-**Phase 2: Typed AST** (what tools use)
+### Typed AST (Tooling Only)
+
+When tooling needs semantic analysis, events are materialized into a typed AST:
 - Lazy construction from parse tree
 - Strongly typed accessors
-- Used by: LSP queries, IR generation, analysis
+- Parent/child relationships
+- Symbol tables
 
 ### Parse Tree (Event-Based)
 
