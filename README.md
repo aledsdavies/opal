@@ -1,28 +1,34 @@
 # Opal
 
-**Plan-Verify-Execute Engine for Safe Automation**
+**Deterministic task runner for operations and developer workflows**
 
-Write automation that shows you exactly what it will do before it does it. Perfect for any domain where mistakes are expensive and auditability matters.
+## The Problem
 
-> **Domain-agnostic design**: Opal itself is domain-agnostic. It becomes useful in a given field through the decorator sets provided. The DevOps examples here use `@shell` and `@kubectl`, but the same rules apply equally to data, science, security, or any other domain.
+After infrastructure is provisioned (Terraform, CloudFormation, etc.), teams fall back on shell scripts, Makefiles, or ad-hoc pipelines for day-2 operations and developer tasks. These are brittle, non-deterministic, and hard to audit.
+
+Opal fills the gap between "infrastructure is up" and "services are reliably operated."
+
+## What Opal Does
+
+- **Enforces determinism**: Same inputs always produce the same plan
+- **Produces execution contracts**: Verifiable plans that can be reviewed before running
+- **Keeps secrets safe**: Never logs or exposes credentials
+- **Fails fast**: Catches errors during planning, not execution
 
 ## Quick Start
 
-Define your operations:
+Define your tasks:
 
 ```bash
 # commands.opl
-build: echo "Building project..."
-test: echo "Running tests..."
+build: npm run build
+test: npm test
 deploy: kubectl apply -f k8s/
 ```
 
 Run with planning:
 
 ```bash
-# Install
-go install github.com/aledsdavies/opal/cli@latest
-
 # See what will execute
 opal deploy --dry-run
 
@@ -30,16 +36,15 @@ opal deploy --dry-run
 opal deploy
 ```
 
-## Why Opal?
+## Current Scope
 
-**Plan first, execute with confidence**: See exactly what will happen before it happens
-**Contract-based execution**: Generate immutable execution contracts for perfect auditability
-**Safe automation**: Deterministic execution with safety guarantees prevents runaway scripts
-**Domain agnostic**: Extensible to any field where automation needs to be predictable and safe
+**Developer tasks**: Repeatable build/test/deploy workflows
+**Operations tasks**: Day-2 activities like deployments, migrations, restarts, health checks
 
-## Core Features
+**Why start here?** Operations and task running are easier to prove the model works. Once the plan-verify-execute pattern is proven in this space, the same decorator model could extend to infrastructure provisioning. But that's later—right now, focus is on the narrow gap between "infra is up" and "services are reliably operated."
 
-### Planning Modes
+## Planning Modes
+
 ```bash
 # Quick plan - fast preview
 opal deploy --dry-run
@@ -51,11 +56,12 @@ opal deploy --dry-run --resolve > prod.plan
 opal run --plan prod.plan
 ```
 
-### Operations Syntax
+## Basic Syntax
+
 ```opal
 # Variables and environment
-var ENV = @env("ENVIRONMENT", default="dev")
-var REPLICAS = @env("REPLICAS", default=1)
+var ENV = @env.ENVIRONMENT
+var REPLICAS = @env.REPLICAS
 
 # Conditional operations
 deploy: {
@@ -68,51 +74,27 @@ deploy: {
     }
 }
 
-# Retry and timeout decorators
+# Retry and timeout
 migrate: @retry(attempts=3, delay=10s) {
-    @timeout(5m) {
-        psql @env("DATABASE_URL") -f migrations/
+    @timeout(duration=5m) {
+        psql @env.DATABASE_URL -f migrations/
     }
 }
 ```
 
-### Value Decorators
-Inject values inline:
-- `@env("PORT", default=3000)` - Environment variables
-- `@var.REPLICAS` - Script variables  
-- `@aws.secret("api-key")` - External value lookups
+## Value Decorators
 
-### Execution Decorators  
+Inject values inline:
+- `@env.PORT` - Environment variables
+- `@var.REPLICAS` - Script variables  
+- `@aws.secret.api_key(auth=prodAuth)` - External value lookups
+
+## Execution Decorators  
+
 Enhance command execution:
 - `@retry(attempts=3) { ... }` - Retry failed operations
-- `@timeout(5m) { ... }` - Timeout protection
+- `@timeout(duration=5m) { ... }` - Timeout protection
 - `@parallel { ... }` - Concurrent execution
-
-## Domain Examples
-
-### DevOps & Infrastructure
-```opal
-deploy: {
-    kubectl apply -f k8s/
-    @retry(attempts=3) { kubectl rollout status deployment/app }
-}
-```
-
-### Data Engineering  
-```opal
-etl_pipeline: {
-    @snowflake.load(table="events", from_s3=@var.RAW_BUCKET)
-    @dbt.run(model="daily_summary")
-}
-```
-
-### Security Automation
-```opal
-incident_response: {
-    @okta.suspend_user(email=@var.ALERT.user)
-    @crowdstrike.isolate_host(hostname=@var.ALERT.host)
-}
-```
 
 ## Installation
 
@@ -142,8 +124,8 @@ nix run github:aledsdavies/opal -- deploy --dry-run
 
 ### Web Application Deployment
 ```opal
-var ENV = @env("ENVIRONMENT", default="dev")
-var VERSION = @env("APP_VERSION", default="latest")
+var ENV = @env.ENVIRONMENT
+var VERSION = @env.APP_VERSION
 
 deploy: {
     echo "Deploying @var.VERSION to @var.ENV"
@@ -166,12 +148,12 @@ deploy: {
 migrate: {
     try {
         echo "Starting migration..."
-        psql @env("DATABASE_URL") -f migrations/001-users.sql
-        psql @env("DATABASE_URL") -f migrations/002-indexes.sql
+        psql @env.DATABASE_URL -f migrations/001-users.sql
+        psql @env.DATABASE_URL -f migrations/002-indexes.sql
         echo "Migration complete"
     } catch {
         echo "Migration failed, rolling back"
-        psql @env("DATABASE_URL") -f rollback.sql
+        psql @env.DATABASE_URL -f rollback.sql
     }
 }
 ```
@@ -184,25 +166,23 @@ This project uses Nix for development environments:
 # Enter development environment
 nix develop
 
-# Available commands
-opal build      # Build the project
-opal test       # Run tests  
-opal lint       # Run linting
-opal format     # Format code
+# Build and test
+cd cli && go build -o opal .
+cd runtime && go test ./...
 ```
 
 ## Status
 
-**Early Development**: Opal is in early development focusing on language design and architecture.
+**Early Development**: Focused on language design and parser implementation.
 
 **Completed**:
 - Language specification and syntax design
-- V2 lexer with comprehensive tokenization
+- High-performance lexer (>5000 lines/ms)
 - Planning and contract execution model design
 - Multi-module Go architecture
 
 **In Progress**:
-- Parser implementation for the new syntax
+- Event-based parser implementation
 - Execution engine with decorator support
 - Plan generation and contract verification
 
@@ -210,17 +190,16 @@ opal format     # Format code
 - Complete execution decorators (`@retry`, `@timeout`, `@parallel`)
 - Value decorators (`@env`, `@var`, `@aws.secret`)
 - Plugin system for custom decorators
-- Infrastructure-as-code decorators
 
-## Philosophy
+## How It Works
 
-Opal treats operations as **plans that can be reviewed before execution**. Instead of "run and hope," you:
+Opal treats operations as plans that can be reviewed before execution:
 
 1. **Plan** your operation and see exactly what will execute
-2. **Review** the plan with your team for safety and correctness
+2. **Review** the plan (or save it for later)
 3. **Execute** with contract verification to catch environment changes
 
-This gives operations teams the confidence to execute complex workflows safely.
+This gives you confidence to run complex workflows safely.
 
 ## License
 

@@ -32,11 +32,11 @@ The value is a **pure spec** (immutable). It contains only *parameters*, not liv
 **Other decorators accept the handle:**
 ```opal
 # Secrets using auth handle
-var db_password = @aws.secret.db_password(prodAuth)
-var api_key = @aws.secret.api_key(prodAuth)
+var db_password = @aws.secret.db_password(auth=prodAuth)
+var api_key = @aws.secret.api_key(auth=prodAuth)
 
 # Database operations using connection handle
-var users = @postgres.query("SELECT * FROM users", dbConn)
+var users = @postgres.query(sql="SELECT * FROM users", conn=dbConn)
 ```
 
 **Plan representation:**
@@ -212,9 +212,9 @@ var api_key = @aws.secret.api_key(prodAuth)
 var prodAuth = @aws.auth(profile="prod")
 
 # All three collected during planning
-var db_pass = @aws.secret.db_password(prodAuth)
-var api_key = @aws.secret.api_key(prodAuth)
-var cert = @aws.secret.tls_cert(prodAuth)
+var db_pass = @aws.secret.db_password(auth=prodAuth)
+var api_key = @aws.secret.api_key(auth=prodAuth)
+var cert = @aws.secret.tls_cert(auth=prodAuth)
 
 # Executed as single batch API call:
 # BatchGetSecretValue(["db_password", "api_key", "tls_cert"])
@@ -356,14 +356,14 @@ Decorators should compose naturally:
 var prodAuth = @aws.auth(profile="prod")
 
 # Connection uses secret from auth context
-var dbPass = @aws.secret.db_password(prodAuth)
+var dbPass = @aws.secret.db_password(auth=prodAuth)
 var dbConn = @postgres.connection(
     host="db.prod",
     password=dbPass
 )
 
 # Query uses connection
-var users = @postgres.query("SELECT * FROM users", dbConn)
+var users = @postgres.query(sql="SELECT * FROM users", conn=dbConn)
 ```
 
 ## Common Decorator Types
