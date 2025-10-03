@@ -1,18 +1,17 @@
 # AST Design for Opal
 
-**Goal**: Fast, resilient parser that complements the high-performance lexer (>5000 lines/ms) and supports LSP tooling.
+**Goal**: Fast, resilient parser that supports LSP tooling and development tools.
 
 **Important**: The AST is **optional** and only built for tooling (LSP, formatters, linters). For execution, Opal generates plans directly from parser events without constructing an AST. See [ARCHITECTURE.md](ARCHITECTURE.md#dual-path-architecture-execution-vs-tooling) for the dual-path design.
 
-## Design Constraints (from existing implementation)
+## Design Constraints
 
 ### Performance Requirements
-- **Lexer**: >5000 lines/ms (ACHIEVED)
-- **Parser**: Must maintain zero-allocation hot paths
+- **Lexer**: Zero allocations for hot paths
+- **Parser**: Minimal allocations, event-based
 - **AST**: Lightweight, cache-friendly representation
-- **Target**: Parse 10K line file in <2ms (lexer already does ~2ms)
 
-### Token Model (Already Implemented)
+### Token Model
 - **Comments preserved** as `COMMENT` tokens
 - **Whitespace**: Discarded, but `HasSpaceBefore` flag preserved
 - **Position**: Full Line/Column/Offset tracking
@@ -343,7 +342,7 @@ func (f File) Symbols() []Symbol {
 // Incremental re-parse (future optimization)
 func (t *ParseTree) Edit(edit TextEdit) *ParseTree {
     // Re-lex + re-parse affected region
-    // For MVP: full re-parse is fast enough (<4ms)
+    // For MVP: full re-parse is fast enough
     // Future: Tree-sitter-style incremental parsing
 }
 
@@ -590,7 +589,7 @@ func BenchmarkParser(b *testing.B) {
             tokens := lexer.GetTokens()  // ~2ms for 10K lines
             
             parser := NewParser(tokens)
-            tree := parser.Parse()       // Target: <2ms
+            tree := parser.Parse()
             
             _ = tree
         }
@@ -599,8 +598,7 @@ func BenchmarkParser(b *testing.B) {
     b.ReportMetric(float64(len(input))/1000000, "MB/s")
 }
 
-// Target: 10K lines in <4ms total (lex + parse)
-// Stretch goal: <3ms total
+// Fast parsing for large files
 ```
 
 ## Testing Strategy
@@ -756,7 +754,7 @@ func TestParseTreeInvariants(t *testing.T) {
 ### 4. Incremental Parsing
 **Choice**: Not MVP, design for future  
 **Rationale**:
-- Full re-parse is fast enough (<4ms for 10K lines)
+- Full re-parse is fast enough for typical files
 - LSP can cache parse trees per file
 - Add later when profiling shows need
 - Event-based design supports incremental updates

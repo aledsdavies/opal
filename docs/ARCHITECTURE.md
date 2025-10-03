@@ -86,15 +86,14 @@ Runtime Layer (Work Execution):
 
 ## Dual-Path Architecture: Execution vs Tooling
 
-Opal's parser produces a stream of events that can be consumed in two different ways, depending on the use case:
+Opal's parser produces a stream of events that can be consumed in two different ways:
 
-### Path 1: Events → Plan (Execution - Fast Path)
+### Path 1: Events → Plan (Execution)
 
 For **runtime execution**, the interpreter consumes events directly to generate execution plans:
 
 ```
 Source → Lexer → Parser → Events → Interpreter → Plan → Execute
-         <1ms    <1ms     <1ms                   <1ms
                           ^^^^^^^^
                      No AST construction!
 ```
@@ -106,18 +105,17 @@ Source → Lexer → Parser → Events → Interpreter → Plan → Execute
 - Automated workflows
 
 **Benefits:**
-- Sub-millisecond plan generation (<3ms total)
+- Fast plan generation
 - Zero AST allocation overhead
 - Natural branch pruning (skip unused code paths)
 - Minimal memory footprint
 
-### Path 2: Events → AST (Tooling - Analysis Path)
+### Path 2: Events → AST (Tooling)
 
 For **development tooling**, events are materialized into a typed AST:
 
 ```
 Source → Lexer → Parser → Events → AST Builder → Typed AST
-         <1ms    <1ms     <2ms                   
                           ^^^^^^^^
                      Lazy construction
 ```
@@ -140,7 +138,6 @@ Source → Lexer → Parser → Events → AST Builder → Typed AST
 
 | Feature | Execution Path | Tooling Path |
 |---------|---------------|--------------|
-| **Speed** | <3ms | ~5ms |
 | **Memory** | Events only | Events + AST |
 | **Use case** | Run commands | Analyze code |
 | **Construction** | Never builds AST | Lazy AST from events |
@@ -150,13 +147,12 @@ Source → Lexer → Parser → Events → AST Builder → Typed AST
 
 ## Event-Based Plan Generation (Execution Path)
 
-The interpreter generates execution plans directly from parser events without constructing an intermediate AST. This zero-copy pipeline enables sub-millisecond plan generation with natural support for branch pruning and parallel resolution.
+The interpreter generates execution plans directly from parser events without constructing an intermediate AST. This zero-copy pipeline enables fast plan generation with natural support for branch pruning and parallel resolution.
 
 ### The Zero-Copy Pipeline
 
 ```
 Source Code → Lexer → Tokens → Parser → Events → Interpreter → Execution Plan
-              <2ms              <1ms              <1ms
                                         ^^^^^^^^
                                    No AST needed!
 ```
@@ -164,14 +160,12 @@ Source Code → Lexer → Tokens → Parser → Events → Interpreter → Execu
 **Traditional approach:**
 ```
 Parse → Build AST → Walk AST → Generate Plan
-2ms     3ms         2ms        1ms            = 8ms total
 Memory: Events + AST nodes + Plan
 ```
 
 **Event-based approach:**
 ```
 Parse → Generate Plan (from events)
-2ms     1ms                                   = 3ms total
 Memory: Events + Plan (no AST allocation)
 ```
 
@@ -319,31 +313,29 @@ Independent files can be planned concurrently, then merged.
 
 ### Performance Characteristics
 
-**Target metrics (10K line file):**
-- Lexing: <2ms (already achieved: >5000 lines/ms)
-- Parsing: <2ms (event generation)
-- Planning: <1ms (event consumption + pruning)
-- **Total: <4ms** (lex + parse + plan)
+**Pipeline efficiency:**
+- Lexing: Fast tokenization with zero allocations
+- Parsing: Lightweight event generation
+- Planning: Direct event consumption with branch pruning
 
 **Memory profile:**
-- Events: ~5 bytes per event (EventKind + Data)
-- Plan: ~50 bytes per step (command + metadata)
-- No AST: Saves ~100+ bytes per node
+- Events: Compact representation (EventKind + Data)
+- Plan: Minimal per-step overhead
+- No AST: Significant memory savings
 
 **Comparison to shell:**
 
 | Metric | Shell | Opal |
 |--------|-------|------|
-| Parse | Immediate | <2ms |
-| Plan | None | <1ms |
-| Verify | None | <1ms |
-| Total overhead | 0ms | <4ms |
+| Parse | Immediate | Fast |
+| Plan | None | Yes |
+| Verify | None | Yes |
 | Pruning | No | Yes |
 | Parallelization | No | Yes |
 | Verification | No | Yes |
 | Auditability | No | Yes |
 
-Shell executes immediately without planning, but Opal's <4ms overhead buys:
+Shell executes immediately without planning, but Opal's minimal overhead buys:
 - **Safety**: Verify before execute
 - **Speed**: Parallel decorator resolution
 - **Auditability**: Immutable execution contract
@@ -826,13 +818,13 @@ The compilation flow ensures contract verification works reliably:
 
 The key insight: meta-programming happens during transform, so all downstream stages work with predictable, static command sequences.
 
-## Performance Requirements
+## Performance Design
 
-**Lexer performance**: Target >5000 lines/ms with zero allocations for hot paths. Use pre-compiled patterns and avoid regex where possible.
+**Lexer**: Zero allocations for hot paths. Use pre-compiled patterns and avoid regex where possible.
 
 **Resolution optimization**: Expensive value decorators resolve in parallel using DAG analysis. Unused branches never execute, preventing unnecessary side effects.
 
-**Plan caching**: Plans should be cacheable and reusable between runs. Plan hashes enable this optimization.
+**Plan caching**: Plans are cacheable and reusable between runs. Plan hashes enable this optimization.
 
 **Partial execution**: Support resuming from specific steps with `--from step:path` for long pipelines.
 
@@ -843,8 +835,6 @@ The key insight: meta-programming happens during transform, so all downstream st
 **Plugin verification**: External value decorators and execution decorators get the same compliance testing plus binary integrity verification through source hashing.
 
 **Contract testing**: Comprehensive scenarios covering source changes, infrastructure drift, and all verification error types.
-
-**Performance validation**: Lexer throughput, resolution DAG efficiency, and memory usage under load.
 
 ## IaC + Operations Together
 
