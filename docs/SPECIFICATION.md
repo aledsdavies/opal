@@ -212,6 +212,66 @@ fun build_module(module, target="dist") {
 }
 ```
 
+**Parameter types** (optional, TypeScript-style):
+
+Type annotations are optional and enable plan-time type checking when specified:
+
+```opal
+# Untyped (simple, flexible)
+fun greet(name) {
+    echo "Hello @var.name"
+}
+
+# Typed (explicit validation)
+fun deploy(env: String, replicas: Int = 3, timeout: Duration = 30s) {
+    kubectl scale deployment/app --replicas=@var.replicas
+}
+
+# Mixed (practical)
+fun build(module, target = "dist", verbose: Bool = false) {
+    npm run build -- --target=@var.target
+}
+```
+
+**Parameter syntax**:
+- `name` - required, untyped (no validation)
+- `name: String` - required, typed (validated at plan-time)
+- `name = "default"` - optional, untyped (type inferred from default)
+- `name: String = "default"` - optional, typed with explicit type
+
+**Supported types**:
+- `String` - text values
+- `Int` - integer numbers
+- `Float` - floating-point numbers
+- `Bool` - true/false
+- `Duration` - time durations (30s, 2h, 1d)
+- `Array` - lists of values
+- `Map` - key-value pairs
+
+**Type checking**:
+- Types are validated at plan-time when values are resolved
+- Untyped parameters accept any value
+- Type mismatches produce clear error messages before execution
+- Future: `--strict-types` flag for requiring all parameters to be typed
+
+**Command mode CLI flags**:
+
+In command mode, parameters with defaults become CLI flags:
+
+```opal
+# Definition
+fun deploy(env: String, replicas: Int = 3, timeout: Duration = 30s) {
+    kubectl scale deployment/app --replicas=@var.replicas
+}
+```
+
+```bash
+# CLI usage
+opal deploy production              # uses defaults: replicas=3, timeout=30s
+opal deploy production --replicas=5 # override replicas
+opal deploy production --timeout=60s --replicas=10
+```
+
 **Example expansion**:
 ```opal
 # Template function definition
@@ -346,7 +406,13 @@ var (
 )
 ```
 
-**Types**: `string | bool | int | float | duration | array | map`. Type errors caught at plan time.
+**Types**: `String | Bool | Int | Float | Duration | Array | Map`. 
+
+Type checking is optional (TypeScript-style):
+- Variables are untyped by default (flexible, inferred from values)
+- Function parameters can have optional type annotations
+- Type errors are caught at plan-time when types are specified
+- Future: `--strict-types` flag for requiring explicit types
 
 ### Identifier Names
 
