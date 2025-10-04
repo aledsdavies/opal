@@ -431,9 +431,13 @@ when @var.response {
 }
 ```
 
-### Async/Await (maybe)
+### Advanced Pattern Matching
 ```opal
-var result = await @http.get("https://api.example.com")
+when @var.response {
+    { status: 200, body: b } -> echo "Success: @var.b"
+    { status: s } if s >= 500 -> echo "Server error"
+    else -> echo "Other response"
+}
 ```
 
 ## Implementation Notes
