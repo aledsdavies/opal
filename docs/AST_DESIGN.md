@@ -1,10 +1,42 @@
+---
+title: "AST Design for Opal"
+audience: "Tooling Developers & LSP Implementers"
+summary: "Event-based parser implementation for execution and tooling"
+---
+
 # AST Design for Opal
 
 **Goal**: Fast, resilient parser that supports LSP tooling and development tools.
 
-**Important**: The AST is **optional** and only built for tooling (LSP, formatters, linters). For execution, Opal generates plans directly from parser events without constructing an AST. See [ARCHITECTURE.md](ARCHITECTURE.md#dual-path-architecture-execution-vs-tooling) for the dual-path design.
+**Audience**: Tooling developers, LSP implementers, and contributors working on the parser or static analysis.
+
+**See also**:
+- [GRAMMAR.md](GRAMMAR.md) - Formal EBNF syntax specification
+- [ARCHITECTURE.md](ARCHITECTURE.md#dual-path-architecture-execution-vs-tooling) - Dual-path design rationale
+
+**Important**: The AST is **optional** and only built for tooling (LSP, formatters, linters). For execution, Opal generates plans directly from parser events without constructing an AST.
+
+## Dual-Path Pipeline
+
+```
+Source Code
+    ↓
+Lexer → Tokens
+    ↓
+Parser → Events
+    ↓    ↓
+    ↓    └──→ AST (tooling: LSP, linters, formatters)
+    ↓
+    └──────→ Plan (execution: runtime)
+```
+
+**Key insight**: Events are universal. AST construction is deferred until needed.
 
 ## Design Constraints
+
+**See also**: 
+- [GRAMMAR.md](GRAMMAR.md) - Formal EBNF syntax specification
+- [ARCHITECTURE.md](ARCHITECTURE.md#dual-path-architecture-execution-vs-tooling) - Why we chose this design
 
 ### Performance Requirements
 - **Lexer**: Zero allocations for hot paths
@@ -543,6 +575,139 @@ func (p *Parser) exprBp(minBp int) {
     // See matklad's "Simple but Powerful Pratt Parsing"
 }
 ```
+
+## Event-Based Plan Generation
+
+The interpreter consumes parser events directly to generate execution plans without building an AST. This zero-copy pipeline enables fast plan generation with natural branch pruning.
+
+### Direct Event Consumption
+
+```go
+func (i *Interpreter) generatePlan(events []Event) *ExecutionPlan {
+    plan := &ExecutionPlan{Steps: make([]Step, 0, 100)}
+    
+    for i.pos < len(events) {
+        event := events[i.pos]
+        
+        switch event.Kind {
+        case EventOpen:
+            switch event.Data {
+            case NodeWhen:
+                // Resolve condition at plan-time
+                value := i.resolveValue("@var.ENV")
+                
+                // Process only matching branch
+                for branch := range i.scanBranches() {
+                    if branch.matches(value) {
+                        i.processBranch(branch)  // Emit steps
+                    } else {
+                        i.skipBranch(branch)     // Prune events
+                    }
+                }
+            
+            case NodeFor:
+                // Unroll loop at plan-time
+                items := i.resolveValue("@var.SERVICES")
+                loopBody := i.captureLoopBody()
+                
+                for _, item := range items {
+                    i.setVar("service", item)
+                    i.processEvents(loopBody)  // Replay with new binding
+                }
+            }
+        }
+    }
+    
+    return plan
+}
+```
+
+### Branch Pruning
+
+When conditionals are evaluated, only the selected branch is processed:
+
+```opal
+when @var.ENV {
+    "production" -> kubectl apply -f k8s/prod/
+    "staging" -> kubectl apply -f k8s/staging/
+}
+```
+
+**Events (all branches present):**
+```
+[Open(When), Token(@var.ENV),
+  Open(Branch), Token("production"), ..., Close(Branch),
+  Open(Branch), Token("staging"), ..., Close(Branch),
+Close(When)]
+```
+
+**Plan with ENV="production" (pruned):**
+```
+Step 1: kubectl apply -f k8s/prod/
+// Staging branch pruned - events skipped
+```
+
+**Pruning implementation:**
+```go
+func (i *Interpreter) skipBranch(branch BranchInfo) {
+    depth := 1
+    for depth > 0 {
+        i.pos++
+        if events[i.pos].Kind == EventOpen { depth++ }
+        if events[i.pos].Kind == EventClose { depth-- }
+    }
+    // Entire branch skipped - zero cost
+}
+```
+
+### Loop Unrolling
+
+Loops expand into concrete steps by replaying body events:
+
+```opal
+for service in ["api", "worker"] {
+    kubectl scale deployment/@var.service --replicas=3
+}
+```
+
+**Plan (unrolled):**
+```
+Step 1: kubectl scale deployment/api --replicas=3
+Step 2: kubectl scale deployment/worker --replicas=3
+```
+
+The interpreter captures loop body events once, then replays them for each iteration with updated variable bindings.
+
+### Parallel Resolution
+
+Independent value decorators can resolve concurrently:
+
+```opal
+deploy: {
+    @env.DATABASE_URL        # Resolve in parallel
+    @aws.secret.api_key      # Resolve in parallel
+    kubectl apply -f k8s/
+}
+```
+
+All value decorators resolve before generating sequential execution steps.
+
+### Performance Characteristics
+
+**Pipeline efficiency:**
+- Lexing: Zero-allocation tokenization
+- Parsing: Lightweight event generation  
+- Planning: Direct event consumption with pruning
+
+**Memory profile:**
+- Events: Compact (EventKind + Data)
+- Plan: Minimal per-step overhead
+- No AST: Significant memory savings
+
+**Targets:**
+- Lexer: >5000 lines/ms
+- Parser: >3000 lines/ms (events)
+- Plan generation: <10ms for typical scripts
 
 ## Implementation Plan
 

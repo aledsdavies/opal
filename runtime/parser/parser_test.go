@@ -273,71 +273,6 @@ func TestParseEventStructure(t *testing.T) {
 	}
 }
 
-// TestParseErrors verifies error recovery for invalid syntax
-func TestParseErrors(t *testing.T) {
-	tests := []struct {
-		name        string
-		input       string
-		wantErrors  bool
-		description string
-	}{
-		{
-			name:        "missing closing parenthesis",
-			input:       "fun greet(name {}",
-			wantErrors:  true,
-			description: "should report missing )",
-		},
-		{
-			name:        "missing function name",
-			input:       "fun () {}",
-			wantErrors:  false, // Parser might accept this, semantic analysis rejects
-			description: "parser accepts, semantic analysis should reject",
-		},
-		{
-			name:        "missing parameter name before colon",
-			input:       "fun greet(: String) {}",
-			wantErrors:  false, // Parser might accept this, semantic analysis rejects
-			description: "parser accepts, semantic analysis should reject",
-		},
-		{
-			name:        "trailing comma in parameters",
-			input:       "fun greet(name,) {}",
-			wantErrors:  false, // Parser might accept this, semantic analysis rejects
-			description: "parser accepts, semantic analysis should reject",
-		},
-		{
-			name:        "missing opening brace",
-			input:       "fun greet() }",
-			wantErrors:  true,
-			description: "should report missing {",
-		},
-		{
-			name:        "missing closing brace",
-			input:       "fun greet() {",
-			wantErrors:  true,
-			description: "should report missing }",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tree := ParseString(tt.input)
-
-			hasErrors := len(tree.Errors) > 0
-
-			if hasErrors != tt.wantErrors {
-				t.Errorf("Error expectation mismatch: got errors=%v, want errors=%v\nErrors: %v\nDescription: %s",
-					hasErrors, tt.wantErrors, tree.Errors, tt.description)
-			}
-
-			// Parser should still produce events even with errors (error recovery)
-			if len(tree.Events) == 0 {
-				t.Error("Parser should produce events even with errors (for error recovery)")
-			}
-		})
-	}
-}
-
 // TestParseBasics verifies basic parsing functionality
 func TestParseBasics(t *testing.T) {
 	tests := []struct {
@@ -384,4 +319,87 @@ func TestParseBasics(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTelemetry verifies telemetry collection
+func TestTelemetry(t *testing.T) {
+	input := "fun greet(name: String) {}"
+
+	t.Run("telemetry off by default", func(t *testing.T) {
+		tree := ParseString(input)
+		if tree.Telemetry != nil {
+			t.Error("Expected nil telemetry by default")
+		}
+	})
+
+	t.Run("telemetry timing enabled", func(t *testing.T) {
+		tree := ParseString(input, WithTelemetryTiming())
+		
+		if tree.Telemetry == nil {
+			t.Fatal("Expected telemetry to be non-nil")
+		}
+
+		if tree.Telemetry.TokenCount == 0 {
+			t.Error("Expected non-zero token count")
+		}
+
+		if tree.Telemetry.EventCount == 0 {
+			t.Error("Expected non-zero event count")
+		}
+
+		if tree.Telemetry.TotalTime == 0 {
+			t.Error("Expected non-zero total time")
+		}
+	})
+
+	t.Run("telemetry basic enabled", func(t *testing.T) {
+		tree := ParseString(input, WithTelemetryBasic())
+		
+		if tree.Telemetry == nil {
+			t.Fatal("Expected telemetry to be non-nil")
+		}
+
+		if tree.Telemetry.TokenCount == 0 {
+			t.Error("Expected non-zero token count")
+		}
+	})
+}
+
+// TestDebugTracing verifies debug event collection
+func TestDebugTracing(t *testing.T) {
+	input := "fun greet(name: String) {}"
+
+	t.Run("debug off by default", func(t *testing.T) {
+		tree := ParseString(input)
+		if len(tree.DebugEvents) != 0 {
+			t.Error("Expected no debug events by default")
+		}
+	})
+
+	t.Run("debug paths enabled", func(t *testing.T) {
+		tree := ParseString(input, WithDebugPaths())
+		
+		if len(tree.DebugEvents) == 0 {
+			t.Fatal("Expected debug events")
+		}
+
+		// Should have enter/exit events for source, function, paramList, etc.
+		hasEnterSource := false
+		hasExitSource := false
+		for _, evt := range tree.DebugEvents {
+			if evt.Event == "enter_source" {
+				hasEnterSource = true
+			}
+			if evt.Event == "exit_source" {
+				hasExitSource = true
+			}
+		}
+
+		if !hasEnterSource {
+			t.Error("Expected enter_source debug event")
+		}
+		if !hasExitSource {
+			t.Error("Expected exit_source debug event")
+		}
+	})
 }

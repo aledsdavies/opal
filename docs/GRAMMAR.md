@@ -1,6 +1,12 @@
-# Opal DSL Specification
+---
+title: "Opal Formal Grammar"
+audience: "Language Reference"
+summary: "EBNF grammar specification and syntax rules"
+---
 
-Formal grammar and syntax rules for the Opal language.
+# Opal Formal Grammar
+
+EBNF grammar specification for the Opal language.
 
 ## Grammar Notation
 
@@ -16,38 +22,48 @@ Formal grammar and syntax rules for the Opal language.
 
 ### Identifiers
 
-```
+```ebnf
 identifier = letter (letter | digit | "_")*
 letter     = [a-zA-Z]
 digit      = [0-9]
 ```
 
-**Examples**: `deploy`, `apiUrl`, `PORT`, `service_name`, `buildAndTest`
+**Examples**: `deploy`, `apiUrl`, `PORT`, `serviceName`, `buildAndTest`
+
+**Naming conventions** (not enforced by grammar):
+- Variables/parameters: `camelCase` preferred
+- Constants: `SCREAMING_SNAKE` common
+- Commands: any valid identifier style
 
 ### Keywords
 
-```
+```ebnf
 fun when if else for in try catch finally var
 ```
 
 ### Literals
 
-```
+```ebnf
 string_literal   = '"' string_char* '"'
 int_literal      = digit+
 float_literal    = digit+ "." digit+
 bool_literal     = "true" | "false"
-duration_literal = duration_value duration_unit+
+duration_literal = duration_component+
 
-duration_value = digit+
-duration_unit  = "ns" | "us" | "ms" | "s" | "m" | "h" | "d" | "w" | "y"
+duration_component = digit+ duration_unit
+duration_unit      = "y" | "w" | "d" | "h" | "m" | "s" | "ms" | "us" | "ns"
 ```
 
 **Duration examples**: `30s`, `5m`, `2h`, `1h30m`, `2d12h`
 
+**Semantic Notes** (validation rules, not syntax):
+- Components must be in descending order: `1h30m` ✓, `30m1h` ✗
+- No duplicate units: `1h30m` ✓, `1h2h` ✗
+- Integer values only: `1h30m` ✓, `1.5h` ✗
+
 ### Operators
 
-```
+```ebnf
 arithmetic = "+" | "-" | "*" | "/" | "%"
 comparison = "==" | "!=" | "<" | ">" | "<=" | ">="
 logical    = "&&" | "||" | "!"
@@ -58,7 +74,7 @@ shell      = "|" | "&&" | "||" | ";"
 
 ### Delimiters
 
-```
+```ebnf
 ( ) { } [ ] , : . @
 ```
 
@@ -66,7 +82,7 @@ shell      = "|" | "&&" | "||" | ";"
 
 ### Source File
 
-```
+```ebnf
 source = declaration*
 
 declaration = function_decl
@@ -75,8 +91,8 @@ declaration = function_decl
 
 ### Function Declarations
 
-```
-function_decl = "fun" identifier param_list ("=" expression | block)
+```ebnf
+function_decl = "fun" identifier param_list? ("=" expression | block)
 
 param_list = "(" (param ("," param)*)? ")"
 
@@ -97,9 +113,16 @@ fun build(module, target = "dist") { ... }
 fun deploy(env: String, replicas: Int = 3) { ... }
 ```
 
+**Semantic Notes** (calling conventions):
+- Positional: `@cmd.retry(3, 2s)`
+- Named: `@cmd.retry(attempts=3, delay=2s)`
+- Mixed: `@cmd.retry(3, delay=2s)`
+
+All three forms are valid (Kotlin-style flexibility).
+
 ### Variable Declarations
 
-```
+```ebnf
 var_decl = "var" (var_spec | "(" var_spec+ ")")
 
 var_spec = identifier ("=" expression)?
@@ -110,14 +133,14 @@ var_spec = identifier ("=" expression)?
 var ENV = @env.ENVIRONMENT
 var PORT = 3000
 var (
-    API_URL = @env.API_URL
-    REPLICAS = 3
+    apiUrl = @env.API_URL
+    replicas = 3
 )
 ```
 
 ### Statements
 
-```
+```ebnf
 statement = var_decl
           | assignment
           | expression
@@ -134,7 +157,7 @@ assign_op = "=" | "+=" | "-=" | "*=" | "/=" | "%="
 
 ### Control Flow
 
-```
+```ebnf
 if_stmt = "if" expression block ("else" (if_stmt | block))?
 
 when_stmt = "when" expression "{" when_arm+ "}"
@@ -170,7 +193,7 @@ try { ... } catch { ... } finally { ... }
 
 ### Expressions
 
-```
+```ebnf
 expression = primary
            | unary_expr
            | binary_expr
@@ -187,7 +210,7 @@ array_literal = "[" (expression ("," expression)*)? "]"
 
 map_literal = "{" (map_entry ("," map_entry)*)? "}"
 
-map_entry = string_literal ":" expression
+map_entry = (string_literal | identifier) ":" expression
 
 unary_expr = ("!" | "-" | "++" | "--") expression
 
@@ -195,14 +218,23 @@ binary_expr = expression binary_op expression
 
 binary_op = arithmetic | comparison | logical | shell
 
-call_expr = "@cmd." identifier "(" (arg ("," arg)*)? ")"
+call_expr = "@cmd." identifier "(" argument_list? ")"
 
-arg = identifier "=" expression
+argument_list = argument ("," argument)*
+
+argument = (identifier "=")? expression
+```
+
+**Argument forms** (all valid):
+```opal
+@cmd.retry(3, 2s)                    # Positional
+@cmd.retry(attempts=3, delay=2s)     # Named
+@cmd.retry(3, delay=2s)              # Mixed
 ```
 
 ### Decorators
 
-```
+```ebnf
 decorator_expr = value_decorator | execution_decorator
 
 value_decorator = "@" decorator_path decorator_args?
@@ -211,14 +243,14 @@ execution_decorator = "@" decorator_path decorator_args? block
 
 decorator_path = identifier ("." identifier)*
 
-decorator_args = "(" (arg ("," arg)*)? ")"
+decorator_args = "(" argument_list? ")"
 ```
 
 **Value decorators**:
 ```opal
 @env.PORT
 @var.REPLICAS
-@aws.secret.api_key(auth=prodAuth)
+@aws.secret.apiKey(auth=prodAuth)
 ```
 
 **Execution decorators**:
@@ -230,16 +262,18 @@ decorator_args = "(" (arg ("," arg)*)? ")"
 
 ### Variable Interpolation
 
-```
-interpolation = "@var." identifier ("()")? 
-              | "@env." identifier ("()")? 
+```ebnf
+interpolation = "@var." identifier terminator?
+              | "@env." identifier terminator?
               | decorator_expr
+
+terminator = "()"
 ```
 
 **In strings and commands**:
 ```opal
 echo "Deploying @var.service"
-kubectl scale --replicas=@var.REPLICAS deployment/@var.service
+kubectl scale --replicas=@var.replicas deployment/@var.service
 kubectl apply -f k8s/@var.service/
 ```
 
@@ -250,7 +284,7 @@ echo "@var.service()_backup"  // Expands to "api_backup"
 
 ### Blocks
 
-```
+```ebnf
 block = "{" statement* "}"
 ```
 
@@ -258,7 +292,7 @@ block = "{" statement* "}"
 
 Shell commands are parsed as execution decorators internally:
 
-```
+```ebnf
 shell_command = shell_token+
 
 shell_token = identifier | string_literal | interpolation | shell_operator
@@ -292,17 +326,17 @@ From highest to lowest:
 
 ## Whitespace and Comments
 
-```
+```ebnf
 whitespace = " " | "\t" | "\n" | "\r"
 
-comment = "//" any* "\n"
-        | "/*" any* "*/"
+comment = "//" [^\n]* "\n"
+        | "/*" .* "*/"
 ```
 
-Whitespace is generally insignificant except:
+**Whitespace significance**:
 - Newlines separate statements (fail-fast semantics)
 - Semicolons override newline semantics (continue on error)
-- `HasSpaceBefore` flag preserved for shell command parsing
+- `HasSpaceBefore` token flag preserved for shell command parsing
 
 ## Semantic Rules
 
@@ -384,7 +418,7 @@ Plans are JSON with the following structure:
 - `algorithm` - hash algorithm (sha256)
 - `hash` - truncated hash for verification
 
-## Decorator Loading
+## Decorator Plugin Interface
 
 Decorators are loaded as Go plugins (`.so` files):
 
@@ -400,44 +434,11 @@ type ExecutionDecorator interface {
 }
 ```
 
-**Loading at runtime**:
+**Loading at runtime:**
 ```bash
 # CLI discovers decorators in:
 ~/.opal/decorators/*.so
 ./.opal/decorators/*.so
-```
-
-## Future Extensions
-
-### Struct Types
-```opal
-type Config {
-    database: String
-    port: Int
-}
-
-var config: Config = {
-    database: @env.DATABASE_URL,
-    port: 5432
-}
-```
-
-### Pattern Matching Extensions
-```opal
-when @var.response {
-    { status: 200 } -> echo "Success"
-    { status: 404 } -> echo "Not found"
-    { status: s } if s >= 500 -> echo "Server error"
-}
-```
-
-### Advanced Pattern Matching
-```opal
-when @var.response {
-    { status: 200, body: b } -> echo "Success: @var.b"
-    { status: s } if s >= 500 -> echo "Server error"
-    else -> echo "Other response"
-}
 ```
 
 ## Implementation Notes

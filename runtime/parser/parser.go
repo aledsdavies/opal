@@ -19,9 +19,11 @@ func Parse(source []byte, opts ...ParserOpt) *ParseTree {
 	var startTotal time.Time
 
 	// Initialize telemetry if enabled
-	if config.telemetry >= TelemetryTiming {
-		startTotal = time.Now()
+	if config.telemetry >= TelemetryBasic {
 		telemetry = &ParseTelemetry{}
+		if config.telemetry >= TelemetryTiming {
+			startTotal = time.Now()
+		}
 	}
 
 	// Initialize debug if enabled
@@ -39,9 +41,11 @@ func Parse(source []byte, opts ...ParserOpt) *ParseTree {
 	lex.Init(source)
 	tokens := lex.GetTokens()
 
-	if config.telemetry >= TelemetryTiming {
-		telemetry.LexTime = time.Since(startLex)
+	if config.telemetry >= TelemetryBasic {
 		telemetry.TokenCount = len(tokens)
+		if config.telemetry >= TelemetryTiming {
+			telemetry.LexTime = time.Since(startLex)
+		}
 	}
 
 	// Create parser with pre-allocated buffers
@@ -68,11 +72,13 @@ func Parse(source []byte, opts ...ParserOpt) *ParseTree {
 
 	p.file()
 
-	if config.telemetry >= TelemetryTiming {
-		telemetry.ParseTime = time.Since(startParse)
-		telemetry.TotalTime = time.Since(startTotal)
+	if config.telemetry >= TelemetryBasic {
 		telemetry.EventCount = len(p.events)
 		telemetry.ErrorCount = len(p.errors)
+		if config.telemetry >= TelemetryTiming {
+			telemetry.ParseTime = time.Since(startParse)
+			telemetry.TotalTime = time.Since(startTotal)
+		}
 	}
 
 	return &ParseTree{
@@ -102,9 +108,11 @@ func ParseTokens(source []byte, tokens []lexer.Token, opts ...ParserOpt) *ParseT
 	var startTotal time.Time
 
 	// Initialize telemetry if enabled
-	if config.telemetry >= TelemetryTiming {
-		startTotal = time.Now()
+	if config.telemetry >= TelemetryBasic {
 		telemetry = &ParseTelemetry{}
+		if config.telemetry >= TelemetryTiming {
+			startTotal = time.Now()
+		}
 	}
 
 	// Initialize debug if enabled
@@ -135,12 +143,14 @@ func ParseTokens(source []byte, tokens []lexer.Token, opts ...ParserOpt) *ParseT
 
 	p.file()
 
-	if config.telemetry >= TelemetryTiming {
-		telemetry.ParseTime = time.Since(startParse)
-		telemetry.TotalTime = time.Since(startTotal)
+	if config.telemetry >= TelemetryBasic {
 		telemetry.EventCount = len(p.events)
 		telemetry.ErrorCount = len(p.errors)
 		telemetry.TokenCount = len(tokens)
+		if config.telemetry >= TelemetryTiming {
+			telemetry.ParseTime = time.Since(startParse)
+			telemetry.TotalTime = time.Since(startTotal)
+		}
 	}
 
 	return &ParseTree{
@@ -189,6 +199,8 @@ func (p *parser) file() {
 	for !p.at(lexer.EOF) {
 		if p.at(lexer.FUN) {
 			p.function()
+		} else if p.at(lexer.VAR) {
+			p.varDecl()
 		} else {
 			// Unknown token, skip for now
 			p.advance()
@@ -239,10 +251,8 @@ func (p *parser) paramList() {
 
 	kind := p.start(NodeParamList)
 
-	// Consume '('
-	if p.at(lexer.LPAREN) {
-		p.token()
-	}
+	// Expect '('
+	p.expect(lexer.LPAREN, "parameter list")
 
 	// Parse parameters (comma-separated)
 	for !p.at(lexer.RPAREN) && !p.at(lexer.EOF) {
@@ -257,10 +267,8 @@ func (p *parser) paramList() {
 		}
 	}
 
-	// Consume ')'
-	if p.at(lexer.RPAREN) {
-		p.token()
-	}
+	// Expect ')'
+	p.expect(lexer.RPAREN, "parameter list")
 
 	p.finish(kind)
 
@@ -358,22 +366,137 @@ func (p *parser) block() {
 
 	kind := p.start(NodeBlock)
 
-	// Consume '{'
-	if p.at(lexer.LBRACE) {
-		p.token()
+	// Expect '{'
+	p.expect(lexer.LBRACE, "function body")
+
+	// Parse statements
+	for !p.at(lexer.RBRACE) && !p.at(lexer.EOF) {
+		p.statement()
 	}
 
-	// TODO: Parse statements (for now just skip to '}')
-
-	// Consume '}'
-	if p.at(lexer.RBRACE) {
-		p.token()
-	}
+	// Expect '}'
+	p.expect(lexer.RBRACE, "function body")
 
 	p.finish(kind)
 
 	if p.config.debug > DebugOff {
 		p.recordDebugEvent("exit_block", "block complete")
+	}
+}
+
+// statement parses a statement
+func (p *parser) statement() {
+	if p.at(lexer.VAR) {
+		p.varDecl()
+	} else {
+		// For now, skip unknown statements
+		p.advance()
+	}
+}
+
+// varDecl parses a variable declaration: var IDENTIFIER = expression
+func (p *parser) varDecl() {
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("enter_var_decl", "parsing variable declaration")
+	}
+
+	kind := p.start(NodeVarDecl)
+
+	// Consume 'var' keyword
+	p.token()
+
+	// Expect identifier
+	if !p.expect(lexer.IDENTIFIER, "variable declaration") {
+		p.finish(kind)
+		return
+	}
+
+	// Expect '='
+	if !p.expect(lexer.EQUALS, "variable declaration") {
+		p.finish(kind)
+		return
+	}
+
+	// Parse expression
+	p.expression()
+
+	p.finish(kind)
+
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("exit_var_decl", "variable declaration complete")
+	}
+}
+
+// expression parses an expression
+func (p *parser) expression() {
+	p.binaryExpr(0) // Start with lowest precedence
+}
+
+// binaryExpr parses binary expressions with precedence
+func (p *parser) binaryExpr(minPrec int) {
+	// Parse left side (primary expression)
+	p.primary()
+
+	// Parse binary operators
+	for {
+		prec := p.precedence()
+		if prec == 0 || prec < minPrec {
+			break
+		}
+
+		// We have a binary operator
+		kind := p.start(NodeBinaryExpr)
+		p.token() // Consume operator
+
+		// Parse right side with higher precedence
+		p.binaryExpr(prec + 1)
+
+		p.finish(kind)
+	}
+}
+
+// primary parses a primary expression (literal, identifier, etc.)
+func (p *parser) primary() {
+	switch {
+	case p.at(lexer.INTEGER), p.at(lexer.FLOAT), p.at(lexer.STRING), p.at(lexer.BOOLEAN):
+		// Literal
+		kind := p.start(NodeLiteral)
+		p.token()
+		p.finish(kind)
+
+	case p.at(lexer.IDENTIFIER):
+		// Identifier
+		kind := p.start(NodeIdentifier)
+		p.token()
+		p.finish(kind)
+
+	default:
+		// Unexpected token - report error and create error node
+		p.errorUnexpected("expression")
+		// Advance to prevent infinite loop
+		if !p.at(lexer.EOF) {
+			p.advance()
+		}
+	}
+}
+
+// precedence returns the precedence of the current token as a binary operator
+func (p *parser) precedence() int {
+	switch p.current().Type {
+	case lexer.OR_OR:
+		return 1
+	case lexer.AND_AND:
+		return 2
+	case lexer.EQ_EQ, lexer.NOT_EQ:
+		return 3
+	case lexer.LT, lexer.LT_EQ, lexer.GT, lexer.GT_EQ:
+		return 4
+	case lexer.PLUS, lexer.MINUS:
+		return 5
+	case lexer.MULTIPLY, lexer.DIVIDE, lexer.MODULO:
+		return 6
+	default:
+		return 0 // Not a binary operator
 	}
 }
 
@@ -422,4 +545,87 @@ func (p *parser) token() {
 		Data: uint32(p.pos),
 	})
 	p.advance()
+}
+
+// expect checks for expected token and reports error if not found
+func (p *parser) expect(expected lexer.TokenType, context string) bool {
+	if p.at(expected) {
+		p.token()
+		return true
+	}
+	p.errorExpected(expected, context)
+	return false
+}
+
+// errorExpected reports an error for missing expected token
+func (p *parser) errorExpected(expected lexer.TokenType, context string) {
+	current := p.current()
+
+	err := ParseError{
+		Position: current.Position,
+		Message:  "missing " + tokenName(expected),
+		Context:  context,
+		Expected: []lexer.TokenType{expected},
+		Got:      current.Type,
+	}
+
+	// Add helpful suggestions based on context
+	switch expected {
+	case lexer.RPAREN:
+		err.Suggestion = "Add ')' to close the " + context
+		err.Example = "fun greet(name) {}"
+	case lexer.RBRACE:
+		err.Suggestion = "Add '}' to close the " + context
+		err.Example = "fun greet() { echo \"hello\" }"
+	case lexer.LBRACE:
+		err.Suggestion = "Add '{' to start the function body"
+		err.Example = "fun greet() {}"
+	case lexer.IDENTIFIER:
+		if context == "function declaration" {
+			err.Suggestion = "Add a function name after 'fun'"
+			err.Example = "fun greet() {}"
+		} else if context == "parameter" {
+			err.Suggestion = "Add a parameter name"
+			err.Example = "fun greet(name) {}"
+		}
+	}
+
+	p.errors = append(p.errors, err)
+}
+
+// errorUnexpected reports an error for unexpected token
+func (p *parser) errorUnexpected(context string) {
+	current := p.current()
+
+	err := ParseError{
+		Position: current.Position,
+		Message:  "unexpected " + tokenName(current.Type),
+		Context:  context,
+		Got:      current.Type,
+	}
+
+	p.errors = append(p.errors, err)
+}
+
+// isSyncToken checks if current token is a synchronization point
+func (p *parser) isSyncToken() bool {
+	switch p.current().Type {
+	case lexer.RBRACE, // End of block
+		lexer.SEMICOLON, // Statement terminator
+		lexer.FUN,       // Start of new function
+		lexer.EOF:       // End of file
+		return true
+	}
+
+	// Newline can be a sync point in some contexts
+	// For now, we'll rely on explicit tokens
+	return false
+}
+
+// recover skips tokens until we reach a synchronization point
+// This allows the parser to continue after errors and report multiple issues
+func (p *parser) recover() {
+	for !p.isSyncToken() && !p.at(lexer.EOF) {
+		p.advance()
+	}
 }

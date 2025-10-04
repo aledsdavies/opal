@@ -1,12 +1,37 @@
+---
+title: "Opal Testing Strategy"
+audience: "Core Developers & Contributors"
+summary: "Systematic testing approach for contract-based operations"
+---
+
 # Opal Testing Strategy
 
 **Goal: Ridiculously stable contract-based operations through systematic testing**
 
-Build stability into the process, not just the code. This guide implements easy testing wins early while establishing the foundation for production-grade reliability.
+**Audience**: Core developers and contributors implementing tests for the Opal runtime.
+
+Build stability into the process, not just the code. Start with high-value tests that catch 80% of issues, then layer in comprehensive testing as the system matures.
+
+## Testing Layer Model
+
+```
+SPECIFICATION.md → Defines guarantees
+       ↓
+ARCHITECTURE.md → Implements guarantees
+       ↓
+TESTING_STRATEGY.md → Verifies guarantees
+       ↓
+OBSERVABILITY.md → Monitors guarantees in production
+```
+
+**Each layer verifies the layer above it:**
+- Tests verify architecture implements spec correctly
+- Observability verifies tests caught real-world issues
+- Feedback loop improves all layers
 
 ## Non-Negotiable Invariants
 
-These align with the core specification principles and must never break:
+These protect the guarantees defined in [SPECIFICATION.md](SPECIFICATION.md) and must never break:
 
 * **Resolved plans are execution contracts**: same input → identical plan bytes; execution refuses if structure/hash differs
 * **Security invariant**: No raw secrets in plans/logs - only `<length:algorithm:hash>` placeholders 
@@ -15,7 +40,7 @@ These align with the core specification principles and must never break:
 
 ## Testing Phases
 
-### Phase 1: Foundation (Implement Now)
+### Core Tests (Implement Now)
 Essential tests that catch 80% of issues with minimal effort.
 
 #### Golden Plan Tests
@@ -137,7 +162,7 @@ deploy: {
 }
 ```
 
-### Phase 2: Reliability (Build Up)
+### Advanced Tests (Build Up)
 More sophisticated testing as the system matures.
 
 #### Contract Verification Tests

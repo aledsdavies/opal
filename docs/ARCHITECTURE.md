@@ -1,23 +1,66 @@
+---
+title: "Opal Architecture"
+audience: "Core Developers & Contributors"
+summary: "System design and implementation of the plan-verify-execute model"
+---
+
 # Opal Architecture
 
 **Implementation requirements for the plan-verify-execute model**
+
+**Audience**: Core developers, plugin authors, and contributors working on the Opal runtime, parser, or execution engine.
+
+**See also**: [SPECIFICATION.md](SPECIFICATION.md) for user-facing language semantics and guarantees.
 
 ## Target Scope
 
 Operations and developer task automation - the gap between "infrastructure is up" and "services are reliably operated."
 
-**Why this scope?** Operations tasks are simpler than infrastructure provisioning, letting us prove the plan-verify-execute model works. The architecture supports future extension to IaC through the same decorator model.
+**Why this scope?** Operations and task automation is the immediate need - reliable deployment, scaling, rollback, and operational workflows.
 
 ## Core Requirements
+
+These principles implement the guarantees defined in [SPECIFICATION.md](SPECIFICATION.md):
 
 - **Deterministic planning**: Same inputs → identical plan
 - **Contract verification**: Detect environment changes between plan and execute
 - **Fail-fast**: Errors at plan-time, not execution
 - **Halting guarantee**: All plans terminate with predictable results
 
-## Key Architectural Principle
+### Concept Mapping
 
-Plans aren't previews - they're immutable execution contracts. Instead of managing state like traditional tools, we verify contracts before execution.
+| Concept | Purpose | Defined In | Tested In |
+|---------|---------|------------|-----------|
+| **Plans** | Execution contracts | [SPECIFICATION.md](SPECIFICATION.md#plans-three-execution-modes) | [TESTING_STRATEGY.md](TESTING_STRATEGY.md#golden-plan-tests) |
+| **Decorators** | Value injection & execution control | [SPECIFICATION.md](SPECIFICATION.md#decorator-syntax) | [TESTING_STRATEGY.md](TESTING_STRATEGY.md#decorator-conformance-tests) |
+| **Contract Verification** | Hash-based change detection | [SPECIFICATION.md](SPECIFICATION.md#contract-verification) | [TESTING_STRATEGY.md](TESTING_STRATEGY.md#contract-verification-tests) |
+| **Event-Based Parsing** | Zero-copy plan generation | [AST_DESIGN.md](AST_DESIGN.md#event-based-plan-generation) | [TESTING_STRATEGY.md](TESTING_STRATEGY.md#parser-tests) |
+| **Dual-Path Architecture** | Execution vs tooling | This document | [AST_DESIGN.md](AST_DESIGN.md#dual-path-pipeline) |
+| **Observability** | Run tracking & debugging | [OBSERVABILITY.md](OBSERVABILITY.md) | [TESTING_STRATEGY.md](TESTING_STRATEGY.md#observability-tests) |
+
+## Architectural Philosophy
+
+**Stateless, reality-driven execution:**
+
+> Opal's architecture treats *reality* as its database.
+
+Traditional IaC tools maintain state files to track "what should exist." Opal takes a different approach:
+
+1. **Query reality** - Decorators check actual current state (API calls, file checks, etc.)
+2. **Generate plan** - Based on reality + user intent, create execution contract
+3. **Freeze the contract** - Plan becomes immutable with hash-based verification
+4. **Execute** - Perform work, verify contract still valid
+
+**Why stateless works:**
+
+- Reality is the source of truth, not a state file
+- Re-query on every run - always current
+- No state drift, no state locking, no state corruption
+- Mix Opal with other tools freely - no coordination needed
+
+**Plans as contracts:**
+
+Plans aren't previews - they're immutable execution contracts. Hash-based verification detects if reality changed between plan and execute, failing fast instead of executing against stale assumptions.
 
 ## The Big Picture
 
@@ -152,256 +195,52 @@ Source → Lexer → Parser → Events → AST Builder → Typed AST
 
 **Key insight**: The AST is **optional**. For execution, we never build it. For tooling, we build it lazily only when needed. This dual-path design gives us both speed (for execution) and rich analysis (for development).
 
-## Event-Based Plan Generation (Execution Path)
+**Implementation details**: See [AST_DESIGN.md](AST_DESIGN.md) for event-based parsing, zero-copy pipelines, and tooling integration.
 
-The interpreter generates execution plans directly from parser events without constructing an intermediate AST. This zero-copy pipeline enables fast plan generation with natural support for branch pruning and parallel resolution.
+## Plan Generation Process
 
-### The Zero-Copy Pipeline
+Opal generates execution plans through a three-phase pipeline:
 
 ```
-Source Code → Lexer → Tokens → Parser → Events → Interpreter → Execution Plan
-                                        ^^^^^^^^
-                                   No AST needed!
+Source → Parse → Plan → Execute
+         ↓       ↓       ↓
+      Events  Contract  Work
 ```
 
-**Traditional approach:**
-```
-Parse → Build AST → Walk AST → Generate Plan
-Memory: Events + AST nodes + Plan
-```
+**Phase 1: Parse** - Source code becomes parser events (no AST for execution path)
+**Phase 2: Plan** - Events become deterministic execution contract with hash verification
+**Phase 3: Execute** - Contract-verified execution performs the actual work
 
-**Event-based approach:**
-```
-Parse → Generate Plan (from events)
-Memory: Events + Plan (no AST allocation)
-```
+### Key Mechanisms
 
-### Direct Event Consumption
-
-The interpreter consumes parse events as a stream, making plan-time decisions without materializing an AST:
-
-```go
-func (i *Interpreter) generatePlan(events []Event) *ExecutionPlan {
-    plan := &ExecutionPlan{Steps: make([]Step, 0, 100)}
-    
-    for i.pos < len(events) {
-        event := events[i.pos]
-        
-        switch event.Kind {
-        case EventOpen:
-            switch event.Data {
-            case NodeWhen:
-                // Resolve condition at plan-time
-                value := i.resolveValue("@var.ENV")  // "production"
-                
-                // Scan branches, process only the matching one
-                for branch := range i.scanBranches() {
-                    if branch.matches(value) {
-                        i.processBranch(branch)  // ✅ Emit steps
-                    } else {
-                        i.skipBranch(branch)     // ❌ Prune events
-                    }
-                }
-            
-            case NodeFor:
-                // Resolve collection at plan-time
-                items := i.resolveValue("@var.SERVICES")
-                loopBody := i.captureLoopBody()
-                
-                // Unroll loop - replay events for each item
-                for _, item := range items {
-                    i.setVar("service", item)
-                    i.processEvents(loopBody)  // Emit concrete steps
-                }
-            }
-        }
-    }
-    
-    return plan
-}
-```
-
-### Natural Branch Pruning
-
-When the interpreter encounters a conditional, it evaluates the condition and skips events for branches not taken:
-
-**Source:**
+**Branch pruning**: Conditionals (`if`/`when`) evaluate at plan-time, only selected branch enters plan
 ```opal
 when @var.ENV {
-    "production" -> kubectl apply -f k8s/prod/
-    "staging" -> kubectl apply -f k8s/staging/
-    else -> echo "Unknown environment"
+    "production" -> kubectl apply -f k8s/prod/  # Only this if ENV="production"
+    "staging" -> kubectl apply -f k8s/staging/  # Pruned
 }
 ```
 
-**Events (all branches present):**
-```
-[Open(When), Token(@var.ENV),
-  Open(Branch), Token("production"), Token(kubectl), ..., Close(Branch),
-  Open(Branch), Token("staging"), Token(kubectl), ..., Close(Branch),
-  Open(Branch), Token(else), Token(echo), ..., Close(Branch),
-Close(When)]
-```
-
-**Plan with ENV="production" (pruned):**
-```
-Step 1: kubectl apply -f k8s/prod/
-// Staging and else branches pruned - never processed
-```
-
-**Pruning implementation:**
-```go
-func (i *Interpreter) skipBranch(branch BranchInfo) {
-    depth := 1
-    for depth > 0 {
-        i.pos++
-        if events[i.pos].Kind == EventOpen { depth++ }
-        if events[i.pos].Kind == EventClose { depth-- }
-    }
-    // Entire branch skipped without processing - zero cost
-}
-```
-
-### Loop Unrolling
-
-Loops are unrolled at plan-time by replaying loop body events with different variable bindings:
-
-**Source:**
+**Loop unrolling**: `for` loops expand into concrete steps at plan-time
 ```opal
-for service in ["api", "worker", "scheduler"] {
+for service in ["api", "worker"] {
     kubectl scale deployment/@var.service --replicas=3
 }
+# Plan: Two concrete steps (api, worker)
 ```
 
-**Plan (unrolled):**
-```
-Step 1: kubectl scale deployment/api --replicas=3
-Step 2: kubectl scale deployment/worker --replicas=3
-Step 3: kubectl scale deployment/scheduler --replicas=3
-```
-
-The interpreter captures the loop body events once, then replays them for each iteration with updated variable bindings. No AST traversal needed.
-
-### Concurrency Opportunities
-
-Event-based plan generation enables natural parallelization:
-
-**1. Independent branch resolution:**
-```opal
-when @var.ENV {
-    "production" -> @aws.secret.prod_key    // Resolve in parallel
-    "staging" -> @aws.secret.staging_key    // Resolve in parallel
-}
-```
-
-Both branches can resolve their decorators concurrently during planning, even though only one will be selected.
-
-**2. Parallel decorator resolution:**
+**Parallel resolution**: Independent value decorators resolve concurrently
 ```opal
 deploy: {
-    @env.DATABASE_URL              // Resolve concurrently
-    @aws.secret.api_key            // Resolve concurrently
-    @http.get("https://status")    // Resolve concurrently
-    
+    @env.DATABASE_URL        # Resolve in parallel
+    @aws.secret.api_key      # Resolve in parallel
     kubectl apply -f k8s/
 }
 ```
 
-All value decorators can be resolved in parallel before generating the sequential execution steps.
+**Performance**: Event-based pipeline avoids AST allocation for execution, achieving <10ms plan generation for typical scripts.
 
-**3. Multi-file planning:**
-```
-commands.opl  → Events → Plan (parallel)
-deploy.opl    → Events → Plan (parallel)
-test.opl      → Events → Plan (parallel)
-```
-
-Independent files can be planned concurrently, then merged.
-
-### Performance Characteristics
-
-**Pipeline efficiency:**
-- Lexing: Fast tokenization with zero allocations
-- Parsing: Lightweight event generation
-- Planning: Direct event consumption with branch pruning
-
-**Memory profile:**
-- Events: Compact representation (EventKind + Data)
-- Plan: Minimal per-step overhead
-- No AST: Significant memory savings
-
-**Comparison to shell:**
-
-| Metric | Shell | Opal |
-|--------|-------|------|
-| Parse | Immediate | Fast |
-| Plan | None | Yes |
-| Verify | None | Yes |
-| Pruning | No | Yes |
-| Parallelization | No | Yes |
-| Verification | No | Yes |
-| Auditability | No | Yes |
-
-Shell executes immediately without planning, but Opal's minimal overhead buys:
-- **Safety**: Verify before execute
-- **Speed**: Parallel decorator resolution
-- **Auditability**: Immutable execution contract
-- **Determinism**: Same inputs → same plan
-
-For automation where mistakes are expensive, 4ms is negligible compared to the value of plan verification.
-
-### When AST Construction Is Needed
-
-The interpreter generates plans directly from events, but AST construction is still needed for:
-
-**1. IDE features:**
-- Go-to-definition
-- Symbol search
-- Refactoring tools
-- Autocomplete
-
-**2. Static analysis:**
-- Linting
-- Type checking (if types are added)
-- Dead code detection
-- Complexity metrics
-
-**3. Code generation:**
-- Compiling to standalone binaries
-- Cross-compilation
-- Optimization passes
-
-**4. Advanced transformations:**
-- Macro expansion
-- Template instantiation
-- Code rewriting
-
-For Opal's primary use case (plan generation and execution), events are sufficient. AST construction is deferred until actually needed, keeping the hot path fast.
-
-### Implementation Strategy
-
-```go
-// Phase 1: Lex and parse (zero-copy)
-tree := parser.Parse(source)  // Returns events, not AST
-
-// Phase 2: Generate plan from events (streaming)
-plan := interpreter.GeneratePlan(tree.Events, variables)
-
-// Phase 3: Verify plan contract
-if err := plan.Verify(); err != nil {
-    return err
-}
-
-// Phase 4: Execute plan
-executor.Execute(plan)
-
-// Optional: Build AST only if needed (IDE, analysis)
-if needsAST {
-    ast := tree.BuildAST()  // Construct from events
-}
-```
-
-This architecture makes Opal faster than shell script execution while providing safety guarantees that shell cannot offer.
+**See [AST_DESIGN.md](AST_DESIGN.md)** for implementation details: event streaming, zero-copy pipelines, and AST construction for tooling.
 
 ## Safety Guarantees
 

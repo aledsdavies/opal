@@ -8,6 +8,21 @@ After infrastructure is provisioned (Terraform, CloudFormation, etc.), teams fal
 
 Opal fills the gap between "infrastructure is up" and "services are reliably operated."
 
+## Philosophy
+
+**Outcome-focused execution:**
+
+Opal doesn't maintain state files or enforce a rigid model. Instead:
+
+1. **Reality is truth** - Query the world as it actually is
+2. **Plan from reality** - Based on what exists now, here's what we'll do
+3. **Execute the plan** - Accomplish the outcomes
+4. **Verify the contract** - If reality changed between plan and execute, catch it
+
+The **plan is your contract** - it shows what will happen before it happens. Not bureaucracy, just clarity.
+
+No state files. No "desired state" to maintain. Just: see the world, make a plan, execute it.
+
 ## What Opal Does
 
 - **Enforces determinism**: Same inputs always produce the same plan
@@ -41,7 +56,7 @@ opal deploy
 **Developer tasks**: Repeatable build/test/deploy workflows
 **Operations tasks**: Day-2 activities like deployments, migrations, restarts, health checks
 
-**Why start here?** Operations and task running are easier to prove the model works. Once the plan-verify-execute pattern is proven in this space, the same decorator model could extend to infrastructure provisioning. But that's later—right now, focus is on the narrow gap between "infra is up" and "services are reliably operated."
+**Why this scope?** Fills the gap between "infrastructure is up" and "services are reliably operated" - the operational workflows that teams run daily.
 
 ## Planning Modes
 
@@ -200,6 +215,17 @@ Opal treats operations as plans that can be reviewed before execution:
 3. **Execute** with contract verification to catch environment changes
 
 This gives you confidence to run complex workflows safely.
+
+## Contributing
+
+See documentation in `docs/`:
+- [SPECIFICATION.md](docs/SPECIFICATION.md) - Language specification and user guide
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and implementation
+- [TESTING_STRATEGY.md](docs/TESTING_STRATEGY.md) - Testing approach and standards
+
+## Research & Roadmap
+
+See [FUTURE_IDEAS.md](docs/FUTURE_IDEAS.md) for experimental features and potential extensions.
 
 ## License
 

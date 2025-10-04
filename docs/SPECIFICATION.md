@@ -1,6 +1,16 @@
+---
+title: "Opal Language Specification"
+audience: "End Users & Script Authors"
+summary: "Complete language guide with syntax, semantics, and real-world examples"
+---
+
 # Opal Language Specification
 
 Deterministic task runner for operations and developer workflows.
+
+> Opal automates *what happens after infrastructure exists* — deployment, validation, and operational workflows — without managing infrastructure state.
+
+**See also**: [Formal Grammar](GRAMMAR.md) for EBNF syntax specification.
 
 ## The Gap
 
@@ -11,6 +21,21 @@ After infrastructure is provisioned, teams use shell scripts or Makefiles for:
 - Day-2 operational tasks
 
 These are brittle, non-deterministic, and hard to audit. Opal fills this gap.
+
+## Design Philosophy
+
+**Outcome-focused, not state-driven:**
+
+Opal queries reality, plans actions, and executes - without maintaining state files.
+
+- **Reality is truth**: Query current state (does this instance exist? what's the current version?)
+- **Plan from reality**: Generate execution plan based on what exists now
+- **Execute the plan**: Perform the work to achieve outcomes
+- **Contract verification**: Detect if reality changed between plan and execute
+
+The **plan is your contract** - deterministic, verifiable, hash-based. This comes from contract-first development: define the agreement upfront, execute against it.
+
+No state files to maintain or synchronize. Reality is the only source of truth.
 
 ## Core Principles
 
@@ -37,6 +62,32 @@ deploy: {
 **Deterministic planning**: Same inputs always produce the same plan. Control flow resolves at plan-time.
 
 **Scope**: Operations and task running. We're proving the model here before extending to infrastructure provisioning.
+
+## Mental Model
+
+```
+                    Direct Execution:
+Source Code → Parse → Plan → Execute
+              ↓       ↓       ↓
+           Events  Actions  Work
+
+                    Contract Execution (with plan file):
+Source Code → Parse → Replan → Verify → Execute
+              ↓       ↓        ↓         ↓
+           Events  Actions  Match?    Work
+                              ↓
+                         Plan File
+                        (Contract)
+```
+
+**Critical insight**: Plan files are NEVER executed directly. They are verification contracts.
+
+**Contract execution always:**
+1. Replans from current source and infrastructure state
+2. Compares fresh plan against contract (hash verification)
+3. Executes ONLY if they match, aborts if they differ
+
+**Unlike Terraform** (which applies old plan to new state), Opal verifies current reality would still produce the same plan. This prevents executing stale or tampered plans.
 
 ## Two Ways to Run
 
@@ -252,7 +303,9 @@ test_all: {
 
 ## Decorator Syntax
 
-Opal distinguishes between value decorators (return data) and execution decorators (perform work) with clear syntax patterns:
+**For advanced patterns** (opaque handles, resource collections, memoization, composition), see [DECORATOR_GUIDE.md](DECORATOR_GUIDE.md).
+
+Opal distinguishes between value decorators (return data) and execution decorators (perform work) with clear syntax patterns.
 
 ### **Value Decorators**
 
@@ -293,6 +346,8 @@ echo "Version: @env.APP_VERSION(default="latest")"
 **Clear distinction:**
 - **Value decorators**: Use dot syntax, return data for command arguments
 - **Execution decorators**: Use function syntax, modify how commands execute
+
+**See [Decorator Design Guide](DECORATOR_GUIDE.md)** for advanced patterns: opaque handles, resource collections, memoization, and composition best practices.
 
 ## Variables
 
@@ -946,13 +1001,20 @@ When using plan files, opal ensures execution matches the reviewed contract exac
 opal run --plan prod.plan
 ```
 
-**Contract verification process**:
-1. **Fresh resolution**: Resolve all value decorators with current infrastructure state
-2. **Hash comparison**: Compare newly resolved value hashes with plan contract hashes
-3. **Path verification**: Ensure execution path matches contracted plan structure
-4. **Execute or bail**: Run contracted plan if hashes match, otherwise fail with diff
+**Critical: Plan files are NEVER executed directly.**
 
-**Why this works**: The resolved plan contains `<length:hash>` placeholders. At execution time, opal resolves values fresh and compares their hashes. If `@env.REPLICAS` was `3` during planning but is now `5`, the hashes won't match.
+Contract execution always replans from current source and state. The plan file is not executed - it's the verification target. If the fresh plan doesn't match, execution aborts.
+
+**Unlike Terraform** (which applies an old plan to new state), Opal verifies current reality would still produce the same plan. This prevents executing stale or tampered plans.
+
+**Contract verification process**:
+1. **Replan from source**: Parse current source code and query current infrastructure
+2. **Fresh resolution**: Resolve all value decorators with current state
+3. **Hash comparison**: Compare fresh plan hashes with contract hashes
+4. **Path verification**: Ensure execution path matches contracted plan structure
+5. **Execute or bail**: Run fresh plan if it matches contract, otherwise fail with diff
+
+**Why this works**: The contract contains `<length:hash>` placeholders. Opal generates a fresh plan and compares hashes. If `@env.REPLICAS` was `3` during planning but is now `5`, the hashes won't match and execution stops.
 
 ### Verification Outcomes
 
@@ -1288,19 +1350,6 @@ REPLICAS=5 opal deploy
 - Hash changes show which values modified
 - Infrastructure drift caught by re-querying current state
 
-## Future: Infrastructure Decorators
-
-The value decorator and execution decorator model extends naturally to infrastructure management:
-
-```opal
-// Future capabilities following same patterns
-@aws.ec2.deploy(name="web-prod", count=3)
-@k8s.apply(manifest="app.yaml")
-@docker.build(tag="app:v1.2.3")
-```
-
-These will follow the same plan-first pattern without requiring state files - query current state at plan time, freeze inputs, execute deterministically. Execution decorators SHOULD expose idempotency keys so re-runs under the same contract are safe.
-
 ## Why This Design Works
 
 **Contract-based**: Resolved plans are execution contracts with verification
@@ -1400,4 +1449,97 @@ migrate: {
     }
 }
 ```
+
+## Common Errors
+
+### Defining `fun` Inside Loops
+
+**❌ Error:**
+```opal
+for module in @var.MODULES {
+    fun build_@var.module {  # ERROR: fun inside for loop
+        npm run build
+    }
+}
+```
+
+**✅ Correct:**
+```opal
+# Define template function at top level
+fun build_module(module) {
+    @workdir(@var.module) {
+        npm run build
+    }
+}
+
+# Call it inside loop
+for module in @var.MODULES {
+    @cmd.build_module(module=@var.module)
+}
+```
+
+**Why:** `fun` definitions must be at top level. They're plan-time templates, not runtime constructs.
+
+### Using Shell Variables Instead of Opal Variables
+
+**❌ Error:**
+```opal
+var SERVICE = "api"
+kubectl scale deployment/${SERVICE} --replicas=3  # Wrong syntax
+```
+
+**✅ Correct:**
+```opal
+var SERVICE = "api"
+kubectl scale deployment/@var.SERVICE --replicas=3  # Opal syntax
+```
+
+**Why:** Use `@var.NAME` for Opal variables, not `${NAME}` (shell syntax).
+
+### Mixing Positional and Named Arguments Incorrectly
+
+**❌ Error:**
+```opal
+@retry(3, delay=2s, 5)  # Positional after named
+```
+
+**✅ Correct:**
+```opal
+@retry(3, 5, delay=2s)           # Positional first
+@retry(attempts=3, delay=2s)     # All named
+@retry(3, delay=2s)              # Mixed (positional first)
+```
+
+**Why:** Positional arguments must come before named arguments.
+
+### Forgetting Block Terminator for Variable Interpolation
+
+**❌ Error:**
+```opal
+echo "@var.service_backup"  # Looks for variable "service_backup"
+```
+
+**✅ Correct:**
+```opal
+echo "@var.service()_backup"  # Terminates with (), then adds "_backup"
+```
+
+**Why:** Use `()` to terminate decorator when followed by ASCII characters without spaces.
+
+### Non-Deterministic Value Decorators in Resolved Plans
+
+**❌ Error:**
+```opal
+var timestamp = @time.now()  # Non-deterministic
+opal deploy --dry-run --resolve > plan.json  # Will fail verification
+```
+
+**✅ Correct:**
+```opal
+# Use plan-time constants or seeded randomness
+var deployTime = @env.DEPLOY_TIME(default="2024-01-01")
+var randomPass = @random.password(length=16, regenKey="db-pass-v1")
+```
+
+**Why:** Resolved plans must be deterministic. Use Plan Seed Envelopes for randomness.
 
