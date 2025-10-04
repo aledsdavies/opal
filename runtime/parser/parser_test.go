@@ -149,6 +149,111 @@ func TestParseEventStructure(t *testing.T) {
 				{EventClose, 0},  // Source
 			},
 		},
+		{
+			name:  "function with two untyped parameters",
+			input: `fun greet(first, last) {}`,
+			events: []Event{
+				{EventOpen, 0},  // Source
+				{EventOpen, 1},  // Function
+				{EventToken, 0}, // fun
+				{EventToken, 1}, // greet
+				{EventOpen, 2},  // ParamList
+				{EventToken, 2}, // (
+				{EventOpen, 4},  // Param
+				{EventToken, 3}, // first
+				{EventClose, 4}, // Param
+				{EventToken, 4}, // ,
+				{EventOpen, 4},  // Param
+				{EventToken, 5}, // last
+				{EventClose, 4}, // Param
+				{EventToken, 6}, // )
+				{EventClose, 2}, // ParamList
+				{EventOpen, 3},  // Block
+				{EventToken, 7}, // {
+				{EventToken, 8}, // }
+				{EventClose, 3}, // Block
+				{EventClose, 1}, // Function
+				{EventClose, 0}, // Source
+			},
+		},
+		{
+			name:  "function with mixed typed and untyped parameters",
+			input: `fun deploy(env: String, replicas = 3) {}`,
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // deploy
+				{EventOpen, 2},   // ParamList
+				{EventToken, 2},  // (
+				{EventOpen, 4},   // Param
+				{EventToken, 3},  // env
+				{EventOpen, 5},   // TypeAnnotation
+				{EventToken, 4},  // :
+				{EventToken, 5},  // String
+				{EventClose, 5},  // TypeAnnotation
+				{EventClose, 4},  // Param
+				{EventToken, 6},  // ,
+				{EventOpen, 4},   // Param
+				{EventToken, 7},  // replicas
+				{EventOpen, 6},   // DefaultValue
+				{EventToken, 8},  // =
+				{EventToken, 9},  // 3
+				{EventClose, 6},  // DefaultValue
+				{EventClose, 4},  // Param
+				{EventToken, 10}, // )
+				{EventClose, 2},  // ParamList
+				{EventOpen, 3},   // Block
+				{EventToken, 11}, // {
+				{EventToken, 12}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
+		{
+			name:  "function with all parameter variations",
+			input: `fun deploy(env: String, replicas: Int = 3, verbose) {}`,
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // deploy
+				{EventOpen, 2},   // ParamList
+				{EventToken, 2},  // (
+				{EventOpen, 4},   // Param
+				{EventToken, 3},  // env
+				{EventOpen, 5},   // TypeAnnotation
+				{EventToken, 4},  // :
+				{EventToken, 5},  // String
+				{EventClose, 5},  // TypeAnnotation
+				{EventClose, 4},  // Param
+				{EventToken, 6},  // ,
+				{EventOpen, 4},   // Param
+				{EventToken, 7},  // replicas
+				{EventOpen, 5},   // TypeAnnotation
+				{EventToken, 8},  // :
+				{EventToken, 9},  // Int
+				{EventClose, 5},  // TypeAnnotation
+				{EventOpen, 6},   // DefaultValue
+				{EventToken, 10}, // =
+				{EventToken, 11}, // 3
+				{EventClose, 6},  // DefaultValue
+				{EventClose, 4},  // Param
+				{EventToken, 12}, // ,
+				{EventOpen, 4},   // Param
+				{EventToken, 13}, // verbose
+				{EventClose, 4},  // Param
+				{EventToken, 14}, // )
+				{EventClose, 2},  // ParamList
+				{EventOpen, 3},   // Block
+				{EventToken, 15}, // {
+				{EventToken, 16}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
 	}
 
 	for _, tt := range tests {

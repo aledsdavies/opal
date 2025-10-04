@@ -244,13 +244,17 @@ func (p *parser) paramList() {
 		p.token()
 	}
 
-	// Parse parameters
+	// Parse parameters (comma-separated)
 	for !p.at(lexer.RPAREN) && !p.at(lexer.EOF) {
 		p.param()
 
-		// TODO: Handle comma-separated parameters in next iteration
-		// For now, just parse one parameter
-		break
+		// If there's a comma, consume it and continue
+		if p.at(lexer.COMMA) {
+			p.token()
+		} else {
+			// No comma means we're done with parameters
+			break
+		}
 	}
 
 	// Consume ')'
