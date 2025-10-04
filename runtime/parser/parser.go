@@ -283,7 +283,10 @@ func (p *parser) param() {
 		p.typeAnnotation()
 	}
 
-	// TODO: Parse default value in next iteration
+	// Parse optional default value
+	if p.at(lexer.EQUALS) {
+		p.defaultValue()
+	}
 
 	p.finish(kind)
 
@@ -314,6 +317,32 @@ func (p *parser) typeAnnotation() {
 
 	if p.config.debug > DebugOff {
 		p.recordDebugEvent("exit_typeAnnotation", "type annotation complete")
+	}
+}
+
+// defaultValue parses a default value: = expression
+func (p *parser) defaultValue() {
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("enter_defaultValue", "parsing default value")
+	}
+
+	kind := p.start(NodeDefaultValue)
+
+	// Consume '='
+	if p.at(lexer.EQUALS) {
+		p.token()
+	}
+
+	// Parse expression (for now, just consume one token - string literal, number, etc.)
+	// TODO: Full expression parsing in later iteration
+	if !p.at(lexer.EOF) && !p.at(lexer.RPAREN) && !p.at(lexer.COMMA) {
+		p.token()
+	}
+
+	p.finish(kind)
+
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("exit_defaultValue", "default value complete")
 	}
 }
 

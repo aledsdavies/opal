@@ -91,6 +91,64 @@ func TestParseEventStructure(t *testing.T) {
 				{EventClose, 0}, // Source
 			},
 		},
+		{
+			name:  "function with default parameter",
+			input: `fun greet(name = "World") {}`,
+			events: []Event{
+				{EventOpen, 0},  // Source
+				{EventOpen, 1},  // Function
+				{EventToken, 0}, // fun
+				{EventToken, 1}, // greet
+				{EventOpen, 2},  // ParamList
+				{EventToken, 2}, // (
+				{EventOpen, 4},  // Param
+				{EventToken, 3}, // name
+				{EventOpen, 6},  // DefaultValue (new node kind)
+				{EventToken, 4}, // =
+				{EventToken, 5}, // "World"
+				{EventClose, 6}, // DefaultValue
+				{EventClose, 4}, // Param
+				{EventToken, 6}, // )
+				{EventClose, 2}, // ParamList
+				{EventOpen, 3},  // Block
+				{EventToken, 7}, // {
+				{EventToken, 8}, // }
+				{EventClose, 3}, // Block
+				{EventClose, 1}, // Function
+				{EventClose, 0}, // Source
+			},
+		},
+		{
+			name:  "function with typed parameter and default value",
+			input: `fun greet(name: String = "World") {}`,
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // greet
+				{EventOpen, 2},   // ParamList
+				{EventToken, 2},  // (
+				{EventOpen, 4},   // Param
+				{EventToken, 3},  // name
+				{EventOpen, 5},   // TypeAnnotation
+				{EventToken, 4},  // :
+				{EventToken, 5},  // String
+				{EventClose, 5},  // TypeAnnotation
+				{EventOpen, 6},   // DefaultValue
+				{EventToken, 6},  // =
+				{EventToken, 7},  // "World"
+				{EventClose, 6},  // DefaultValue
+				{EventClose, 4},  // Param
+				{EventToken, 8},  // )
+				{EventClose, 2},  // ParamList
+				{EventOpen, 3},   // Block
+				{EventToken, 9},  // {
+				{EventToken, 10}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
 	}
 
 	for _, tt := range tests {
