@@ -19,9 +19,11 @@ func Parse(source []byte, opts ...ParserOpt) *ParseTree {
 	var startTotal time.Time
 
 	// Initialize telemetry if enabled
-	if config.telemetry >= TelemetryTiming {
-		startTotal = time.Now()
+	if config.telemetry >= TelemetryBasic {
 		telemetry = &ParseTelemetry{}
+		if config.telemetry >= TelemetryTiming {
+			startTotal = time.Now()
+		}
 	}
 
 	// Initialize debug if enabled
@@ -39,9 +41,11 @@ func Parse(source []byte, opts ...ParserOpt) *ParseTree {
 	lex.Init(source)
 	tokens := lex.GetTokens()
 
-	if config.telemetry >= TelemetryTiming {
-		telemetry.LexTime = time.Since(startLex)
+	if config.telemetry >= TelemetryBasic {
 		telemetry.TokenCount = len(tokens)
+		if config.telemetry >= TelemetryTiming {
+			telemetry.LexTime = time.Since(startLex)
+		}
 	}
 
 	// Create parser with pre-allocated buffers
@@ -68,11 +72,13 @@ func Parse(source []byte, opts ...ParserOpt) *ParseTree {
 
 	p.file()
 
-	if config.telemetry >= TelemetryTiming {
-		telemetry.ParseTime = time.Since(startParse)
-		telemetry.TotalTime = time.Since(startTotal)
+	if config.telemetry >= TelemetryBasic {
 		telemetry.EventCount = len(p.events)
 		telemetry.ErrorCount = len(p.errors)
+		if config.telemetry >= TelemetryTiming {
+			telemetry.ParseTime = time.Since(startParse)
+			telemetry.TotalTime = time.Since(startTotal)
+		}
 	}
 
 	return &ParseTree{
@@ -102,9 +108,11 @@ func ParseTokens(source []byte, tokens []lexer.Token, opts ...ParserOpt) *ParseT
 	var startTotal time.Time
 
 	// Initialize telemetry if enabled
-	if config.telemetry >= TelemetryTiming {
-		startTotal = time.Now()
+	if config.telemetry >= TelemetryBasic {
 		telemetry = &ParseTelemetry{}
+		if config.telemetry >= TelemetryTiming {
+			startTotal = time.Now()
+		}
 	}
 
 	// Initialize debug if enabled
@@ -135,12 +143,14 @@ func ParseTokens(source []byte, tokens []lexer.Token, opts ...ParserOpt) *ParseT
 
 	p.file()
 
-	if config.telemetry >= TelemetryTiming {
-		telemetry.ParseTime = time.Since(startParse)
-		telemetry.TotalTime = time.Since(startTotal)
+	if config.telemetry >= TelemetryBasic {
 		telemetry.EventCount = len(p.events)
 		telemetry.ErrorCount = len(p.errors)
 		telemetry.TokenCount = len(tokens)
+		if config.telemetry >= TelemetryTiming {
+			telemetry.ParseTime = time.Since(startParse)
+			telemetry.TotalTime = time.Since(startTotal)
+		}
 	}
 
 	return &ParseTree{
@@ -239,10 +249,8 @@ func (p *parser) paramList() {
 
 	kind := p.start(NodeParamList)
 
-	// Consume '('
-	if p.at(lexer.LPAREN) {
-		p.token()
-	}
+	// Expect '('
+	p.expect(lexer.LPAREN, "parameter list")
 
 	// Parse parameters (comma-separated)
 	for !p.at(lexer.RPAREN) && !p.at(lexer.EOF) {
@@ -257,10 +265,8 @@ func (p *parser) paramList() {
 		}
 	}
 
-	// Consume ')'
-	if p.at(lexer.RPAREN) {
-		p.token()
-	}
+	// Expect ')'
+	p.expect(lexer.RPAREN, "parameter list")
 
 	p.finish(kind)
 
@@ -358,17 +364,13 @@ func (p *parser) block() {
 
 	kind := p.start(NodeBlock)
 
-	// Consume '{'
-	if p.at(lexer.LBRACE) {
-		p.token()
-	}
+	// Expect '{'
+	p.expect(lexer.LBRACE, "function body")
 
 	// TODO: Parse statements (for now just skip to '}')
 
-	// Consume '}'
-	if p.at(lexer.RBRACE) {
-		p.token()
-	}
+	// Expect '}'
+	p.expect(lexer.RBRACE, "function body")
 
 	p.finish(kind)
 
@@ -422,4 +424,87 @@ func (p *parser) token() {
 		Data: uint32(p.pos),
 	})
 	p.advance()
+}
+
+// expect checks for expected token and reports error if not found
+func (p *parser) expect(expected lexer.TokenType, context string) bool {
+	if p.at(expected) {
+		p.token()
+		return true
+	}
+	p.errorExpected(expected, context)
+	return false
+}
+
+// errorExpected reports an error for missing expected token
+func (p *parser) errorExpected(expected lexer.TokenType, context string) {
+	current := p.current()
+
+	err := ParseError{
+		Position: current.Position,
+		Message:  "missing " + tokenName(expected),
+		Context:  context,
+		Expected: []lexer.TokenType{expected},
+		Got:      current.Type,
+	}
+
+	// Add helpful suggestions based on context
+	switch expected {
+	case lexer.RPAREN:
+		err.Suggestion = "Add ')' to close the " + context
+		err.Example = "fun greet(name) {}"
+	case lexer.RBRACE:
+		err.Suggestion = "Add '}' to close the " + context
+		err.Example = "fun greet() { echo \"hello\" }"
+	case lexer.LBRACE:
+		err.Suggestion = "Add '{' to start the function body"
+		err.Example = "fun greet() {}"
+	case lexer.IDENTIFIER:
+		if context == "function declaration" {
+			err.Suggestion = "Add a function name after 'fun'"
+			err.Example = "fun greet() {}"
+		} else if context == "parameter" {
+			err.Suggestion = "Add a parameter name"
+			err.Example = "fun greet(name) {}"
+		}
+	}
+
+	p.errors = append(p.errors, err)
+}
+
+// errorUnexpected reports an error for unexpected token
+func (p *parser) errorUnexpected(context string) {
+	current := p.current()
+
+	err := ParseError{
+		Position: current.Position,
+		Message:  "unexpected " + tokenName(current.Type),
+		Context:  context,
+		Got:      current.Type,
+	}
+
+	p.errors = append(p.errors, err)
+}
+
+// isSyncToken checks if current token is a synchronization point
+func (p *parser) isSyncToken() bool {
+	switch p.current().Type {
+	case lexer.RBRACE, // End of block
+		lexer.SEMICOLON, // Statement terminator
+		lexer.FUN,       // Start of new function
+		lexer.EOF:       // End of file
+		return true
+	}
+
+	// Newline can be a sync point in some contexts
+	// For now, we'll rely on explicit tokens
+	return false
+}
+
+// recover skips tokens until we reach a synchronization point
+// This allows the parser to continue after errors and report multiple issues
+func (p *parser) recover() {
+	for !p.isSyncToken() && !p.at(lexer.EOF) {
+		p.advance()
+	}
 }

@@ -12,6 +12,21 @@ After infrastructure is provisioned, teams use shell scripts or Makefiles for:
 
 These are brittle, non-deterministic, and hard to audit. Opal fills this gap.
 
+## Design Philosophy
+
+**Outcome-focused, not state-driven:**
+
+Opal queries reality, plans actions, and executes - without maintaining state files.
+
+- **Reality is truth**: Query current state (does this instance exist? what's the current version?)
+- **Plan from reality**: Generate execution plan based on what exists now
+- **Execute the plan**: Perform the work to achieve outcomes
+- **Contract verification**: Detect if reality changed between plan and execute
+
+The **plan is your contract** - deterministic, verifiable, hash-based. This comes from contract-first development: define the agreement upfront, execute against it.
+
+No state files to maintain or synchronize. Reality is the only source of truth.
+
 ## Core Principles
 
 **Plans as execution contracts**: Resolved plans show exactly what will execute, with hash-based verification to catch changes between planning and execution.
@@ -1287,19 +1302,6 @@ REPLICAS=5 opal deploy
 - Source changes detected by comparing plan structures
 - Hash changes show which values modified
 - Infrastructure drift caught by re-querying current state
-
-## Future: Infrastructure Decorators
-
-The value decorator and execution decorator model extends naturally to infrastructure management:
-
-```opal
-// Future capabilities following same patterns
-@aws.ec2.deploy(name="web-prod", count=3)
-@k8s.apply(manifest="app.yaml")
-@docker.build(tag="app:v1.2.3")
-```
-
-These will follow the same plan-first pattern without requiring state files - query current state at plan time, freeze inputs, execute deterministically. Execution decorators SHOULD expose idempotency keys so re-runs under the same contract are safe.
 
 ## Why This Design Works
 

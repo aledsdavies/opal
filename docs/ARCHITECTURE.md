@@ -6,7 +6,7 @@
 
 Operations and developer task automation - the gap between "infrastructure is up" and "services are reliably operated."
 
-**Why this scope?** Operations tasks are simpler than infrastructure provisioning, letting us prove the plan-verify-execute model works. The architecture supports future extension to IaC through the same decorator model.
+**Why this scope?** Operations and task automation is the immediate need - reliable deployment, scaling, rollback, and operational workflows.
 
 ## Core Requirements
 
@@ -15,9 +15,27 @@ Operations and developer task automation - the gap between "infrastructure is up
 - **Fail-fast**: Errors at plan-time, not execution
 - **Halting guarantee**: All plans terminate with predictable results
 
-## Key Architectural Principle
+## Architectural Philosophy
 
-Plans aren't previews - they're immutable execution contracts. Instead of managing state like traditional tools, we verify contracts before execution.
+**Stateless, reality-driven execution:**
+
+Traditional IaC tools maintain state files to track "what should exist." Opal takes a different approach:
+
+1. **Query reality** - Decorators check actual current state (API calls, file checks, etc.)
+2. **Generate plan** - Based on reality + user intent, create execution contract
+3. **Freeze the contract** - Plan becomes immutable with hash-based verification
+4. **Execute** - Perform work, verify contract still valid
+
+**Why stateless works:**
+
+- Reality is the source of truth, not a state file
+- Re-query on every run - always current
+- No state drift, no state locking, no state corruption
+- Mix Opal with other tools freely - no coordination needed
+
+**Plans as contracts:**
+
+Plans aren't previews - they're immutable execution contracts. Hash-based verification detects if reality changed between plan and execute, failing fast instead of executing against stale assumptions.
 
 ## The Big Picture
 
