@@ -273,6 +273,71 @@ func TestParseEventStructure(t *testing.T) {
 	}
 }
 
+// TestParseErrors verifies error recovery for invalid syntax
+func TestParseErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantErrors  bool
+		description string
+	}{
+		{
+			name:        "missing closing parenthesis",
+			input:       "fun greet(name {}",
+			wantErrors:  true,
+			description: "should report missing )",
+		},
+		{
+			name:        "missing function name",
+			input:       "fun () {}",
+			wantErrors:  false, // Parser might accept this, semantic analysis rejects
+			description: "parser accepts, semantic analysis should reject",
+		},
+		{
+			name:        "missing parameter name before colon",
+			input:       "fun greet(: String) {}",
+			wantErrors:  false, // Parser might accept this, semantic analysis rejects
+			description: "parser accepts, semantic analysis should reject",
+		},
+		{
+			name:        "trailing comma in parameters",
+			input:       "fun greet(name,) {}",
+			wantErrors:  false, // Parser might accept this, semantic analysis rejects
+			description: "parser accepts, semantic analysis should reject",
+		},
+		{
+			name:        "missing opening brace",
+			input:       "fun greet() }",
+			wantErrors:  true,
+			description: "should report missing {",
+		},
+		{
+			name:        "missing closing brace",
+			input:       "fun greet() {",
+			wantErrors:  true,
+			description: "should report missing }",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			hasErrors := len(tree.Errors) > 0
+
+			if hasErrors != tt.wantErrors {
+				t.Errorf("Error expectation mismatch: got errors=%v, want errors=%v\nErrors: %v\nDescription: %s",
+					hasErrors, tt.wantErrors, tree.Errors, tt.description)
+			}
+
+			// Parser should still produce events even with errors (error recovery)
+			if len(tree.Events) == 0 {
+				t.Error("Parser should produce events even with errors (for error recovery)")
+			}
+		})
+	}
+}
+
 // TestParseBasics verifies basic parsing functionality
 func TestParseBasics(t *testing.T) {
 	tests := []struct {
