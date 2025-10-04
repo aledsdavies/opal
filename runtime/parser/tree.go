@@ -37,7 +37,8 @@ const (
 	NodeFunction
 	NodeParamList
 	NodeBlock
-	NodeParam // Function parameter
+	NodeParam          // Function parameter
+	NodeTypeAnnotation // Type annotation (: Type)
 )
 
 // ParseError represents a parse error

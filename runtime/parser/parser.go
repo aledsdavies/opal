@@ -265,7 +265,7 @@ func (p *parser) paramList() {
 	}
 }
 
-// param parses a single parameter: IDENTIFIER
+// param parses a single parameter: IDENTIFIER (: Type)? (= expression)?
 func (p *parser) param() {
 	if p.config.debug > DebugOff {
 		p.recordDebugEvent("enter_param", "parsing parameter")
@@ -278,13 +278,42 @@ func (p *parser) param() {
 		p.token()
 	}
 
-	// TODO: Parse type annotation in next iteration
+	// Parse optional type annotation
+	if p.at(lexer.COLON) {
+		p.typeAnnotation()
+	}
+
 	// TODO: Parse default value in next iteration
 
 	p.finish(kind)
 
 	if p.config.debug > DebugOff {
 		p.recordDebugEvent("exit_param", "parameter complete")
+	}
+}
+
+// typeAnnotation parses a type annotation: : Type
+func (p *parser) typeAnnotation() {
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("enter_typeAnnotation", "parsing type annotation")
+	}
+
+	kind := p.start(NodeTypeAnnotation)
+
+	// Consume ':'
+	if p.at(lexer.COLON) {
+		p.token()
+	}
+
+	// Consume type name
+	if p.at(lexer.IDENTIFIER) {
+		p.token()
+	}
+
+	p.finish(kind)
+
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("exit_typeAnnotation", "type annotation complete")
 	}
 }
 
