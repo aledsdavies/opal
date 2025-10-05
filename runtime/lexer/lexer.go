@@ -1061,8 +1061,8 @@ func (l *Lexer) lexPipe(start Position, hasSpaceBefore bool) Token {
 		return Token{Type: OR_OR, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 	}
 
-	// Single '|' is illegal for now (future: bitwise or)
-	return Token{Type: ILLEGAL, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
+	// Single '|' is pipe operator (for shell commands)
+	return Token{Type: PIPE, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexLineComment handles // style comments, excluding the // prefix

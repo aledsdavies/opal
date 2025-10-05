@@ -12,6 +12,22 @@
 # Lint: golangci-lint run (if available)
 ```
 
+## Coding Guidelines (CRITICAL)
+
+**ALWAYS follow the coding guidelines documented in this file and the global OpenCode configuration.**
+
+### Core Safety Principles
+- **Fail-Fast on Programming Errors**: Assert all invariants immediately with `panic()` - never silently continue
+- **Loop Invariants**: Every loop MUST track position and assert progress is made
+- **Preconditions**: Assert function inputs at entry
+- **Postconditions**: Assert function outputs before return
+- **Zero Performance Cost**: Assertions use simple checks (position comparison, nil checks)
+
+### Error Taxonomy
+- **Programming errors**: Panic immediately (invariant violations, stuck loops, nil dereferences)
+- **User errors**: Return structured errors (invalid syntax, missing files)
+- **System errors**: Log + alert + safe degradation (network failures, disk full)
+
 ## Code Style & Conventions
 - **Go 1.25.0** with workspace modules (`core/`, `runtime/`, `cli/`)
 - **Imports**: Standard library first, blank line, then third-party, blank line, then local packages
@@ -33,6 +49,61 @@
   - Terminate with `()` if followed by ASCII: `@var.service()_backup`
   - **NEVER use `${var}`** - that's shell syntax, not Opal
   - Exception: Actual shell variables inside `@shell()` commands
+
+## Observability & Debug Requirements (CRITICAL)
+
+**REQUIRED**: All lexer and parser components MUST implement zero-overhead observability from day one.
+
+### Debug Levels (see `docs/OBSERVABILITY.md`)
+- **DebugOff**: Zero overhead (default, production)
+- **DebugPaths**: Method entry/exit tracing (development)
+- **DebugDetailed**: Token/event-level tracing (debugging)
+
+### Telemetry Levels
+- **TelemetryOff**: Zero overhead (default)
+- **TelemetryBasic**: Counts only (production-safe)
+- **TelemetryTiming**: Counts + timing (performance analysis)
+
+### Implementation Pattern (Lexer & Parser)
+```go
+// Method-level tracing - DebugPaths
+if p.config.debug >= DebugPaths {
+    p.recordDebugEvent("enter_method", "context")
+}
+
+// Detailed tracing - DebugDetailed only
+if p.config.debug >= DebugDetailed {
+    p.recordDebugEvent("token_consumed", fmt.Sprintf("pos: %d, type: %v", p.pos, tok.Type))
+    p.recordDebugEvent("loop_iteration", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current()))
+}
+
+// Zero overhead when disabled
+if p.config.debug == DebugOff {
+    // No checks, no allocations, no function calls
+}
+```
+
+### Required Debug Events
+**Parser must record (when DebugDetailed enabled)**:
+- Token consumption: `consumed_token: pos X, type Y`
+- Event emission: `emitted_event: EventOpen NodeKind`
+- Loop iterations: `loop_iteration: pos X, token Y` (catches infinite loops)
+- Error recovery: `recovery_start`, `recovery_sync_found`, `consumed_separator`
+- Position tracking: `advanced_from: X to: Y`
+
+**Why**: Detailed debug output would have caught the infinite loop bug immediately by showing repeated `loop_iteration: pos: 6` events.
+
+### Performance Requirements
+- **Zero overhead when disabled**: No checks, no allocations, no function calls
+- **Minimal overhead when enabled**: Simple conditionals only
+- **Benchmark verification**: Must verify zero overhead in benchmarks (see `runtime/lexer/benchmark_test.go`)
+
+### Fail-Fast Invariants
+- **Loop guards**: Assert progress in all loops (panic on stuck parser)
+- **Position tracking**: `prevPos := p.pos` before loop, check after iteration
+- **Clear panic messages**: Include position, token type, and context
+
+**See**: `docs/OBSERVABILITY.md` for production observability model and `docs/TESTING_STRATEGY.md` for testing requirements.
 
 ## Architecture Rules
 - **Module deps**: `core/` (foundation) → `runtime/` → `cli/` (top-level)
@@ -95,7 +166,7 @@ jj git push -b feature-name
 3. **Maintain unified model**: No special cases that break "everything is a decorator" (for work execution)
 4. **Preserve execution semantics**: Decorator blocks complete before chain evaluation
 5. **Support dual mode**: Both command mode and script mode execution
-6. **Follow clean code guidelines**: Apply naming and composition rules from `docs/CLEAN_CODE_GUIDELINES.md`
+6. **Follow decorator guidelines**: Apply naming and composition rules from `docs/DECORATOR_GUIDE.md`
 
 ### TDD Development Rules
 - **Test-Driven Development**: Always write failing tests before implementation

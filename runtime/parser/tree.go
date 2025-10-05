@@ -42,12 +42,17 @@ const (
 	NodeDefaultValue   // Default value (= expression)
 
 	// Statements
-	NodeVarDecl // Variable declaration
+	NodeVarDecl      // Variable declaration
+	NodeShellCommand // Shell command (converts to @shell decorator internally)
+	NodeShellArg     // Shell command argument (may contain multiple tokens)
 
 	// Expressions
 	NodeLiteral    // Literal value (int, string, bool, duration)
 	NodeIdentifier // Identifier reference
 	NodeBinaryExpr // Binary expression (a + b, a == b, etc.)
+
+	// Decorators
+	NodeDecorator // Decorator with property access: @var.name, @env.HOME
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

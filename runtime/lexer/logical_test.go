@@ -791,11 +791,11 @@ func TestLogicalOperatorEdgeCases(t *testing.T) {
 			},
 		},
 		{
-			name:  "single pipe",
+			name:  "single pipe for shell commands",
 			input: "|",
 			expected: []tokenExpectation{
 				{
-					Type: ILLEGAL, Text: "",
+					Type: PIPE, Text: "",
 					Line:   1,
 					Column: 1,
 				},
@@ -940,7 +940,7 @@ func TestLogicalOperatorEdgeCases(t *testing.T) {
 					Column: 1,
 				},
 				{
-					Type: ILLEGAL, Text: "",
+					Type: PIPE, Text: "",
 					Line:   1,
 					Column: 3,
 				},
@@ -1213,6 +1213,52 @@ func TestLogicalInDevcmdContext(t *testing.T) {
 					Line:   1,
 					Column: 40,
 				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.name, tt.input, tt.expected)
+		})
+	}
+}
+
+// TestPipeOperatorForShellCommands tests single pipe for shell command piping
+func TestPipeOperatorForShellCommands(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []tokenExpectation
+	}{
+		{
+			name:  "shell pipe command",
+			input: "cat file.txt | grep pattern",
+			expected: []tokenExpectation{
+				{Type: IDENTIFIER, Text: "cat", Line: 1, Column: 1},
+				{Type: IDENTIFIER, Text: "file", Line: 1, Column: 5},
+				{Type: DOT, Text: "", Line: 1, Column: 9},
+				{Type: IDENTIFIER, Text: "txt", Line: 1, Column: 10},
+				{Type: PIPE, Text: "", Line: 1, Column: 14},
+				{Type: IDENTIFIER, Text: "grep", Line: 1, Column: 16},
+				{Type: IDENTIFIER, Text: "pattern", Line: 1, Column: 21},
+				{Type: EOF, Text: "", Line: 1, Column: 28},
+			},
+		},
+		{
+			name:  "multiple pipes",
+			input: "cat log | grep error | wc -l",
+			expected: []tokenExpectation{
+				{Type: IDENTIFIER, Text: "cat", Line: 1, Column: 1},
+				{Type: IDENTIFIER, Text: "log", Line: 1, Column: 5},
+				{Type: PIPE, Text: "", Line: 1, Column: 9},
+				{Type: IDENTIFIER, Text: "grep", Line: 1, Column: 11},
+				{Type: IDENTIFIER, Text: "error", Line: 1, Column: 16},
+				{Type: PIPE, Text: "", Line: 1, Column: 22},
+				{Type: IDENTIFIER, Text: "wc", Line: 1, Column: 24},
+				{Type: MINUS, Text: "", Line: 1, Column: 27},
+				{Type: IDENTIFIER, Text: "l", Line: 1, Column: 28},
+				{Type: EOF, Text: "", Line: 1, Column: 29},
 			},
 		},
 	}

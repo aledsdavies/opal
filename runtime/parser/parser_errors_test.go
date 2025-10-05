@@ -37,10 +37,10 @@ func TestParseErrors(t *testing.T) {
 			description: "parser accepts, semantic analysis should reject",
 		},
 		{
-			name:        "missing opening brace",
+			name:        "missing function body",
 			input:       "fun greet() }",
 			wantErrors:  true,
-			description: "should report missing {",
+			description: "should report missing function body (needs = or {)",
 		},
 		{
 			name:        "missing closing brace",
@@ -86,12 +86,20 @@ func TestErrorMessages(t *testing.T) {
 			wantSuggestion: "Add ')' to close the parameter list",
 		},
 		{
-			name:           "missing opening brace",
+			name:           "missing function body",
 			input:          "fun greet() }",
 			wantMessage:    "missing '{'",
 			wantContext:    "function body",
 			wantSuggestion: "Add '{' to start the function body",
 		},
+		{
+			name:           "missing closing brace",
+			input:          "fun greet() {",
+			wantMessage:    "missing '}'",
+			wantContext:    "function body",
+			wantSuggestion: "Add '}' to close the function body",
+		},
+
 		{
 			name:           "missing closing brace",
 			input:          "fun greet() {",

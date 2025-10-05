@@ -1,8 +1,10 @@
 package parser
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/aledsdavies/opal/core/types"
 	"github.com/aledsdavies/opal/runtime/lexer"
 )
 
@@ -197,13 +199,36 @@ func (p *parser) file() {
 
 	// Parse top-level declarations
 	for !p.at(lexer.EOF) {
+		prevPos := p.pos
+
+		if p.config.debug >= DebugDetailed {
+			p.recordDebugEvent("file_loop_iteration", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current().Type))
+		}
+
+		// Skip newlines at top level
+		if p.at(lexer.NEWLINE) {
+			p.advance()
+			continue
+		}
+
 		if p.at(lexer.FUN) {
 			p.function()
 		} else if p.at(lexer.VAR) {
 			p.varDecl()
+		} else if p.at(lexer.AT) {
+			// Decorator at top level (script mode)
+			p.decorator()
+		} else if p.at(lexer.IDENTIFIER) {
+			// Shell command at top level
+			p.shellCommand()
 		} else {
 			// Unknown token, skip for now
 			p.advance()
+		}
+
+		// INVARIANT: Parser must make progress in each iteration
+		if p.pos == prevPos && !p.at(lexer.EOF) {
+			panic(fmt.Sprintf("parser stuck in file() at pos %d - no progress made", p.pos))
 		}
 	}
 
@@ -230,11 +255,30 @@ func (p *parser) function() {
 		p.token()
 	}
 
-	// Parse parameter list
-	p.paramList()
+	// Parse parameter list (optional)
+	if p.at(lexer.LPAREN) {
+		p.paramList()
+	}
 
-	// Parse block
-	p.block()
+	// Parse body: either = expression/shell or block (required)
+	if p.at(lexer.EQUALS) {
+		p.token() // Consume '='
+
+		// After '=', could be shell command or expression
+		if p.at(lexer.IDENTIFIER) {
+			// Shell command
+			p.shellCommand()
+		} else {
+			// Expression
+			p.expression()
+		}
+	} else if p.at(lexer.LBRACE) {
+		// Block
+		p.block()
+	} else {
+		// Missing function body - report error
+		p.errorExpected(lexer.LBRACE, "function body")
+	}
 
 	p.finish(kind)
 
@@ -371,7 +415,23 @@ func (p *parser) block() {
 
 	// Parse statements
 	for !p.at(lexer.RBRACE) && !p.at(lexer.EOF) {
+		prevPos := p.pos
+
+		if p.config.debug >= DebugDetailed {
+			p.recordDebugEvent("block_loop_iteration", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current().Type))
+		}
+
 		p.statement()
+
+		// INVARIANT: Parser must make progress in each iteration
+		// If statement() didn't advance, we need to force progress to avoid infinite loop
+		if p.pos == prevPos && !p.at(lexer.RBRACE) && !p.at(lexer.EOF) {
+			if p.config.debug >= DebugDetailed {
+				p.recordDebugEvent("block_force_progress", fmt.Sprintf("pos: %d, forcing advance on %v", p.pos, p.current().Type))
+			}
+			// Force progress by advancing past the problematic token
+			p.advance()
+		}
 	}
 
 	// Expect '}'
@@ -386,12 +446,148 @@ func (p *parser) block() {
 
 // statement parses a statement
 func (p *parser) statement() {
-	if p.at(lexer.VAR) {
-		p.varDecl()
-	} else {
-		// For now, skip unknown statements
+	// Skip newlines (statement separators)
+	for p.at(lexer.NEWLINE) {
+		if p.config.debug >= DebugDetailed {
+			p.recordDebugEvent("statement_skip_newline", fmt.Sprintf("pos: %d", p.pos))
+		}
 		p.advance()
 	}
+
+	if p.at(lexer.VAR) {
+		p.varDecl()
+	} else if p.at(lexer.IDENTIFIER) {
+		// Shell command
+		p.shellCommand()
+	} else if !p.at(lexer.RBRACE) && !p.at(lexer.EOF) {
+		// Unknown statement - error recovery
+		if p.config.debug >= DebugDetailed {
+			p.recordDebugEvent("error_recovery_start", fmt.Sprintf("pos: %d, unexpected %v in statement", p.pos, p.current().Type))
+		}
+
+		p.errorUnexpected("statement")
+		p.recover()
+
+		if p.config.debug >= DebugDetailed {
+			p.recordDebugEvent("recovery_sync_found", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current().Type))
+		}
+
+		// Consume separator to guarantee progress
+		if p.at(lexer.NEWLINE) || p.at(lexer.SEMICOLON) {
+			if p.config.debug >= DebugDetailed {
+				p.recordDebugEvent("consumed_separator", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current().Type))
+			}
+			p.advance()
+		}
+	}
+}
+
+// shellCommand parses a shell command and its arguments
+// Uses HasSpaceBefore to determine argument boundaries
+// Consumes tokens until a shell operator (&&, ||, |) or statement boundary
+func (p *parser) shellCommand() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_shell_command", "parsing shell command")
+	}
+
+	kind := p.start(NodeShellCommand)
+
+	// Parse shell arguments until we hit an operator or boundary
+	for !p.isShellOperator() && !p.isStatementBoundary() {
+		prevPos := p.pos
+
+		if p.config.debug >= DebugDetailed {
+			p.recordDebugEvent("shell_arg_start", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current().Type))
+		}
+
+		// Parse a single shell argument (may be multiple tokens without spaces)
+		p.shellArg()
+
+		// INVARIANT: must make progress
+		if p.pos == prevPos {
+			panic(fmt.Sprintf("parser stuck in shellCommand() at pos %d, token: %v", p.pos, p.current().Type))
+		}
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_shell_command", "shell command complete")
+	}
+
+	// If we stopped at a shell operator, consume it and parse next command
+	if p.isShellOperator() {
+		p.token() // Consume operator (&&, ||, |)
+
+		// Parse next command after operator
+		if !p.isStatementBoundary() && !p.at(lexer.EOF) {
+			p.shellCommand()
+		}
+	}
+}
+
+// shellArg parses a single shell argument
+// Consumes tokens until we hit a space (HasSpaceBefore on next token)
+// or a shell operator or statement boundary
+// PRECONDITION: Must NOT be called when at operator or boundary (caller's responsibility)
+func (p *parser) shellArg() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_shell_arg", "parsing shell argument")
+	}
+
+	// PRECONDITION CHECK: shellArg should never be called at operator/boundary
+	if p.isShellOperator() || p.isStatementBoundary() {
+		panic(fmt.Sprintf("BUG: shellArg() called at operator/boundary, pos: %d, token: %v",
+			p.pos, p.current().Type))
+	}
+
+	kind := p.start(NodeShellArg)
+
+	// Consume first token (guaranteed to exist due to precondition)
+	if p.config.debug >= DebugDetailed {
+		p.recordDebugEvent("shell_arg_first_token", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current().Type))
+	}
+	p.token()
+
+	// Consume additional tokens that form this argument (no space between them)
+	// Loop continues while: not at operator, not at boundary, and no space before current token
+	for !p.isShellOperator() && !p.isStatementBoundary() && !p.current().HasSpaceBefore {
+		prevPos := p.pos
+
+		if p.config.debug >= DebugDetailed {
+			p.recordDebugEvent("shell_arg_continue_token", fmt.Sprintf("pos: %d, token: %v, hasSpace: %v",
+				p.pos, p.current().Type, p.current().HasSpaceBefore))
+		}
+
+		p.token() // Consume token as part of this argument
+
+		// INVARIANT: p.token() calls p.advance() which MUST increment p.pos
+		if p.pos <= prevPos {
+			panic(fmt.Sprintf("parser stuck in shellArg() at pos %d (was %d), token: %v - advance() failed to increment position",
+				p.pos, prevPos, p.current().Type))
+		}
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_shell_arg", "shell argument complete")
+	}
+}
+
+// isShellOperator checks if current token is a shell operator that splits commands
+func (p *parser) isShellOperator() bool {
+	return p.at(lexer.AND_AND) || // &&
+		p.at(lexer.OR_OR) || // ||
+		p.at(lexer.PIPE) // |
+}
+
+// isStatementBoundary checks if current token ends a statement
+func (p *parser) isStatementBoundary() bool {
+	return p.at(lexer.NEWLINE) ||
+		p.at(lexer.SEMICOLON) ||
+		p.at(lexer.RBRACE) ||
+		p.at(lexer.EOF)
 }
 
 // varDecl parses a variable declaration: var IDENTIFIER = expression
@@ -464,6 +660,10 @@ func (p *parser) primary() {
 		p.token()
 		p.finish(kind)
 
+	case p.at(lexer.AT):
+		// Decorator: @var.name, @env.HOME
+		p.decorator()
+
 	case p.at(lexer.IDENTIFIER):
 		// Identifier
 		kind := p.start(NodeIdentifier)
@@ -477,6 +677,54 @@ func (p *parser) primary() {
 		if !p.at(lexer.EOF) {
 			p.advance()
 		}
+	}
+}
+
+// decorator parses @identifier.property
+// Only creates decorator node if identifier is registered
+func (p *parser) decorator() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_decorator", "parsing decorator")
+	}
+
+	// Consume @ token
+	p.advance()
+
+	// Check if next token is an identifier or VAR keyword
+	if !p.at(lexer.IDENTIFIER) && !p.at(lexer.VAR) {
+		// Not a decorator, treat @ as literal
+		// TODO: This needs better handling for literal @ in strings
+		return
+	}
+
+	// Get the decorator name
+	decoratorName := string(p.current().Text)
+
+	// Check if it's a registered decorator
+	if !types.Global().IsRegistered(decoratorName) {
+		// Not a registered decorator, treat @ as literal
+		// Don't consume the identifier, let it be parsed normally
+		return
+	}
+
+	// It's a registered decorator, parse it
+	kind := p.start(NodeDecorator)
+
+	// Consume decorator name (IDENTIFIER or VAR keyword)
+	p.token()
+
+	// Parse property access: .property
+	if p.at(lexer.DOT) {
+		p.token() // Consume DOT
+		if p.at(lexer.IDENTIFIER) {
+			p.token() // Consume property name
+		}
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_decorator", "decorator complete")
 	}
 }
 
