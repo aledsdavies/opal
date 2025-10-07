@@ -358,6 +358,222 @@ opal> diff plan-v1 plan-v2
 
 ## Ecosystem Extensions
 
+### Terraform/Pulumi Provider Bridge (⚙️ Feasible)
+
+**Strategy:** Keep **dedicated providers** for core operations (K8s, shell, HTTP, secrets), add **bridge** for instant ecosystem reach.
+
+**Why this is feasible:**
+- **Terraform/OpenTofu expose machine-readable schemas** via `terraform providers schema -json` / `tofu providers schema -json`
+- **Provider protocol is documented and stable (gRPC)** - can drive providers headlessly
+- **Pulumi proves the pattern** at scale with their TF bridge and package schemas
+- **Schema contains everything needed** for codegen: types, resources, data sources, docs
+
+#### Schema Import & Codegen
+
+**1. Import OpenTofu/Terraform schema:**
+```bash
+# Export provider schema
+tofu providers schema -json > aws-schema.json
+
+# Import into Opal
+opal provider add hashicorp/aws
+# Reads schema, generates decorators + plugin manifest
+```
+
+**2. Type mapping (TF → Opal):**
+```
+TF Type          → Opal Type
+─────────────────────────────
+string           → String
+number           → Number
+bool             → Bool
+list(T)          → List<T>
+map(T)           → Map<String, T>
+object({...})    → Struct
+set(T)           → Set<T>
+```
+
+**3. Generated decorators:**
+
+**Data sources → Value decorators:**
+```opal
+# From aws_ami data source
+var ami = @aws.ami.lookup(
+    filters={
+        name="ubuntu/images/hvm-ssd/ubuntu-*",
+        architecture="x86_64"
+    },
+    owners=["099720109477"]
+)
+
+echo "AMI ID: @var.ami.id"
+echo "Name: @var.ami.name"
+```
+
+**Resources → Execution decorators:**
+```opal
+# From aws_s3_bucket resource
+@aws.s3.bucket.ensure(
+    name="my-app-bucket",
+    region="us-east-1",
+    versioning=true,
+    tags={env: "prod", team: "platform"}
+)
+```
+
+#### Runtime Adapter (Stateless UX, Stateful Engine)
+
+**Per-call scratch workspace approach:**
+```
+1. User calls @aws.s3.bucket.ensure(...)
+2. Opal creates temp workspace
+3. Calls provider via gRPC (plan + apply)
+4. Extracts result, cleans up workspace
+5. Returns to Opal execution flow
+```
+
+**Plan integration:**
+```
+Opal Plan Entry:
+  Step 3: @aws.s3.bucket.ensure(name="my-app", ...)
+    Provider Plan (embedded):
+      + aws_s3_bucket.bucket
+          name:       "my-app"
+          region:     "us-east-1"
+          versioning: true
+    Plan Hash: sha256:a1b2c3...
+```
+
+**Key insight:** TF manages drift via state file; Opal queries reality each run. Bridge treats TF plan/apply as **internal mechanism** while preserving Opal's plan-first + stateless UX.
+
+#### Plugin Manifest → IDE Experience
+
+**Generated manifest (per provider):**
+```json
+{
+  "provider": "aws",
+  "version": "5.0.0",
+  "decorators": {
+    "aws.ami.lookup": {
+      "kind": "value",
+      "returns": "Ami",
+      "params": {
+        "filters": {"type": "Map<String, String>", "required": false},
+        "owners": {"type": "List<String>", "required": false}
+      },
+      "docs": "Look up an AMI by filters..."
+    },
+    "aws.s3.bucket.ensure": {
+      "kind": "execution",
+      "returns": "ExitStatus",
+      "params": {
+        "name": {"type": "String", "required": true},
+        "region": {"type": "String", "required": false},
+        "versioning": {"type": "Bool", "required": false}
+      },
+      "docs": "Create or update S3 bucket..."
+    }
+  }
+}
+```
+
+**LSP uses manifest for:**
+- `@` + `.` completions (namespace → decorator)
+- `(` signature help (parameter types, required/optional)
+- Hover docs (pulled from provider schema)
+- Type checking (catch errors before execution)
+
+#### Guardrails & Safety
+
+**1. Plan safety summary:**
+```
+Plan for @aws.s3.bucket.ensure:
+  CREATE: aws_s3_bucket.bucket
+    ⚠️  This will create a new S3 bucket
+    📝 Estimated cost: $0.023/month (standard storage)
+    🔒 Public access: blocked (default)
+```
+
+**2. Dry-run enforcement (policy):**
+```bash
+# Require plan review for prod
+opal deploy --env=prod
+# Error: Production requires --plan flag with approved hash
+
+# Workflow:
+opal plan deploy --env=prod > plan.txt
+# Security reviews plan.txt, approves hash: sha256:5f6c...
+
+opal deploy --env=prod --plan plan.txt
+# Replans, verifies hash matches, executes
+```
+
+**3. Idempotence knobs (Opal advantage):**
+```opal
+# Opal's idempotence on top of TF providers
+@aws.s3.bucket.ensure(
+    name="my-app-bucket",
+    idempotenceKey=["name"],
+    onMismatch="ignore"  # Use existing if found
+)
+```
+
+#### Implementation Roadmap
+
+**Phase 1: Proof of Concept (2-4 weeks)**
+- Schema import for AWS provider
+- Generate 2 value decorators (data sources)
+- Generate 2 execution decorators (resources)
+- Basic gRPC adapter (scratch workspace)
+- Manual testing
+
+**Phase 2: MVP (6-8 weeks)**
+- Full AWS provider coverage
+- Plugin manifest generation
+- LSP integration (completions, signature help)
+- Plan integration (embed TF plan in Opal plan)
+- Automated tests
+
+**Phase 3: Production Ready (3-4 months)**
+- Kubernetes provider
+- Error handling & recovery
+- Performance optimization (workspace pooling)
+- Documentation & examples
+- Security audit
+
+**Phase 4: Ecosystem (6+ months)**
+- Support for all major providers (GCP, Azure, etc.)
+- Provider registry & versioning
+- Community contributions
+- Enterprise features (private registries)
+
+#### First Targets
+
+**AWS provider** - Proves both value and exec sides, huge surface, great docs
+**Kubernetes provider** - Mixed shell + provider flows, critical for ops
+
+#### Why This Beats Pure TF/Pulumi
+
+**vs Terraform:**
+- ✅ Procedural flows (not declarative graph)
+- ✅ First-class retry/timeout/error handling
+- ✅ Mix shell commands naturally
+- ✅ Stateless execution (query reality each run)
+
+**vs Pulumi:**
+- ✅ Compact ops DSL (not full programming language)
+- ✅ Plan-first everywhere (not optional)
+- ✅ Standalone binaries (no runtime dependency)
+- ✅ Contract verification (hash-based)
+
+**vs Shell scripts:**
+- ✅ Type safety from provider schemas
+- ✅ IDE support (completions, docs)
+- ✅ Structured error handling
+- ✅ Auditable plans
+
+**Net result:** Pulumi-level typing & IDE + Terraform provider breadth + better ergonomics than shell.
+
 ### Infrastructure as Code (IaC) (🧭 Long-term)
 
 **Philosophy**: Outcome-focused, not describe-the-world. Ensure resources matching criteria exist, then use them in your script.

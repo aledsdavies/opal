@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aledsdavies/opal/core/types"
+	_ "github.com/aledsdavies/opal/runtime/decorators" // Register built-in decorators
 	"github.com/aledsdavies/opal/runtime/lexer"
 )
 
@@ -543,28 +544,34 @@ func (p *parser) shellArg() {
 
 	kind := p.start(NodeShellArg)
 
-	// Consume first token (guaranteed to exist due to precondition)
-	if p.config.debug >= DebugDetailed {
-		p.recordDebugEvent("shell_arg_first_token", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current().Type))
-	}
-	p.token()
-
-	// Consume additional tokens that form this argument (no space between them)
-	// Loop continues while: not at operator, not at boundary, and no space before current token
-	for !p.isShellOperator() && !p.isStatementBoundary() && !p.current().HasSpaceBefore {
-		prevPos := p.pos
-
+	// Check if first token is a STRING that needs interpolation
+	if p.at(lexer.STRING) && p.stringNeedsInterpolation() {
+		// Parse string with interpolation
+		p.stringLiteral()
+	} else {
+		// Consume first token (guaranteed to exist due to precondition)
 		if p.config.debug >= DebugDetailed {
-			p.recordDebugEvent("shell_arg_continue_token", fmt.Sprintf("pos: %d, token: %v, hasSpace: %v",
-				p.pos, p.current().Type, p.current().HasSpaceBefore))
+			p.recordDebugEvent("shell_arg_first_token", fmt.Sprintf("pos: %d, token: %v", p.pos, p.current().Type))
 		}
+		p.token()
 
-		p.token() // Consume token as part of this argument
+		// Consume additional tokens that form this argument (no space between them)
+		// Loop continues while: not at operator, not at boundary, and no space before current token
+		for !p.isShellOperator() && !p.isStatementBoundary() && !p.current().HasSpaceBefore {
+			prevPos := p.pos
 
-		// INVARIANT: p.token() calls p.advance() which MUST increment p.pos
-		if p.pos <= prevPos {
-			panic(fmt.Sprintf("parser stuck in shellArg() at pos %d (was %d), token: %v - advance() failed to increment position",
-				p.pos, prevPos, p.current().Type))
+			if p.config.debug >= DebugDetailed {
+				p.recordDebugEvent("shell_arg_continue_token", fmt.Sprintf("pos: %d, token: %v, hasSpace: %v",
+					p.pos, p.current().Type, p.current().HasSpaceBefore))
+			}
+
+			p.token() // Consume token as part of this argument
+
+			// INVARIANT: p.token() calls p.advance() which MUST increment p.pos
+			if p.pos <= prevPos {
+				panic(fmt.Sprintf("parser stuck in shellArg() at pos %d (was %d), token: %v - advance() failed to increment position",
+					p.pos, prevPos, p.current().Type))
+			}
 		}
 	}
 
@@ -654,11 +661,15 @@ func (p *parser) binaryExpr(minPrec int) {
 // primary parses a primary expression (literal, identifier, etc.)
 func (p *parser) primary() {
 	switch {
-	case p.at(lexer.INTEGER), p.at(lexer.FLOAT), p.at(lexer.STRING), p.at(lexer.BOOLEAN):
+	case p.at(lexer.INTEGER), p.at(lexer.FLOAT), p.at(lexer.BOOLEAN):
 		// Literal
 		kind := p.start(NodeLiteral)
 		p.token()
 		p.finish(kind)
+
+	case p.at(lexer.STRING):
+		// String - check if it needs interpolation
+		p.stringLiteral()
 
 	case p.at(lexer.AT):
 		// Decorator: @var.name, @env.HOME
@@ -725,6 +736,115 @@ func (p *parser) decorator() {
 
 	if p.config.debug >= DebugPaths {
 		p.recordDebugEvent("exit_decorator", "decorator complete")
+	}
+}
+
+// stringNeedsInterpolation checks if the current STRING token needs interpolation
+func (p *parser) stringNeedsInterpolation() bool {
+	tok := p.current()
+
+	if len(tok.Text) == 0 {
+		return false
+	}
+
+	quoteType := tok.Text[0]
+
+	// Single quotes never interpolate
+	if quoteType == '\'' {
+		return false
+	}
+
+	// Extract content without quotes
+	content := tok.Text
+	if len(content) >= 2 {
+		content = content[1 : len(content)-1]
+	} else {
+		return false
+	}
+
+	// Tokenize and check if there are multiple parts or decorator parts
+	parts := TokenizeString(content, quoteType)
+
+	// Needs interpolation if there are multiple parts or if the single part is a decorator
+	return len(parts) > 1 || (len(parts) == 1 && !parts[0].IsLiteral)
+}
+
+// stringLiteral parses a string literal, checking for interpolation
+func (p *parser) stringLiteral() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_string_literal", "parsing string")
+	}
+
+	tok := p.current()
+
+	// Check quote type - single quotes have no interpolation
+	if len(tok.Text) == 0 {
+		// Empty string token, treat as simple literal
+		kind := p.start(NodeLiteral)
+		p.token()
+		p.finish(kind)
+		return
+	}
+
+	quoteType := tok.Text[0]
+
+	// Single quotes never interpolate
+	if quoteType == '\'' {
+		kind := p.start(NodeLiteral)
+		p.token()
+		p.finish(kind)
+		return
+	}
+
+	// Extract content without quotes
+	content := tok.Text
+	if len(content) >= 2 {
+		content = content[1 : len(content)-1] // Remove surrounding quotes
+	} else {
+		// Malformed string, treat as simple literal
+		kind := p.start(NodeLiteral)
+		p.token()
+		p.finish(kind)
+		return
+	}
+
+	// Tokenize the string content
+	parts := TokenizeString(content, quoteType)
+
+	// If no parts or only one literal part, treat as simple literal
+	if len(parts) == 0 || (len(parts) == 1 && parts[0].IsLiteral) {
+		kind := p.start(NodeLiteral)
+		p.token()
+		p.finish(kind)
+		return
+	}
+
+	// Has interpolation - create interpolated string node
+	kind := p.start(NodeInterpolatedString)
+	p.token() // Consume the STRING token
+
+	// Create nodes for each part
+	for _, part := range parts {
+		partKind := p.start(NodeStringPart)
+
+		if part.IsLiteral {
+			// Literal part - no additional nodes needed
+			// The part's byte offsets are stored in the StringPart
+		} else {
+			// Decorator part - create decorator node
+			decoratorKind := p.start(NodeDecorator)
+			// Note: We don't consume tokens here because the decorator is embedded in the string
+			// The decorator name and property are in the string content at part.Start:part.End
+			p.finish(decoratorKind)
+		}
+
+		p.finish(partKind)
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_string_literal", "string complete")
 	}
 }
 

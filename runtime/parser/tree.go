@@ -47,9 +47,11 @@ const (
 	NodeShellArg     // Shell command argument (may contain multiple tokens)
 
 	// Expressions
-	NodeLiteral    // Literal value (int, string, bool, duration)
-	NodeIdentifier // Identifier reference
-	NodeBinaryExpr // Binary expression (a + b, a == b, etc.)
+	NodeLiteral            // Literal value (int, string, bool, duration)
+	NodeIdentifier         // Identifier reference
+	NodeBinaryExpr         // Binary expression (a + b, a == b, etc.)
+	NodeInterpolatedString // String with interpolated decorators: "Hello @var.name"
+	NodeStringPart         // Part of interpolated string (literal or decorator reference)
 
 	// Decorators
 	NodeDecorator // Decorator with property access: @var.name, @env.HOME

@@ -19,9 +19,142 @@ Every decorator must maintain these guarantees:
 
 **Philosophy:** Blocks tame clutter. When decorator composition gets complex, prefer block structure over long chains. Readability trumps brevity.
 
-## Naming and Parameters
+## Decorator Anatomy
 
-### Naming Conventions
+Every decorator call has three optional components:
+
+```opal
+@path.primary(param1=value1, param2=value2) { block }
+```
+
+### 1. Primary Property (Optional)
+
+The **primary property** is a shorthand for the most important parameter. Decorator authors decide if their decorator uses it.
+
+```opal
+# These are equivalent:
+@env.HOME
+@env("HOME")
+@env(property="HOME")
+
+# With additional parameters:
+@env.HOME(default="/home/user")
+@env("HOME", default="/home/user")
+```
+
+**When to use primary property:**
+- **Value decorators** that access named resources: `@var.name`, `@env.PATH`, `@file.read.config`
+- **Single required parameter** that's used 90% of the time
+- **Readability** - makes common cases cleaner
+
+**When NOT to use primary property:**
+- **Execution decorators** with multiple equally-important parameters: `@retry(times=3, delay=2s)`
+- **No obvious "main" parameter**
+- **Block-based decorators** where the block is the primary input: `@parallel { ... }`
+
+### 2. Named Parameters (Optional)
+
+Supplemental configuration beyond the primary property.
+
+```opal
+@file.read("config.yaml", encoding="utf-8", cache=true)
+@retry(times=3, delay=2s, backoff="exponential")
+@aws.secret.db_password(auth=prodAuth, version="latest")
+```
+
+**Parameter conventions:**
+- Use `camelCase` for parameter names
+- Support both positional and named forms
+- Provide sensible defaults
+
+### 3. Block (Optional)
+
+A **lambda/unit of execution** passed to the decorator (Kotlin-style). The block is a parameter containing code to execute.
+
+```opal
+# Block as lambda for execution control:
+@retry(times=3) {
+    kubectl apply -f deployment.yaml
+    kubectl rollout status deployment/app
+}
+
+# Block as scope for configuration:
+@aws.auth(profile="prod") {
+    var secret = @aws.secret.db_password
+    var apiKey = @aws.secret.api_key
+}
+
+# Block for iteration:
+@parallel {
+    @task("build-frontend") { npm run build }
+    @task("build-backend") { go build }
+}
+```
+
+**Block semantics:**
+- Blocks are **execution contexts**, not configuration objects
+- The decorator controls when/how the block executes
+- Blocks can be retried, parallelized, or conditionally executed
+- Blocks have access to the parent scope's variables
+
+## Decorator Kinds
+
+Opal distinguishes between two kinds of decorators:
+
+### Value Decorators
+
+**Return data with no side effects.** Can be used in expressions and string interpolation.
+
+```opal
+# Value decorators return data:
+var home = @env.HOME
+var config = @file.read("config.yaml")
+var secret = @aws.secret.db_password(auth=prodAuth)
+
+# Can be interpolated in strings:
+echo "Home directory: @env.HOME"
+echo "Config: @file.read('settings.json')"
+```
+
+**Characteristics:**
+- Pure functions (same inputs → same outputs)
+- No side effects during plan or execution
+- Can be used anywhere a value is expected
+- Registered with `RegisterValue(path)`
+
+### Execution Decorators
+
+**Perform actions with side effects.** Cannot be interpolated in strings.
+
+```opal
+# Execution decorators perform actions:
+@file.write("output.txt", content="Hello World")
+@shell("kubectl apply -f deployment.yaml")
+@aws.instance.deploy(config=myConfig)
+
+# Cannot be interpolated (stays literal):
+echo "Running @shell('ls')"  # Prints literally: "Running @shell('ls')"
+```
+
+**Characteristics:**
+- Perform side effects (write files, make API calls, etc.)
+- Cannot be used in string interpolation
+- Can accept blocks for execution control
+- Registered with `RegisterExecution(path)`
+
+### Same Namespace, Different Kinds
+
+A namespace can have both value and execution decorators:
+
+```opal
+# Value decorator (read):
+var content = @file.read("config.yaml")
+
+# Execution decorator (write):
+@file.write("output.txt", content=@var.content)
+```
+
+## Naming Conventions
 
 **Verb-first naming** for clarity:
 ```opal
@@ -35,7 +168,7 @@ Every decorator must maintain these guarantees:
 ❌ Bad:  @repeat, @redo, @again (confusing alternatives)
 ```
 
-### Parameter Design
+## Parameter Flexibility
 
 **Kotlin-style flexibility** - all forms supported:
 ```opal
@@ -45,9 +178,6 @@ Every decorator must maintain these guarantees:
 ```
 
 All three forms are valid. Use what's clearest for your use case.
-
-**Parameter conventions**:
-- Use `camelCase` for all parameter names
 - Consistent patterns: `maxAttempts` not `max_attempts` or `attemptsMax`
 
 **Duration format**:
