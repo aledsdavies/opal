@@ -644,30 +644,10 @@ func (l *Lexer) lexString(start Position, quote byte, hasSpaceBefore bool) Token
 
 // lookupKeyword returns the appropriate token type for keywords, or IDENTIFIER
 func (l *Lexer) lookupKeyword(text string) TokenType {
-	switch text {
-	case "fun":
-		return FUN
-	case "var":
-		return VAR
-	case "for":
-		return FOR
-	case "in":
-		return IN
-	case "if":
-		return IF
-	case "else":
-		return ELSE
-	case "when":
-		return WHEN
-	case "try":
-		return TRY
-	case "catch":
-		return CATCH
-	case "finally":
-		return FINALLY
-	default:
-		return IDENTIFIER
+	if tokType, isKeyword := Keywords[text]; isKeyword {
+		return tokType
 	}
+	return IDENTIFIER
 }
 
 // currentChar returns the current character being examined (ASCII fast path)

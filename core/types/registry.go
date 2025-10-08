@@ -1,6 +1,9 @@
 package types
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // Value represents a runtime value in Opal
 // This is a placeholder - will be expanded as we implement the runtime
@@ -49,6 +52,7 @@ const (
 type DecoratorInfo struct {
 	Path             string           // Full path: "var", "env", "file.read", "aws.instance.data"
 	Kind             DecoratorKind    // Value or Execution
+	Schema           DecoratorSchema  // Schema describing the decorator's interface
 	ValueHandler     ValueHandler     // Handler for value decorators (nil for execution)
 	ExecutionHandler ExecutionHandler // Handler for execution decorators (nil for value)
 }
@@ -74,6 +78,7 @@ func (r *Registry) RegisterValue(path string, handler ValueHandler) {
 	r.decorators[path] = DecoratorInfo{
 		Path:         path,
 		Kind:         DecoratorKindValue,
+		Schema:       DecoratorSchema{Path: path, Kind: "value"}, // Minimal schema
 		ValueHandler: handler,
 	}
 }
@@ -86,6 +91,7 @@ func (r *Registry) RegisterExecution(path string, handler ExecutionHandler) {
 	r.decorators[path] = DecoratorInfo{
 		Path:             path,
 		Kind:             DecoratorKindExecution,
+		Schema:           DecoratorSchema{Path: path, Kind: "execution"}, // Minimal schema
 		ExecutionHandler: handler,
 	}
 }
@@ -139,6 +145,68 @@ func (r *Registry) IsValueDecorator(path string) bool {
 	defer r.mu.RUnlock()
 	info, exists := r.decorators[path]
 	return exists && info.Kind == DecoratorKindValue
+}
+
+// GetSchema retrieves the schema for a decorator
+func (r *Registry) GetSchema(path string) (DecoratorSchema, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	info, exists := r.decorators[path]
+	return info.Schema, exists
+}
+
+// GetInfo retrieves the full decorator info
+func (r *Registry) GetInfo(path string) (DecoratorInfo, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	info, exists := r.decorators[path]
+	return info, exists
+}
+
+// RegisterValueWithSchema registers a value decorator with a schema
+func (r *Registry) RegisterValueWithSchema(schema DecoratorSchema, handler ValueHandler) error {
+	// Validate schema
+	if err := ValidateSchema(schema); err != nil {
+		return fmt.Errorf("invalid schema for %s: %w", schema.Path, err)
+	}
+
+	if schema.Kind != "value" {
+		return fmt.Errorf("schema kind must be 'value' for RegisterValueWithSchema, got %q", schema.Kind)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.decorators[schema.Path] = DecoratorInfo{
+		Path:         schema.Path,
+		Kind:         DecoratorKindValue,
+		Schema:       schema,
+		ValueHandler: handler,
+	}
+	return nil
+}
+
+// RegisterExecutionWithSchema registers an execution decorator with a schema
+func (r *Registry) RegisterExecutionWithSchema(schema DecoratorSchema, handler ExecutionHandler) error {
+	// Validate schema
+	if err := ValidateSchema(schema); err != nil {
+		return fmt.Errorf("invalid schema for %s: %w", schema.Path, err)
+	}
+
+	if schema.Kind != KindExecution {
+		return fmt.Errorf("schema kind must be 'execution' for RegisterExecutionWithSchema, got %q", schema.Kind)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.decorators[schema.Path] = DecoratorInfo{
+		Path:             schema.Path,
+		Kind:             DecoratorKindExecution,
+		Schema:           schema,
+		ExecutionHandler: handler,
+	}
+	return nil
 }
 
 // Global registry instance

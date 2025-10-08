@@ -52,6 +52,15 @@ The **primary property** is a shorthand for the most important parameter. Decora
 - **No obvious "main" parameter**
 - **Block-based decorators** where the block is the primary input: `@parallel { ... }`
 
+**Schema definition:**
+```go
+// Decorator with primary parameter
+.PrimaryParam("property", "string", "Environment variable name")
+
+// Decorator without primary parameter
+// (just omit PrimaryParam() call)
+```
+
 ### 2. Named Parameters (Optional)
 
 Supplemental configuration beyond the primary property.
@@ -152,6 +161,119 @@ var content = @file.read("config.yaml")
 
 # Execution decorator (write):
 @file.write("output.txt", content=@var.content)
+```
+
+## Defining Decorator Schemas
+
+Decorators are defined using a **schema builder API** that provides type safety and self-documentation.
+
+### Basic Value Decorator Schema
+
+```go
+// In runtime/decorators/env.go
+func init() {
+    schema := types.NewSchema("env", "value").
+        Description("Access environment variables").
+        PrimaryParam("property", "string", "Environment variable name").
+        Param("default", "string").
+            Description("Default value if env var not set").
+            Optional().
+            Examples("", "/home/user").
+            Done().
+        Returns("string", "Environment variable value").
+        Build()
+    
+    types.Global().RegisterValueWithSchema(schema, envHandler)
+}
+```
+
+**This schema enables:**
+- `@env.HOME` - Primary parameter syntax sugar
+- `@env.HOME(default="/home/user")` - Additional parameters
+- Parser validates parameter names at parse-time
+- IDE autocomplete for parameter names
+- Auto-generated documentation
+
+### Execution Decorator Schema
+
+```go
+schema := types.NewSchema("retry", "execution").
+    Description("Retry failed operations with exponential backoff").
+    Param("times", "int").
+        Description("Number of retry attempts").
+        Default(3).
+        Done().
+    Param("delay", "duration").
+        Description("Initial delay between retries").
+        Default("1s").
+        Examples("1s", "5s", "30s").
+        Done().
+    Param("backoff", "string").
+        Description("Backoff strategy").
+        Default("exponential").
+        Done().
+    AcceptsBlock().
+    Build()
+```
+
+**Usage:**
+```opal
+@retry(times=5, delay=2s) {
+    kubectl apply -f deployment.yaml
+}
+```
+
+### Schema Type System
+
+**Supported parameter types:**
+- `"string"` - UTF-8 text
+- `"int"` - 64-bit signed integer
+- `"float"` - 64-bit floating point
+- `"bool"` - Boolean true/false
+- `"duration"` - Time duration (1s, 5m, 2h)
+- `"object"` - Key-value map
+- `"array"` - Ordered list
+- Custom types: `"AuthHandle"`, `"SecretHandle"`, etc.
+
+**Parameter modifiers:**
+- `.Required()` - Parameter must be provided
+- `.Optional()` - Parameter is optional
+- `.Default(value)` - Default value (implies optional)
+- `.Examples(...)` - Example values for documentation
+- `.Description(text)` - Human-readable description
+
+### Primary Parameter Pattern
+
+The **primary parameter** enables dot-notation syntax sugar:
+
+```go
+// Schema defines primary parameter
+.PrimaryParam("secretName", "string", "Name or ARN of the secret")
+
+// Enables these equivalent forms:
+@aws.secret.db_password              // Dot syntax (sugar)
+@aws.secret("db_password")           // Positional
+@aws.secret(secretName="db_password") // Named
+```
+
+**Path matching:** Registry uses longest-match routing:
+```opal
+@aws.secret.db_password
+    ^^^^^^^^^^           ← Registered path: "aws.secret"
+              ^^^^^^^^^^^^ ← Primary parameter: "db_password"
+```
+
+### Schema Validation
+
+Schemas are validated at registration time:
+- Primary parameter must exist in parameters map
+- Required parameters cannot have defaults
+- Type names must be valid
+- Path cannot be empty
+
+**Example validation error:**
+```
+Error: invalid schema for "retry": primary parameter "attempts" not found in parameters
 ```
 
 ## Naming Conventions

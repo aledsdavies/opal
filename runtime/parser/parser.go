@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/aledsdavies/opal/core/types"
-	_ "github.com/aledsdavies/opal/runtime/decorators" // Register built-in decorators
 	"github.com/aledsdavies/opal/runtime/lexer"
 )
 
@@ -698,8 +697,10 @@ func (p *parser) decorator() {
 		p.recordDebugEvent("enter_decorator", "parsing decorator")
 	}
 
-	// Consume @ token
-	p.advance()
+	// Look ahead to check if this is a registered decorator
+	// (we need to peek before consuming @ to decide if it's a decorator)
+	atPos := p.pos
+	p.advance() // Move past @
 
 	// Check if next token is an identifier or VAR keyword
 	if !p.at(lexer.IDENTIFIER) && !p.at(lexer.VAR) {
@@ -718,18 +719,46 @@ func (p *parser) decorator() {
 		return
 	}
 
+	// Get the schema for validation
+	schema, hasSchema := types.Global().GetSchema(decoratorName)
+
 	// It's a registered decorator, parse it
+	// Reset position to @ and start the node
+	p.pos = atPos
 	kind := p.start(NodeDecorator)
+
+	// Consume @ token (emit it)
+	p.token()
 
 	// Consume decorator name (IDENTIFIER or VAR keyword)
 	p.token()
+
+	// Track if primary parameter was provided via dot syntax
+	hasPrimaryViaDot := false
 
 	// Parse property access: .property
 	if p.at(lexer.DOT) {
 		p.token() // Consume DOT
 		if p.at(lexer.IDENTIFIER) {
 			p.token() // Consume property name
+			hasPrimaryViaDot = true
 		}
+	}
+
+	// Track provided parameters for validation
+	providedParams := make(map[string]bool)
+	if hasPrimaryViaDot && hasSchema && schema.PrimaryParameter != "" {
+		providedParams[schema.PrimaryParameter] = true
+	}
+
+	// Parse parameters: (param1=value1, param2=value2)
+	if p.at(lexer.LPAREN) {
+		p.decoratorParamsWithValidation(decoratorName, schema, providedParams)
+	}
+
+	// Validate required parameters
+	if hasSchema {
+		p.validateRequiredParameters(decoratorName, schema, providedParams)
 	}
 
 	p.finish(kind)
@@ -737,6 +766,213 @@ func (p *parser) decorator() {
 	if p.config.debug >= DebugPaths {
 		p.recordDebugEvent("exit_decorator", "decorator complete")
 	}
+}
+
+// decoratorParamsWithValidation parses and validates decorator parameters
+func (p *parser) decoratorParamsWithValidation(decoratorName string, schema types.DecoratorSchema, providedParams map[string]bool) {
+	if !p.at(lexer.LPAREN) {
+		return
+	}
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_decorator_params", fmt.Sprintf("decorator=%s, schema_params=%d", decoratorName, len(schema.Parameters)))
+	}
+
+	paramListKind := p.start(NodeParamList)
+	p.token() // Consume (
+
+	// Parse parameters until we hit )
+	for !p.at(lexer.RPAREN) && !p.at(lexer.EOF) {
+		paramKind := p.start(NodeParam)
+
+		// Parse parameter name
+		if !p.at(lexer.IDENTIFIER) {
+			p.errorExpected(lexer.IDENTIFIER, "parameter name")
+			p.finish(paramKind)
+			break
+		}
+
+		paramNameToken := p.current()
+		paramName := string(paramNameToken.Text)
+		p.token() // Consume parameter name
+
+		// Expect =
+		if !p.at(lexer.EQUALS) {
+			p.errorExpected(lexer.EQUALS, "'=' after parameter name")
+			p.finish(paramKind)
+			break
+		}
+		p.token() // Consume =
+
+		// Check if parameter exists in schema
+		paramSchema, paramExists := schema.Parameters[paramName]
+		if !paramExists {
+			// Unknown parameter
+			p.errorWithDetails(
+				fmt.Sprintf("unknown parameter '%s' for @%s", paramName, decoratorName),
+				"decorator parameter",
+				p.validParametersSuggestion(schema),
+			)
+		} else {
+			// Mark parameter as provided
+			providedParams[paramName] = true
+		}
+
+		// Parse and validate parameter value type
+		valueToken := p.current()
+		if p.at(lexer.STRING) || p.at(lexer.INTEGER) || p.at(lexer.FLOAT) ||
+			p.at(lexer.BOOLEAN) || p.at(lexer.IDENTIFIER) {
+
+			// Validate type if parameter exists in schema
+			if paramExists {
+				p.validateParameterType(paramName, paramSchema, valueToken)
+			}
+
+			p.token() // Consume value
+		} else {
+			p.errorUnexpected("parameter value")
+			p.finish(paramKind)
+			break
+		}
+
+		p.finish(paramKind)
+
+		// Check for comma (more parameters)
+		if p.at(lexer.COMMA) {
+			p.token() // Consume comma
+		} else if !p.at(lexer.RPAREN) {
+			p.errorUnexpected("',' or ')'")
+			break
+		}
+	}
+
+	if !p.at(lexer.RPAREN) {
+		p.errorExpected(lexer.RPAREN, "')'")
+		p.finish(paramListKind)
+		return
+	}
+	p.token() // Consume )
+	p.finish(paramListKind)
+}
+
+// validateParameterType checks if the token type matches the expected parameter type
+func (p *parser) validateParameterType(paramName string, paramSchema types.ParamSchema, valueToken lexer.Token) {
+	expectedType := paramSchema.Type
+	actualType := p.tokenToParamType(valueToken.Type)
+
+	if p.config.debug >= DebugDetailed {
+		p.recordDebugEvent("validate_param_type",
+			fmt.Sprintf("param=%s, expected=%s, actual=%s, match=%v",
+				paramName, expectedType, actualType, actualType == expectedType))
+	}
+
+	if actualType != expectedType {
+		p.errorWithDetails(
+			fmt.Sprintf("parameter '%s' expects %s, got %s", paramName, expectedType, actualType),
+			"decorator parameter",
+			fmt.Sprintf("Use a %s value like %s", expectedType, p.exampleForType(expectedType)),
+		)
+	}
+}
+
+// tokenToParamType converts a lexer token type to a ParamType
+func (p *parser) tokenToParamType(tokType lexer.TokenType) types.ParamType {
+	switch tokType {
+	case lexer.STRING:
+		return types.TypeString
+	case lexer.INTEGER:
+		return types.TypeInt
+	case lexer.FLOAT:
+		return types.TypeFloat
+	case lexer.BOOLEAN:
+		return types.TypeBool
+	case lexer.IDENTIFIER:
+		// Identifiers could be variable references, for now treat as string
+		return types.TypeString
+	default:
+		return types.TypeString
+	}
+}
+
+// exampleForType returns an example value for a given type
+func (p *parser) exampleForType(typ types.ParamType) string {
+	switch typ {
+	case types.TypeString:
+		return "\"value\""
+	case types.TypeInt:
+		return "42"
+	case types.TypeFloat:
+		return "3.14"
+	case types.TypeBool:
+		return "true"
+	default:
+		return "value"
+	}
+}
+
+// validateRequiredParameters checks that all required parameters were provided
+func (p *parser) validateRequiredParameters(decoratorName string, schema types.DecoratorSchema, providedParams map[string]bool) {
+	for paramName, paramSchema := range schema.Parameters {
+		if paramSchema.Required && !providedParams[paramName] {
+			suggestion := fmt.Sprintf("Provide %s parameter", paramName)
+			if paramName == schema.PrimaryParameter {
+				// Use first example from schema if available, otherwise generic
+				exampleValue := "VALUE"
+				if len(paramSchema.Examples) > 0 && paramSchema.Examples[0] != "" {
+					exampleValue = paramSchema.Examples[0]
+				}
+				suggestion = fmt.Sprintf("Use dot syntax like @%s.%s or provide %s=\"%s\"", decoratorName, exampleValue, paramName, exampleValue)
+			}
+
+			p.errorWithDetails(
+				fmt.Sprintf("missing required parameter '%s'", paramName),
+				"decorator parameters",
+				suggestion,
+			)
+		}
+	}
+}
+
+// validParametersSuggestion returns a suggestion listing valid parameters
+func (p *parser) validParametersSuggestion(schema types.DecoratorSchema) string {
+	if len(schema.Parameters) == 0 {
+		return "This decorator accepts no parameters"
+	}
+
+	params := make([]string, 0, len(schema.Parameters))
+	for name := range schema.Parameters {
+		params = append(params, name)
+	}
+
+	// Simple alphabetical sort
+	for i := 0; i < len(params); i++ {
+		for j := i + 1; j < len(params); j++ {
+			if params[i] > params[j] {
+				params[i], params[j] = params[j], params[i]
+			}
+		}
+	}
+
+	result := "Valid parameters: "
+	for i, param := range params {
+		if i > 0 {
+			result += ", "
+		}
+		result += param
+	}
+	return result
+}
+
+// errorWithDetails creates a parse error with full context
+func (p *parser) errorWithDetails(message, context, suggestion string) {
+	tok := p.current()
+	p.errors = append(p.errors, ParseError{
+		Position:   tok.Position,
+		Message:    message,
+		Context:    context,
+		Got:        tok.Type,
+		Suggestion: suggestion,
+	})
 }
 
 // stringNeedsInterpolation checks if the current STRING token needs interpolation

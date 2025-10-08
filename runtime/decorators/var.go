@@ -7,10 +7,16 @@ import (
 )
 
 func init() {
-	// Register the @var decorator as a value decorator
-	// Usage: @var.name accesses variable "name"
-	// Returns data with no side effects, can be interpolated in strings
-	types.Global().RegisterValue("var", varHandler)
+	// Register the @var decorator with schema
+	schema := types.NewSchema("var", types.KindValue).
+		Description("Access script variables").
+		PrimaryParam("name", types.TypeString, "Variable name").
+		Returns(types.TypeString, "Value of the variable").
+		Build()
+
+	if err := types.Global().RegisterValueWithSchema(schema, varHandler); err != nil {
+		panic(fmt.Sprintf("failed to register @var decorator: %v", err))
+	}
 }
 
 // varHandler implements the @var decorator

@@ -244,6 +244,7 @@ func (t TokenType) String() string {
 
 // Keywords maps string literals to their corresponding token types
 var Keywords = map[string]TokenType{
+	"fun":     FUN,
 	"for":     FOR,
 	"in":      IN,
 	"if":      IF,

@@ -51,12 +51,12 @@ func TestSimpleVarDecl(t *testing.T) {
 			events: []Event{
 				{Kind: EventOpen, Data: uint32(NodeSource)},
 				{Kind: EventOpen, Data: uint32(NodeVarDecl)},
-				{Kind: EventToken, Data: 0},                     // VAR
-				{Kind: EventToken, Data: 1},                     // ready
-				{Kind: EventToken, Data: 2},                     // =
-				{Kind: EventOpen, Data: uint32(NodeIdentifier)}, // TODO: Should be NodeLiteral when lexer fixed
-				{Kind: EventToken, Data: 3},                     // true (lexed as IDENTIFIER currently)
-				{Kind: EventClose, Data: uint32(NodeIdentifier)},
+				{Kind: EventToken, Data: 0},                  // VAR
+				{Kind: EventToken, Data: 1},                  // ready
+				{Kind: EventToken, Data: 2},                  // =
+				{Kind: EventOpen, Data: uint32(NodeLiteral)}, // Now correctly recognized as literal
+				{Kind: EventToken, Data: 3},                  // true (lexed as BOOLEAN)
+				{Kind: EventClose, Data: uint32(NodeLiteral)},
 				{Kind: EventClose, Data: uint32(NodeVarDecl)},
 				{Kind: EventClose, Data: uint32(NodeSource)},
 			},

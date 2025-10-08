@@ -67,7 +67,7 @@ func TestLogicalOperators(t *testing.T) {
 			input: "true && false",
 			expected: []tokenExpectation{
 				{
-					Type: IDENTIFIER, Text: "true",
+					Type: BOOLEAN, Text: "true",
 					Line:   1,
 					Column: 1,
 				},
@@ -77,7 +77,7 @@ func TestLogicalOperators(t *testing.T) {
 					Column: 6,
 				},
 				{
-					Type: IDENTIFIER, Text: "false",
+					Type: BOOLEAN, Text: "false",
 					Line:   1,
 					Column: 9,
 				},

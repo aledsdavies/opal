@@ -7,10 +7,27 @@ import (
 )
 
 func init() {
-	// Register the @env decorator as a value decorator
-	// Usage: @env.HOME accesses environment variable "HOME"
-	// Returns data with no side effects, can be interpolated in strings
-	types.Global().RegisterValue("env", envHandler)
+	// Register the @env decorator with schema
+	schema := types.NewSchema("env", types.KindValue).
+		Description("Access environment variables").
+		PrimaryParam("property", types.TypeString, "Environment variable name").
+		Param("default", types.TypeString).
+		Description("Default value if environment variable is not set").
+		Optional().
+		Examples("", "/home/user", "us-east-1").
+		Done().
+		Returns(types.TypeString, "Value of the environment variable").
+		Build()
+
+	// Add examples to primary parameter
+	if propParam, ok := schema.Parameters["property"]; ok {
+		propParam.Examples = []string{"HOME", "PATH", "USER"}
+		schema.Parameters["property"] = propParam
+	}
+
+	if err := types.Global().RegisterValueWithSchema(schema, envHandler); err != nil {
+		panic(fmt.Sprintf("failed to register @env decorator: %v", err))
+	}
 }
 
 // envHandler implements the @env decorator

@@ -70,9 +70,10 @@ func BenchmarkTelemetryModes(b *testing.B) {
 // Should show consistent per-token performance regardless of total input size.
 func BenchmarkParserScaling(b *testing.B) {
 	sizes := map[string]int{
-		"small":  10,   // ~10 functions
-		"medium": 100,  // ~100 functions
-		"large":  1000, // ~1000 functions
+		"small":  10,    // ~10 functions (~140 lines)
+		"medium": 100,   // ~100 functions (~1.4K lines)
+		"large":  1000,  // ~1000 functions (~14K lines)
+		"xlarge": 10000, // ~10000 functions (~140K lines)
 	}
 
 	for size, funcCount := range sizes {
