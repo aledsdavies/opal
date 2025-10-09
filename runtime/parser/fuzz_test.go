@@ -97,6 +97,18 @@ func FuzzParserNoPanic(f *testing.F) {
 	f.Add(bytes.Repeat([]byte("a"), 10000)) // Very long
 	f.Add(bytes.Repeat([]byte("{"), 1000))  // Deep nesting
 
+	// Decorator syntax
+	f.Add([]byte("@timeout(5m) { }"))
+	f.Add([]byte("@retry(3, 2s) { }"))
+	f.Add([]byte("@retry(delay=2s, 3)"))
+	f.Add([]byte("@timeout(5m) { @retry(3) { } }"))
+
+	// Malformed decorators
+	f.Add([]byte("@retry("))
+	f.Add([]byte("@retry(3,"))
+	f.Add([]byte("@retry(3, times=5)"))
+	f.Add([]byte("@var."))
+
 	f.Fuzz(func(t *testing.T, input []byte) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -118,6 +130,11 @@ func FuzzParserEventBalance(f *testing.F) {
 	f.Add([]byte("fun greet() {}"))
 	f.Add([]byte("{ { { } } }"))
 	f.Add([]byte("fun a() { fun b() { } }"))
+
+	// Decorator nesting
+	f.Add([]byte("@timeout(5m) { }"))
+	f.Add([]byte("@timeout(5m) { @retry(3) { } }"))
+	f.Add([]byte("@timeout(5m) { @retry(3, 2s) { @parallel { } } }"))
 
 	// Deep nesting
 	nested := make([]byte, 0, 200)
@@ -166,6 +183,11 @@ func FuzzParserMemorySafety(f *testing.F) {
 	f.Add(bytes.Repeat([]byte("{"), 1000))  // Deep nesting
 	f.Add([]byte("\x00"))                   // Null byte
 	f.Add([]byte("\xff\xfe\xfd"))           // Invalid UTF-8
+
+	// Decorator syntax
+	f.Add([]byte("@timeout(5m) { }"))
+	f.Add([]byte("@retry(3, 2s, \"exponential\") { }"))
+	f.Add([]byte("@timeout(5m) { @retry(3) { } }"))
 
 	// Very long identifiers
 	longIdent := append([]byte("var "), bytes.Repeat([]byte("x"), 1000)...)
