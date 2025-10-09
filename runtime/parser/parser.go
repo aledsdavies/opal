@@ -456,6 +456,9 @@ func (p *parser) statement() {
 
 	if p.at(lexer.VAR) {
 		p.varDecl()
+	} else if p.at(lexer.AT) {
+		// Decorator (execution decorator with block)
+		p.decorator()
 	} else if p.at(lexer.IDENTIFIER) {
 		// Shell command
 		p.shellCommand()
@@ -761,6 +764,37 @@ func (p *parser) decorator() {
 		p.validateRequiredParameters(decoratorName, schema, providedParams)
 	}
 
+	// Parse optional block (based on schema BlockRequirement)
+	if hasSchema {
+		switch schema.BlockRequirement {
+		case types.BlockRequired:
+			// Block is required
+			if !p.at(lexer.LBRACE) {
+				p.errorWithDetails(
+					fmt.Sprintf("@%s requires a block", decoratorName),
+					"decorator block",
+					fmt.Sprintf("Add a block: @%s(...) { ... }", decoratorName),
+				)
+			} else {
+				p.block()
+			}
+		case types.BlockOptional:
+			// Block is optional
+			if p.at(lexer.LBRACE) {
+				p.block()
+			}
+		case types.BlockForbidden:
+			// Block is not allowed
+			if p.at(lexer.LBRACE) {
+				p.errorWithDetails(
+					fmt.Sprintf("@%s cannot have a block", decoratorName),
+					"decorator block",
+					fmt.Sprintf("@%s is a %s decorator and does not accept blocks", decoratorName, schema.Kind),
+				)
+			}
+		}
+	}
+
 	p.finish(kind)
 
 	if p.config.debug >= DebugPaths {
@@ -781,47 +815,113 @@ func (p *parser) decoratorParamsWithValidation(decoratorName string, schema type
 	paramListKind := p.start(NodeParamList)
 	p.token() // Consume (
 
+	// Get ordered parameters for positional mapping
+	orderedParams := schema.GetOrderedParameters()
+	filledPositions := make(map[int]bool)
+	nextPositionIndex := 0
+
 	// Parse parameters until we hit )
 	for !p.at(lexer.RPAREN) && !p.at(lexer.EOF) {
 		paramKind := p.start(NodeParam)
 
-		// Parse parameter name
-		if !p.at(lexer.IDENTIFIER) {
-			p.errorExpected(lexer.IDENTIFIER, "parameter name")
-			p.finish(paramKind)
-			break
+		// Determine if this is a named or positional parameter
+		isNamed := false
+		var paramName string
+		var paramSchema types.ParamSchema
+		paramExists := false
+
+		// Check if this is a named parameter (identifier followed by =)
+		if p.at(lexer.IDENTIFIER) {
+			// Look ahead to see if there's an EQUALS
+			nextPos := p.pos + 1
+			if nextPos < len(p.tokens) && p.tokens[nextPos].Type == lexer.EQUALS {
+				// Named parameter: name=value
+				isNamed = true
+				paramNameToken := p.current()
+				paramName = string(paramNameToken.Text)
+				p.token() // Consume parameter name
+				p.token() // Consume =
+
+				// Check for duplicate parameter
+				if providedParams[paramName] {
+					p.errorWithDetails(
+						fmt.Sprintf("duplicate parameter '%s'", paramName),
+						"decorator parameter",
+						"Each parameter can only be specified once",
+					)
+				}
+
+				// Find this parameter's position in orderedParams
+				for pos, param := range orderedParams {
+					if param.Name == paramName {
+						filledPositions[pos] = true
+						break
+					}
+				}
+
+				// Mark as provided immediately (before positional check)
+				providedParams[paramName] = true
+
+				// Check if parameter exists in schema
+				paramSchema, paramExists = schema.Parameters[paramName]
+				if !paramExists {
+					// Unknown parameter
+					p.errorWithDetails(
+						fmt.Sprintf("unknown parameter '%s' for @%s", paramName, decoratorName),
+						"decorator parameter",
+						p.validParametersSuggestion(schema),
+					)
+				}
+			}
 		}
 
-		paramNameToken := p.current()
-		paramName := string(paramNameToken.Text)
-		p.token() // Consume parameter name
+		// If not named, treat as positional
+		if !isNamed {
+			// Find next unfilled position
+			found := false
+			for nextPositionIndex < len(orderedParams) {
+				candidate := orderedParams[nextPositionIndex]
+				if !filledPositions[nextPositionIndex] && !providedParams[candidate.Name] {
+					// Use this position
+					paramSchema = candidate
+					paramName = candidate.Name
+					paramExists = true
+					filledPositions[nextPositionIndex] = true
+					nextPositionIndex++
+					found = true
+					break
+				}
+				nextPositionIndex++
+			}
 
-		// Expect =
-		if !p.at(lexer.EQUALS) {
-			p.errorExpected(lexer.EQUALS, "'=' after parameter name")
-			p.finish(paramKind)
-			break
+			if !found {
+				p.errorWithDetails(
+					"too many positional arguments",
+					"decorator parameters",
+					fmt.Sprintf("@%s accepts %d positional parameters", decoratorName, len(orderedParams)),
+				)
+				p.finish(paramKind)
+				break
+			}
 		}
-		p.token() // Consume =
 
-		// Check if parameter exists in schema
-		paramSchema, paramExists := schema.Parameters[paramName]
-		if !paramExists {
-			// Unknown parameter
-			p.errorWithDetails(
-				fmt.Sprintf("unknown parameter '%s' for @%s", paramName, decoratorName),
-				"decorator parameter",
-				p.validParametersSuggestion(schema),
-			)
-		} else {
-			// Mark parameter as provided
-			providedParams[paramName] = true
+		// Check for duplicate parameter (only for positional, named already checked)
+		if !isNamed {
+			if providedParams[paramName] {
+				p.errorWithDetails(
+					fmt.Sprintf("duplicate parameter '%s'", paramName),
+					"decorator parameter",
+					"Each parameter can only be specified once",
+				)
+			} else {
+				providedParams[paramName] = true
+			}
 		}
 
 		// Parse and validate parameter value type
 		valueToken := p.current()
 		if p.at(lexer.STRING) || p.at(lexer.INTEGER) || p.at(lexer.FLOAT) ||
-			p.at(lexer.BOOLEAN) || p.at(lexer.IDENTIFIER) {
+			p.at(lexer.BOOLEAN) || p.at(lexer.DURATION) || p.at(lexer.IDENTIFIER) {
 
 			// Validate type if parameter exists in schema
 			if paramExists {
@@ -886,6 +986,8 @@ func (p *parser) tokenToParamType(tokType lexer.TokenType) types.ParamType {
 		return types.TypeFloat
 	case lexer.BOOLEAN:
 		return types.TypeBool
+	case lexer.DURATION:
+		return types.TypeDuration
 	case lexer.IDENTIFIER:
 		// Identifiers could be variable references, for now treat as string
 		return types.TypeString

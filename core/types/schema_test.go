@@ -55,8 +55,8 @@ func TestSchemaWithMultipleParams(t *testing.T) {
 	if schema.Path != "retry" {
 		t.Errorf("expected path 'retry', got %q", schema.Path)
 	}
-	if !schema.AcceptsBlock {
-		t.Error("expected AcceptsBlock to be true")
+	if schema.BlockRequirement != BlockOptional {
+		t.Error("expected BlockRequirement to be BlockOptional")
 	}
 	if len(schema.Parameters) != 2 {
 		t.Errorf("expected 2 parameters, got %d", len(schema.Parameters))
@@ -135,7 +135,90 @@ func TestValidateSchemaInvalidKind(t *testing.T) {
 
 	err := ValidateSchema(schema)
 	if err == nil {
-		t.Error("expected error for invalid kind")
+		t.Error("expected error for invalid type, got nil")
+	}
+}
+
+func TestParameterDeclarationOrder(t *testing.T) {
+	schema := NewSchema("retry", KindExecution).
+		Description("Retry with backoff").
+		Param("times", TypeInt).
+		Description("Number of retries").
+		Default(3).
+		Done().
+		Param("delay", TypeDuration).
+		Description("Delay between retries").
+		Default("1s").
+		Done().
+		Param("backoff", TypeString).
+		Description("Backoff strategy").
+		Default("exponential").
+		Done().
+		Build()
+
+	// Get parameters in declaration order
+	ordered := schema.GetOrderedParameters()
+
+	// Should have 3 parameters
+	if len(ordered) != 3 {
+		t.Fatalf("expected 3 ordered parameters, got %d", len(ordered))
+	}
+
+	// Check order matches declaration order
+	expectedOrder := []string{"times", "delay", "backoff"}
+	for i, expected := range expectedOrder {
+		if ordered[i].Name != expected {
+			t.Errorf("position %d: expected %q, got %q", i, expected, ordered[i].Name)
+		}
+	}
+
+	// Verify parameter details are correct
+	if ordered[0].Type != TypeInt {
+		t.Errorf("times: expected TypeInt, got %v", ordered[0].Type)
+	}
+	if ordered[1].Type != TypeDuration {
+		t.Errorf("delay: expected TypeDuration, got %v", ordered[1].Type)
+	}
+	if ordered[2].Type != TypeString {
+		t.Errorf("backoff: expected TypeString, got %v", ordered[2].Type)
+	}
+}
+
+func TestParameterOrderWithPrimary(t *testing.T) {
+	schema := NewSchema("env", KindValue).
+		PrimaryParam("property", TypeString, "Env var name").
+		Param("default", TypeString).
+		Description("Default value").
+		Optional().
+		Done().
+		Build()
+
+	ordered := schema.GetOrderedParameters()
+
+	// Should have 2 parameters: property (primary) and default
+	if len(ordered) != 2 {
+		t.Fatalf("expected 2 ordered parameters, got %d", len(ordered))
+	}
+
+	// Primary parameter should be first (declared first)
+	if ordered[0].Name != "property" {
+		t.Errorf("expected primary 'property' first, got %q", ordered[0].Name)
+	}
+	if ordered[1].Name != "default" {
+		t.Errorf("expected 'default' second, got %q", ordered[1].Name)
+	}
+}
+
+func TestParameterOrderEmpty(t *testing.T) {
+	schema := NewSchema("parallel", KindExecution).
+		Description("Execute in parallel").
+		Build()
+
+	ordered := schema.GetOrderedParameters()
+
+	// Should have 0 parameters
+	if len(ordered) != 0 {
+		t.Errorf("expected 0 ordered parameters, got %d", len(ordered))
 	}
 }
 
@@ -198,5 +281,66 @@ func TestRegisterWithSchemaWrongKind(t *testing.T) {
 	err := r.RegisterValueWithSchema(schema, handler)
 	if err == nil {
 		t.Error("expected error when registering execution schema with RegisterValueWithSchema")
+	}
+}
+
+func TestParameterOrder(t *testing.T) {
+	schema := NewSchema("retry", KindExecution).
+		Param("times", TypeInt).Required().Done().
+		Param("delay", TypeDuration).Required().Done().
+		Param("backoff", TypeString).Optional().Done().
+		Build()
+
+	if len(schema.ParameterOrder) != 3 {
+		t.Errorf("expected 3 parameters in order, got %d", len(schema.ParameterOrder))
+	}
+
+	// Check order matches declaration order
+	expectedOrder := []string{"times", "delay", "backoff"}
+	for i, expected := range expectedOrder {
+		if i >= len(schema.ParameterOrder) {
+			t.Errorf("missing parameter at index %d", i)
+			continue
+		}
+		if schema.ParameterOrder[i] != expected {
+			t.Errorf("parameter order[%d]: expected %q, got %q", i, expected, schema.ParameterOrder[i])
+		}
+	}
+}
+
+func TestPrimaryParameterFirst(t *testing.T) {
+	schema := NewSchema("timeout", KindExecution).
+		PrimaryParam("duration", TypeDuration, "Timeout duration").
+		Param("onTimeout", TypeString).Optional().Done().
+		Build()
+
+	if len(schema.ParameterOrder) != 2 {
+		t.Errorf("expected 2 parameters in order, got %d", len(schema.ParameterOrder))
+	}
+
+	// Primary parameter should be first
+	if schema.ParameterOrder[0] != "duration" {
+		t.Errorf("primary parameter should be first, got %q", schema.ParameterOrder[0])
+	}
+	if schema.ParameterOrder[1] != "onTimeout" {
+		t.Errorf("second parameter should be 'onTimeout', got %q", schema.ParameterOrder[1])
+	}
+}
+
+func TestParameterOrderValidation(t *testing.T) {
+	// Schema with parameter order that doesn't match parameters map
+	schema := DecoratorSchema{
+		Path: "test",
+		Kind: KindExecution,
+		Parameters: map[string]ParamSchema{
+			"a": {Name: "a", Type: TypeString},
+			"b": {Name: "b", Type: TypeInt},
+		},
+		ParameterOrder: []string{"a", "b", "c"}, // "c" doesn't exist
+	}
+
+	err := ValidateSchema(schema)
+	if err == nil {
+		t.Error("expected error for parameter in order but not in parameters map")
 	}
 }

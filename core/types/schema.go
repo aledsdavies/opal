@@ -27,6 +27,15 @@ const (
 	KindExecution DecoratorKindString = "execution"
 )
 
+// BlockRequirement specifies whether a decorator accepts/requires a block
+type BlockRequirement string
+
+const (
+	BlockForbidden BlockRequirement = "forbidden" // Cannot have block (value decorators, @shell)
+	BlockOptional  BlockRequirement = "optional"  // Can have block (@retry with/without block)
+	BlockRequired  BlockRequirement = "required"  // Must have block (@parallel, @timeout)
+)
+
 // DecoratorSchema describes a decorator's interface
 type DecoratorSchema struct {
 	Path             string                 // "env", "aws.secret"
@@ -34,8 +43,9 @@ type DecoratorSchema struct {
 	Description      string                 // Human-readable description
 	PrimaryParameter string                 // Name of primary param ("property", "secretName"), empty if none
 	Parameters       map[string]ParamSchema // All parameters (including primary)
+	ParameterOrder   []string               // Order of parameter declaration (for positional mapping)
 	Returns          *ReturnSchema          // What the decorator returns (value decorators only)
-	AcceptsBlock     bool                   // Whether decorator accepts a block (execution decorators)
+	BlockRequirement BlockRequirement       // Whether decorator accepts/requires a block
 }
 
 // ParamSchema describes a single parameter
@@ -63,16 +73,24 @@ type ReturnSchema struct {
 
 // SchemaBuilder provides fluent API for building schemas
 type SchemaBuilder struct {
-	schema DecoratorSchema
+	schema         DecoratorSchema
+	parameterOrder []string // Track parameter declaration order
 }
 
 // NewSchema creates a new schema builder
 func NewSchema(path string, kind DecoratorKindString) *SchemaBuilder {
+	// Default block requirement based on kind
+	blockReq := BlockForbidden
+	if kind == KindExecution {
+		blockReq = BlockOptional // Execution decorators can optionally have blocks by default
+	}
+
 	return &SchemaBuilder{
 		schema: DecoratorSchema{
-			Path:       path,
-			Kind:       kind,
-			Parameters: make(map[string]ParamSchema),
+			Path:             path,
+			Kind:             kind,
+			Parameters:       make(map[string]ParamSchema),
+			BlockRequirement: blockReq,
 		},
 	}
 }
@@ -92,6 +110,8 @@ func (b *SchemaBuilder) PrimaryParam(name string, typ ParamType, description str
 		Description: description,
 		Required:    true, // Primary params are always required
 	}
+	// Track parameter order
+	b.parameterOrder = append(b.parameterOrder, name)
 	return b
 }
 
@@ -115,14 +135,28 @@ func (b *SchemaBuilder) Returns(typ ParamType, description string) *SchemaBuilde
 	return b
 }
 
-// AcceptsBlock marks that this decorator accepts a block
+// WithBlock sets the block requirement for this decorator
+func (b *SchemaBuilder) WithBlock(requirement BlockRequirement) *SchemaBuilder {
+	b.schema.BlockRequirement = requirement
+	return b
+}
+
+// AcceptsBlock marks that this decorator accepts an optional block (deprecated: use WithBlock)
 func (b *SchemaBuilder) AcceptsBlock() *SchemaBuilder {
-	b.schema.AcceptsBlock = true
+	b.schema.BlockRequirement = BlockOptional
+	return b
+}
+
+// RequiresBlock marks that this decorator requires a block
+func (b *SchemaBuilder) RequiresBlock() *SchemaBuilder {
+	b.schema.BlockRequirement = BlockRequired
 	return b
 }
 
 // Build returns the constructed schema
 func (b *SchemaBuilder) Build() DecoratorSchema {
+	// Copy parameter order to schema
+	b.schema.ParameterOrder = b.parameterOrder
 	return b.schema
 }
 
@@ -166,6 +200,8 @@ func (pb *ParamBuilder) Examples(examples ...string) *ParamBuilder {
 // Done finishes building this parameter and returns to schema builder
 func (pb *ParamBuilder) Done() *SchemaBuilder {
 	pb.schemaBuilder.schema.Parameters[pb.param.Name] = pb.param
+	// Track parameter order
+	pb.schemaBuilder.parameterOrder = append(pb.schemaBuilder.parameterOrder, pb.param.Name)
 	return pb.schemaBuilder
 }
 
@@ -203,16 +239,35 @@ func ValidateSchema(schema DecoratorSchema) error {
 		}
 	}
 
+	// Validate parameter order - all names in order must exist in parameters
+	for _, name := range schema.ParameterOrder {
+		if _, exists := schema.Parameters[name]; !exists {
+			return fmt.Errorf("parameter %q in order but not in parameters map", name)
+		}
+	}
+
 	return nil
 }
 
 // isValidParamType checks if a ParamType is valid
 func isValidParamType(typ ParamType) bool {
 	switch typ {
-	case TypeString, TypeInt, TypeFloat, TypeBool, TypeDuration, TypeObject, TypeArray,
-		TypeAuthHandle, TypeSecretHandle:
+	case TypeString, TypeInt, TypeFloat, TypeBool, TypeDuration,
+		TypeObject, TypeArray, TypeAuthHandle, TypeSecretHandle:
 		return true
 	default:
 		return false
 	}
+}
+
+// GetOrderedParameters returns parameters in declaration order
+// This is used for positional parameter mapping
+func (s *DecoratorSchema) GetOrderedParameters() []ParamSchema {
+	result := make([]ParamSchema, 0, len(s.ParameterOrder))
+	for _, name := range s.ParameterOrder {
+		if param, exists := s.Parameters[name]; exists {
+			result = append(result, param)
+		}
+	}
+	return result
 }
