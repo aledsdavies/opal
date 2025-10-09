@@ -208,12 +208,27 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Run runtime tests
+      - name: Snapshot fuzz corpus
         run: |
-          echo "Running runtime tests..."
+          echo "==> Fuzz corpus snapshot"
+          CORPUS_COUNT=$(find runtime/parser/testdata/fuzz -type f 2>/dev/null | wc -l || echo 0)
+          CORPUS_SIZE=$(du -sh runtime/parser/testdata/fuzz 2>/dev/null | cut -f1 || echo "0")
+          echo "Corpus files: $CORPUS_COUNT"
+          echo "Corpus size: $CORPUS_SIZE"
+          echo "corpus_count=$CORPUS_COUNT" >> $GITHUB_OUTPUT
+          echo "corpus_size=$CORPUS_SIZE" >> $GITHUB_OUTPUT
+        id: corpus_snapshot
+
+      - name: Run runtime tests + corpus replay
+        run: |
+          echo "Running runtime tests with race detector..."
           cd runtime
           # Test all available runtime packages (execution package was removed in clean slate)
           go test -v -race -coverprofile=../coverage-runtime.out -covermode=atomic ./...
+          
+          echo ""
+          echo "==> Corpus replay complete"
+          echo "All fuzz corpus files validated (count: ${{ steps.corpus_snapshot.outputs.corpus_count }})"
 
       - name: Upload runtime coverage
         uses: actions/upload-artifact@v4

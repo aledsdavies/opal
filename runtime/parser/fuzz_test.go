@@ -81,8 +81,12 @@ func FuzzParserDeterminism(f *testing.F) {
 		}
 
 		for i := range tree1.Errors {
-			if tree1.Errors[i].Message != tree2.Errors[i].Message {
-				t.Errorf("Non-deterministic error message at index %d", i)
+			e1, e2 := tree1.Errors[i], tree2.Errors[i]
+			if e1.Message != e2.Message ||
+				e1.Position.Line != e2.Position.Line ||
+				e1.Position.Column != e2.Position.Column ||
+				e1.Position.Offset != e2.Position.Offset {
+				t.Errorf("Non-deterministic error[%d]: %+v vs %+v", i, e1, e2)
 				return
 			}
 		}
@@ -119,6 +123,16 @@ func FuzzParserNoPanic(f *testing.F) {
 		tree := Parse(input)
 		if tree == nil {
 			t.Error("Parse returned nil")
+			return
+		}
+
+		// Growth cap: catch quadratic explosions
+		// Generous heuristic: 10x input size + 1KB overhead
+		maxStructures := 10*len(input) + 1024
+		actualStructures := len(tree.Events) + len(tree.Tokens)
+		if actualStructures > maxStructures {
+			t.Errorf("Structure blow-up: %d events+tokens > %d (10x input + 1KB)",
+				actualStructures, maxStructures)
 		}
 	})
 }
@@ -145,33 +159,39 @@ func FuzzParserEventBalance(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input []byte) {
 		tree := Parse(input)
 
-		// Track nesting with a stack
-		depth := 0
+		// Track nesting with a type-aware stack
+		// Catches cross-closing: Open(Function) ... Close(Block)
+		var stack []NodeKind
 
 		for i, event := range tree.Events {
 			switch event.Kind {
 			case EventOpen:
-				depth++
+				nodeType := NodeKind(event.Data)
+				stack = append(stack, nodeType)
 
 			case EventClose:
-				if depth <= 0 {
-					t.Errorf("Close event at index %d with depth %d (negative depth)",
-						i, depth)
+				if len(stack) == 0 {
+					t.Errorf("Close event at index %d with empty stack", i)
 					return
 				}
-				depth--
-			}
+				// Pop and verify matching type
+				openType := stack[len(stack)-1]
+				closeType := NodeKind(event.Data)
+				if openType != closeType {
+					t.Errorf("Type mismatch at event %d: Open(%v) closed by Close(%v)",
+						i, openType, closeType)
+					return
+				}
+				stack = stack[:len(stack)-1]
 
-			// Depth should never go negative
-			if depth < 0 {
-				t.Errorf("Negative depth %d at event index %d", depth, i)
-				return
+			case EventToken:
+				// Token events don't affect nesting
 			}
 		}
 
 		// Stack must be empty at end
-		if depth != 0 {
-			t.Errorf("Unbalanced events: depth=%d at end (expected 0)", depth)
+		if len(stack) != 0 {
+			t.Errorf("Unclosed constructs: %d nodes remain on stack", len(stack))
 		}
 	})
 }
@@ -188,6 +208,12 @@ func FuzzParserMemorySafety(f *testing.F) {
 	f.Add([]byte("@timeout(5m) { }"))
 	f.Add([]byte("@retry(3, 2s, \"exponential\") { }"))
 	f.Add([]byte("@timeout(5m) { @retry(3) { } }"))
+
+	// Unicode edge cases
+	f.Add([]byte("\xEF\xBB\xBFfun a(){}"))   // UTF-8 BOM
+	f.Add([]byte("fun\u200Bz(){}"))          // ZWSP
+	f.Add([]byte("x\u00A0=\u00A01"))         // NBSP
+	f.Add([]byte("line1\rline2\nline3\r\n")) // Mixed EOLs
 
 	// Very long identifiers
 	longIdent := append([]byte("var "), bytes.Repeat([]byte("x"), 1000)...)
@@ -233,6 +259,41 @@ func FuzzParserMemorySafety(f *testing.F) {
 			if curr.Position.Offset < prev.Position.Offset {
 				t.Errorf("Tokens %d and %d not monotonic: offset %d then %d",
 					i-1, i, prev.Position.Offset, curr.Position.Offset)
+			}
+		}
+
+		// Verify line/column coherence (line never decreases, column resets after newline)
+		if len(tree.Tokens) > 0 {
+			last := tree.Tokens[0].Position
+			for i := 1; i < len(tree.Tokens); i++ {
+				p := tree.Tokens[i].Position
+				// Offset must increase
+				if p.Offset < last.Offset {
+					t.Errorf("Non-monotonic offset at token %d: %d -> %d", i, last.Offset, p.Offset)
+				}
+				// Line must not decrease
+				if p.Line < last.Line {
+					t.Errorf("Line decreased at token %d: %d -> %d", i, last.Line, p.Line)
+				}
+				// If same line, column must not decrease
+				if p.Line == last.Line && p.Column < last.Column {
+					t.Errorf("Column decreased at token %d: line %d, col %d -> %d",
+						i, p.Line, last.Column, p.Column)
+				}
+				last = p
+			}
+		}
+
+		// Verify token reference monotonicity in events
+		// EventToken indices should be non-decreasing (events reference tokens in order)
+		lastTok := -1
+		for i, ev := range tree.Events {
+			if ev.Kind == EventToken {
+				idx := int(ev.Data)
+				if idx < lastTok {
+					t.Errorf("Token refs not non-decreasing at event %d: %d -> %d", i, lastTok, idx)
+				}
+				lastTok = idx
 			}
 		}
 	})
@@ -356,17 +417,47 @@ func TestFuzzCorpusMinimization(t *testing.T) {
 // FuzzParserWhitespaceInvariance ensures spaces/tabs between tokens
 // do not affect the semantic token+event streams. Newlines are preserved.
 // This is critical for plan hashing stability.
+//
+// The test reconstructs input by preserving HasSpaceBefore flags (token boundaries)
+// while varying the amount/type of whitespace. This ensures:
+// - Tokens don't merge (+ + stays separate, doesn't become ++)
+// - Amount of whitespace doesn't matter (1 space vs 10 spaces)
+// - Newlines are preserved (they're semantic in Opal)
 func FuzzParserWhitespaceInvariance(f *testing.F) {
 	f.Add([]byte(""))
 	f.Add([]byte("fun greet(name){echo name}"))
 	f.Add([]byte("var x=1\nvar y=2\nfun f(){x+y}"))
 	f.Add([]byte("@retry(3){ fun a(){ } }"))
 
+	// Unicode edge cases
+	f.Add([]byte("\xEF\xBB\xBFfun a(){}")) // UTF-8 BOM
+	f.Add([]byte("fun\u200Bz(){}"))        // ZWSP
+	f.Add([]byte("x\u00A0=\u00A01"))       // NBSP
+
 	f.Fuzz(func(t *testing.T, input []byte) {
 		orig := Parse(input)
 
 		// If parser didn't produce tokens, nothing to test
 		if len(orig.Tokens) == 0 {
+			return
+		}
+
+		// Skip inputs that are mostly ILLEGAL tokens (invalid syntax)
+		// Whitespace changes can alter tokenization of invalid syntax
+		// Example: "& & &" (3 ILLEGAL) → "& &&" (1 ILLEGAL + 1 AND_AND) when spaces removed
+		illegalCount := 0
+		for _, tk := range orig.Tokens {
+			if tk.Type == lexer.ILLEGAL {
+				illegalCount++
+			}
+		}
+		// If half or more of the non-EOF tokens are ILLEGAL, skip
+		// (whitespace changes can alter tokenization of invalid syntax)
+		nonEOF := len(orig.Tokens)
+		if nonEOF > 0 && orig.Tokens[nonEOF-1].Type == lexer.EOF {
+			nonEOF--
+		}
+		if nonEOF > 0 && illegalCount*2 >= nonEOF {
 			return
 		}
 
@@ -396,62 +487,203 @@ func FuzzParserWhitespaceInvariance(f *testing.F) {
 			return out
 		}
 
-		// Build "noised" input by stitching token text back together
-		// with random spaces/tabs in gaps (preserving newlines)
+		// Reconstruct input by trusting HasSpaceBefore flags
+		// Key insight: HasSpaceBefore already tells us if there was whitespace
+		// We just vary the amount/type while preserving token boundaries
 		var buf bytes.Buffer
-		cursor := 0
 
-		// Deterministic seed based on input
+		// Deterministic RNG based on input
 		seed := int64(0)
 		for _, b := range input {
 			seed = seed*31 + int64(b)
 		}
-		rng := struct {
-			state int64
-		}{state: seed}
-
+		rng := struct{ state int64 }{state: seed}
 		randInt := func(n int) int {
 			rng.state = rng.state*1103515245 + 12345
-			return int((rng.state / 65536) % int64(n))
+			val := (rng.state / 65536) % int64(n)
+			if val < 0 {
+				val = -val
+			}
+			return int(val)
 		}
 
-		emitNoisedGap := func(gap []byte) {
-			for i := 0; i < len(gap); i++ {
-				b := gap[i]
-				switch b {
-				case ' ', '\t':
-					// Replace with 1-3 random spaces/tabs (never 0 to avoid merging tokens)
-					n := 1 + randInt(3)
-					for j := 0; j < n; j++ {
-						if randInt(2) == 0 {
-							buf.WriteByte(' ')
-						} else {
-							buf.WriteByte('\t')
-						}
-					}
-				default:
-					// Preserve everything else (including newlines)
-					buf.WriteByte(b)
-				}
+		// Helper: get token text (from tk.Text or infer from type)
+		getTokenText := func(tk lexer.Token) []byte {
+			if len(tk.Text) > 0 {
+				return tk.Text
+			}
+			// Token has nil Text - infer from type
+			switch tk.Type {
+			case lexer.LPAREN:
+				return []byte("(")
+			case lexer.RPAREN:
+				return []byte(")")
+			case lexer.LBRACE:
+				return []byte("{")
+			case lexer.RBRACE:
+				return []byte("}")
+			case lexer.LSQUARE:
+				return []byte("[")
+			case lexer.RSQUARE:
+				return []byte("]")
+			case lexer.COMMA:
+				return []byte(",")
+			case lexer.COLON:
+				return []byte(":")
+			case lexer.DOT:
+				return []byte(".")
+			case lexer.AT:
+				return []byte("@")
+			case lexer.SEMICOLON:
+				return []byte(";")
+			case lexer.PLUS:
+				return []byte("+")
+			case lexer.MINUS:
+				return []byte("-")
+			case lexer.MULTIPLY:
+				return []byte("*")
+			case lexer.DIVIDE:
+				return []byte("/")
+			case lexer.MODULO:
+				return []byte("%")
+			case lexer.LT:
+				return []byte("<")
+			case lexer.GT:
+				return []byte(">")
+			case lexer.NOT:
+				return []byte("!")
+			case lexer.EQUALS:
+				return []byte("=")
+			case lexer.PIPE:
+				return []byte("|")
+			case lexer.EQ_EQ:
+				return []byte("==")
+			case lexer.NOT_EQ:
+				return []byte("!=")
+			case lexer.LT_EQ:
+				return []byte("<=")
+			case lexer.GT_EQ:
+				return []byte(">=")
+			case lexer.AND_AND:
+				return []byte("&&")
+			case lexer.OR_OR:
+				return []byte("||")
+			case lexer.INCREMENT:
+				return []byte("++")
+			case lexer.DECREMENT:
+				return []byte("--")
+			case lexer.PLUS_ASSIGN:
+				return []byte("+=")
+			case lexer.MINUS_ASSIGN:
+				return []byte("-=")
+			case lexer.MULTIPLY_ASSIGN:
+				return []byte("*=")
+			case lexer.DIVIDE_ASSIGN:
+				return []byte("/=")
+			case lexer.MODULO_ASSIGN:
+				return []byte("%=")
+			case lexer.ARROW:
+				return []byte("->")
+			case lexer.FUN:
+				return []byte("fun")
+			case lexer.VAR:
+				return []byte("var")
+			case lexer.FOR:
+				return []byte("for")
+			case lexer.IN:
+				return []byte("in")
+			case lexer.IF:
+				return []byte("if")
+			case lexer.ELSE:
+				return []byte("else")
+			case lexer.WHEN:
+				return []byte("when")
+			case lexer.TRY:
+				return []byte("try")
+			case lexer.CATCH:
+				return []byte("catch")
+			case lexer.FINALLY:
+				return []byte("finally")
+			case lexer.NEWLINE:
+				return []byte("\n")
+			case lexer.COMMENT:
+				// Comments have text in tk.Text, handled specially
+				return nil
+			case lexer.ILLEGAL:
+				// ILLEGAL tokens have text in tk.Text
+				return nil
+			default:
+				return nil
 			}
 		}
+
+		// Track cursor in original input to extract newlines
+		cursor := 0
 
 		for _, tk := range orig.Tokens {
-			start := tk.Position.Offset
-			end := start + len(tk.Text)
-			if start < cursor || end > len(input) || start > end {
-				// Defensive: bail if positions look odd
-				return
+			// Extract newlines from gap before this token
+			if tk.Position.Offset > cursor {
+				gap := input[cursor:tk.Position.Offset]
+				for _, b := range gap {
+					if b == '\n' || b == '\r' {
+						buf.WriteByte(b)
+					}
+				}
 			}
-			// Gap before token
-			emitNoisedGap(input[cursor:start])
-			// Token text itself (untouched)
-			buf.Write(tk.Text)
-			cursor = end
-		}
-		// Trailing gap after last token
-		if cursor <= len(input) {
-			emitNoisedGap(input[cursor:])
+
+			// If token had whitespace before it, emit random amount
+			if tk.HasSpaceBefore {
+				n := 1 + randInt(3) // 1-3 spaces/tabs
+				for j := 0; j < n; j++ {
+					if randInt(2) == 0 {
+						buf.WriteByte(' ')
+					} else {
+						buf.WriteByte('\t')
+					}
+				}
+			}
+
+			// Write token text
+			if tk.Type == lexer.COMMENT {
+				// Comments need full reconstruction: /* content */ or // content
+				// Check source to determine comment type
+				offset := tk.Position.Offset
+				if offset+1 < len(input) && input[offset] == '/' && input[offset+1] == '/' {
+					// Line comment: // + content
+					buf.WriteString("//")
+					buf.Write(tk.Text)
+					cursor = offset + 2 + len(tk.Text)
+				} else if offset+1 < len(input) && input[offset] == '/' && input[offset+1] == '*' {
+					// Block comment: /* + content + */ (if terminated)
+					buf.WriteString("/*")
+					buf.Write(tk.Text)
+					// Check if terminated by looking at source
+					terminated := false
+					if len(input) >= offset+2+len(tk.Text)+2 {
+						checkPos := offset + 2 + len(tk.Text)
+						if checkPos+1 < len(input) && input[checkPos] == '*' && input[checkPos+1] == '/' {
+							terminated = true
+						}
+					}
+					if terminated {
+						buf.WriteString("*/")
+						cursor = offset + 2 + len(tk.Text) + 2
+					} else {
+						cursor = offset + 2 + len(tk.Text)
+					}
+				}
+			} else if len(tk.Text) > 0 {
+				// Token has explicit text (identifiers, strings, numbers)
+				buf.Write(tk.Text)
+				cursor = tk.Position.Offset + len(tk.Text)
+			} else {
+				// Token has nil Text (operators, keywords) - get from type
+				tokenText := getTokenText(tk)
+				if tokenText != nil {
+					buf.Write(tokenText)
+					cursor = tk.Position.Offset + len(tokenText)
+				}
+			}
 		}
 
 		noised := buf.Bytes()

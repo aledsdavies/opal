@@ -238,7 +238,7 @@ func (l *Lexer) NextToken() Token {
 
 	// If still no tokens, return EOF
 	if l.tokenIndex >= len(l.tokens) {
-		return Token{Type: EOF, Text: nil, Position: Position{Line: l.line, Column: l.column}}
+		return Token{Type: EOF, Text: nil, Position: Position{Line: l.line, Column: l.column, Offset: l.position}}
 	}
 
 	token := l.tokens[l.tokenIndex]
@@ -370,7 +370,7 @@ func (l *Lexer) recordDebugEvent(event, context string) {
 	l.debugEvents = append(l.debugEvents, DebugEvent{
 		Timestamp: time.Now(),
 		Event:     event,
-		Position:  Position{Line: l.line, Column: l.column},
+		Position:  Position{Line: l.line, Column: l.column, Offset: l.position},
 		Context:   context,
 	})
 }
@@ -388,7 +388,7 @@ func (l *Lexer) lexToken() Token {
 	if l.position < len(l.input) && l.input[l.position] == '\n' {
 		if !l.lastWasNewline {
 			// Emit first newline
-			start := Position{Line: l.line, Column: l.column}
+			start := Position{Line: l.line, Column: l.column, Offset: l.position}
 			l.advanceChar() // Consume the newline
 			l.lastWasNewline = true
 			return Token{
@@ -417,12 +417,12 @@ func (l *Lexer) lexToken() Token {
 		return Token{
 			Type:     EOF,
 			Text:     nil,
-			Position: Position{Line: l.line, Column: l.column},
+			Position: Position{Line: l.line, Column: l.column, Offset: l.position},
 		}
 	}
 
 	// Capture current position for token
-	start := Position{Line: l.line, Column: l.column}
+	start := Position{Line: l.line, Column: l.column, Offset: l.position}
 	ch := l.currentChar()
 	if l.debugLevel > DebugOff {
 		l.recordDebugEvent("current_char", string(ch))
@@ -501,27 +501,30 @@ func (l *Lexer) lexToken() Token {
 		return l.lexModulo(start, hadWhitespace)
 	case '@':
 		l.advanceChar()
-		return Token{Type: AT, Text: nil, Position: start}
+		return Token{Type: AT, Text: nil, Position: start, HasSpaceBefore: hadWhitespace}
 	case '.':
 		// Only handle as DOT if not followed by a digit (which would be a decimal number)
 		if l.position+1 >= len(l.input) || l.input[l.position+1] >= 128 || !isDigit[l.input[l.position+1]] {
 			l.advanceChar()
-			return Token{Type: DOT, Text: nil, Position: start}
+			return Token{Type: DOT, Text: nil, Position: start, HasSpaceBefore: hadWhitespace}
 		}
 		// If followed by digit, it will be handled by the decimal number case above
 		// This is an edge case that shouldn't happen due to the check above, but we'll return ILLEGAL
+		startPos := l.position
 		l.advanceChar()
-		return Token{Type: ILLEGAL, Text: []byte{'.'}, Position: start}
+		return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start, HasSpaceBefore: hadWhitespace}
 		// NOTE: '\n' is now handled as whitespace and skipped
 		// Meaningful newlines will be implemented when we add statement parsing
 	}
 
 	// Unrecognized character - advance and mark as illegal
+	startPos := l.position
 	l.advanceChar()
 	return Token{
-		Type:     ILLEGAL,
-		Text:     []byte{ch},
-		Position: start,
+		Type:           ILLEGAL,
+		Text:           l.input[startPos:l.position],
+		Position:       start,
+		HasSpaceBefore: hadWhitespace,
 	}
 }
 
@@ -1019,6 +1022,7 @@ func (l *Lexer) lexExclamation(start Position, hasSpaceBefore bool) Token {
 
 // lexAmpersand handles '&' and '&&' operators
 func (l *Lexer) lexAmpersand(start Position, hasSpaceBefore bool) Token {
+	startPos := l.position
 	l.advanceChar() // consume '&'
 
 	// Check for '&&' (logical and)
@@ -1028,7 +1032,7 @@ func (l *Lexer) lexAmpersand(start Position, hasSpaceBefore bool) Token {
 	}
 
 	// Single '&' is illegal for now (future: bitwise and)
-	return Token{Type: ILLEGAL, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
+	return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start, HasSpaceBefore: hasSpaceBefore}
 }
 
 // lexPipe handles '|' and '||' operators
@@ -1064,9 +1068,10 @@ func (l *Lexer) lexLineComment(start Position, hasSpaceBefore bool) Token {
 	content := l.input[startContentPos:l.position]
 
 	return Token{
-		Type:     COMMENT,
-		Text:     content,
-		Position: start,
+		Type:           COMMENT,
+		Text:           content,
+		Position:       start,
+		HasSpaceBefore: hasSpaceBefore,
 	}
 }
 
@@ -1102,8 +1107,9 @@ func (l *Lexer) lexBlockComment(start Position, hasSpaceBefore bool) Token {
 	content := l.input[startContentPos:l.position]
 
 	return Token{
-		Type:     COMMENT,
-		Text:     content,
-		Position: start,
+		Type:           COMMENT,
+		Text:           content,
+		Position:       start,
+		HasSpaceBefore: hasSpaceBefore,
 	}
 }

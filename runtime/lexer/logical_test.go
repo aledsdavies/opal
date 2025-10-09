@@ -779,7 +779,7 @@ func TestLogicalOperatorEdgeCases(t *testing.T) {
 			input: "&",
 			expected: []tokenExpectation{
 				{
-					Type: ILLEGAL, Text: "",
+					Type: ILLEGAL, Text: "&",
 					Line:   1,
 					Column: 1,
 				},
@@ -919,7 +919,7 @@ func TestLogicalOperatorEdgeCases(t *testing.T) {
 					Column: 1,
 				},
 				{
-					Type: ILLEGAL, Text: "",
+					Type: ILLEGAL, Text: "&",
 					Line:   1,
 					Column: 3,
 				},
