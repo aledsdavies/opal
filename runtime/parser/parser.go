@@ -215,6 +215,9 @@ func (p *parser) file() {
 			p.function()
 		} else if p.at(lexer.VAR) {
 			p.varDecl()
+		} else if p.at(lexer.IF) {
+			// If statement at top level (script mode)
+			p.ifStmt()
 		} else if p.at(lexer.AT) {
 			// Decorator at top level (script mode)
 			p.decorator()
@@ -454,8 +457,32 @@ func (p *parser) statement() {
 		p.advance()
 	}
 
-	if p.at(lexer.VAR) {
+	if p.at(lexer.FUN) {
+		// Function declarations not allowed inside blocks
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "function declarations must be at top level",
+			Context:    "statement",
+			Got:        lexer.FUN,
+			Suggestion: "Move function declaration outside of blocks",
+			Example:    "fun helper() { ... } at top level, not inside if/for/etc",
+		})
+		p.advance() // Skip the fun keyword
+	} else if p.at(lexer.VAR) {
 		p.varDecl()
+	} else if p.at(lexer.IF) {
+		p.ifStmt()
+	} else if p.at(lexer.ELSE) {
+		// Else without matching if
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "else without matching if",
+			Context:    "statement",
+			Got:        lexer.ELSE,
+			Suggestion: "else must follow an if statement",
+			Example:    "if condition { ... } else { ... }",
+		})
+		p.advance() // Skip the else keyword
 	} else if p.at(lexer.AT) {
 		// Decorator (execution decorator with block)
 		p.decorator()
@@ -482,6 +509,116 @@ func (p *parser) statement() {
 			}
 			p.advance()
 		}
+	}
+}
+
+// ifStmt parses an if statement: if condition { ... } [else { ... }]
+func (p *parser) ifStmt() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_if", "parsing if statement")
+	}
+
+	kind := p.start(NodeIf)
+
+	// Consume 'if' keyword
+	p.token()
+
+	// Check for missing condition (block immediately after if)
+	if p.at(lexer.LBRACE) {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing condition after 'if'",
+			Context:    "if statement",
+			Got:        lexer.LBRACE,
+			Expected:   []lexer.TokenType{lexer.BOOLEAN, lexer.IDENTIFIER},
+			Suggestion: "Add a boolean condition before the block",
+			Example:    "if true { ... } or if @var.enabled { ... }",
+		})
+		// Continue parsing the block despite the error
+	} else if !p.at(lexer.EOF) {
+		// Parse condition - must be boolean or expression that evaluates to boolean
+		conditionToken := p.current()
+
+		// Type check: only allow boolean literals, identifiers, or decorators
+		// String and integer literals are not allowed
+		if conditionToken.Type == lexer.STRING || conditionToken.Type == lexer.INTEGER {
+			p.errors = append(p.errors, ParseError{
+				Position:   conditionToken.Position,
+				Message:    "if condition must be a boolean expression",
+				Context:    "if statement",
+				Got:        conditionToken.Type,
+				Expected:   []lexer.TokenType{lexer.BOOLEAN, lexer.IDENTIFIER},
+				Suggestion: "Use a boolean value (true/false), identifier, or comparison expression",
+				Example:    "if @var.enabled { ... } or if count > 0 { ... }",
+			})
+			p.token() // Consume invalid token
+		} else if p.at(lexer.AT) {
+			// Decorator expression: @var.enabled, @env.DEBUG, etc.
+			// Parse decorator reference without block
+			kind := p.start(NodeDecorator)
+			p.token() // @
+			if p.at(lexer.IDENTIFIER) || p.at(lexer.VAR) {
+				p.token() // decorator name
+			}
+			if p.at(lexer.DOT) {
+				p.token() // .
+				if p.at(lexer.IDENTIFIER) {
+					p.token() // property name
+				}
+			}
+			// Note: We don't parse parameters or blocks in condition context
+			p.finish(kind)
+		} else {
+			// Boolean, identifier, or other valid expression token
+			p.token()
+		}
+	}
+
+	// Parse then block
+	if p.at(lexer.LBRACE) {
+		p.block()
+	} else {
+		p.errorExpected(lexer.LBRACE, "if statement body")
+	}
+
+	// Parse optional else clause
+	if p.at(lexer.ELSE) {
+		p.elseClause()
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_if", "if statement complete")
+	}
+}
+
+// elseClause parses an else clause: else { ... } or else if { ... }
+func (p *parser) elseClause() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_else", "parsing else clause")
+	}
+
+	kind := p.start(NodeElse)
+
+	// Consume 'else' keyword
+	p.token()
+
+	// Check for 'else if' pattern
+	if p.at(lexer.IF) {
+		// Recursive: else if is parsed as else { if ... }
+		p.ifStmt()
+	} else if p.at(lexer.LBRACE) {
+		// Regular else block
+		p.block()
+	} else {
+		p.errorExpected(lexer.LBRACE, "else clause body")
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_else", "else clause complete")
 	}
 }
 

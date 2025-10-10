@@ -45,6 +45,8 @@ const (
 	NodeVarDecl      // Variable declaration
 	NodeShellCommand // Shell command (converts to @shell decorator internally)
 	NodeShellArg     // Shell command argument (may contain multiple tokens)
+	NodeIf           // If statement: if condition { ... }
+	NodeElse         // Else clause: else { ... } or else if { ... }
 
 	// Expressions
 	NodeLiteral            // Literal value (int, string, bool, duration)

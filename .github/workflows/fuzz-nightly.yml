@@ -4,6 +4,18 @@ on:
   schedule:
     - cron: '0 2 * * *'   # 02:00 UTC nightly
   workflow_dispatch:      # Allow manual trigger
+  pull_request:
+    paths:
+      - 'runtime/parser/**'
+      - 'runtime/lexer/**'
+      - 'runtime/parser/testdata/fuzz/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/fuzz-nightly.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   GO_VERSION: '1.25.x'
@@ -13,6 +25,9 @@ jobs:
     name: Fuzz Testing (2min per target)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +40,7 @@ jobs:
 
       - name: Snapshot corpus before fuzzing
         run: |
+          set -euo pipefail
           echo "==> Corpus snapshot (before)"
           BEFORE_COUNT=$(find runtime/parser/testdata/fuzz -type f 2>/dev/null | wc -l || echo 0)
           BEFORE_SIZE=$(du -sb runtime/parser/testdata/fuzz 2>/dev/null | cut -f1 || echo 0)
@@ -35,13 +51,11 @@ jobs:
         id: before
 
       - name: Run fuzz targets (2 min each)
-        env:
-          SEED: ${{ github.run_id }}
         run: |
           set -euo pipefail
           cd runtime/parser
           
-          # List of fuzz targets to run
+          # List of fuzz targets to run (each gets full 2 minutes)
           FUZZ_TARGETS=(
             "FuzzParserDeterminism"
             "FuzzParserNoPanic"
@@ -52,8 +66,11 @@ jobs:
             "FuzzParserWhitespaceInvariance"
           )
           
+          # Use unique seed per run for diversity
+          SEED=${{ github.run_id }}
+          
           for target in "${FUZZ_TARGETS[@]}"; do
-            echo "==> Fuzzing $target (2 minutes)"
+            echo "==> Fuzzing $target (2 minutes, seed=$SEED)"
             go test -run '^$' -fuzz "^${target}$" -fuzztime=2m -seed "$SEED" || {
               echo "ERROR: $target failed"
               exit 1
@@ -66,6 +83,7 @@ jobs:
       - name: Snapshot corpus after fuzzing
         if: always()
         run: |
+          set -euo pipefail
           echo "==> Corpus snapshot (after)"
           AFTER_COUNT=$(find runtime/parser/testdata/fuzz -type f 2>/dev/null | wc -l || echo 0)
           AFTER_SIZE=$(du -sb runtime/parser/testdata/fuzz 2>/dev/null | cut -f1 || echo 0)
@@ -77,6 +95,13 @@ jobs:
           
           echo "Files: $AFTER_COUNT (+ $NEW_FILES new)"
           echo "Bytes: $AFTER_SIZE (+ $SIZE_GROWTH bytes)"
+          echo "new_files=$NEW_FILES" >> $GITHUB_OUTPUT
+          echo "size_growth=$SIZE_GROWTH" >> $GITHUB_OUTPUT
+          
+          # Check corpus size cap (warn if > 10MB)
+          if [ $AFTER_SIZE -gt 10485760 ]; then
+            echo "::warning title=Corpus Size::Corpus is ${AFTER_SIZE} bytes (>10MB). Consider pruning."
+          fi
           
           if [ $NEW_FILES -gt 0 ]; then
             echo "✅ Discovered $NEW_FILES new interesting inputs"
@@ -88,19 +113,20 @@ jobs:
       - name: Upload updated corpus
         if: always()
         run: |
-          tar czf corpus-${{ github.run_number }}.tgz runtime/parser/testdata/fuzz || true
+          set -euo pipefail
+          tar czf corpus-nightly-${{ github.run_number }}.tgz runtime/parser/testdata/fuzz || true
         continue-on-error: true
 
       - name: Upload corpus artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-corpus-${{ github.run_number }}
-          path: corpus-${{ github.run_number }}.tgz
+          name: fuzz-corpus-nightly-${{ github.run_number }}
+          path: corpus-nightly-${{ github.run_number }}.tgz
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 14
 
       - name: Comment on corpus growth
         if: steps.after.outputs.new_files > 0
         run: |
-          echo "::notice title=Corpus Growth::Discovered ${{ steps.after.outputs.new_files }} new interesting inputs. Consider reviewing and committing them."
+          echo "::notice title=Corpus Growth::Discovered ${{ steps.after.outputs.new_files }} new interesting inputs (+${{ steps.after.outputs.size_growth }} bytes). Auto-PR will be created for review."

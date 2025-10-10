@@ -5,6 +5,10 @@ on:
     - cron: '0 3 * * 1'   # Mondays 03:00 UTC
   workflow_dispatch:      # Allow manual trigger
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 env:
   GO_VERSION: '1.25.x'
 
@@ -13,6 +17,9 @@ jobs:
     name: Race Detector Fuzzing (2min per target)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,8 +31,6 @@ jobs:
           cache: true
 
       - name: Run fuzz targets with race detector
-        env:
-          SEED: ${{ github.run_id }}
         run: |
           set -euo pipefail
           cd runtime/parser
@@ -35,6 +40,7 @@ jobs:
           echo ""
           
           # Main fuzz targets (shorter time with race detector due to overhead)
+          # Each target gets full 2 minutes
           FUZZ_TARGETS=(
             "FuzzParserDeterminism"
             "FuzzParserNoPanic"
@@ -43,8 +49,11 @@ jobs:
             "FuzzParserWhitespaceInvariance"
           )
           
+          # Use unique seed per run for diversity
+          SEED=${{ github.run_id }}
+          
           for target in "${FUZZ_TARGETS[@]}"; do
-            echo "==> Race fuzzing $target (2 minutes)"
+            echo "==> Race fuzzing $target (2 minutes, seed=$SEED)"
             go test -run '^$' -fuzz "^${target}$" -fuzztime=2m -race -seed "$SEED" || {
               echo "ERROR: $target failed with race detector"
               exit 1
@@ -73,8 +82,6 @@ jobs:
           cache: true
 
       - name: Run quick fuzz on ${{ matrix.os }}
-        env:
-          SEED: ${{ github.run_id }}
         run: |
           set -euo pipefail
           cd runtime/parser
@@ -83,14 +90,17 @@ jobs:
           echo "Catches CRLF/locale/platform quirks"
           echo ""
           
-          # Quick 1-minute fuzz on each platform
+          # Quick 1-minute fuzz on each platform (each target gets full minute)
           FUZZ_TARGETS=(
             "FuzzParserWhitespaceInvariance"
             "FuzzParserDeterminism"
           )
           
+          # Use unique seed per run for diversity
+          SEED=${{ github.run_id }}
+          
           for target in "${FUZZ_TARGETS[@]}"; do
-            echo "==> Fuzzing $target (1 minute)"
+            echo "==> Fuzzing $target (1 minute, seed=$SEED)"
             go test -run '^$' -fuzz "^${target}$" -fuzztime=1m -seed "$SEED" || {
               echo "ERROR: $target failed on ${{ matrix.os }}"
               exit 1

@@ -27,6 +27,25 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte("var x = 42"))
 	f.Add([]byte("fun deploy(env) { kubectl apply }"))
 
+	// Control flow - valid if statements
+	f.Add([]byte("fun test { if true { } }"))
+	f.Add([]byte("fun test { if false { echo \"a\" } }"))
+	f.Add([]byte("fun test { if x { } else { } }"))
+	f.Add([]byte("fun test { if true { } else if false { } }"))
+	f.Add([]byte("fun test { if @var.x { } }"))
+	f.Add([]byte("if true { }"))                  // Top-level if (script mode)
+	f.Add([]byte("if x { } else { echo \"a\" }")) // Top-level if-else
+
+	// Control flow - malformed (error recovery)
+	f.Add([]byte("fun test { if }"))
+	f.Add([]byte("fun test { if { } }"))
+	f.Add([]byte("fun test { if true }"))
+	f.Add([]byte("fun test { if true { } else }"))
+	f.Add([]byte("fun test { else { } }"))
+	f.Add([]byte("fun test { if \"str\" { } }"))
+	f.Add([]byte("fun test { if 42 { } }"))
+	f.Add([]byte("fun test { if true { fun helper() { } } }")) // fun inside if
+
 	// Edge cases
 	f.Add([]byte("fun"))                   // Incomplete
 	f.Add([]byte("{}"))                    // Just braces
@@ -34,6 +53,8 @@ func FuzzParserDeterminism(f *testing.F) {
 
 	// UTF-8 and line endings
 	f.Add([]byte("fun test() {\r\n  echo \"hi\"\r\n}")) // CRLF
+	f.Add([]byte("fun test { if\ntrue\n{\n}\n}"))       // If with newlines
+	f.Add([]byte("fun test{if true{}}"))                // If no spaces
 	f.Add([]byte("fun 🚀() {}"))                         // Emoji
 	f.Add([]byte("\xff\xfe\xfd"))                       // Invalid UTF-8
 
@@ -113,6 +134,15 @@ func FuzzParserNoPanic(f *testing.F) {
 	f.Add([]byte("@retry(3, times=5)"))
 	f.Add([]byte("@var."))
 
+	// Control flow - if statements
+	f.Add([]byte("fun test { if true { } }"))
+	f.Add([]byte("fun test { if x { } else { } }"))
+	f.Add([]byte("if true { }"))                               // Top-level (script mode)
+	f.Add([]byte("fun test { if }"))                           // Malformed
+	f.Add([]byte("fun test { if { } }"))                       // Missing condition
+	f.Add([]byte("fun test { if \"str\" { } }"))               // Type error
+	f.Add([]byte("fun test { if true { fun helper() { } } }")) // fun inside if
+
 	f.Fuzz(func(t *testing.T, input []byte) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -149,6 +179,11 @@ func FuzzParserEventBalance(f *testing.F) {
 	f.Add([]byte("@timeout(5m) { }"))
 	f.Add([]byte("@timeout(5m) { @retry(3) { } }"))
 	f.Add([]byte("@timeout(5m) { @retry(3, 2s) { @parallel { } } }"))
+
+	// Control flow nesting
+	f.Add([]byte("fun test { if true { if false { } } }"))
+	f.Add([]byte("if true { if false { } }")) // Top-level
+	f.Add([]byte("fun test { if { } }"))      // Malformed
 
 	// Deep nesting
 	nested := make([]byte, 0, 200)
@@ -208,6 +243,11 @@ func FuzzParserMemorySafety(f *testing.F) {
 	f.Add([]byte("@timeout(5m) { }"))
 	f.Add([]byte("@retry(3, 2s, \"exponential\") { }"))
 	f.Add([]byte("@timeout(5m) { @retry(3) { } }"))
+
+	// Control flow
+	f.Add([]byte("fun test { if true { } }"))
+	f.Add([]byte("if true { }"))
+	f.Add([]byte("fun test { if { } }"))
 
 	// Unicode edge cases
 	f.Add([]byte("\xEF\xBB\xBFfun a(){}"))   // UTF-8 BOM
@@ -313,6 +353,14 @@ func FuzzParserPathologicalDepth(f *testing.F) {
 	nested2 = append(nested2, bytes.Repeat([]byte("}"), 50)...)
 	f.Add(nested2)
 
+	// Deep if nesting
+	nested3 := make([]byte, 0, 1000)
+	nested3 = append(nested3, []byte("fun test { ")...)
+	nested3 = append(nested3, bytes.Repeat([]byte("if true { "), 50)...)
+	nested3 = append(nested3, bytes.Repeat([]byte("} "), 50)...)
+	nested3 = append(nested3, []byte("}")...)
+	f.Add(nested3)
+
 	f.Fuzz(func(t *testing.T, input []byte) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -353,6 +401,13 @@ func FuzzParserErrorRecovery(f *testing.F) {
 	f.Add([]byte("fun greet(")) // Unclosed
 	f.Add([]byte("@"))          // Lone decorator
 	f.Add([]byte("var = 42"))   // Missing name
+
+	// Control flow error recovery
+	f.Add([]byte("fun test { if }"))
+	f.Add([]byte("fun test { if { } }"))
+	f.Add([]byte("fun test { else { } }"))
+	f.Add([]byte("fun test { if \"str\" { } }"))
+	f.Add([]byte("fun test { if true { fun helper() { } } }"))
 
 	f.Fuzz(func(t *testing.T, input []byte) {
 		tree := Parse(input)
@@ -428,6 +483,11 @@ func FuzzParserWhitespaceInvariance(f *testing.F) {
 	f.Add([]byte("fun greet(name){echo name}"))
 	f.Add([]byte("var x=1\nvar y=2\nfun f(){x+y}"))
 	f.Add([]byte("@retry(3){ fun a(){ } }"))
+
+	// Control flow whitespace variations
+	f.Add([]byte("fun test{if true{}}"))
+	f.Add([]byte("fun test { if true { } else { } }"))
+	f.Add([]byte("if true{echo \"a\"}"))
 
 	// Unicode edge cases
 	f.Add([]byte("\xEF\xBB\xBFfun a(){}")) // UTF-8 BOM

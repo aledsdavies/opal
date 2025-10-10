@@ -198,6 +198,10 @@ jobs:
     name: Test Runtime Module
     runs-on: ubuntu-latest
     needs: [test-core]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -210,20 +214,25 @@ jobs:
 
       - name: Snapshot fuzz corpus
         run: |
+          set -euo pipefail
           echo "==> Fuzz corpus snapshot"
           CORPUS_COUNT=$(find runtime/parser/testdata/fuzz -type f 2>/dev/null | wc -l || echo 0)
+          CORPUS_BYTES=$(du -sb runtime/parser/testdata/fuzz 2>/dev/null | cut -f1 || echo 0)
           CORPUS_SIZE=$(du -sh runtime/parser/testdata/fuzz 2>/dev/null | cut -f1 || echo "0")
           echo "Corpus files: $CORPUS_COUNT"
-          echo "Corpus size: $CORPUS_SIZE"
+          echo "Corpus size: $CORPUS_SIZE ($CORPUS_BYTES bytes)"
           echo "corpus_count=$CORPUS_COUNT" >> $GITHUB_OUTPUT
           echo "corpus_size=$CORPUS_SIZE" >> $GITHUB_OUTPUT
+          echo "corpus_bytes=$CORPUS_BYTES" >> $GITHUB_OUTPUT
         id: corpus_snapshot
 
       - name: Run runtime tests + corpus replay
         run: |
+          set -euo pipefail
           echo "Running runtime tests with race detector..."
           cd runtime
           # Test all available runtime packages (execution package was removed in clean slate)
+          # Corpus replay happens automatically via go test (no -fuzz flag)
           go test -v -race -coverprofile=../coverage-runtime.out -covermode=atomic ./...
           
           echo ""
