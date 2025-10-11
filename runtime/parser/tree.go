@@ -78,6 +78,9 @@ const (
 
 	// For loop ranges - added at end to preserve existing node numbers
 	NodeRange // Range expression in for loops: 1...10, @var.start...@var.end
+
+	// OR patterns - added at end to preserve existing node numbers
+	NodePatternOr // OR pattern: "a" | "b" | "c"
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

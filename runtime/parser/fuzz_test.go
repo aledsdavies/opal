@@ -112,6 +112,14 @@ func addSeedCorpus(f *testing.F) {
 	f.Add([]byte(`fun test { when @var.code { "success" -> echo "s" 200...299 -> echo "ok" else -> echo "x" } }`))                  // Mixed string and range
 	f.Add([]byte(`fun test { when @var.status { 200...299 -> { kubectl apply echo "deployed" } else -> echo "skip" } }`))           // Range with block
 
+	// When pattern matching - OR patterns (Phase 2c)
+	f.Add([]byte(`fun test { when @var.env { "prod" | "production" -> echo "p" else -> echo "x" } }`))                                               // Simple OR
+	f.Add([]byte(`fun test { when @var.env { "dev" | "development" | "local" -> echo "d" else -> echo "x" } }`))                                     // Multiple OR
+	f.Add([]byte(`fun test { when @var.env { "prod" | r"^staging-" -> echo "deploy" else -> echo "skip" } }`))                                       // Mixed string and regex
+	f.Add([]byte(`fun test { when @var.code { 200...299 | 300...399 -> echo "ok" else -> echo "err" } }`))                                           // OR with ranges
+	f.Add([]byte(`when @var.branch { "main" | "master" | r"^release/" -> kubectl apply else -> echo "skip" }`))                                      // Top-level OR
+	f.Add([]byte("fun test { when @var.env {\n\"prod\" | \"production\" -> echo \"p\"\n\"dev\" | \"local\" -> echo \"d\"\nelse -> echo \"x\"\n} }")) // OR with newlines
+
 	// When pattern matching - malformed (error recovery)
 	f.Add([]byte("fun test { when { } }"))                                    // Missing expression
 	f.Add([]byte("fun test { when @var.ENV }"))                               // Missing opening brace
@@ -837,13 +845,13 @@ func FuzzParserWhitespaceInvariance(f *testing.F) {
 // This is the "catch-all" fuzzer for unexpected edge cases.
 func FuzzParserSmokeTest(f *testing.F) {
 	addSeedCorpus(f)
-	
+
 	// Additional seeds for smoke testing
-	f.Add([]byte("\x00"))                       // Null byte
-	f.Add([]byte("\x00\x00\x00"))               // Multiple nulls
-	f.Add(bytes.Repeat([]byte("\x00"), 1000))   // Many nulls
-	f.Add(bytes.Repeat([]byte("a"), 100000))    // Very long input
-	f.Add(bytes.Repeat([]byte("{"), 10000))     // Deep nesting
+	f.Add([]byte("\x00"))                                         // Null byte
+	f.Add([]byte("\x00\x00\x00"))                                 // Multiple nulls
+	f.Add(bytes.Repeat([]byte("\x00"), 1000))                     // Many nulls
+	f.Add(bytes.Repeat([]byte("a"), 100000))                      // Very long input
+	f.Add(bytes.Repeat([]byte("{"), 10000))                       // Deep nesting
 	f.Add([]byte("@" + string(bytes.Repeat([]byte("a"), 10000)))) // Long identifier
 
 	f.Fuzz(func(t *testing.T, input []byte) {
@@ -855,7 +863,7 @@ func FuzzParserSmokeTest(f *testing.F) {
 
 		// Just parse - no invariants
 		tree := Parse(input)
-		
+
 		// Basic sanity: tree should not be nil
 		if tree == nil {
 			t.Error("Parse returned nil")

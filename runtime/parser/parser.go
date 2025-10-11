@@ -1101,6 +1101,25 @@ func (p *parser) pattern() {
 		p.recordDebugEvent("enter_pattern", "parsing pattern")
 	}
 
+	// Parse the first (left) pattern
+	p.patternPrimary()
+
+	// Handle OR patterns: "a" | "b" | "c"
+	// Left-associative: parses as (("a" | "b") | "c")
+	for p.at(lexer.PIPE) {
+		orKind := p.start(NodePatternOr)
+		p.token()          // consume |
+		p.patternPrimary() // parse right side
+		p.finish(orKind)
+	}
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_pattern", "pattern complete")
+	}
+}
+
+// patternPrimary parses a single pattern (without OR)
+func (p *parser) patternPrimary() {
 	if p.at(lexer.ELSE) {
 		// else pattern (catch-all)
 		kind := p.start(NodePatternElse)
@@ -1148,10 +1167,6 @@ func (p *parser) pattern() {
 			Note:       "Range patterns use ... (three dots); validation happens at plan-time",
 		})
 		p.advance()
-	}
-
-	if p.config.debug >= DebugPaths {
-		p.recordDebugEvent("exit_pattern", "pattern complete")
 	}
 }
 

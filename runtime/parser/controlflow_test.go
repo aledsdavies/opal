@@ -1497,3 +1497,39 @@ func TestForLoopRanges(t *testing.T) {
 		})
 	}
 }
+
+// TestWhenOrPatterns tests OR pattern matching
+func TestWhenOrPatterns(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"simple OR", `fun test { when @var.env { "prod" | "production" -> echo "p" else -> echo "x" } }`},
+		{"multiple OR", `fun test { when @var.env { "dev" | "development" | "local" -> echo "d" else -> echo "x" } }`},
+		{"mixed patterns", `fun test { when @var.env { "prod" | r"^staging-" -> echo "deploy" else -> echo "skip" } }`},
+		{"OR with ranges", `fun test { when @var.code { 200...299 | 300...399 -> echo "ok" else -> echo "err" } }`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) > 0 {
+				t.Fatalf("Unexpected errors: %v", tree.Errors)
+			}
+
+			// Check that NodePatternOr appears in events
+			hasOr := false
+			for _, ev := range tree.Events {
+				if ev.Kind == EventOpen && NodeKind(ev.Data) == NodePatternOr {
+					hasOr = true
+					break
+				}
+			}
+
+			if !hasOr {
+				t.Errorf("Expected NodePatternOr in events, but not found")
+			}
+		})
+	}
+}

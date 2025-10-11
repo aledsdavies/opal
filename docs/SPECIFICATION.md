@@ -628,11 +628,10 @@ for service in @var.SERVICES {
     echo "Processing service @var.counter: @var.service"
 }
 
-// Countdown operations
-var attempts = max_retries
-while attempts > 0 {
-    attempts--
-    echo "Retry attempt @var.attempts"
+// Countdown with for loop (plan-time range)
+var max_retries = 3
+for attempt in 1...@var.max_retries {
+    echo "Retry attempt @var.attempt"
 }
 ```
 
