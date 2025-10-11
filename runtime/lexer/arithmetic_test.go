@@ -370,3 +370,81 @@ func TestArithmeticInDevcmdContext(t *testing.T) {
 		})
 	}
 }
+
+// TestArrowOperator tests the -> operator used in when pattern matching
+func TestArrowOperator(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []tokenExpectation
+	}{
+		{
+			name:  "simple arrow",
+			input: "->",
+			expected: []tokenExpectation{
+				{ARROW, "", 1, 1},
+				{EOF, "", 1, 3},
+			},
+		},
+		{
+			name:  "arrow with spaces",
+			input: " -> ",
+			expected: []tokenExpectation{
+				{ARROW, "", 1, 2},
+				{EOF, "", 1, 5},
+			},
+		},
+		{
+			name:  "arrow in when pattern",
+			input: `"production" -> deploy`,
+			expected: []tokenExpectation{
+				{STRING, `"production"`, 1, 1},
+				{ARROW, "", 1, 14},
+				{IDENTIFIER, "deploy", 1, 17},
+				{EOF, "", 1, 23},
+			},
+		},
+		{
+			name:  "multiple arrows",
+			input: `"a" -> x "b" -> y`,
+			expected: []tokenExpectation{
+				{STRING, `"a"`, 1, 1},
+				{ARROW, "", 1, 5},
+				{IDENTIFIER, "x", 1, 8},
+				{STRING, `"b"`, 1, 10},
+				{ARROW, "", 1, 14},
+				{IDENTIFIER, "y", 1, 17},
+				{EOF, "", 1, 18},
+			},
+		},
+		{
+			name:  "arrow vs minus",
+			input: "a - b -> c",
+			expected: []tokenExpectation{
+				{IDENTIFIER, "a", 1, 1},
+				{MINUS, "", 1, 3},
+				{IDENTIFIER, "b", 1, 5},
+				{ARROW, "", 1, 7},
+				{IDENTIFIER, "c", 1, 10},
+				{EOF, "", 1, 11},
+			},
+		},
+		{
+			name:  "arrow vs decrement",
+			input: "count-- -> result",
+			expected: []tokenExpectation{
+				{IDENTIFIER, "count", 1, 1},
+				{DECREMENT, "", 1, 6},
+				{ARROW, "", 1, 9},
+				{IDENTIFIER, "result", 1, 12},
+				{EOF, "", 1, 18},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.name, tt.input, tt.expected)
+		})
+	}
+}

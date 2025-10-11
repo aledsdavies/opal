@@ -872,6 +872,12 @@ func (l *Lexer) readDurationUnit() bool {
 func (l *Lexer) lexMinus(start Position, hasSpaceBefore bool) Token {
 	l.advanceChar() // consume '-'
 
+	// Check for '->' (arrow for when patterns)
+	if l.position < len(l.input) && l.currentChar() == '>' {
+		l.advanceChar() // consume '>'
+		return Token{Type: ARROW, Text: nil, Position: start, HasSpaceBefore: hasSpaceBefore}
+	}
+
 	// Check for '--' (decrement)
 	if l.position < len(l.input) && l.currentChar() == '-' {
 		l.advanceChar() // consume second '-'
