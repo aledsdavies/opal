@@ -23,14 +23,15 @@ const (
 	FINALLY // finally - error handling decorator
 
 	// Language structure
-	FUN    // fun - command definition
-	VAR    // var
-	AT     // @
-	DOT    // .
-	COLON  // :
-	EQUALS // =
-	COMMA  // ,
-	ARROW  // -> (for when patterns)
+	FUN       // fun - command definition
+	VAR       // var
+	AT        // @
+	DOT       // .
+	DOTDOTDOT // ... (range operator for for loops and when patterns)
+	COLON     // :
+	EQUALS    // =
+	COMMA     // ,
+	ARROW     // -> (for when patterns)
 
 	// Brackets and braces
 	LPAREN  // (
@@ -150,6 +151,8 @@ func (t TokenType) String() string {
 		return "AT"
 	case DOT:
 		return "DOT"
+	case DOTDOTDOT:
+		return "DOTDOTDOT"
 	case COLON:
 		return "COLON"
 	case EQUALS:

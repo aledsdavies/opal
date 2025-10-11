@@ -1048,16 +1048,35 @@ func (p *parser) pattern() {
 		p.token() // consume 'r'
 		p.token() // consume string
 		p.finish(kind)
+	} else if p.at(lexer.INTEGER) && p.pos+2 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.DOTDOTDOT {
+		// Numeric range pattern: 200...299
+		kind := p.start(NodePatternRange)
+		p.token() // consume start integer
+		p.token() // consume ...
+		if p.at(lexer.INTEGER) {
+			p.token() // consume end integer
+		} else {
+			p.errors = append(p.errors, ParseError{
+				Position:   p.current().Position,
+				Message:    "missing end value in range pattern",
+				Context:    "when arm",
+				Got:        p.current().Type,
+				Expected:   []lexer.TokenType{lexer.INTEGER},
+				Suggestion: "Add end value after ...",
+				Example:    `200...299 -> success`,
+			})
+		}
+		p.finish(kind)
 	} else {
 		p.errors = append(p.errors, ParseError{
 			Position:   p.current().Position,
 			Message:    "invalid pattern",
 			Context:    "when arm",
 			Got:        p.current().Type,
-			Expected:   []lexer.TokenType{lexer.STRING, lexer.ELSE, lexer.IDENTIFIER},
-			Suggestion: "Use a string literal, regex pattern, or else",
-			Example:    `"production" -> deploy or r"^release/" -> deploy`,
-			Note:       "Regex patterns use r\"pattern\" syntax; validation happens at plan-time",
+			Expected:   []lexer.TokenType{lexer.STRING, lexer.ELSE, lexer.IDENTIFIER, lexer.INTEGER},
+			Suggestion: "Use a string literal, regex pattern, numeric range, or else",
+			Example:    `"production" -> deploy or r"^release/" -> deploy or 200...299 -> success`,
+			Note:       "Range patterns use ... (three dots); validation happens at plan-time",
 		})
 		p.advance()
 	}

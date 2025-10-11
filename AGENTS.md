@@ -118,24 +118,55 @@ if p.config.debug == DebugOff {
 - **Phase 1**: Interpreter mode only, no code generation yet
 
 ## JJ to Git Workflow
-```bash
-# 1. Work in changes
-jj new main -m "feat: description"
-# make changes
-jj commit -m "detailed commit message"
 
-# 2. Fix empty descriptions before push
+**CRITICAL: Use fine-grained commits to prevent work loss**
+
+```bash
+# 1. Create new change for each logical unit of work
+jj new -m "feat: add DOTDOTDOT token to lexer"
+# make lexer changes
+jj describe -m "feat: add DOTDOTDOT token to lexer
+
+- Add DOTDOTDOT token type
+- Implement lexing logic for ...
+- Add 5 lexer tests"
+
+# 2. Create NEW change for next unit (don't keep working in same change)
+jj new -m "feat: add range pattern parsing"
+# make parser changes
+jj describe -m "feat: add range pattern parsing
+
+- Add NodePatternRange
+- Update pattern() parser
+- Add parser tests"
+
+# 3. Create NEW change for refactoring/cleanup
+jj new -m "refactor: extract shared fuzz seed corpus"
+# refactor fuzz tests
+jj describe -m "refactor: extract shared fuzz seed corpus
+
+- Add addSeedCorpus() function
+- Update all 7 fuzz functions to use shared corpus
+- Add FuzzParserSmokeTest as 8th function"
+
+# 4. Fix empty descriptions before push
 jj log --limit 5                    # Check for "(no description set)"
 jj describe -r <change_id> -m "msg" # Fix any empty descriptions
 
-# 3. Create bookmark and push
+# 5. Create bookmark and push
 jj bookmark create -r @ feature-name
 jj git push -b feature-name --allow-new
 
-# 4. Update existing PR
+# 6. Update existing PR
 jj bookmark set feature-name -r @
 jj git push -b feature-name
 ```
+
+**Why fine-grained commits matter:**
+- Each `jj new` creates a snapshot - if you lose work, you can recover from previous change
+- Large changes in single commit = all-or-nothing (lose everything if something goes wrong)
+- Small commits = easy to review, easy to revert, easy to recover
+- Rule: If you're working on 2+ distinct things, use separate `jj new` calls
 
 ## Pre-PR Checklist
 - **All commits have descriptions**: JJ won't push commits with "(no description set)" to Git

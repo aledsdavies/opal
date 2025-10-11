@@ -1373,3 +1373,89 @@ func TestWhenRegexPatterns(t *testing.T) {
 		})
 	}
 }
+
+// TestWhenRangePatterns tests numeric range pattern matching
+func TestWhenRangePatterns(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		events []Event
+	}{
+		{
+			name:  "simple integer range",
+			input: `fun test { when @var.status { 200...299 -> echo "success" else -> echo "error" } }`,
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // test
+				{EventOpen, 3},   // Block
+				{EventToken, 2},  // {
+				{EventOpen, 22},  // When (NodeWhen = 22)
+				{EventToken, 3},  // when
+				{EventOpen, 18},  // Decorator (NodeDecorator = 18)
+				{EventToken, 4},  // @
+				{EventToken, 5},  // var
+				{EventToken, 6},  // .
+				{EventToken, 7},  // status
+				{EventClose, 18}, // Decorator
+				{EventToken, 8},  // {
+
+				// First arm: 200...299 -> echo "success"
+				{EventOpen, 23},  // WhenArm (NodeWhenArm = 23)
+				{EventOpen, 27},  // PatternRange (NodePatternRange = 27) - NEW NODE TYPE
+				{EventToken, 9},  // 200
+				{EventToken, 10}, // ...
+				{EventToken, 11}, // 299
+				{EventClose, 27}, // PatternRange
+				{EventToken, 12}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 13}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 14}, // "success"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				// Second arm: else -> echo "error"
+				{EventOpen, 23},  // WhenArm
+				{EventOpen, 25},  // PatternElse (NodePatternElse = 25)
+				{EventToken, 15}, // else
+				{EventClose, 25}, // PatternElse
+				{EventToken, 16}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 17}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 18}, // "error"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				{EventToken, 19}, // }
+				{EventClose, 22}, // When
+				{EventToken, 20}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) != 0 {
+				t.Errorf("Expected no errors, got: %v", tree.Errors)
+			}
+
+			if diff := cmp.Diff(tt.events, tree.Events); diff != "" {
+				t.Errorf("Events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

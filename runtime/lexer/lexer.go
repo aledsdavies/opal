@@ -443,9 +443,12 @@ func (l *Lexer) lexToken() Token {
 		return l.lexNumber(start, hadWhitespace)
 	}
 
-	// Decimal numbers starting with dot (.5, .123)
+	// Decimal numbers starting with dot (.5, .123) - but not ... range operator
 	if ch == '.' && l.position+1 < len(l.input) && l.input[l.position+1] < 128 && isDigit[l.input[l.position+1]] {
-		return l.lexNumber(start, hadWhitespace)
+		// Don't treat as decimal if this is ... (range operator)
+		if !(l.position+2 < len(l.input) && l.input[l.position+1] == '.' && l.input[l.position+2] == '.') {
+			return l.lexNumber(start, hadWhitespace)
+		}
 	}
 
 	// Single character punctuation
@@ -503,6 +506,14 @@ func (l *Lexer) lexToken() Token {
 		l.advanceChar()
 		return Token{Type: AT, Text: nil, Position: start, HasSpaceBefore: hadWhitespace}
 	case '.':
+		// Check for ... (DOTDOTDOT) range operator
+		if l.position+2 < len(l.input) && l.input[l.position+1] == '.' && l.input[l.position+2] == '.' {
+			startPos := l.position
+			l.advanceChar() // first .
+			l.advanceChar() // second .
+			l.advanceChar() // third .
+			return Token{Type: DOTDOTDOT, Text: l.input[startPos:l.position], Position: start, HasSpaceBefore: hadWhitespace}
+		}
 		// Only handle as DOT if not followed by a digit (which would be a decimal number)
 		if l.position+1 >= len(l.input) || l.input[l.position+1] >= 128 || !isDigit[l.input[l.position+1]] {
 			l.advanceChar()
@@ -720,12 +731,17 @@ func (l *Lexer) lexNumber(start Position, hasSpaceBefore bool) Token {
 			return Token{Type: ILLEGAL, Text: l.input[startPos:l.position], Position: start, HasSpaceBefore: hasSpaceBefore}
 		}
 
-		// Check for decimal point
+		// Check for decimal point (but not ... range operator)
 		if l.position < len(l.input) && l.currentChar() == '.' {
-			l.advanceChar()
-			// Read decimal part (optional - Go allows 5.)
-			l.readDigits()
-			isFloat = true
+			// Don't consume if this is ... (range operator)
+			if l.position+2 < len(l.input) && l.input[l.position+1] == '.' && l.input[l.position+2] == '.' {
+				// This is ..., stop here and return the integer
+			} else {
+				l.advanceChar()
+				// Read decimal part (optional - Go allows 5.)
+				l.readDigits()
+				isFloat = true
+			}
 		}
 	}
 

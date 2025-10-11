@@ -70,6 +70,7 @@ const (
 	NodePatternLiteral // String literal pattern: "production"
 	NodePatternElse    // Else pattern (catch-all)
 	NodePatternRegex   // Regex pattern: r"^pattern$"
+	NodePatternRange   // Numeric range pattern: 200...299
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

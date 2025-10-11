@@ -90,6 +90,14 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte(`fun test { when @var.env { "prod" -> echo "p" r"^staging-" -> echo "s" else -> echo "x" } }`))                 // Mixed string and regex
 	f.Add([]byte(`fun test { when @var.branch { r"^release/" -> { kubectl apply echo "deployed" } else -> echo "skip" } }`))     // Regex with block
 
+	// When pattern matching - numeric range patterns (Phase 2b)
+	f.Add([]byte(`fun test { when @var.status { 200...299 -> echo "success" else -> echo "error" } }`))                             // Simple range
+	f.Add([]byte(`fun test { when @var.status { 200...299 -> echo "ok" 400...499 -> echo "client" 500...599 -> echo "server" } }`)) // Multiple ranges
+	f.Add([]byte("fun test { when @var.status {\n200...299 -> echo \"ok\"\n400...499 -> echo \"err\"\nelse -> echo \"x\"\n} }"))    // Ranges with newlines
+	f.Add([]byte(`when @var.port { 1...1024 -> echo "privileged" 1025...65535 -> echo "user" else -> echo "invalid" }`))            // Port ranges
+	f.Add([]byte(`fun test { when @var.code { "success" -> echo "s" 200...299 -> echo "ok" else -> echo "x" } }`))                  // Mixed string and range
+	f.Add([]byte(`fun test { when @var.status { 200...299 -> { kubectl apply echo "deployed" } else -> echo "skip" } }`))           // Range with block
+
 	// When pattern matching - malformed (error recovery)
 	f.Add([]byte("fun test { when { } }"))                                    // Missing expression
 	f.Add([]byte("fun test { when @var.ENV }"))                               // Missing opening brace
@@ -99,6 +107,8 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte(`fun test { when @var.ENV { "prod" -> { fun h() { } } } }`)) // fun inside when block
 	f.Add([]byte(`fun test { when @var.branch { r -> echo "x" } }`))          // Incomplete regex (missing string)
 	f.Add([]byte(`fun test { when @var.branch { r"unclosed -> echo "x" } }`)) // Unclosed regex string
+	f.Add([]byte(`fun test { when @var.status { 200... -> echo "x" } }`))     // Incomplete range (missing end)
+	f.Add([]byte(`fun test { when @var.status { 200..299 -> echo "x" } }`))   // Wrong range operator (two dots)
 
 	// Edge cases
 	f.Add([]byte("fun"))                   // Incomplete
