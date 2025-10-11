@@ -249,6 +249,10 @@ func TestFunInsideControlFlow(t *testing.T) {
 			name:  "fun inside else block",
 			input: "fun test { if true { } else { fun helper() { } } }",
 		},
+		{
+			name:  "fun inside for loop",
+			input: "fun test { for item in items { fun helper() { } } }",
+		},
 	}
 
 	for _, tt := range tests {
@@ -477,6 +481,175 @@ func TestIfConditionTypeChecking(t *testing.T) {
 				if len(tree.Errors) != 0 {
 					t.Errorf("Expected no errors, got: %v", tree.Errors)
 				}
+			}
+		})
+	}
+}
+
+func TestForLoop(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		events []Event
+	}{
+		{
+			name:  "simple for loop",
+			input: "fun test { for item in items { echo @var.item } }",
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // test
+				{EventOpen, 3},   // Block
+				{EventToken, 2},  // {
+				{EventOpen, 12},  // For (NodeFor = 12)
+				{EventToken, 3},  // for
+				{EventToken, 4},  // item (loop variable)
+				{EventToken, 5},  // in
+				{EventToken, 6},  // items (collection)
+				{EventOpen, 3},   // Block
+				{EventToken, 7},  // {
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 8},  // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 9},  // @
+				{EventToken, 10}, // var
+				{EventToken, 11}, // .
+				{EventToken, 12}, // item
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventToken, 13}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 12}, // For
+				{EventToken, 14}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) != 0 {
+				t.Errorf("Expected no errors, got: %v", tree.Errors)
+			}
+
+			if diff := cmp.Diff(tt.events, tree.Events); diff != "" {
+				t.Errorf("Events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestForLoopWithDecorator(t *testing.T) {
+	input := "fun test { for item in @var.items { echo @var.item } }"
+	tree := ParseString(input)
+
+	if len(tree.Errors) != 0 {
+		t.Errorf("Expected no errors, got: %v", tree.Errors)
+	}
+
+	// Verify NodeFor and NodeDecorator are present
+	hasFor := false
+	hasDecorator := false
+	for _, evt := range tree.Events {
+		if evt.Kind == EventOpen && evt.Data == uint32(NodeFor) {
+			hasFor = true
+		}
+		if evt.Kind == EventOpen && evt.Data == uint32(NodeDecorator) {
+			hasDecorator = true
+		}
+	}
+
+	if !hasFor {
+		t.Error("Expected NodeFor in events")
+	}
+	if !hasDecorator {
+		t.Error("Expected NodeDecorator in events")
+	}
+}
+
+func TestForLoopErrorRecovery(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectedErr ParseError
+	}{
+		{
+			name:  "missing loop variable",
+			input: "fun test { for in items { } }",
+			expectedErr: ParseError{
+				Message:    "missing loop variable after 'for'",
+				Context:    "for loop",
+				Suggestion: "Add a variable name to hold each item",
+				Example:    "for item in items { ... }",
+				Note:       "for loops unroll at plan-time; the loop variable is resolved during planning",
+			},
+		},
+		{
+			name:  "missing 'in' keyword",
+			input: "fun test { for item items { } }",
+			expectedErr: ParseError{
+				Message:    "missing 'in' keyword in for loop",
+				Context:    "for loop",
+				Suggestion: "Add 'in' between loop variable and collection",
+				Example:    "for item in items { ... }",
+			},
+		},
+		{
+			name:  "missing collection",
+			input: "fun test { for item in { } }",
+			expectedErr: ParseError{
+				Message:    "missing collection expression in for loop",
+				Context:    "for loop",
+				Suggestion: "Provide a collection to iterate over",
+				Example:    "for item in items { ... } or for x in @var.list { ... }",
+				Note:       "collection must resolve at plan-time to a list of concrete values",
+			},
+		},
+		{
+			name:  "missing block",
+			input: "fun test { for item in items }",
+			expectedErr: ParseError{
+				Message:    "missing block after for loop header",
+				Context:    "for loop body",
+				Suggestion: "Add a block with the loop body",
+				Example:    "for item in items { echo @var.item }",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) == 0 {
+				t.Fatalf("Expected error, got none")
+			}
+
+			actual := tree.Errors[0]
+			expected := tt.expectedErr
+
+			// Compare only the fields we care about (ignore Position, Expected, Got)
+			if actual.Message != expected.Message {
+				t.Errorf("Message mismatch:\nwant: %s\ngot:  %s", expected.Message, actual.Message)
+			}
+			if actual.Context != expected.Context {
+				t.Errorf("Context mismatch:\nwant: %s\ngot:  %s", expected.Context, actual.Context)
+			}
+			if actual.Suggestion != expected.Suggestion {
+				t.Errorf("Suggestion mismatch:\nwant: %s\ngot:  %s", expected.Suggestion, actual.Suggestion)
+			}
+			if actual.Example != expected.Example {
+				t.Errorf("Example mismatch:\nwant: %s\ngot:  %s", expected.Example, actual.Example)
+			}
+			if actual.Note != expected.Note {
+				t.Errorf("Note mismatch:\nwant: %s\ngot:  %s", expected.Note, actual.Note)
 			}
 		})
 	}

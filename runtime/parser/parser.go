@@ -218,6 +218,9 @@ func (p *parser) file() {
 		} else if p.at(lexer.IF) {
 			// If statement at top level (script mode)
 			p.ifStmt()
+		} else if p.at(lexer.FOR) {
+			// For loop at top level (script mode)
+			p.forStmt()
 		} else if p.at(lexer.AT) {
 			// Decorator at top level (script mode)
 			p.decorator()
@@ -472,6 +475,8 @@ func (p *parser) statement() {
 		p.varDecl()
 	} else if p.at(lexer.IF) {
 		p.ifStmt()
+	} else if p.at(lexer.FOR) {
+		p.forStmt()
 	} else if p.at(lexer.ELSE) {
 		// Else without matching if
 		p.errors = append(p.errors, ParseError{
@@ -619,6 +624,100 @@ func (p *parser) elseClause() {
 
 	if p.config.debug >= DebugPaths {
 		p.recordDebugEvent("exit_else", "else clause complete")
+	}
+}
+
+// forStmt parses a for loop: for item in collection { ... }
+func (p *parser) forStmt() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_for", "parsing for loop")
+	}
+
+	kind := p.start(NodeFor)
+
+	// Consume 'for' keyword
+	p.token()
+
+	// Parse loop variable (item)
+	if p.at(lexer.IDENTIFIER) {
+		p.token()
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing loop variable after 'for'",
+			Context:    "for loop",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.IDENTIFIER},
+			Suggestion: "Add a variable name to hold each item",
+			Example:    "for item in items { ... }",
+			Note:       "for loops unroll at plan-time; the loop variable is resolved during planning",
+		})
+	}
+
+	// Expect 'in' keyword
+	if p.at(lexer.IN) {
+		p.token()
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing 'in' keyword in for loop",
+			Context:    "for loop",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.IN},
+			Suggestion: "Add 'in' between loop variable and collection",
+			Example:    "for item in items { ... }",
+		})
+	}
+
+	// Parse collection expression (identifier or decorator)
+	if p.at(lexer.IDENTIFIER) {
+		p.token()
+	} else if p.at(lexer.AT) {
+		// Decorator expression: @var.items, @env.LIST, etc.
+		kind := p.start(NodeDecorator)
+		p.token() // @
+		if p.at(lexer.IDENTIFIER) || p.at(lexer.VAR) {
+			p.token() // decorator name
+		}
+		if p.at(lexer.DOT) {
+			p.token() // .
+			if p.at(lexer.IDENTIFIER) {
+				p.token() // property name
+			}
+		}
+		p.finish(kind)
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing collection expression in for loop",
+			Context:    "for loop",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.IDENTIFIER, lexer.AT},
+			Suggestion: "Provide a collection to iterate over",
+			Example:    "for item in items { ... } or for x in @var.list { ... }",
+			Note:       "collection must resolve at plan-time to a list of concrete values",
+		})
+	}
+
+	// Parse loop body
+	if p.at(lexer.LBRACE) {
+		p.block()
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing block after for loop header",
+			Context:    "for loop body",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.LBRACE},
+			Suggestion: "Add a block with the loop body",
+			Example:    "for item in items { echo @var.item }",
+		})
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_for", "for loop complete")
 	}
 }
 

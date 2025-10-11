@@ -36,6 +36,11 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte("if true { }"))                  // Top-level if (script mode)
 	f.Add([]byte("if x { } else { echo \"a\" }")) // Top-level if-else
 
+	// For loops - valid
+	f.Add([]byte("fun test { for item in items { } }"))
+	f.Add([]byte("fun test { for x in @var.list { echo @var.x } }"))
+	f.Add([]byte("for item in items { }")) // Top-level for (script mode)
+
 	// Control flow - malformed (error recovery)
 	f.Add([]byte("fun test { if }"))
 	f.Add([]byte("fun test { if { } }"))
@@ -44,7 +49,12 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte("fun test { else { } }"))
 	f.Add([]byte("fun test { if \"str\" { } }"))
 	f.Add([]byte("fun test { if 42 { } }"))
-	f.Add([]byte("fun test { if true { fun helper() { } } }")) // fun inside if
+	f.Add([]byte("fun test { if true { fun helper() { } } }"))      // fun inside if
+	f.Add([]byte("fun test { for }"))                               // Incomplete for
+	f.Add([]byte("fun test { for item }"))                          // Missing in
+	f.Add([]byte("fun test { for item in }"))                       // Missing collection
+	f.Add([]byte("fun test { for item in items }"))                 // Missing block
+	f.Add([]byte("fun test { for item in items { fun h() { } } }")) // fun inside for
 
 	// Edge cases
 	f.Add([]byte("fun"))                   // Incomplete

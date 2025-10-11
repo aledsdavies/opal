@@ -47,6 +47,7 @@ const (
 	NodeShellArg     // Shell command argument (may contain multiple tokens)
 	NodeIf           // If statement: if condition { ... }
 	NodeElse         // Else clause: else { ... } or else if { ... }
+	NodeFor          // For loop: for item in collection { ... }
 
 	// Expressions
 	NodeLiteral            // Literal value (int, string, bool, duration)
