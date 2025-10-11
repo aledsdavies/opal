@@ -1206,3 +1206,170 @@ func TestWhenAtTopLevel(t *testing.T) {
 		t.Error("Expected to find when statement at top level")
 	}
 }
+
+// TestWhenRegexPatterns tests regex pattern matching
+func TestWhenRegexPatterns(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		events []Event
+	}{
+		{
+			name:  "simple regex pattern",
+			input: `fun test { when @var.branch { r"^release/" -> echo "release" else -> echo "other" } }`,
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // test
+				{EventOpen, 3},   // Block
+				{EventToken, 2},  // {
+				{EventOpen, 22},  // When (NodeWhen = 22)
+				{EventToken, 3},  // when
+				{EventOpen, 18},  // Decorator (NodeDecorator = 18)
+				{EventToken, 4},  // @
+				{EventToken, 5},  // var
+				{EventToken, 6},  // .
+				{EventToken, 7},  // branch
+				{EventClose, 18}, // Decorator
+				{EventToken, 8},  // {
+
+				// First arm: r"^release/" -> echo "release"
+				{EventOpen, 23},  // WhenArm (NodeWhenArm = 23)
+				{EventOpen, 26},  // PatternRegex (NodePatternRegex = 26) - NEW NODE TYPE
+				{EventToken, 9},  // r
+				{EventToken, 10}, // "^release/"
+				{EventClose, 26}, // PatternRegex
+				{EventToken, 11}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 12}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 13}, // "release"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				// Second arm: else -> echo "other"
+				{EventOpen, 23},  // WhenArm
+				{EventOpen, 25},  // PatternElse (NodePatternElse = 25)
+				{EventToken, 14}, // else
+				{EventClose, 25}, // PatternElse
+				{EventToken, 15}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 16}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 17}, // "other"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				{EventToken, 18}, // }
+				{EventClose, 22}, // When
+				{EventToken, 19}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
+		{
+			name: "multiple regex patterns",
+			input: `fun test { when @var.branch {
+				r"^main$" -> echo "main"
+				r"^dev-" -> echo "dev"
+				else -> echo "other"
+			} }`,
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // test
+				{EventOpen, 3},   // Block
+				{EventToken, 2},  // {
+				{EventOpen, 22},  // When
+				{EventToken, 3},  // when
+				{EventOpen, 18},  // Decorator
+				{EventToken, 4},  // @
+				{EventToken, 5},  // var
+				{EventToken, 6},  // .
+				{EventToken, 7},  // branch
+				{EventClose, 18}, // Decorator
+				{EventToken, 8},  // {
+
+				// First arm: r"^main$" -> echo "main"
+				{EventOpen, 23},  // WhenArm
+				{EventOpen, 26},  // PatternRegex
+				{EventToken, 10}, // r (token 9 is newline, skipped)
+				{EventToken, 11}, // "^main$"
+				{EventClose, 26}, // PatternRegex
+				{EventToken, 12}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 13}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 14}, // "main"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				// Second arm: r"^dev-" -> echo "dev"
+				{EventOpen, 23},  // WhenArm
+				{EventOpen, 26},  // PatternRegex
+				{EventToken, 16}, // r (token 15 is newline, skipped)
+				{EventToken, 17}, // "^dev-"
+				{EventClose, 26}, // PatternRegex
+				{EventToken, 18}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 19}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 20}, // "dev"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				// Third arm: else -> echo "other"
+				{EventOpen, 23},  // WhenArm
+				{EventOpen, 25},  // PatternElse
+				{EventToken, 22}, // else (token 21 is newline, skipped)
+				{EventClose, 25}, // PatternElse
+				{EventToken, 23}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 24}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 25}, // "other"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				{EventToken, 27}, // } (token 26 is newline, skipped)
+				{EventClose, 22}, // When
+				{EventToken, 28}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) != 0 {
+				t.Errorf("Expected no errors, got: %v", tree.Errors)
+			}
+
+			if diff := cmp.Diff(tt.events, tree.Events); diff != "" {
+				t.Errorf("Events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

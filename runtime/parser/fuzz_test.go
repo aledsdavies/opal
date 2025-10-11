@@ -82,6 +82,14 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte(`fun test { when @var.ENV { "prod" -> { kubectl apply echo "done" } } }`))                                 // Block body
 	f.Add([]byte("fun test { when @var.ENV {\n\"prod\" -> echo \"p\"\n\"staging\" -> echo \"s\"\nelse -> echo \"x\"\n} }")) // Multiple arms
 
+	// When pattern matching - regex patterns (Phase 2a)
+	f.Add([]byte(`fun test { when @var.branch { r"^main$" -> echo "main" else -> echo "other" } }`))                             // Simple regex
+	f.Add([]byte(`fun test { when @var.branch { r"^release/" -> echo "rel" r"^hotfix/" -> echo "fix" else -> echo "x" } }`))     // Multiple regex
+	f.Add([]byte("fun test { when @var.branch {\nr\"^main$\" -> echo \"m\"\nr\"^dev-\" -> echo \"d\"\nelse -> echo \"x\"\n} }")) // Regex with newlines
+	f.Add([]byte(`when @var.branch { r"^v[0-9]+\.[0-9]+\.[0-9]+$" -> echo "version tag" else -> echo "not a version" }`))        // Complex regex
+	f.Add([]byte(`fun test { when @var.env { "prod" -> echo "p" r"^staging-" -> echo "s" else -> echo "x" } }`))                 // Mixed string and regex
+	f.Add([]byte(`fun test { when @var.branch { r"^release/" -> { kubectl apply echo "deployed" } else -> echo "skip" } }`))     // Regex with block
+
 	// When pattern matching - malformed (error recovery)
 	f.Add([]byte("fun test { when { } }"))                                    // Missing expression
 	f.Add([]byte("fun test { when @var.ENV }"))                               // Missing opening brace
@@ -89,6 +97,8 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte(`fun test { when @var.ENV { "prod" -> echo "x" `))           // Missing closing brace
 	f.Add([]byte(`fun test { when @var.ENV { "prod" -> fun h() { } } }`))     // fun inside when arm
 	f.Add([]byte(`fun test { when @var.ENV { "prod" -> { fun h() { } } } }`)) // fun inside when block
+	f.Add([]byte(`fun test { when @var.branch { r -> echo "x" } }`))          // Incomplete regex (missing string)
+	f.Add([]byte(`fun test { when @var.branch { r"unclosed -> echo "x" } }`)) // Unclosed regex string
 
 	// Edge cases
 	f.Add([]byte("fun"))                   // Incomplete

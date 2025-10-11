@@ -1042,16 +1042,22 @@ func (p *parser) pattern() {
 		kind := p.start(NodePatternLiteral)
 		p.token()
 		p.finish(kind)
+	} else if p.at(lexer.IDENTIFIER) && string(p.current().Text) == "r" && p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.STRING {
+		// Regex pattern: r"^pattern$"
+		kind := p.start(NodePatternRegex)
+		p.token() // consume 'r'
+		p.token() // consume string
+		p.finish(kind)
 	} else {
 		p.errors = append(p.errors, ParseError{
 			Position:   p.current().Position,
 			Message:    "invalid pattern",
 			Context:    "when arm",
 			Got:        p.current().Type,
-			Expected:   []lexer.TokenType{lexer.STRING, lexer.ELSE},
-			Suggestion: "Use a string literal or else pattern",
-			Example:    `"production" -> deploy`,
-			Note:       "Phase 1 supports string literals and else; OR/set/regex/range patterns coming in Phase 2",
+			Expected:   []lexer.TokenType{lexer.STRING, lexer.ELSE, lexer.IDENTIFIER},
+			Suggestion: "Use a string literal, regex pattern, or else",
+			Example:    `"production" -> deploy or r"^release/" -> deploy`,
+			Note:       "Regex patterns use r\"pattern\" syntax; validation happens at plan-time",
 		})
 		p.advance()
 	}
