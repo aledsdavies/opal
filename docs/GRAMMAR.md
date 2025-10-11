@@ -165,11 +165,10 @@ when_stmt = "when" expression "{" when_arm+ "}"
 when_arm = pattern "->" (expression | block)
 
 pattern = string_literal
-        | pattern "|" pattern
-        | "{" string_literal ("," string_literal)* "}"
-        | "r" string_literal
-        | int_literal ".." int_literal
-        | "else"
+        | pattern "|" pattern              # OR patterns
+        | "r" string_literal               # Regex patterns
+        | expression "..." expression      # Range patterns (three dots)
+        | "else"                           # Catch-all
 
 for_stmt = "for" identifier "in" expression block
 

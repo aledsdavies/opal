@@ -773,7 +773,7 @@ deploy: {
 }
 ```
 
-Pattern matching uses first-match-wins evaluation at plan time. Supported patterns include exact strings (`"production"`), OR expressions (`"main" | "develop"`), sets (`{"hotfix", "urgent"}`), regex patterns (`r"^release/"`), numeric ranges (`200..299`), and catch-all (`else`). Only the matching branch expands into the plan.
+Pattern matching uses first-match-wins evaluation at plan time. Supported patterns include exact strings (`"production"`), OR expressions (`"main" | "develop"`), regex patterns (`r"^release/"`), numeric ranges (`200...299`), and catch-all (`else`). Only the matching branch expands into the plan.
 
 ### Error Handling
 
