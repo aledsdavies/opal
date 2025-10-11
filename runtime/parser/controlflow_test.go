@@ -961,3 +961,248 @@ func TestOrphanCatchFinally(t *testing.T) {
 		})
 	}
 }
+
+// TestWhenStatement tests basic when pattern matching with string literals and else
+func TestWhenStatement(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		events []Event
+	}{
+		{
+			name:  "simple when with string patterns",
+			input: `fun test { when @var.ENV { "production" -> echo "prod" else -> echo "other" } }`,
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // test
+				{EventOpen, 3},   // Block
+				{EventToken, 2},  // {
+				{EventOpen, 22},  // When (NodeWhen = 22)
+				{EventToken, 3},  // when
+				{EventOpen, 18},  // Decorator (NodeDecorator = 18)
+				{EventToken, 4},  // @
+				{EventToken, 5},  // var
+				{EventToken, 6},  // .
+				{EventToken, 7},  // ENV
+				{EventClose, 18}, // Decorator
+				{EventToken, 8},  // {
+
+				// First arm: "production" -> echo "prod"
+				{EventOpen, 23},  // WhenArm (NodeWhenArm = 23)
+				{EventOpen, 24},  // PatternLiteral (NodePatternLiteral = 24)
+				{EventToken, 9},  // "production"
+				{EventClose, 24}, // PatternLiteral
+				{EventToken, 10}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 11}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 12}, // "prod"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				// Second arm: else -> echo "other"
+				{EventOpen, 23},  // WhenArm
+				{EventOpen, 25},  // PatternElse (NodePatternElse = 25)
+				{EventToken, 13}, // else
+				{EventClose, 25}, // PatternElse
+				{EventToken, 14}, // ->
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 15}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 16}, // "other"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventClose, 23}, // WhenArm
+
+				{EventToken, 17}, // }
+				{EventClose, 22}, // When
+				{EventToken, 18}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) != 0 {
+				t.Errorf("Expected no errors, got: %v", tree.Errors)
+			}
+
+			if diff := cmp.Diff(tt.events, tree.Events); diff != "" {
+				t.Errorf("Events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestWhenStatementMultiplePatterns tests when with multiple string patterns
+func TestWhenStatementMultiplePatterns(t *testing.T) {
+	input := `fun test { 
+		when @var.ENV { 
+			"prod" -> echo "p"
+			"staging" -> echo "s"
+			"dev" -> echo "d"
+			else -> echo "x"
+		}
+	}`
+	tree := ParseString(input)
+
+	if len(tree.Errors) != 0 {
+		t.Errorf("Expected no errors, got: %v", tree.Errors)
+	}
+
+	// Check for 4 when arms
+	armCount := 0
+	for _, event := range tree.Events {
+		if event.Kind == EventOpen && event.Data == 23 { // NodeWhenArm
+			armCount++
+		}
+	}
+
+	if armCount != 4 {
+		t.Errorf("Expected 4 when arms, got %d", armCount)
+	}
+}
+
+// TestWhenStatementWithBlock tests when arm with block body
+func TestWhenStatementWithBlock(t *testing.T) {
+	input := `fun test { when @var.ENV { "production" -> { kubectl apply echo "done" } else -> echo "skip" } }`
+	tree := ParseString(input)
+
+	if len(tree.Errors) != 0 {
+		t.Errorf("Expected no errors, got: %v", tree.Errors)
+	}
+
+	// Verify we have blocks
+	hasBlock := false
+	for _, event := range tree.Events {
+		if event.Kind == EventOpen && event.Data == 3 { // NodeBlock
+			hasBlock = true
+			break
+		}
+	}
+
+	if !hasBlock {
+		t.Error("Expected to find block in when arm")
+	}
+}
+
+// TestWhenStatementErrorRecovery tests error handling for malformed when statements
+func TestWhenStatementErrorRecovery(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		errorContains string
+	}{
+		{
+			name:          "missing expression",
+			input:         "fun test { when { } }",
+			errorContains: "missing expression after 'when'",
+		},
+		{
+			name:          "missing opening brace",
+			input:         "fun test { when @var.ENV }",
+			errorContains: "missing '{' after when expression",
+		},
+		{
+			name:          "missing arrow",
+			input:         `fun test { when @var.ENV { "prod" echo "x" } }`,
+			errorContains: "missing '->' after pattern",
+		},
+		{
+			name:          "missing closing brace",
+			input:         `fun test { when @var.ENV { "prod" -> echo "x" `,
+			errorContains: "missing '}' after when arms",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) == 0 {
+				t.Errorf("Expected error containing %q, got no errors", tt.errorContains)
+				return
+			}
+
+			found := false
+			for _, err := range tree.Errors {
+				if strings.Contains(err.Message, tt.errorContains) {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("Expected error containing %q, got errors: %v", tt.errorContains, tree.Errors)
+			}
+		})
+	}
+}
+
+// TestFunInsideWhen tests that fun declarations are rejected inside when blocks
+func TestFunInsideWhen(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "fun inside when arm body",
+			input: `fun test { when @var.ENV { "prod" -> fun helper { } } }`,
+		},
+		{
+			name:  "fun inside when arm block",
+			input: `fun test { when @var.ENV { "prod" -> { fun helper { } } } }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) == 0 {
+				t.Errorf("Expected error about fun at top level, got no errors")
+				return
+			}
+
+			err := tree.Errors[0]
+			if err.Message != "function declarations must be at top level" {
+				t.Errorf("Expected error about fun at top level, got: %s", err.Message)
+			}
+		})
+	}
+}
+
+// TestWhenAtTopLevel tests when statement at top level (script mode)
+func TestWhenAtTopLevel(t *testing.T) {
+	input := `when @var.ENV { "production" -> kubectl apply else -> echo "skip" }`
+	tree := ParseString(input)
+
+	if len(tree.Errors) != 0 {
+		t.Errorf("Expected no errors, got: %v", tree.Errors)
+	}
+
+	// Verify we have a when statement
+	hasWhen := false
+	for _, event := range tree.Events {
+		if event.Kind == EventOpen && event.Data == 22 { // NodeWhen
+			hasWhen = true
+			break
+		}
+	}
+
+	if !hasWhen {
+		t.Error("Expected to find when statement at top level")
+	}
+}

@@ -63,6 +63,12 @@ const (
 	NodeTry     // Try block: try { ... }
 	NodeCatch   // Catch block: catch { ... }
 	NodeFinally // Finally block: finally { ... }
+
+	// Pattern matching - added at end to preserve existing node numbers
+	NodeWhen           // When statement: when expr { pattern -> block ... }
+	NodeWhenArm        // When arm: pattern -> block
+	NodePatternLiteral // String literal pattern: "production"
+	NodePatternElse    // Else pattern (catch-all)
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

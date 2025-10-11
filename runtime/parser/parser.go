@@ -224,6 +224,9 @@ func (p *parser) file() {
 		} else if p.at(lexer.TRY) {
 			// Try/catch at top level (script mode)
 			p.tryStmt()
+		} else if p.at(lexer.WHEN) {
+			// When statement at top level (script mode)
+			p.whenStmt()
 		} else if p.at(lexer.CATCH) {
 			// Catch without try at top level
 			p.errors = append(p.errors, ParseError{
@@ -504,6 +507,8 @@ func (p *parser) statement() {
 		p.forStmt()
 	} else if p.at(lexer.TRY) {
 		p.tryStmt()
+	} else if p.at(lexer.WHEN) {
+		p.whenStmt()
 	} else if p.at(lexer.ELSE) {
 		// Else without matching if
 		p.errors = append(p.errors, ParseError{
@@ -883,6 +888,179 @@ func (p *parser) finallyClause() {
 	}
 }
 
+// whenStmt parses a when statement: when expression { pattern -> body ... }
+func (p *parser) whenStmt() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_when", "parsing when statement")
+	}
+
+	kind := p.start(NodeWhen)
+
+	// Consume 'when' keyword
+	p.token()
+
+	// Parse match expression (what we're matching against)
+	// Manually parse like if/for do - don't call p.expression() or p.decorator()
+	// to avoid decorator parser checking for blocks
+	if p.at(lexer.IDENTIFIER) {
+		p.token()
+	} else if p.at(lexer.AT) {
+		// Decorator expression: @var.ENV, @env.CLUSTER, etc.
+		// Parse decorator reference without parameters or blocks
+		kind := p.start(NodeDecorator)
+		p.token() // @
+		if p.at(lexer.IDENTIFIER) || p.at(lexer.VAR) {
+			p.token() // decorator name
+		}
+		if p.at(lexer.DOT) {
+			p.token() // .
+			if p.at(lexer.IDENTIFIER) {
+				p.token() // property name
+			}
+		}
+		// Note: We don't parse parameters or blocks in when expression context
+		p.finish(kind)
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing expression after 'when'",
+			Context:    "when statement",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.IDENTIFIER, lexer.AT},
+			Suggestion: "Add an expression to match against",
+			Example:    "when @var.ENV { ... }",
+		})
+	}
+
+	// Expect opening brace
+	if !p.at(lexer.LBRACE) {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing '{' after when expression",
+			Context:    "when statement",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.LBRACE},
+			Suggestion: "Add '{' to start the pattern arms",
+			Example:    `when @var.ENV { "prod" -> deploy else -> echo "skip" }`,
+			Note:       "when is plan-time pattern matching; only the matching branch expands",
+		})
+	} else {
+		p.token() // consume '{'
+	}
+
+	// Parse when arms (pattern -> body)
+	for !p.at(lexer.RBRACE) && !p.at(lexer.EOF) {
+		// Skip newlines between arms
+		for p.at(lexer.NEWLINE) {
+			p.advance()
+		}
+
+		// Check again after skipping newlines
+		if p.at(lexer.RBRACE) || p.at(lexer.EOF) {
+			break
+		}
+
+		p.whenArm()
+	}
+
+	// Expect closing brace
+	if p.at(lexer.RBRACE) {
+		p.token()
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing '}' after when arms",
+			Context:    "when statement",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.RBRACE},
+			Suggestion: "Add '}' to close the when statement",
+			Example:    `when @var.ENV { "prod" -> deploy }`,
+		})
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_when", "when statement complete")
+	}
+}
+
+// whenArm parses a single when arm: pattern -> (expression | block)
+func (p *parser) whenArm() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_when_arm", "parsing when arm")
+	}
+
+	kind := p.start(NodeWhenArm)
+
+	// Parse pattern
+	p.pattern()
+
+	// Expect arrow
+	if !p.at(lexer.ARROW) {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing '->' after pattern",
+			Context:    "when arm",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.ARROW},
+			Suggestion: "Add '->' between pattern and body",
+			Example:    `"production" -> deploy`,
+		})
+	} else {
+		p.token() // consume '->'
+	}
+
+	// Parse body (can be expression or block)
+	if p.at(lexer.LBRACE) {
+		p.block()
+	} else {
+		// Single statement - use statement() to handle all cases including FUN check
+		p.statement()
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_when_arm", "when arm complete")
+	}
+}
+
+// pattern parses a pattern for when statements (Phase 1: string literals and else only)
+func (p *parser) pattern() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_pattern", "parsing pattern")
+	}
+
+	if p.at(lexer.ELSE) {
+		// else pattern (catch-all)
+		kind := p.start(NodePatternElse)
+		p.token()
+		p.finish(kind)
+	} else if p.at(lexer.STRING) {
+		// String literal pattern
+		kind := p.start(NodePatternLiteral)
+		p.token()
+		p.finish(kind)
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "invalid pattern",
+			Context:    "when arm",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.STRING, lexer.ELSE},
+			Suggestion: "Use a string literal or else pattern",
+			Example:    `"production" -> deploy`,
+			Note:       "Phase 1 supports string literals and else; OR/set/regex/range patterns coming in Phase 2",
+		})
+		p.advance()
+	}
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_pattern", "pattern complete")
+	}
+}
+
 // shellCommand parses a shell command and its arguments
 // Uses HasSpaceBefore to determine argument boundaries
 // Consumes tokens until a shell operator (&&, ||, |) or statement boundary
@@ -994,7 +1172,8 @@ func (p *parser) isStatementBoundary() bool {
 	return p.at(lexer.NEWLINE) ||
 		p.at(lexer.SEMICOLON) ||
 		p.at(lexer.RBRACE) ||
-		p.at(lexer.EOF)
+		p.at(lexer.EOF) ||
+		p.at(lexer.ELSE) // Stop at else (for when arms and if/else)
 }
 
 // varDecl parses a variable declaration: var IDENTIFIER = expression

@@ -76,6 +76,20 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte("catch { }"))                                    // orphan catch at top level
 	f.Add([]byte("finally { }"))                                  // orphan finally at top level
 
+	// When pattern matching - valid (Phase 1: string literals and else only)
+	f.Add([]byte(`fun test { when @var.ENV { "prod" -> echo "p" else -> echo "x" } }`))
+	f.Add([]byte(`when @var.ENV { "production" -> kubectl apply else -> echo "skip" }`))                                    // Top-level when
+	f.Add([]byte(`fun test { when @var.ENV { "prod" -> { kubectl apply echo "done" } } }`))                                 // Block body
+	f.Add([]byte("fun test { when @var.ENV {\n\"prod\" -> echo \"p\"\n\"staging\" -> echo \"s\"\nelse -> echo \"x\"\n} }")) // Multiple arms
+
+	// When pattern matching - malformed (error recovery)
+	f.Add([]byte("fun test { when { } }"))                                    // Missing expression
+	f.Add([]byte("fun test { when @var.ENV }"))                               // Missing opening brace
+	f.Add([]byte(`fun test { when @var.ENV { "prod" echo "x" } }`))           // Missing arrow
+	f.Add([]byte(`fun test { when @var.ENV { "prod" -> echo "x" `))           // Missing closing brace
+	f.Add([]byte(`fun test { when @var.ENV { "prod" -> fun h() { } } }`))     // fun inside when arm
+	f.Add([]byte(`fun test { when @var.ENV { "prod" -> { fun h() { } } } }`)) // fun inside when block
+
 	// Edge cases
 	f.Add([]byte("fun"))                   // Incomplete
 	f.Add([]byte("{}"))                    // Just braces
