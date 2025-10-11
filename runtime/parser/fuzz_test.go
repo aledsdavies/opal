@@ -9,7 +9,7 @@ import (
 
 // Fuzz tests for parser determinism and robustness.
 //
-// Seven specialized fuzz functions test different invariants:
+// Eight specialized fuzz functions test different invariants:
 //
 // 1. FuzzParserDeterminism - Same input always produces identical output
 // 2. FuzzParserNoPanic - Parser never panics on any input
@@ -18,6 +18,7 @@ import (
 // 5. FuzzParserPathologicalDepth - Handles deeply nested structures
 // 6. FuzzParserErrorRecovery - Resilient parsing with error reporting
 // 7. FuzzParserWhitespaceInvariance - Semantic equivalence across whitespace
+// 8. FuzzParserSmokeTest - Catch-all for pathological inputs and edge cases
 //
 // These tests protect the events-first plan generation model.
 
@@ -43,6 +44,14 @@ func addSeedCorpus(f *testing.F) {
 	f.Add([]byte("fun test { for x in @var.list { echo @var.x } }"))
 	f.Add([]byte("for item in items { }")) // Top-level for (script mode)
 
+	// For loops - range expressions
+	f.Add([]byte("fun test { for i in 1...10 { echo @var.i } }"))                      // Integer range
+	f.Add([]byte("fun test { for i in @var.start...10 { } }"))                         // Decorator start
+	f.Add([]byte("fun test { for i in 1...@var.end { } }"))                            // Decorator end
+	f.Add([]byte("fun test { for i in @var.start...@var.end { } }"))                   // Both decorators
+	f.Add([]byte("for port in 8000...8010 { echo \"Starting on @var.port\" }"))        // Top-level range
+	f.Add([]byte("fun test { for i in 1...100 { kubectl scale --replicas=@var.i } }")) // Practical use case
+
 	// Control flow - malformed (error recovery)
 	f.Add([]byte("fun test { if }"))
 	f.Add([]byte("fun test { if { } }"))
@@ -57,6 +66,9 @@ func addSeedCorpus(f *testing.F) {
 	f.Add([]byte("fun test { for item in }"))                       // Missing collection
 	f.Add([]byte("fun test { for item in items }"))                 // Missing block
 	f.Add([]byte("fun test { for item in items { fun h() { } } }")) // fun inside for
+	f.Add([]byte("fun test { for i in 1... { } }"))                 // Incomplete range (missing end)
+	f.Add([]byte("fun test { for i in ...10 { } }"))                // Incomplete range (missing start)
+	f.Add([]byte("fun test { for i in 1..10 { } }"))                // Wrong range operator (two dots)
 
 	// Try/catch/finally - valid
 	f.Add([]byte("fun test { try { echo \"a\" } catch { echo \"b\" } }"))
@@ -111,6 +123,21 @@ func addSeedCorpus(f *testing.F) {
 	f.Add([]byte(`fun test { when @var.branch { r"unclosed -> echo "x" } }`)) // Unclosed regex string
 	f.Add([]byte(`fun test { when @var.status { 200... -> echo "x" } }`))     // Incomplete range (missing end)
 	f.Add([]byte(`fun test { when @var.status { 200..299 -> echo "x" } }`))   // Wrong range operator (two dots)
+
+	// Nested control flow combinations (metaprogramming nesting)
+	f.Add([]byte("fun test { for x in items { if @var.x { echo \"found\" } } }"))                                           // for → if
+	f.Add([]byte("fun test { for i in 1...3 { for j in 1...3 { echo \"@var.i,@var.j\" } } }"))                              // for → for
+	f.Add([]byte("fun test { for env in envs { when @var.env { \"prod\" -> echo \"p\" else -> echo \"x\" } } }"))           // for → when
+	f.Add([]byte(`fun test { when @var.env { "prod" -> if @var.ready { kubectl apply } else -> echo "skip" } }`))           // when → if
+	f.Add([]byte("fun test { for item in items { try { kubectl apply } catch { echo \"failed\" } } }"))                     // for → try
+	f.Add([]byte("fun test { try { for i in 1...3 { echo @var.i } } catch { echo \"err\" } }"))                             // try → for
+	f.Add([]byte("fun test { if @var.deploy { for env in envs { kubectl apply -n @var.env } } }"))                          // if → for
+	f.Add([]byte(`fun test { when @var.mode { "batch" -> for i in 1...10 { process @var.i } else -> echo "single" } }`))    // when → for
+	f.Add([]byte("fun test { for x in 1...5 { when @var.x { 1...2 -> echo \"low\" 3...5 -> echo \"high\" } } }"))           // for → when (ranges)
+	f.Add([]byte("fun test { try { when @var.env { \"prod\" -> kubectl apply else -> echo \"skip\" } } catch { } }"))       // try → when
+	f.Add([]byte("fun test { for i in 1...3 { for j in 1...3 { for k in 1...3 { echo \"@var.i@var.j@var.k\" } } } }"))      // 3-level nesting
+	f.Add([]byte("fun test { if true { if false { if @var.x { echo \"deep\" } } } }"))                                      // 3-level if nesting
+	f.Add([]byte(`fun test { when @var.a { "x" -> when @var.b { "y" -> echo "xy" else -> echo "x" } else -> echo "?" } }`)) // when → when
 
 	// Edge cases
 	f.Add([]byte("fun"))                   // Incomplete
@@ -801,6 +828,37 @@ func FuzzParserWhitespaceInvariance(f *testing.F) {
 				t.Errorf("Event %d changed with whitespace: %+v -> %+v", i, se1[i], se2[i])
 				return
 			}
+		}
+	})
+}
+
+// FuzzParserSmokeTest is a simple smoke test that just runs Parse() on random bytes.
+// No invariants checked - just looking for crashes the other 7 fuzz functions might miss.
+// This is the "catch-all" fuzzer for unexpected edge cases.
+func FuzzParserSmokeTest(f *testing.F) {
+	addSeedCorpus(f)
+	
+	// Additional seeds for smoke testing
+	f.Add([]byte("\x00"))                       // Null byte
+	f.Add([]byte("\x00\x00\x00"))               // Multiple nulls
+	f.Add(bytes.Repeat([]byte("\x00"), 1000))   // Many nulls
+	f.Add(bytes.Repeat([]byte("a"), 100000))    // Very long input
+	f.Add(bytes.Repeat([]byte("{"), 10000))     // Deep nesting
+	f.Add([]byte("@" + string(bytes.Repeat([]byte("a"), 10000)))) // Long identifier
+
+	f.Fuzz(func(t *testing.T, input []byte) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("Parser panicked on smoke test: %v\nInput: %q", r, input)
+			}
+		}()
+
+		// Just parse - no invariants
+		tree := Parse(input)
+		
+		// Basic sanity: tree should not be nil
+		if tree == nil {
+			t.Error("Parse returned nil")
 		}
 	})
 }
