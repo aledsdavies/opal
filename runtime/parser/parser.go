@@ -725,35 +725,8 @@ func (p *parser) forStmt() {
 		})
 	}
 
-	// Parse collection expression (identifier or decorator)
-	if p.at(lexer.IDENTIFIER) {
-		p.token()
-	} else if p.at(lexer.AT) {
-		// Decorator expression: @var.items, @env.LIST, etc.
-		kind := p.start(NodeDecorator)
-		p.token() // @
-		if p.at(lexer.IDENTIFIER) || p.at(lexer.VAR) {
-			p.token() // decorator name
-		}
-		if p.at(lexer.DOT) {
-			p.token() // .
-			if p.at(lexer.IDENTIFIER) {
-				p.token() // property name
-			}
-		}
-		p.finish(kind)
-	} else {
-		p.errors = append(p.errors, ParseError{
-			Position:   p.current().Position,
-			Message:    "missing collection expression in for loop",
-			Context:    "for loop",
-			Got:        p.current().Type,
-			Expected:   []lexer.TokenType{lexer.IDENTIFIER, lexer.AT},
-			Suggestion: "Provide a collection to iterate over",
-			Example:    "for item in items { ... } or for x in @var.list { ... }",
-			Note:       "collection must resolve at plan-time to a list of concrete values",
-		})
-	}
+	// Parse collection expression (identifier, decorator, or range)
+	p.parseForCollection()
 
 	// Parse loop body
 	if p.at(lexer.LBRACE) {
@@ -775,6 +748,102 @@ func (p *parser) forStmt() {
 	if p.config.debug >= DebugPaths {
 		p.recordDebugEvent("exit_for", "for loop complete")
 	}
+}
+
+// parseForCollection parses the collection expression in a for loop.
+// Handles: identifier, decorator (@var.list), or range (1...10).
+func (p *parser) parseForCollection() {
+	// Check if this is a range expression by looking ahead
+	isRange := false
+	if p.at(lexer.INTEGER) {
+		// Check if next token is DOTDOTDOT
+		if p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.DOTDOTDOT {
+			isRange = true
+		}
+	} else if p.at(lexer.AT) {
+		// Check if there's a DOTDOTDOT after the decorator
+		// Decorator is: @ IDENTIFIER [. IDENTIFIER]
+		lookahead := p.pos + 1 // skip @
+		if lookahead < len(p.tokens) && (p.tokens[lookahead].Type == lexer.IDENTIFIER || p.tokens[lookahead].Type == lexer.VAR) {
+			lookahead++ // skip decorator name
+			if lookahead < len(p.tokens) && p.tokens[lookahead].Type == lexer.DOT {
+				lookahead++ // skip .
+				if lookahead < len(p.tokens) && p.tokens[lookahead].Type == lexer.IDENTIFIER {
+					lookahead++ // skip property
+				}
+			}
+			if lookahead < len(p.tokens) && p.tokens[lookahead].Type == lexer.DOTDOTDOT {
+				isRange = true
+			}
+		}
+	}
+
+	if isRange {
+		// Parse as range expression
+		rangeKind := p.start(NodeRange)
+
+		// Parse start expression (number or decorator)
+		if p.at(lexer.INTEGER) {
+			p.token()
+		} else if p.at(lexer.AT) {
+			p.parseDecorator()
+		}
+
+		// Consume ...
+		if p.at(lexer.DOTDOTDOT) {
+			p.token()
+		}
+
+		// Parse end expression (number or decorator)
+		if p.at(lexer.INTEGER) {
+			p.token()
+		} else if p.at(lexer.AT) {
+			p.parseDecorator()
+		} else {
+			p.errors = append(p.errors, ParseError{
+				Position:   p.current().Position,
+				Message:    "missing end expression in range",
+				Context:    "for loop range",
+				Got:        p.current().Type,
+				Expected:   []lexer.TokenType{lexer.INTEGER, lexer.AT},
+				Suggestion: "Provide the end value for the range",
+				Example:    "for i in 1...10 { ... }",
+			})
+		}
+
+		p.finish(rangeKind)
+	} else if p.at(lexer.IDENTIFIER) {
+		p.token()
+	} else if p.at(lexer.AT) {
+		p.parseDecorator()
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing collection expression in for loop",
+			Context:    "for loop",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.IDENTIFIER, lexer.AT, lexer.INTEGER},
+			Suggestion: "Provide a collection to iterate over",
+			Example:    "for item in items { ... } or for i in 1...10 { ... }",
+			Note:       "collection must resolve at plan-time to a list of concrete values",
+		})
+	}
+}
+
+// parseDecorator parses a decorator expression: @var.name, @env.HOME
+func (p *parser) parseDecorator() {
+	kind := p.start(NodeDecorator)
+	p.token() // @
+	if p.at(lexer.IDENTIFIER) || p.at(lexer.VAR) {
+		p.token() // decorator name
+	}
+	if p.at(lexer.DOT) {
+		p.token() // .
+		if p.at(lexer.IDENTIFIER) {
+			p.token() // property name
+		}
+	}
+	p.finish(kind)
 }
 
 // tryStmt parses a try statement: try { ... } [catch { ... }] [finally { ... }]

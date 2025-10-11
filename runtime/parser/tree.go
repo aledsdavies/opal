@@ -30,6 +30,10 @@ const (
 )
 
 // NodeKind represents syntax node types
+//
+// IMPORTANT: When adding new node types, ALWAYS add them at the END of the enum
+// (after the last node type, before the closing parenthesis). Adding nodes in the
+// middle will shift all subsequent node numbers and break existing tests.
 type NodeKind uint32
 
 const (
@@ -71,6 +75,9 @@ const (
 	NodePatternElse    // Else pattern (catch-all)
 	NodePatternRegex   // Regex pattern: r"^pattern$"
 	NodePatternRange   // Numeric range pattern: 200...299
+
+	// For loop ranges - added at end to preserve existing node numbers
+	NodeRange // Range expression in for loops: 1...10, @var.start...@var.end
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

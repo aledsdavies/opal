@@ -609,7 +609,7 @@ func TestForLoopErrorRecovery(t *testing.T) {
 				Message:    "missing collection expression in for loop",
 				Context:    "for loop",
 				Suggestion: "Provide a collection to iterate over",
-				Example:    "for item in items { ... } or for x in @var.list { ... }",
+				Example:    "for item in items { ... } or for i in 1...10 { ... }",
 				Note:       "collection must resolve at plan-time to a list of concrete values",
 			},
 		},
@@ -1455,6 +1455,44 @@ func TestWhenRangePatterns(t *testing.T) {
 
 			if diff := cmp.Diff(tt.events, tree.Events); diff != "" {
 				t.Errorf("Events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestForLoopRanges tests for loop with range expressions (1...10)
+
+// TestForLoopRanges tests for loop with range expressions (1...10)
+func TestForLoopRanges(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"simple integer range", "fun test { for i in 1...10 { echo @var.i } }"},
+		{"decorator as range start", "fun test { for i in @var.start...10 { } }"},
+		{"decorator as range end", "fun test { for i in 1...@var.end { } }"},
+		{"both decorators", "fun test { for i in @var.start...@var.end { } }"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) > 0 {
+				t.Fatalf("Unexpected errors: %v", tree.Errors)
+			}
+
+			// Check that NodeRange appears in events
+			hasRange := false
+			for _, ev := range tree.Events {
+				if ev.Kind == EventOpen && NodeKind(ev.Data) == NodeRange {
+					hasRange = true
+					break
+				}
+			}
+
+			if !hasRange {
+				t.Errorf("Expected NodeRange in events, but not found")
 			}
 		})
 	}
