@@ -224,6 +224,28 @@ func (p *parser) file() {
 		} else if p.at(lexer.TRY) {
 			// Try/catch at top level (script mode)
 			p.tryStmt()
+		} else if p.at(lexer.CATCH) {
+			// Catch without try at top level
+			p.errors = append(p.errors, ParseError{
+				Position:   p.current().Position,
+				Message:    "catch without try",
+				Context:    "top-level statement",
+				Got:        lexer.CATCH,
+				Suggestion: "catch must follow a try block",
+				Example:    "try { kubectl apply } catch { kubectl rollback }",
+			})
+			p.advance() // Skip the catch keyword
+		} else if p.at(lexer.FINALLY) {
+			// Finally without try at top level
+			p.errors = append(p.errors, ParseError{
+				Position:   p.current().Position,
+				Message:    "finally without try",
+				Context:    "top-level statement",
+				Got:        lexer.FINALLY,
+				Suggestion: "finally must follow a try block",
+				Example:    "try { kubectl apply } finally { echo \"done\" }",
+			})
+			p.advance() // Skip the finally keyword
 		} else if p.at(lexer.AT) {
 			// Decorator at top level (script mode)
 			p.decorator()
@@ -493,6 +515,30 @@ func (p *parser) statement() {
 			Example:    "if condition { ... } else { ... }",
 		})
 		p.advance() // Skip the else keyword
+	} else if p.at(lexer.CATCH) {
+		// Catch without try
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "catch without try",
+			Context:    "statement",
+			Got:        lexer.CATCH,
+			Suggestion: "catch must follow a try block",
+			Example:    "try { ... } catch { ... }",
+			Note:       "catch handles errors from the preceding try block",
+		})
+		p.advance() // Skip the catch keyword
+	} else if p.at(lexer.FINALLY) {
+		// Finally without try
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "finally without try",
+			Context:    "statement",
+			Got:        lexer.FINALLY,
+			Suggestion: "finally must follow a try block",
+			Example:    "try { ... } finally { ... }",
+			Note:       "finally always executes after try (and catch if present)",
+		})
+		p.advance() // Skip the finally keyword
 	} else if p.at(lexer.AT) {
 		// Decorator (execution decorator with block)
 		p.decorator()

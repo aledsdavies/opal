@@ -71,6 +71,10 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte("fun test { try { fun h() { } } }"))             // fun inside try
 	f.Add([]byte("fun test { try { } catch { fun h() { } } }"))   // fun inside catch
 	f.Add([]byte("fun test { try { } finally { fun h() { } } }")) // fun inside finally
+	f.Add([]byte("fun test { catch { } }"))                       // orphan catch
+	f.Add([]byte("fun test { finally { } }"))                     // orphan finally
+	f.Add([]byte("catch { }"))                                    // orphan catch at top level
+	f.Add([]byte("finally { }"))                                  // orphan finally at top level
 
 	// Edge cases
 	f.Add([]byte("fun"))                   // Incomplete

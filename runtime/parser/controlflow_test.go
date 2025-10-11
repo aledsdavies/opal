@@ -898,3 +898,66 @@ func TestFunInsideTryCatch(t *testing.T) {
 		})
 	}
 }
+
+// TestOrphanCatchFinally tests that catch/finally without try are rejected
+func TestOrphanCatchFinally(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		errorContains string
+	}{
+		{
+			name:          "orphan catch",
+			input:         "fun test { catch { echo \"error\" } }",
+			errorContains: "catch without try",
+		},
+		{
+			name:          "orphan finally",
+			input:         "fun test { finally { echo \"cleanup\" } }",
+			errorContains: "finally without try",
+		},
+		{
+			name:          "catch before try",
+			input:         "fun test { catch { } try { } }",
+			errorContains: "catch without try",
+		},
+		{
+			name:          "finally before try",
+			input:         "fun test { finally { } try { } }",
+			errorContains: "finally without try",
+		},
+		{
+			name:          "orphan catch at top level",
+			input:         "catch { echo \"error\" }",
+			errorContains: "catch without try",
+		},
+		{
+			name:          "orphan finally at top level",
+			input:         "finally { echo \"cleanup\" }",
+			errorContains: "finally without try",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) == 0 {
+				t.Errorf("Expected error containing %q, got no errors", tt.errorContains)
+				return
+			}
+
+			found := false
+			for _, err := range tree.Errors {
+				if strings.Contains(err.Message, tt.errorContains) {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("Expected error containing %q, got errors: %v", tt.errorContains, tree.Errors)
+			}
+		})
+	}
+}
