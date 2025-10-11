@@ -56,6 +56,22 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte("fun test { for item in items }"))                 // Missing block
 	f.Add([]byte("fun test { for item in items { fun h() { } } }")) // fun inside for
 
+	// Try/catch/finally - valid
+	f.Add([]byte("fun test { try { echo \"a\" } catch { echo \"b\" } }"))
+	f.Add([]byte("fun test { try { echo \"a\" } finally { echo \"c\" } }"))
+	f.Add([]byte("fun test { try { echo \"a\" } catch { echo \"b\" } finally { echo \"c\" } }"))
+	f.Add([]byte("fun test { try { echo \"a\" } }"))                  // try only (catch/finally optional)
+	f.Add([]byte("try { kubectl apply } catch { kubectl rollback }")) // Top-level try
+
+	// Try/catch/finally - malformed (error recovery)
+	f.Add([]byte("fun test { try }"))                             // Missing try block
+	f.Add([]byte("fun test { try catch { } }"))                   // Missing try block
+	f.Add([]byte("fun test { try { } catch }"))                   // Missing catch block
+	f.Add([]byte("fun test { try { } finally }"))                 // Missing finally block
+	f.Add([]byte("fun test { try { fun h() { } } }"))             // fun inside try
+	f.Add([]byte("fun test { try { } catch { fun h() { } } }"))   // fun inside catch
+	f.Add([]byte("fun test { try { } finally { fun h() { } } }")) // fun inside finally
+
 	// Edge cases
 	f.Add([]byte("fun"))                   // Incomplete
 	f.Add([]byte("{}"))                    // Just braces

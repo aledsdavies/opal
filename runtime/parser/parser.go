@@ -221,6 +221,9 @@ func (p *parser) file() {
 		} else if p.at(lexer.FOR) {
 			// For loop at top level (script mode)
 			p.forStmt()
+		} else if p.at(lexer.TRY) {
+			// Try/catch at top level (script mode)
+			p.tryStmt()
 		} else if p.at(lexer.AT) {
 			// Decorator at top level (script mode)
 			p.decorator()
@@ -477,6 +480,8 @@ func (p *parser) statement() {
 		p.ifStmt()
 	} else if p.at(lexer.FOR) {
 		p.forStmt()
+	} else if p.at(lexer.TRY) {
+		p.tryStmt()
 	} else if p.at(lexer.ELSE) {
 		// Else without matching if
 		p.errors = append(p.errors, ParseError{
@@ -718,6 +723,117 @@ func (p *parser) forStmt() {
 
 	if p.config.debug >= DebugPaths {
 		p.recordDebugEvent("exit_for", "for loop complete")
+	}
+}
+
+// tryStmt parses a try statement: try { ... } [catch { ... }] [finally { ... }]
+func (p *parser) tryStmt() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_try", "parsing try statement")
+	}
+
+	kind := p.start(NodeTry)
+
+	// Consume 'try' keyword
+	p.token()
+
+	// Parse try block
+	if p.at(lexer.LBRACE) {
+		p.block()
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing block after 'try'",
+			Context:    "try statement",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.LBRACE},
+			Suggestion: "Add a block with the try body",
+			Example:    "try { kubectl apply } catch { kubectl rollback }",
+			Note:       "try/catch is the only non-deterministic construct; plan records all paths",
+		})
+	}
+
+	// Parse optional catch block
+	if p.at(lexer.CATCH) {
+		p.catchClause()
+	}
+
+	// Parse optional finally block
+	if p.at(lexer.FINALLY) {
+		p.finallyClause()
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_try", "try statement complete")
+	}
+}
+
+// catchClause parses a catch clause: catch { ... }
+func (p *parser) catchClause() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_catch", "parsing catch clause")
+	}
+
+	kind := p.start(NodeCatch)
+
+	// Consume 'catch' keyword
+	p.token()
+
+	// Parse catch block
+	if p.at(lexer.LBRACE) {
+		p.block()
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing block after 'catch'",
+			Context:    "catch clause",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.LBRACE},
+			Suggestion: "Add a block with the catch body",
+			Example:    "catch { echo \"Error occurred\" }",
+		})
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_catch", "catch clause complete")
+	}
+}
+
+// finallyClause parses a finally clause: finally { ... }
+func (p *parser) finallyClause() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_finally", "parsing finally clause")
+	}
+
+	kind := p.start(NodeFinally)
+
+	// Consume 'finally' keyword
+	p.token()
+
+	// Parse finally block
+	if p.at(lexer.LBRACE) {
+		p.block()
+	} else {
+		p.errors = append(p.errors, ParseError{
+			Position:   p.current().Position,
+			Message:    "missing block after 'finally'",
+			Context:    "finally clause",
+			Got:        p.current().Type,
+			Expected:   []lexer.TokenType{lexer.LBRACE},
+			Suggestion: "Add a block with the finally body",
+			Example:    "finally { echo \"Cleanup\" }",
+			Note:       "finally always executes, regardless of try or catch outcome",
+		})
+	}
+
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_finally", "finally clause complete")
 	}
 }
 

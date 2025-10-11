@@ -58,6 +58,11 @@ const (
 
 	// Decorators
 	NodeDecorator // Decorator with property access: @var.name, @env.HOME
+
+	// Error handling - added at end to preserve existing node numbers
+	NodeTry     // Try block: try { ... }
+	NodeCatch   // Catch block: catch { ... }
+	NodeFinally // Finally block: finally { ... }
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

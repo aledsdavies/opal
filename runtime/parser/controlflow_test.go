@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -650,6 +651,249 @@ func TestForLoopErrorRecovery(t *testing.T) {
 			}
 			if actual.Note != expected.Note {
 				t.Errorf("Note mismatch:\nwant: %s\ngot:  %s", expected.Note, actual.Note)
+			}
+		})
+	}
+}
+
+// TestTryCatch tests basic try-catch parsing
+func TestTryCatch(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		events []Event
+	}{
+		{
+			name:  "simple try-catch",
+			input: "fun test { try { echo \"attempting\" } catch { echo \"failed\" } }",
+			events: []Event{
+				{EventOpen, 0},   // Source
+				{EventOpen, 1},   // Function
+				{EventToken, 0},  // fun
+				{EventToken, 1},  // test
+				{EventOpen, 3},   // Block
+				{EventToken, 2},  // {
+				{EventOpen, 19},  // Try (NodeTry = 19)
+				{EventToken, 3},  // try
+				{EventOpen, 3},   // Block
+				{EventToken, 4},  // {
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 5},  // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 6},  // "attempting"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventToken, 7},  // }
+				{EventClose, 3},  // Block
+				{EventOpen, 20},  // Catch (NodeCatch = 20)
+				{EventToken, 8},  // catch
+				{EventOpen, 3},   // Block
+				{EventToken, 9},  // {
+				{EventOpen, 8},   // ShellCommand
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 10}, // echo
+				{EventClose, 9},  // ShellArg
+				{EventOpen, 9},   // ShellArg
+				{EventToken, 11}, // "failed"
+				{EventClose, 9},  // ShellArg
+				{EventClose, 8},  // ShellCommand
+				{EventToken, 12}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 20}, // Catch
+				{EventClose, 19}, // Try
+				{EventToken, 13}, // }
+				{EventClose, 3},  // Block
+				{EventClose, 1},  // Function
+				{EventClose, 0},  // Source
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) != 0 {
+				t.Errorf("Expected no errors, got: %v", tree.Errors)
+			}
+
+			if diff := cmp.Diff(tt.events, tree.Events); diff != "" {
+				t.Errorf("Events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestTryCatchCombinations tests all valid combinations of try/catch/finally
+func TestTryCatchCombinations(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		hasTry     bool
+		hasCatch   bool
+		hasFinally bool
+	}{
+		{
+			name:       "try-catch",
+			input:      "fun test { try { echo \"a\" } catch { echo \"b\" } }",
+			hasTry:     true,
+			hasCatch:   true,
+			hasFinally: false,
+		},
+		{
+			name:       "try-finally",
+			input:      "fun test { try { echo \"a\" } finally { echo \"c\" } }",
+			hasTry:     true,
+			hasCatch:   false,
+			hasFinally: true,
+		},
+		{
+			name:       "try-catch-finally",
+			input:      "fun test { try { echo \"a\" } catch { echo \"b\" } finally { echo \"c\" } }",
+			hasTry:     true,
+			hasCatch:   true,
+			hasFinally: true,
+		},
+		{
+			name:       "try only (valid - catch/finally optional)",
+			input:      "fun test { try { echo \"a\" } }",
+			hasTry:     true,
+			hasCatch:   false,
+			hasFinally: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) != 0 {
+				t.Errorf("Expected no errors, got: %v", tree.Errors)
+			}
+
+			// Check for presence of expected nodes
+			foundTry := false
+			foundCatch := false
+			foundFinally := false
+
+			for _, event := range tree.Events {
+				if event.Kind == EventOpen {
+					switch event.Data {
+					case 19: // NodeTry
+						foundTry = true
+					case 20: // NodeCatch
+						foundCatch = true
+					case 21: // NodeFinally
+						foundFinally = true
+					}
+				}
+			}
+
+			if foundTry != tt.hasTry {
+				t.Errorf("Expected hasTry=%v, got %v", tt.hasTry, foundTry)
+			}
+			if foundCatch != tt.hasCatch {
+				t.Errorf("Expected hasCatch=%v, got %v", tt.hasCatch, foundCatch)
+			}
+			if foundFinally != tt.hasFinally {
+				t.Errorf("Expected hasFinally=%v, got %v", tt.hasFinally, foundFinally)
+			}
+		})
+	}
+}
+
+// TestTryCatchErrorRecovery tests error handling for malformed try/catch
+func TestTryCatchErrorRecovery(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		wantError     bool
+		errorContains string
+	}{
+		{
+			name:          "missing try block",
+			input:         "fun test { try catch { echo \"b\" } }",
+			wantError:     true,
+			errorContains: "missing block after 'try'",
+		},
+		{
+			name:          "missing catch block",
+			input:         "fun test { try { echo \"a\" } catch }",
+			wantError:     true,
+			errorContains: "missing block after 'catch'",
+		},
+		{
+			name:          "missing finally block",
+			input:         "fun test { try { echo \"a\" } finally }",
+			wantError:     true,
+			errorContains: "missing block after 'finally'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if tt.wantError {
+				if len(tree.Errors) == 0 {
+					t.Errorf("Expected error containing %q, got no errors", tt.errorContains)
+					return
+				}
+
+				found := false
+				for _, err := range tree.Errors {
+					if strings.Contains(err.Message, tt.errorContains) {
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					t.Errorf("Expected error containing %q, got errors: %v", tt.errorContains, tree.Errors)
+				}
+			} else {
+				if len(tree.Errors) != 0 {
+					t.Errorf("Expected no errors, got: %v", tree.Errors)
+				}
+			}
+		})
+	}
+}
+
+// TestFunInsideTryCatch tests that fun declarations are rejected inside try/catch/finally
+func TestFunInsideTryCatch(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "fun inside try block",
+			input: "fun test { try { fun helper { } } }",
+		},
+		{
+			name:  "fun inside catch block",
+			input: "fun test { try { echo \"a\" } catch { fun helper { } } }",
+		},
+		{
+			name:  "fun inside finally block",
+			input: "fun test { try { echo \"a\" } finally { fun helper { } } }",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := ParseString(tt.input)
+
+			if len(tree.Errors) == 0 {
+				t.Errorf("Expected error about fun at top level, got no errors")
+				return
+			}
+
+			err := tree.Errors[0]
+			if err.Message != "function declarations must be at top level" {
+				t.Errorf("Expected error about fun at top level, got: %s", err.Message)
 			}
 		})
 	}
