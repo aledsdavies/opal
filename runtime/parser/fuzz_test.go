@@ -9,19 +9,21 @@ import (
 
 // Fuzz tests for parser determinism and robustness.
 //
-// Implements feedback:
-// 1. Stack-based event balance (not just counts)
-// 2. Full determinism check (events + tokens + errors)
-// 3. Position monotonicity and bounds checking
-// 4. Pathological depth guards
-// 5. Memory safety with comprehensive position validation
+// Seven specialized fuzz functions test different invariants:
+//
+// 1. FuzzParserDeterminism - Same input always produces identical output
+// 2. FuzzParserNoPanic - Parser never panics on any input
+// 3. FuzzParserEventBalance - Stack-based validation of open/close pairs
+// 4. FuzzParserMemorySafety - Position bounds checking, monotonicity
+// 5. FuzzParserPathologicalDepth - Handles deeply nested structures
+// 6. FuzzParserErrorRecovery - Resilient parsing with error reporting
+// 7. FuzzParserWhitespaceInvariance - Semantic equivalence across whitespace
 //
 // These tests protect the events-first plan generation model.
 
-// FuzzParserDeterminism verifies that parsing the same input twice
-// produces identical event streams, tokens, and errors (full determinism).
-func FuzzParserDeterminism(f *testing.F) {
-	// Seed corpus with valid Opal syntax
+// addSeedCorpus adds common test cases to all fuzz functions
+func addSeedCorpus(f *testing.F) {
+	// Basic syntax
 	f.Add([]byte(""))
 	f.Add([]byte("fun greet() {}"))
 	f.Add([]byte("var x = 42"))
@@ -76,7 +78,7 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte("catch { }"))                                    // orphan catch at top level
 	f.Add([]byte("finally { }"))                                  // orphan finally at top level
 
-	// When pattern matching - valid (Phase 1: string literals and else only)
+	// When pattern matching - valid
 	f.Add([]byte(`fun test { when @var.ENV { "prod" -> echo "p" else -> echo "x" } }`))
 	f.Add([]byte(`when @var.ENV { "production" -> kubectl apply else -> echo "skip" }`))                                    // Top-level when
 	f.Add([]byte(`fun test { when @var.ENV { "prod" -> { kubectl apply echo "done" } } }`))                                 // Block body
@@ -119,8 +121,14 @@ func FuzzParserDeterminism(f *testing.F) {
 	f.Add([]byte("fun test() {\r\n  echo \"hi\"\r\n}")) // CRLF
 	f.Add([]byte("fun test { if\ntrue\n{\n}\n}"))       // If with newlines
 	f.Add([]byte("fun test{if true{}}"))                // If no spaces
-	f.Add([]byte("fun 🚀() {}"))                         // Emoji
+	f.Add([]byte("fun ðŸš€() {}"))                      // Emoji
 	f.Add([]byte("\xff\xfe\xfd"))                       // Invalid UTF-8
+}
+
+// FuzzParserDeterminism verifies that parsing the same input twice
+// produces identical event streams, tokens, and errors (full determinism).
+func FuzzParserDeterminism(f *testing.F) {
+	addSeedCorpus(f)
 
 	f.Fuzz(func(t *testing.T, input []byte) {
 		// Parse twice
@@ -180,8 +188,9 @@ func FuzzParserDeterminism(f *testing.F) {
 
 // FuzzParserNoPanic verifies the parser never panics on any input.
 func FuzzParserNoPanic(f *testing.F) {
-	f.Add([]byte(""))
-	f.Add([]byte("fun greet() {}"))
+	addSeedCorpus(f)
+
+	// Additional seeds specific to panic testing
 	f.Add([]byte("\x00\x01\x02"))           // Binary data
 	f.Add(bytes.Repeat([]byte("a"), 10000)) // Very long
 	f.Add(bytes.Repeat([]byte("{"), 1000))  // Deep nesting
@@ -197,15 +206,6 @@ func FuzzParserNoPanic(f *testing.F) {
 	f.Add([]byte("@retry(3,"))
 	f.Add([]byte("@retry(3, times=5)"))
 	f.Add([]byte("@var."))
-
-	// Control flow - if statements
-	f.Add([]byte("fun test { if true { } }"))
-	f.Add([]byte("fun test { if x { } else { } }"))
-	f.Add([]byte("if true { }"))                               // Top-level (script mode)
-	f.Add([]byte("fun test { if }"))                           // Malformed
-	f.Add([]byte("fun test { if { } }"))                       // Missing condition
-	f.Add([]byte("fun test { if \"str\" { } }"))               // Type error
-	f.Add([]byte("fun test { if true { fun helper() { } } }")) // fun inside if
 
 	f.Fuzz(func(t *testing.T, input []byte) {
 		defer func() {
@@ -234,22 +234,9 @@ func FuzzParserNoPanic(f *testing.F) {
 // FuzzParserEventBalance verifies Open/Close events are properly nested
 // using a stack (not just counts). Catches cross-closing and negative depth.
 func FuzzParserEventBalance(f *testing.F) {
-	f.Add([]byte(""))
-	f.Add([]byte("fun greet() {}"))
-	f.Add([]byte("{ { { } } }"))
-	f.Add([]byte("fun a() { fun b() { } }"))
+	addSeedCorpus(f)
 
-	// Decorator nesting
-	f.Add([]byte("@timeout(5m) { }"))
-	f.Add([]byte("@timeout(5m) { @retry(3) { } }"))
-	f.Add([]byte("@timeout(5m) { @retry(3, 2s) { @parallel { } } }"))
-
-	// Control flow nesting
-	f.Add([]byte("fun test { if true { if false { } } }"))
-	f.Add([]byte("if true { if false { } }")) // Top-level
-	f.Add([]byte("fun test { if { } }"))      // Malformed
-
-	// Deep nesting
+	// Additional seeds specific to event balance testing
 	nested := make([]byte, 0, 200)
 	nested = append(nested, bytes.Repeat([]byte("{"), 100)...)
 	nested = append(nested, bytes.Repeat([]byte("}"), 100)...)
@@ -297,29 +284,11 @@ func FuzzParserEventBalance(f *testing.F) {
 
 // FuzzParserMemorySafety verifies positions are valid and monotonic.
 func FuzzParserMemorySafety(f *testing.F) {
-	f.Add([]byte(""))
+	addSeedCorpus(f)
+
+	// Additional seeds specific to memory safety testing
 	f.Add(bytes.Repeat([]byte("a"), 10000)) // Very long
 	f.Add(bytes.Repeat([]byte("{"), 1000))  // Deep nesting
-	f.Add([]byte("\x00"))                   // Null byte
-	f.Add([]byte("\xff\xfe\xfd"))           // Invalid UTF-8
-
-	// Decorator syntax
-	f.Add([]byte("@timeout(5m) { }"))
-	f.Add([]byte("@retry(3, 2s, \"exponential\") { }"))
-	f.Add([]byte("@timeout(5m) { @retry(3) { } }"))
-
-	// Control flow
-	f.Add([]byte("fun test { if true { } }"))
-	f.Add([]byte("if true { }"))
-	f.Add([]byte("fun test { if { } }"))
-
-	// Unicode edge cases
-	f.Add([]byte("\xEF\xBB\xBFfun a(){}"))   // UTF-8 BOM
-	f.Add([]byte("fun\u200Bz(){}"))          // ZWSP
-	f.Add([]byte("x\u00A0=\u00A01"))         // NBSP
-	f.Add([]byte("line1\rline2\nline3\r\n")) // Mixed EOLs
-
-	// Very long identifiers
 	longIdent := append([]byte("var "), bytes.Repeat([]byte("x"), 1000)...)
 	longIdent = append(longIdent, []byte(" = 42")...)
 	f.Add(longIdent)
@@ -406,7 +375,9 @@ func FuzzParserMemorySafety(f *testing.F) {
 // FuzzParserPathologicalDepth verifies the parser handles deep nesting
 // without panicking (prevents exponential backtracking).
 func FuzzParserPathologicalDepth(f *testing.F) {
-	// Deep nesting patterns
+	addSeedCorpus(f)
+
+	// Additional seeds specific to pathological depth testing
 	nested1 := make([]byte, 0, 200)
 	nested1 = append(nested1, bytes.Repeat([]byte("{"), 100)...)
 	nested1 = append(nested1, bytes.Repeat([]byte("}"), 100)...)
@@ -417,7 +388,6 @@ func FuzzParserPathologicalDepth(f *testing.F) {
 	nested2 = append(nested2, bytes.Repeat([]byte("}"), 50)...)
 	f.Add(nested2)
 
-	// Deep if nesting
 	nested3 := make([]byte, 0, 1000)
 	nested3 = append(nested3, []byte("fun test { ")...)
 	nested3 = append(nested3, bytes.Repeat([]byte("if true { "), 50)...)
@@ -461,17 +431,13 @@ func FuzzParserPathologicalDepth(f *testing.F) {
 
 // FuzzParserErrorRecovery verifies resilient parsing (errors, not crashes).
 func FuzzParserErrorRecovery(f *testing.F) {
+	addSeedCorpus(f)
+
+	// Additional seeds specific to error recovery testing
 	f.Add([]byte("fun"))        // Incomplete
 	f.Add([]byte("fun greet(")) // Unclosed
 	f.Add([]byte("@"))          // Lone decorator
 	f.Add([]byte("var = 42"))   // Missing name
-
-	// Control flow error recovery
-	f.Add([]byte("fun test { if }"))
-	f.Add([]byte("fun test { if { } }"))
-	f.Add([]byte("fun test { else { } }"))
-	f.Add([]byte("fun test { if \"str\" { } }"))
-	f.Add([]byte("fun test { if true { fun helper() { } } }"))
 
 	f.Fuzz(func(t *testing.T, input []byte) {
 		tree := Parse(input)
@@ -543,20 +509,14 @@ func TestFuzzCorpusMinimization(t *testing.T) {
 // - Amount of whitespace doesn't matter (1 space vs 10 spaces)
 // - Newlines are preserved (they're semantic in Opal)
 func FuzzParserWhitespaceInvariance(f *testing.F) {
-	f.Add([]byte(""))
+	addSeedCorpus(f)
+
+	// Additional seeds specific to whitespace invariance testing
 	f.Add([]byte("fun greet(name){echo name}"))
 	f.Add([]byte("var x=1\nvar y=2\nfun f(){x+y}"))
-	f.Add([]byte("@retry(3){ fun a(){ } }"))
-
-	// Control flow whitespace variations
 	f.Add([]byte("fun test{if true{}}"))
-	f.Add([]byte("fun test { if true { } else { } }"))
-	f.Add([]byte("if true{echo \"a\"}"))
-
-	// Unicode edge cases
-	f.Add([]byte("\xEF\xBB\xBFfun a(){}")) // UTF-8 BOM
-	f.Add([]byte("fun\u200Bz(){}"))        // ZWSP
-	f.Add([]byte("x\u00A0=\u00A01"))       // NBSP
+	f.Add([]byte("fun\u200Bz(){}"))  // ZWSP
+	f.Add([]byte("x\u00A0=\u00A01")) // NBSP
 
 	f.Fuzz(func(t *testing.T, input []byte) {
 		orig := Parse(input)
