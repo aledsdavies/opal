@@ -71,7 +71,7 @@ jobs:
             echo "==> Deep fuzzing $target (10 minutes)"
             START_TIME=$(date +%s)
             
-            go test -run '^$' -fuzz "^${target}$" -fuzztime=10m -seed "$SEED" || {
+            go test -run '^$' -fuzz "^${target}$" -fuzztime=10m || {
               echo "ERROR: $target failed"
               exit 1
             }

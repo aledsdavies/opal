@@ -66,12 +66,9 @@ jobs:
             "FuzzParserWhitespaceInvariance"
           )
           
-          # Use unique seed per run for diversity
-          SEED=${{ github.run_id }}
-          
           for target in "${FUZZ_TARGETS[@]}"; do
-            echo "==> Fuzzing $target (2 minutes, seed=$SEED)"
-            go test -run '^$' -fuzz "^${target}$" -fuzztime=2m -seed "$SEED" || {
+            echo "==> Fuzzing $target (2 minutes)"
+            go test -run '^$' -fuzz "^${target}$" -fuzztime=2m || {
               echo "ERROR: $target failed"
               exit 1
             }

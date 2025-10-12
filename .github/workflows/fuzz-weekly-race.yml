@@ -49,12 +49,9 @@ jobs:
             "FuzzParserWhitespaceInvariance"
           )
           
-          # Use unique seed per run for diversity
-          SEED=${{ github.run_id }}
-          
           for target in "${FUZZ_TARGETS[@]}"; do
-            echo "==> Race fuzzing $target (2 minutes, seed=$SEED)"
-            go test -run '^$' -fuzz "^${target}$" -fuzztime=2m -race -seed "$SEED" || {
+            echo "==> Race fuzzing $target (2 minutes)"
+            go test -run '^$' -fuzz "^${target}$" -fuzztime=2m -race || {
               echo "ERROR: $target failed with race detector"
               exit 1
             }
@@ -96,12 +93,9 @@ jobs:
             "FuzzParserDeterminism"
           )
           
-          # Use unique seed per run for diversity
-          SEED=${{ github.run_id }}
-          
           for target in "${FUZZ_TARGETS[@]}"; do
-            echo "==> Fuzzing $target (1 minute, seed=$SEED)"
-            go test -run '^$' -fuzz "^${target}$" -fuzztime=1m -seed "$SEED" || {
+            echo "==> Fuzzing $target (1 minute)"
+            go test -run '^$' -fuzz "^${target}$" -fuzztime=1m || {
               echo "ERROR: $target failed on ${{ matrix.os }}"
               exit 1
             }
