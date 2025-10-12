@@ -1348,6 +1348,15 @@ func (p *parser) binaryExpr(minPrec int) {
 
 // primary parses a primary expression (literal, identifier, etc.)
 func (p *parser) primary() {
+	// Check for unary operators (! and -)
+	if p.at(lexer.NOT) || p.at(lexer.MINUS) {
+		kind := p.start(NodeUnaryExpr)
+		p.token()   // Consume ! or -
+		p.primary() // Parse operand (recursive for multiple unary operators)
+		p.finish(kind)
+		return
+	}
+
 	switch {
 	case p.at(lexer.INTEGER), p.at(lexer.FLOAT), p.at(lexer.BOOLEAN):
 		// Literal

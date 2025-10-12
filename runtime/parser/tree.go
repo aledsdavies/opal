@@ -81,6 +81,9 @@ const (
 
 	// OR patterns - added at end to preserve existing node numbers
 	NodePatternOr // OR pattern: "a" | "b" | "c"
+
+	// Unary expressions - added at end to preserve existing node numbers
+	NodeUnaryExpr // Unary expression: !expr, -expr
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages
