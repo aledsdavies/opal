@@ -120,6 +120,17 @@ func addSeedCorpus(f *testing.F) {
 	f.Add([]byte(`when @var.branch { "main" | "master" | r"^release/" -> kubectl apply else -> echo "skip" }`))                                      // Top-level OR
 	f.Add([]byte("fun test { when @var.env {\n\"prod\" | \"production\" -> echo \"p\"\n\"dev\" | \"local\" -> echo \"d\"\nelse -> echo \"x\"\n} }")) // OR with newlines
 
+	// Unary expressions - valid
+	f.Add([]byte("fun test { var x = -5 }"))                           // Negation with literal
+	f.Add([]byte("fun test { var x = -@var.offset }"))                 // Negation with decorator
+	f.Add([]byte("fun test { var result = -x + y }"))                  // Unary minus with binary addition
+	f.Add([]byte("fun test { var result = -x * -y }"))                 // Multiple unary minus
+	f.Add([]byte("fun test { if !true { echo \"no\" } }"))             // Logical NOT with literal
+	f.Add([]byte("fun test { if !@var.ready { echo \"wait\" } }"))     // Logical NOT with decorator
+	f.Add([]byte("fun test { if !ready && enabled { echo \"go\" } }")) // NOT with AND
+	f.Add([]byte("fun test { var x = -1 + -2 }"))                      // Unary in binary expression
+	f.Add([]byte("var offset = -10"))                                  // Top-level var with unary
+
 	// When pattern matching - malformed (error recovery)
 	f.Add([]byte("fun test { when { } }"))                                    // Missing expression
 	f.Add([]byte("fun test { when @var.ENV }"))                               // Missing opening brace
