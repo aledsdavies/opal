@@ -1328,6 +1328,14 @@ func (p *parser) binaryExpr(minPrec int) {
 	// Parse left side (primary expression)
 	p.primary()
 
+	// Check for postfix increment/decrement (++ and --)
+	// These have highest precedence, so handle before binary operators
+	if p.at(lexer.INCREMENT) || p.at(lexer.DECREMENT) {
+		kind := p.start(NodePostfixExpr)
+		p.token() // Consume ++ or --
+		p.finish(kind)
+	}
+
 	// Parse binary operators
 	for {
 		prec := p.precedence()
@@ -1353,6 +1361,15 @@ func (p *parser) primary() {
 		kind := p.start(NodeUnaryExpr)
 		p.token()   // Consume ! or -
 		p.primary() // Parse operand (recursive for multiple unary operators)
+		p.finish(kind)
+		return
+	}
+
+	// Check for prefix increment/decrement (++ and --)
+	if p.at(lexer.INCREMENT) || p.at(lexer.DECREMENT) {
+		kind := p.start(NodePrefixExpr)
+		p.token()   // Consume ++ or --
+		p.primary() // Parse operand
 		p.finish(kind)
 		return
 	}

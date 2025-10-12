@@ -84,6 +84,10 @@ const (
 
 	// Unary expressions - added at end to preserve existing node numbers
 	NodeUnaryExpr // Unary expression: !expr, -expr
+
+	// Increment/decrement expressions - added at end to preserve existing node numbers
+	NodePrefixExpr  // Prefix increment/decrement: ++expr, --expr
+	NodePostfixExpr // Postfix increment/decrement: expr++, expr--
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

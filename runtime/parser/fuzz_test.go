@@ -131,6 +131,21 @@ func addSeedCorpus(f *testing.F) {
 	f.Add([]byte("fun test { var x = -1 + -2 }"))                      // Unary in binary expression
 	f.Add([]byte("var offset = -10"))                                  // Top-level var with unary
 
+	// Increment/decrement expressions - valid
+	f.Add([]byte("fun test { var x = ++counter }"))                  // Prefix increment with identifier
+	f.Add([]byte("fun test { var x = --counter }"))                  // Prefix decrement with identifier
+	f.Add([]byte("fun test { var x = ++@var.count }"))               // Prefix increment with decorator
+	f.Add([]byte("fun test { var x = --@var.count }"))               // Prefix decrement with decorator
+	f.Add([]byte("fun test { var x = counter++ }"))                  // Postfix increment with identifier
+	f.Add([]byte("fun test { var x = counter-- }"))                  // Postfix decrement with identifier
+	f.Add([]byte("fun test { var x = @var.count++ }"))               // Postfix increment with decorator
+	f.Add([]byte("fun test { var x = @var.count-- }"))               // Postfix decrement with decorator
+	f.Add([]byte("fun test { var result = x++ + y }"))               // Postfix before addition
+	f.Add([]byte("fun test { var result = ++x + y }"))               // Prefix before addition
+	f.Add([]byte("fun test { var result = x++ * ++y }"))             // Mixed postfix and prefix
+	f.Add([]byte("fun test { for i in 1...10 { var next = i++ } }")) // Increment in loop
+	f.Add([]byte("var counter = 0"))                                 // Top-level var (for increment context)
+
 	// When pattern matching - malformed (error recovery)
 	f.Add([]byte("fun test { when { } }"))                                    // Missing expression
 	f.Add([]byte("fun test { when @var.ENV }"))                               // Missing opening brace
