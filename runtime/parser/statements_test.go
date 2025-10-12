@@ -80,20 +80,6 @@ func TestSimpleVarDecl(t *testing.T) {
 	}
 }
 
-// Helper function to check if string contains substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsAt(s, substr))
-}
-
-func containsAt(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
 // TestAssignmentOperators tests assignment operators (+=, -=, *=, /=, %=)
 func TestAssignmentOperators(t *testing.T) {
 	tests := []struct {

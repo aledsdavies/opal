@@ -334,7 +334,7 @@ func TestTelemetry(t *testing.T) {
 
 	t.Run("telemetry timing enabled", func(t *testing.T) {
 		tree := ParseString(input, WithTelemetryTiming())
-		
+
 		if tree.Telemetry == nil {
 			t.Fatal("Expected telemetry to be non-nil")
 		}
@@ -354,7 +354,7 @@ func TestTelemetry(t *testing.T) {
 
 	t.Run("telemetry basic enabled", func(t *testing.T) {
 		tree := ParseString(input, WithTelemetryBasic())
-		
+
 		if tree.Telemetry == nil {
 			t.Fatal("Expected telemetry to be non-nil")
 		}
@@ -378,7 +378,7 @@ func TestDebugTracing(t *testing.T) {
 
 	t.Run("debug paths enabled", func(t *testing.T) {
 		tree := ParseString(input, WithDebugPaths())
-		
+
 		if len(tree.DebugEvents) == 0 {
 			t.Fatal("Expected debug events")
 		}
