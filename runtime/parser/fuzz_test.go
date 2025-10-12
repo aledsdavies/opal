@@ -146,6 +146,18 @@ func addSeedCorpus(f *testing.F) {
 	f.Add([]byte("fun test { for i in 1...10 { var next = i++ } }")) // Increment in loop
 	f.Add([]byte("var counter = 0"))                                 // Top-level var (for increment context)
 
+	// Assignment operators - valid
+	f.Add([]byte("fun test { total += 5 }"))                                  // Plus assign with literal
+	f.Add([]byte("fun test { remaining -= @var.cost }"))                      // Minus assign with decorator
+	f.Add([]byte("fun test { replicas *= 3 }"))                               // Multiply assign
+	f.Add([]byte("fun test { batch_size /= 2 }"))                             // Divide assign
+	f.Add([]byte("fun test { index %= 10 }"))                                 // Modulo assign
+	f.Add([]byte("fun test { total += x + y }"))                              // Assignment with expression
+	f.Add([]byte("fun test { for i in 1...10 { sum += i } }"))                // Assignment in loop (accumulation)
+	f.Add([]byte("fun test { count += 1 count -= 1 }"))                       // Multiple assignments
+	f.Add([]byte("fun test { var total = 0 for x in items { total += x } }")) // Accumulation pattern
+	f.Add([]byte("fun test { replicas *= @var.ENVIRONMENTS.length }"))        // Scaling with decorator
+
 	// When pattern matching - malformed (error recovery)
 	f.Add([]byte("fun test { when { } }"))                                    // Missing expression
 	f.Add([]byte("fun test { when @var.ENV }"))                               // Missing opening brace

@@ -548,6 +548,20 @@ func (p *parser) statement() {
 		// Decorator (execution decorator with block)
 		p.decorator()
 	} else if p.at(lexer.IDENTIFIER) {
+		// Check if this is an assignment statement or shell command
+		// Look ahead to see if next token is an assignment operator
+		nextPos := p.pos + 1
+		if nextPos < len(p.tokens) {
+			nextType := p.tokens[nextPos].Type
+			if nextType == lexer.PLUS_ASSIGN ||
+				nextType == lexer.MINUS_ASSIGN ||
+				nextType == lexer.MULTIPLY_ASSIGN ||
+				nextType == lexer.DIVIDE_ASSIGN ||
+				nextType == lexer.MODULO_ASSIGN {
+				p.assignmentStmt()
+				return
+			}
+		}
 		// Shell command
 		p.shellCommand()
 	} else if !p.at(lexer.RBRACE) && !p.at(lexer.EOF) {
@@ -1315,6 +1329,30 @@ func (p *parser) varDecl() {
 
 	if p.config.debug > DebugOff {
 		p.recordDebugEvent("exit_var_decl", "variable declaration complete")
+	}
+}
+
+// assignmentStmt parses an assignment statement: IDENTIFIER OP= expression
+func (p *parser) assignmentStmt() {
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("enter_assignment", "parsing assignment statement")
+	}
+
+	kind := p.start(NodeAssignment)
+
+	// Consume identifier
+	p.token()
+
+	// Consume assignment operator (+=, -=, *=, /=, %=)
+	p.token()
+
+	// Parse expression
+	p.expression()
+
+	p.finish(kind)
+
+	if p.config.debug > DebugOff {
+		p.recordDebugEvent("exit_assignment", "assignment statement complete")
 	}
 }
 

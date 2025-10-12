@@ -88,6 +88,9 @@ const (
 	// Increment/decrement expressions - added at end to preserve existing node numbers
 	NodePrefixExpr  // Prefix increment/decrement: ++expr, --expr
 	NodePostfixExpr // Postfix increment/decrement: expr++, expr--
+
+	// Assignment statements - added at end to preserve existing node numbers
+	NodeAssignment // Assignment: x += 5, total -= cost
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages
