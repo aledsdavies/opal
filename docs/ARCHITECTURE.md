@@ -242,6 +242,211 @@ deploy: {
 
 **See [AST_DESIGN.md](AST_DESIGN.md)** for implementation details: event streaming, zero-copy pipelines, and AST construction for tooling.
 
+## Plan Format Implementation
+
+Plans use an event-based internal representation that can be serialized to multiple formats for different consumers (CLI, API, web UI, contract files).
+
+### Internal Representation (In-Memory)
+
+Plans are event streams, consistent with the parser architecture:
+
+```go
+type Plan struct {
+    Header      PlanHeader          // Metadata (version, hashes, timestamp)
+    Events      []PlanEvent         // Execution steps (event-based)
+    context     *PlanContext        // Resolved values (never serialized)
+    Telemetry   *PlanTelemetry      // Performance metrics
+    DebugEvents []DebugEvent        // Debug trace
+}
+
+type PlanEvent struct {
+    Kind EventKind  // StepOpen, StepClose, Shell, Decorator, Value
+    Data uint32     // Packed data
+}
+
+type PlanContext struct {
+    // All value decorators stored homogeneously
+    // Key format: "var.NAME", "env.HOME", "aws.secret.key"
+    Values map[string]ResolvedValue
+}
+
+type ResolvedValue struct {
+    Placeholder ValuePlaceholder    // <length:algo:hash> for display/hashing
+    value       interface{}         // Actual value (memory only, never serialized)
+}
+
+type ValuePlaceholder struct {
+    Length    int    // Character count
+    Algorithm string // "sha256" or "blake3"
+    Hash      string // Truncated hex hash (first 6 chars)
+}
+```
+
+**Key design decisions:**
+- **Event-based**: Consistent with parser, minimal allocations
+- **Homogeneous values**: All decorators (@var, @env, @aws.secret) treated uniformly
+- **Always resolve fresh**: Values never stored in plan files, always queried from reality
+- **Placeholders only**: Serialized plans contain structure + hashes, never actual values
+
+### Serialization Format (.plan files)
+
+Contract files use a custom binary format for efficiency:
+
+```
+[Header: 32 bytes]
+  Magic:      "OPAL" (4 bytes)
+  Version:    uint16 (2 bytes) - major.minor
+  Flags:      uint16 (2 bytes) - reserved
+  Mode:       uint8 (1 byte)   - Quick/Resolved/Execution
+  Reserved:   (7 bytes)
+  EventCount: uint32 (4 bytes)
+  ValueCount: uint32 (4 bytes)
+  Timestamp:  int64 (8 bytes)
+
+[Hashes Section]
+  SourceHash: [32 bytes] - SHA-256 of source code
+  PlanHash:   [32 bytes] - SHA-256 of plan structure
+
+[Events Section]
+  Event[]: kind (1 byte) + data (4 bytes)
+
+[Values Section]
+  Value[]: key_len (2 bytes) + key + placeholder
+  // Examples:
+  // "var.REPLICAS" -> <1:sha256:abc123>
+  // "env.HOME" -> <21:sha256:def456>
+  // "aws.secret.api_key" -> <32:sha256:xyz789>
+```
+
+**Why custom binary:**
+- Full control over format evolution
+- Optimized for our use case
+- Compact representation
+- Fast serialization/deserialization
+- Versionable with backward compatibility
+
+### Output Formats (Pluggable)
+
+Plans can be formatted for different consumers via a pluggable interface:
+
+```go
+type PlanFormatter interface {
+    Format(plan *Plan) ([]byte, error)
+}
+```
+
+**Implemented formatters:**
+- **TreeFormatter** - CLI human-readable tree view
+- **JSONFormatter** - API/debugging structured output
+- **BinaryFormatter** - Compact .plan contract files
+
+**Future formatters** (designed, not yet implemented):
+- **HTMLFormatter** - Web UI visualization
+- **GraphQLFormatter** - Advanced query API
+- **ProtobufFormatter** - gRPC API support
+
+### Execution Modes
+
+Plans support four execution modes:
+
+**1. Direct Execution** (no plan file)
+```bash
+opal deploy
+```
+Flow: Source → Parse → Plan (resolve fresh) → Execute
+
+**2. Quick Plan** (preview, defer expensive decorators)
+```bash
+opal deploy --dry-run
+```
+Flow: Source → Parse → Plan (cheap values only) → Display
+- Resolves control flow and cheap decorators (@var, @env)
+- Defers expensive decorators (@aws.secret, @http.get)
+- Shows likely execution path
+
+**3. Resolved Plan** (generate contract)
+```bash
+opal deploy --dry-run --resolve > prod.plan
+```
+Flow: Source → Parse → Plan (resolve ALL) → Serialize
+- Resolves all value decorators (including expensive ones)
+- Generates contract with hash placeholders
+- Saves to .plan file for later verification
+
+**4. Contract Execution** (verify + execute)
+```bash
+opal run --plan prod.plan
+```
+Flow: Load contract → Replan fresh → Compare hashes → Execute if match
+- **Critical**: Plan files are NEVER executed directly
+- Always replans from current source and reality
+- Compares fresh plan hashes against contract
+- Executes only if hashes match, aborts if different
+
+**Why replan instead of execute?**
+- Prevents executing stale plans against changed reality
+- Detects drift (source changed, environment changed, infrastructure changed)
+- Unlike Terraform (applies old plan to new state), Opal verifies current reality would produce same plan
+
+### Hash Algorithm
+
+**Default**: SHA-256 (widely supported, ~400 MB/s)
+- Standard cryptographic hash
+- Broad compatibility
+- Sufficient security for contract verification
+
+**Optional**: BLAKE3 via `--hash-algo=blake3` flag (~3 GB/s, 7x faster)
+- Modern cryptographic hash
+- Significantly faster for large values
+- Requires explicit opt-in
+
+### Value Placeholder Format
+
+All resolved values use security placeholder format: `<length:algorithm:hash>`
+
+Examples:
+- `<1:sha256:abc123>` - single character (e.g., "3")
+- `<32:sha256:def456>` - 32 characters (e.g., secret token)
+- `<8:sha256:xyz789>` - 8 characters (e.g., hostname)
+
+**Benefits:**
+- **No value leakage** in plans or logs
+- **Contract verification** via hash comparison
+- **Debugging support** via length hints
+- **Algorithm agility** for future hash upgrades
+
+### Format Versioning
+
+Plans include format version from day 1 for evolution:
+
+**Version scheme**: `major.minor.patch`
+- **Major**: Breaking changes to format structure
+- **Minor**: Backward-compatible additions
+- **Patch**: Bug fixes, no format changes
+
+**Current version**: 1.0.0 (MVP)
+
+**Future versions:**
+- 1.1.0: Add compression (zstd), signature support
+- 1.2.0: Extended metadata (git commit, author)
+- 2.0.0: New event types, different hash defaults
+
+### Observability
+
+Plans include zero-overhead observability (like lexer/parser):
+
+**Debug levels:**
+- **DebugOff**: Zero overhead (default, production)
+- **DebugPaths**: Method entry/exit tracing
+- **DebugDetailed**: Event-level tracing
+
+**Telemetry levels:**
+- **TelemetryOff**: Zero overhead (default)
+- **TelemetryBasic**: Counts only
+- **TelemetryTiming**: Counts + timing
+
+**Implementation**: Same pattern as lexer/parser - simple conditionals, no allocations when disabled.
+
 ## Safety Guarantees
 
 Opal guarantees that all operations halt with deterministic results.
