@@ -157,7 +157,7 @@ func (f *ErrorFormatter) colorize(b *strings.Builder, color, text string) {
 
 // extractSourceLine gets the source line for display
 func (f *ErrorFormatter) extractSourceLine(pos lexer.Position) string {
-	if f.Source == nil || len(f.Source) == 0 {
+	if len(f.Source) == 0 {
 		return ""
 	}
 

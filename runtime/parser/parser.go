@@ -2037,10 +2037,11 @@ func (p *parser) errorExpected(expected lexer.TokenType, context string) {
 		err.Suggestion = "Add '{' to start the function body"
 		err.Example = "fun greet() {}"
 	case lexer.IDENTIFIER:
-		if context == "function declaration" {
+		switch context {
+		case "function declaration":
 			err.Suggestion = "Add a function name after 'fun'"
 			err.Example = "fun greet() {}"
-		} else if context == "parameter" {
+		case "parameter":
 			err.Suggestion = "Add a parameter name"
 			err.Example = "fun greet(name) {}"
 		}

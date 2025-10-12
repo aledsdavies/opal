@@ -639,7 +639,7 @@ func FuzzParserWhitespaceInvariance(f *testing.F) {
 		semanticEvents := func(events []Event) []semanticEvent {
 			out := make([]semanticEvent, len(events))
 			for i, ev := range events {
-				out[i] = semanticEvent{Kind: ev.Kind, Data: ev.Data}
+				out[i] = semanticEvent(ev)
 			}
 			return out
 		}

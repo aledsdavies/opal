@@ -446,7 +446,7 @@ func (l *Lexer) lexToken() Token {
 	// Decimal numbers starting with dot (.5, .123) - but not ... range operator
 	if ch == '.' && l.position+1 < len(l.input) && l.input[l.position+1] < 128 && isDigit[l.input[l.position+1]] {
 		// Don't treat as decimal if this is ... (range operator)
-		if !(l.position+2 < len(l.input) && l.input[l.position+1] == '.' && l.input[l.position+2] == '.') {
+		if l.position+2 >= len(l.input) || l.input[l.position+1] != '.' || l.input[l.position+2] != '.' {
 			return l.lexNumber(start, hadWhitespace)
 		}
 	}
