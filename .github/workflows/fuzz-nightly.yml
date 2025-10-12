@@ -4,14 +4,6 @@ on:
   schedule:
     - cron: '0 2 * * *'   # 02:00 UTC nightly
   workflow_dispatch:      # Allow manual trigger
-  pull_request:
-    paths:
-      - 'runtime/parser/**'
-      - 'runtime/lexer/**'
-      - 'runtime/parser/testdata/fuzz/**'
-      - 'go.mod'
-      - 'go.sum'
-      - '.github/workflows/fuzz-nightly.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -7,6 +7,10 @@ on:
     branches: [main, master, develop]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GO_VERSION: '1.25.x'
   CACHE_VERSION: v3

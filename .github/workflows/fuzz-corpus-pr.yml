@@ -6,6 +6,10 @@ on:
     types:
       - completed
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 env:
   GO_VERSION: '1.25.x'
 
