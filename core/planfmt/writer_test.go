@@ -16,7 +16,6 @@ func TestWriteEmptyPlan(t *testing.T) {
 	// When: write to buffer
 	var buf bytes.Buffer
 	hash, err := planfmt.Write(&buf, plan)
-
 	// Then: no error, valid hash, valid magic number
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
