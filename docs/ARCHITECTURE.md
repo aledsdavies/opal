@@ -276,22 +276,11 @@ type Plan struct {
 }
 
 type ExecutionStep struct {
-    Kind StepKind  // Shell, Decorator
-    
-    // For shell commands
-    Command string  // "kubectl scale --replicas=3 deployment/app"
-    
-    // For decorators
-    Decorator string                // "@retry"
+    // All steps are decorators (shell commands are @shell decorators)
+    Decorator string                // "@shell", "@retry", "@parallel", etc.
     Args      map[string]interface{} // Decorator arguments
     Block     []ExecutionStep        // Nested steps for decorators with blocks
 }
-
-type StepKind uint8
-const (
-    StepShell StepKind = iota
-    StepDecorator
-)
 
 type ResolvedValue struct {
     Placeholder ValuePlaceholder    // <length:algo:hash> for display/hashing
@@ -332,8 +321,8 @@ Values: {
 }
 Steps: [
     ExecutionStep{
-        Kind: StepShell,
-        Command: "kubectl scale --replicas=3 deployment/app",  // Already interpolated!
+        Decorator: "@shell",
+        Args: {"command": "kubectl scale --replicas=3 deployment/app"},  // Already interpolated!
     },
 ]
 ```
@@ -353,8 +342,8 @@ After planning (if ENV="production"):
 ```go
 Steps: [
     ExecutionStep{
-        Kind: StepShell,
-        Command: "kubectl apply -f k8s/prod/",
+        Decorator: "@shell",
+        Args: {"command": "kubectl apply -f k8s/prod/"},
     },
 ]
 // The else branch is PRUNED - not in the plan!
@@ -648,10 +637,9 @@ Plans have three distinct representations for different consumers:
 ├─────────────────────────────────────────────────────────────┤
 │ STEPS SECTION (variable, 8-byte aligned, zstd if COMPRESSED)│
 ├─────────────────────────────────────────────────────────────┤
-│   N    |  1   | uint8  | Step[0].Kind | Shell=0, Decorator=1│
-│  N+1   |  4   | uint32 | DataLen      | Data bytes          │
-│  N+5   |  L   | []u8   | Data         | Command or decorator│
-│ N+5+L  |  P   | [P]u8  | Padding      | Align to 8 bytes    │
+│   N    |  4   | uint32 | DataLen      | JSON bytes          │
+│  N+4   |  L   | []u8   | Data         | JSON decorator info │
+│ N+4+L  |  P   | [P]u8  | Padding      | Align to 8 bytes    │
 │   ...  | ...  | ...    | ...          | ...                 │
 ├─────────────────────────────────────────────────────────────┤
 │ VALUES SECTION (variable, 8-byte aligned, zstd if COMPRESSED)│
@@ -680,20 +668,13 @@ Plans have three distinct representations for different consumers:
 ```
 
 **Step Data Format**:
-- For shell commands: UTF-8 command text with variables already interpolated
-- For decorators: JSON-encoded decorator info (name, args, nested steps)
+- JSON-encoded decorator info (name, args, nested steps)
+- Shell commands are `@shell` decorators with `command` arg
+- All steps are decorators (unified model)
 
 **Step ordering**: Pre-order traversal of execution tree (loops unrolled, conditionals pruned during planning).
 
-#### Step Types
-
-```go
-const (
-    StepShell      uint8 = 0  // Shell command execution
-    StepDecorator  uint8 = 1  // Decorator invocation
-    // 2-255: Reserved for future use
-)
-```
+**Note**: No separate "step types" - everything is a decorator. Shell commands use `@shell` decorator.
 
 #### Header Flags
 
@@ -800,26 +781,18 @@ const (
     },
     "steps": {
       "type": "array",
-      "description": "Execution steps (tree structure)",
+      "description": "Execution steps (tree structure, all steps are decorators)",
       "items": {
         "type": "object",
-        "required": ["kind"],
+        "required": ["decorator"],
         "properties": {
-          "kind": {
-            "type": "string",
-            "enum": ["shell", "decorator"]
-          },
-          "command": {
-            "type": "string",
-            "description": "Shell command (for kind=shell)"
-          },
           "decorator": {
             "type": "string",
-            "description": "Decorator name (for kind=decorator)"
+            "description": "Decorator name (e.g., '@shell', '@retry', '@parallel')"
           },
           "args": {
             "type": "object",
-            "description": "Decorator arguments (for kind=decorator)"
+            "description": "Decorator arguments"
           },
           "block": {
             "type": "array",
@@ -889,21 +862,20 @@ const (
   "target": "deploy",
   "steps": [
     {
-      "kind": "shell",
-      "command": "kubectl apply -f k8s/prod/"
+      "decorator": "@shell",
+      "args": { "command": "kubectl apply -f k8s/prod/" }
     },
     {
-      "kind": "shell",
-      "command": "kubectl scale --replicas=3 deployment/app"
+      "decorator": "@shell",
+      "args": { "command": "kubectl scale --replicas=3 deployment/app" }
     },
     {
-      "kind": "decorator",
-      "decorator": "retry",
+      "decorator": "@retry",
       "args": { "times": 3, "delay": "2s" },
       "block": [
         {
-          "kind": "shell",
-          "command": "kubectl rollout status deployment/app"
+          "decorator": "@shell",
+          "args": { "command": "kubectl rollout status deployment/app" }
         }
       ]
     }
