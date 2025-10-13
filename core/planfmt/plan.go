@@ -35,7 +35,7 @@ type PlanHeader struct {
 	CreatedAt uint64   // Unix nanoseconds (UTC)
 	Compiler  [16]byte // Build/commit fingerprint
 	PlanKind  uint8    // 0=view, 1=contract, 2=executed
-	_reserved [3]byte  // Reserved for future use (align to 8 bytes)
+	_         [3]byte  // Reserved for future use (align to 8 bytes)
 }
 
 // StepKind identifies the type of step

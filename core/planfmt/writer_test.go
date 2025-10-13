@@ -26,6 +26,18 @@ func TestWriteEmptyPlan(t *testing.T) {
 		t.Errorf("Expected 32-byte hash, got %d", len(hash))
 	}
 
+	// Verify hash is non-zero (actual content hashed)
+	allZero := true
+	for _, b := range hash {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		t.Error("Expected non-zero hash, got all zeros")
+	}
+
 	// Verify magic number "OPAL"
 	data := buf.Bytes()
 	if len(data) < 4 {
