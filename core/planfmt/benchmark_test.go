@@ -270,3 +270,95 @@ func BenchmarkMemoryFootprint(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkWideTree measures performance with many children (wide fanout)
+// Tests for O(N²) behavior in child handling
+func BenchmarkWideTree(b *testing.B) {
+	// Create plan with 1 root + 1000 direct children (wide, not deep)
+	plan := &planfmt.Plan{
+		Target: "wide",
+		Header: planfmt.PlanHeader{
+			CreatedAt: 1234567890,
+			PlanKind:  1,
+		},
+		Root: &planfmt.Step{
+			ID:       1,
+			Kind:     planfmt.KindDecorator,
+			Op:       "parallel",
+			Children: make([]*planfmt.Step, 1000),
+		},
+	}
+
+	for i := 0; i < 1000; i++ {
+		plan.Root.Children[i] = &planfmt.Step{
+			ID:   uint64(i + 2),
+			Kind: planfmt.KindDecorator,
+			Op:   "shell",
+			Args: []planfmt.Arg{
+				{Key: "cmd", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo test"}},
+			},
+		}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		var buf bytes.Buffer
+		_, err := planfmt.Write(&buf, plan)
+		if err != nil {
+			b.Fatalf("Write failed: %v", err)
+		}
+	}
+}
+
+// BenchmarkArgsHeavy measures performance with many args per step
+// Tests for O(N²) behavior in arg sorting/copying
+func BenchmarkArgsHeavy(b *testing.B) {
+	// Create plan with 100 steps, each with 64 args
+	var nextID uint64 = 1
+	plan := &planfmt.Plan{
+		Target: "args_heavy",
+		Header: planfmt.PlanHeader{
+			CreatedAt: 1234567890,
+			PlanKind:  1,
+		},
+	}
+
+	// Build 100 steps with 64 args each
+	steps := make([]*planfmt.Step, 100)
+	for i := 0; i < 100; i++ {
+		args := make([]planfmt.Arg, 64)
+		for j := 0; j < 64; j++ {
+			// Use different keys to force sorting
+			args[j] = planfmt.Arg{
+				Key: string(rune('a'+(j%26))) + string(rune('0'+(j/26))),
+				Val: planfmt.Value{Kind: planfmt.ValueString, Str: "value"},
+			}
+		}
+		steps[i] = &planfmt.Step{
+			ID:   nextID,
+			Kind: planfmt.KindDecorator,
+			Op:   "test",
+			Args: args,
+		}
+		nextID++
+	}
+
+	// Link as linear chain
+	plan.Root = steps[0]
+	for i := 0; i < 99; i++ {
+		steps[i].Children = []*planfmt.Step{steps[i+1]}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		var buf bytes.Buffer
+		_, err := planfmt.Write(&buf, plan)
+		if err != nil {
+			b.Fatalf("Write failed: %v", err)
+		}
+	}
+}
