@@ -102,3 +102,87 @@ func TestWriteHeaderLengths(t *testing.T) {
 	// Body length can be 0 for empty plan, just verify field exists
 	_ = bodyLen
 }
+
+// TestWriteActualHeader verifies the actual header bytes are written correctly
+func TestWriteActualHeader(t *testing.T) {
+	// Given: plan with target
+	plan := &planfmt.Plan{
+		Target: "deploy",
+		Header: planfmt.PlanHeader{
+			SchemaID:  [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+			CreatedAt: 1234567890,
+			Compiler:  [16]byte{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1},
+			PlanKind:  1, // contract
+		},
+	}
+
+	// When: write to buffer
+	var buf bytes.Buffer
+	_, err := planfmt.Write(&buf, plan)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	data := buf.Bytes()
+
+	// Then: verify total size matches preamble + header
+	// Preamble: 20 bytes
+	// Header: 44 bytes (PlanHeader) + 2 (target length) + 6 (target string "deploy")
+	expectedHeaderLen := uint32(44 + 2 + 6)
+	expectedTotalLen := 20 + expectedHeaderLen
+
+	if uint32(len(data)) < expectedTotalLen {
+		t.Fatalf("Output too short: got %d bytes, expected at least %d", len(data), expectedTotalLen)
+	}
+
+	// Verify HEADER_LEN field matches actual header size
+	headerLen := binary.LittleEndian.Uint32(data[8:12])
+	if headerLen != expectedHeaderLen {
+		t.Errorf("HEADER_LEN mismatch: got %d, expected %d", headerLen, expectedHeaderLen)
+	}
+
+	// Verify header starts at offset 20 (after preamble)
+	headerStart := 20
+
+	// Verify SchemaID (16 bytes at offset 20)
+	schemaID := data[headerStart : headerStart+16]
+	for i, b := range plan.Header.SchemaID {
+		if schemaID[i] != b {
+			t.Errorf("SchemaID[%d] mismatch: got %d, expected %d", i, schemaID[i], b)
+		}
+	}
+
+	// Verify CreatedAt (8 bytes at offset 36, little-endian uint64)
+	createdAt := binary.LittleEndian.Uint64(data[headerStart+16 : headerStart+24])
+	if createdAt != plan.Header.CreatedAt {
+		t.Errorf("CreatedAt mismatch: got %d, expected %d", createdAt, plan.Header.CreatedAt)
+	}
+
+	// Verify Compiler (16 bytes at offset 44)
+	compiler := data[headerStart+24 : headerStart+40]
+	for i, b := range plan.Header.Compiler {
+		if compiler[i] != b {
+			t.Errorf("Compiler[%d] mismatch: got %d, expected %d", i, compiler[i], b)
+		}
+	}
+
+	// Verify PlanKind (1 byte at offset 60)
+	planKind := data[headerStart+40]
+	if planKind != plan.Header.PlanKind {
+		t.Errorf("PlanKind mismatch: got %d, expected %d", planKind, plan.Header.PlanKind)
+	}
+
+	// Verify Target length (2 bytes at offset 64, little-endian uint16)
+	targetLenOffset := headerStart + 44
+	targetLen := binary.LittleEndian.Uint16(data[targetLenOffset : targetLenOffset+2])
+	if targetLen != uint16(len(plan.Target)) {
+		t.Errorf("Target length mismatch: got %d, expected %d", targetLen, len(plan.Target))
+	}
+
+	// Verify Target string (6 bytes at offset 66)
+	targetOffset := targetLenOffset + 2
+	target := string(data[targetOffset : targetOffset+int(targetLen)])
+	if target != plan.Target {
+		t.Errorf("Target mismatch: got %q, expected %q", target, plan.Target)
+	}
+}

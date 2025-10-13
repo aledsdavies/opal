@@ -1,6 +1,7 @@
 package planfmt
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io"
 )
@@ -42,59 +43,114 @@ type Writer struct {
 }
 
 // WritePlan writes the plan to the underlying writer.
-// Format: MAGIC(4) | VERSION(2) | FLAGS(2) | HEADER_LEN(4) | BODY_LEN(8) | ...
+// Format: MAGIC(4) | VERSION(2) | FLAGS(2) | HEADER_LEN(4) | BODY_LEN(8) | HEADER | BODY
 func (wr *Writer) WritePlan(p *Plan) ([32]byte, error) {
-	// Step 1: Write magic number (4 bytes)
-	if _, err := wr.w.Write([]byte(Magic)); err != nil {
+	// Use buffer-then-write pattern: build header and body first, then write preamble with correct lengths
+	var headerBuf, bodyBuf bytes.Buffer
+
+	// Build header in buffer
+	if err := wr.writeHeader(&headerBuf, p); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Step 2: Write version (2 bytes, little-endian)
-	if err := binary.Write(wr.w, binary.LittleEndian, Version); err != nil {
+	// Build body in buffer (TODO: implement sections)
+	if err := wr.writeBody(&bodyBuf, p); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Step 3: Write flags (2 bytes, little-endian)
-	// For now, no flags set (no compression, no signature)
-	flags := Flags(0)
-	if err := binary.Write(wr.w, binary.LittleEndian, uint16(flags)); err != nil {
+	// Now write preamble with actual lengths
+	if err := wr.writePreamble(uint32(headerBuf.Len()), uint64(bodyBuf.Len())); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Step 4: Write header length (4 bytes, uint32, little-endian)
-	// Header contains: SchemaID(16) + CreatedAt(8) + Compiler(16) + PlanKind(1) + Reserved(3) + Target(variable)
-	// For now, write placeholder (will compute actual size later)
-	headerLen := wr.computeHeaderLen(p)
-	if err := binary.Write(wr.w, binary.LittleEndian, headerLen); err != nil {
+	// Write header
+	if _, err := wr.w.Write(headerBuf.Bytes()); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Step 5: Write body length (8 bytes, uint64, little-endian)
-	// Body contains: TOC + all sections
-	// For now, write placeholder (will compute actual size later)
-	bodyLen := wr.computeBodyLen(p)
-	if err := binary.Write(wr.w, binary.LittleEndian, bodyLen); err != nil {
+	// Write body
+	if _, err := wr.w.Write(bodyBuf.Bytes()); err != nil {
 		return [32]byte{}, err
 	}
 
-	// TODO: Write actual header, TOC, sections, hash
-
-	// Return dummy hash for now (will implement BLAKE3 later)
+	// TODO: Compute actual hash (BLAKE3)
 	return [32]byte{}, nil
 }
 
-// computeHeaderLen computes the size of the header in bytes
-func (wr *Writer) computeHeaderLen(p *Plan) uint32 {
-	// PlanHeader is fixed size: SchemaID(16) + CreatedAt(8) + Compiler(16) + PlanKind(1) + Reserved(3) = 44 bytes
-	// Target is variable: TargetLen(2) + Target(variable)
-	headerSize := 44                // Fixed PlanHeader size
-	targetSize := 2 + len(p.Target) // Length prefix + string bytes
-	return uint32(headerSize + targetSize)
+// writePreamble writes the fixed-size preamble (20 bytes)
+func (wr *Writer) writePreamble(headerLen uint32, bodyLen uint64) error {
+	// Magic number (4 bytes)
+	if _, err := wr.w.Write([]byte(Magic)); err != nil {
+		return err
+	}
+
+	// Version (2 bytes, little-endian)
+	if err := binary.Write(wr.w, binary.LittleEndian, Version); err != nil {
+		return err
+	}
+
+	// Flags (2 bytes, little-endian)
+	flags := Flags(0) // No compression, no signature
+	if err := binary.Write(wr.w, binary.LittleEndian, uint16(flags)); err != nil {
+		return err
+	}
+
+	// Header length (4 bytes, uint32, little-endian)
+	if err := binary.Write(wr.w, binary.LittleEndian, headerLen); err != nil {
+		return err
+	}
+
+	// Body length (8 bytes, uint64, little-endian)
+	if err := binary.Write(wr.w, binary.LittleEndian, bodyLen); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-// computeBodyLen computes the size of the body (TOC + sections) in bytes
-func (wr *Writer) computeBodyLen(p *Plan) uint64 {
-	// For now, return 0 (no sections yet)
-	// Will implement when we add TOC and sections
-	return 0
+// writeHeader writes the plan header to the buffer
+func (wr *Writer) writeHeader(buf *bytes.Buffer, p *Plan) error {
+	// Write PlanHeader struct (44 bytes fixed)
+	// SchemaID (16 bytes)
+	if _, err := buf.Write(p.Header.SchemaID[:]); err != nil {
+		return err
+	}
+
+	// CreatedAt (8 bytes, uint64, little-endian)
+	if err := binary.Write(buf, binary.LittleEndian, p.Header.CreatedAt); err != nil {
+		return err
+	}
+
+	// Compiler (16 bytes)
+	if _, err := buf.Write(p.Header.Compiler[:]); err != nil {
+		return err
+	}
+
+	// PlanKind (1 byte)
+	if err := buf.WriteByte(p.Header.PlanKind); err != nil {
+		return err
+	}
+
+	// Reserved (3 bytes)
+	if _, err := buf.Write([]byte{0, 0, 0}); err != nil {
+		return err
+	}
+
+	// Target (variable length: 2-byte length prefix + string bytes)
+	targetLen := uint16(len(p.Target))
+	if err := binary.Write(buf, binary.LittleEndian, targetLen); err != nil {
+		return err
+	}
+	if _, err := buf.WriteString(p.Target); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// writeBody writes the plan body (TOC + sections) to the buffer
+func (wr *Writer) writeBody(buf *bytes.Buffer, p *Plan) error {
+	// TODO: Implement TOC and sections
+	// For now, write nothing (empty body)
+	return nil
 }
