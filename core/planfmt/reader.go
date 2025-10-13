@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"golang.org/x/crypto/blake2b"
 )
 
 // Read reads a plan from r and returns the plan and its hash.
@@ -18,13 +20,20 @@ type Reader struct {
 	r io.Reader
 }
 
-// ReadPlan reads the plan from the underlying reader.
+// ReadPlan reads the plan from the underlying reader and returns the computed hash.
 func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
+	// Create hasher to compute hash while reading
+	hasher, err := blake2b.New256(nil)
+	if err != nil {
+		return nil, [32]byte{}, fmt.Errorf("create hasher: %w", err)
+	}
+
 	// Read preamble (20 bytes)
 	var preamble [20]byte
 	if _, err := io.ReadFull(rd.r, preamble[:]); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("read preamble: %w", err)
 	}
+	hasher.Write(preamble[:])
 
 	// Verify magic
 	magic := string(preamble[0:4])
@@ -51,8 +60,8 @@ func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
 	// Validate lengths to prevent OOM attacks
 	// Header: metadata only, should be < 1KB typically
 	// Body: even 10,000 steps should fit in ~10MB
-	const maxHeaderLen = 64 * 1024       // 64KB max header (very generous)
-	const maxBodyLen = 100 * 1024 * 1024 // 100MB max body (huge script)
+	const maxHeaderLen = 64 * 1024      // 64KB max header (very generous)
+	const maxBodyLen = 32 * 1024 * 1024 // 32MB max body (lowered for fuzz safety)
 
 	if headerLen > maxHeaderLen {
 		return nil, [32]byte{}, fmt.Errorf("header length %d exceeds maximum %d", headerLen, maxHeaderLen)
@@ -66,6 +75,7 @@ func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
 	if _, err := io.ReadFull(rd.r, headerBuf); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("read header: %w", err)
 	}
+	hasher.Write(headerBuf)
 
 	plan, err := rd.readHeader(bytes.NewReader(headerBuf))
 	if err != nil {
@@ -77,13 +87,16 @@ func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
 	if _, err := io.ReadFull(rd.r, bodyBuf); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("read body: %w", err)
 	}
+	hasher.Write(bodyBuf)
 
 	if err := rd.readBody(bytes.NewReader(bodyBuf), plan); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("parse body: %w", err)
 	}
 
-	// TODO: Compute actual hash
-	return plan, [32]byte{}, nil
+	// Extract hash
+	var digest [32]byte
+	copy(digest[:], hasher.Sum(nil))
+	return plan, digest, nil
 }
 
 // readHeader reads the plan header

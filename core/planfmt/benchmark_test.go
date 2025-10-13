@@ -21,15 +21,20 @@ func generatePlan(stepCount int) *planfmt.Plan {
 		return plan
 	}
 
-	// Create a tree of steps
-	plan.Root = generateStepTree(1, stepCount, 0)
+	// Create a tree of steps with monotonic IDs
+	var nextID uint64 = 1
+	plan.Root = generateStepTree(&nextID, stepCount, 0)
 	return plan
 }
 
-func generateStepTree(id uint64, remaining int, depth int) *planfmt.Step {
+func generateStepTree(nextID *uint64, remaining int, depth int) *planfmt.Step {
 	if remaining <= 0 {
 		return nil
 	}
+
+	// Allocate unique ID
+	id := *nextID
+	*nextID++
 
 	step := &planfmt.Step{
 		ID:   id,
@@ -56,7 +61,7 @@ func generateStepTree(id uint64, remaining int, depth int) *planfmt.Step {
 			if i == 0 {
 				childRemaining += remaining % childCount
 			}
-			child := generateStepTree(id+uint64(i)+1, childRemaining, depth+1)
+			child := generateStepTree(nextID, childRemaining, depth+1)
 			if child != nil {
 				step.Children = append(step.Children, child)
 				remaining -= childRemaining
@@ -243,14 +248,21 @@ func BenchmarkCanonicalizeOverhead(b *testing.B) {
 
 // BenchmarkMemoryFootprint measures memory usage for large plans
 func BenchmarkMemoryFootprint(b *testing.B) {
-	sizes := []int{100, 1000, 10000}
+	sizes := []struct {
+		name  string
+		steps int
+	}{
+		{"N_100", 100},
+		{"N_1000", 1000},
+		{"N_10000", 10000},
+	}
 
 	for _, size := range sizes {
-		b.Run(string(rune(size)), func(b *testing.B) {
+		b.Run(size.name, func(b *testing.B) {
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
-				plan := generatePlan(size)
+				plan := generatePlan(size.steps)
 				var buf bytes.Buffer
 				_, _ = planfmt.Write(&buf, plan)
 				_, _, _ = planfmt.Read(bytes.NewReader(buf.Bytes()))

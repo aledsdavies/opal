@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+
+	"golang.org/x/crypto/blake2b"
 )
 
 const (
@@ -44,6 +46,7 @@ type Writer struct {
 
 // WritePlan writes the plan to the underlying writer.
 // Format: MAGIC(4) | VERSION(2) | FLAGS(2) | HEADER_LEN(4) | BODY_LEN(8) | HEADER | BODY
+// Returns the BLAKE2b-256 hash of the entire file.
 func (wr *Writer) WritePlan(p *Plan) ([32]byte, error) {
 	// Canonicalize plan for deterministic encoding (sorts args, preserves child order)
 	p.Canonicalize()
@@ -61,50 +64,63 @@ func (wr *Writer) WritePlan(p *Plan) ([32]byte, error) {
 		return [32]byte{}, err
 	}
 
-	// Now write preamble with actual lengths
-	if err := wr.writePreamble(uint32(headerBuf.Len()), uint64(bodyBuf.Len())); err != nil {
+	// Create hasher and multi-writer to compute hash while writing
+	hasher, err := blake2b.New256(nil)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	mw := io.MultiWriter(hasher, wr.w)
+
+	// Write preamble with actual lengths (to both hasher and output)
+	var preambleBuf bytes.Buffer
+	if err := wr.writePreambleToBuffer(&preambleBuf, uint32(headerBuf.Len()), uint64(bodyBuf.Len())); err != nil {
+		return [32]byte{}, err
+	}
+	if _, err := mw.Write(preambleBuf.Bytes()); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Write header
-	if _, err := wr.w.Write(headerBuf.Bytes()); err != nil {
+	// Write header (to both hasher and output)
+	if _, err := mw.Write(headerBuf.Bytes()); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Write body
-	if _, err := wr.w.Write(bodyBuf.Bytes()); err != nil {
+	// Write body (to both hasher and output)
+	if _, err := mw.Write(bodyBuf.Bytes()); err != nil {
 		return [32]byte{}, err
 	}
 
-	// TODO: Compute actual hash (BLAKE3)
-	return [32]byte{}, nil
+	// Extract hash
+	var digest [32]byte
+	copy(digest[:], hasher.Sum(nil))
+	return digest, nil
 }
 
-// writePreamble writes the fixed-size preamble (20 bytes)
-func (wr *Writer) writePreamble(headerLen uint32, bodyLen uint64) error {
+// writePreambleToBuffer writes the fixed-size preamble (20 bytes) to a buffer
+func (wr *Writer) writePreambleToBuffer(buf *bytes.Buffer, headerLen uint32, bodyLen uint64) error {
 	// Magic number (4 bytes)
-	if _, err := wr.w.Write([]byte(Magic)); err != nil {
+	if _, err := buf.Write([]byte(Magic)); err != nil {
 		return err
 	}
 
 	// Version (2 bytes, little-endian)
-	if err := binary.Write(wr.w, binary.LittleEndian, Version); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, Version); err != nil {
 		return err
 	}
 
 	// Flags (2 bytes, little-endian)
 	flags := Flags(0) // No compression, no signature
-	if err := binary.Write(wr.w, binary.LittleEndian, uint16(flags)); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, uint16(flags)); err != nil {
 		return err
 	}
 
 	// Header length (4 bytes, uint32, little-endian)
-	if err := binary.Write(wr.w, binary.LittleEndian, headerLen); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, headerLen); err != nil {
 		return err
 	}
 
 	// Body length (8 bytes, uint64, little-endian)
-	if err := binary.Write(wr.w, binary.LittleEndian, bodyLen); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, bodyLen); err != nil {
 		return err
 	}
 
