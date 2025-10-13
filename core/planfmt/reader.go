@@ -48,8 +48,21 @@ func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
 	}
 
 	// Read flags
-	flags := binary.LittleEndian.Uint16(preamble[6:8])
-	_ = flags // TODO: Handle compression/signature
+	flags := Flags(binary.LittleEndian.Uint16(preamble[6:8]))
+
+	// Reject unknown flags for this version
+	knownFlags := FlagCompressed | FlagSigned
+	if flags&^knownFlags != 0 {
+		return nil, [32]byte{}, fmt.Errorf("unsupported flags: 0x%04x (unknown bits: 0x%04x)", flags, flags&^knownFlags)
+	}
+
+	// TODO: Implement compression and signature verification
+	if flags&FlagCompressed != 0 {
+		return nil, [32]byte{}, fmt.Errorf("compressed plans not yet supported")
+	}
+	if flags&FlagSigned != 0 {
+		return nil, [32]byte{}, fmt.Errorf("signed plans not yet supported")
+	}
 
 	// Read header length
 	headerLen := binary.LittleEndian.Uint32(preamble[8:12])
@@ -62,6 +75,7 @@ func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
 	// Body: even 10,000 steps should fit in ~10MB
 	const maxHeaderLen = 64 * 1024      // 64KB max header (very generous)
 	const maxBodyLen = 32 * 1024 * 1024 // 32MB max body (lowered for fuzz safety)
+	const maxDepth = 1000               // Max recursion depth to prevent stack overflow
 
 	if headerLen > maxHeaderLen {
 		return nil, [32]byte{}, fmt.Errorf("header length %d exceeds maximum %d", headerLen, maxHeaderLen)
@@ -89,7 +103,7 @@ func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
 	}
 	hasher.Write(bodyBuf)
 
-	if err := rd.readBody(bytes.NewReader(bodyBuf), plan); err != nil {
+	if err := rd.readBody(bytes.NewReader(bodyBuf), plan, maxDepth); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("parse body: %w", err)
 	}
 
@@ -148,7 +162,7 @@ func (rd *Reader) readHeader(r io.Reader) (*Plan, error) {
 }
 
 // readBody reads the plan body (steps)
-func (rd *Reader) readBody(r io.Reader, plan *Plan) error {
+func (rd *Reader) readBody(r io.Reader, plan *Plan, maxDepth int) error {
 	// Check if body is empty
 	var peek [1]byte
 	n, err := r.Read(peek[:])
@@ -160,7 +174,7 @@ func (rd *Reader) readBody(r io.Reader, plan *Plan) error {
 	// Body has content, read root step
 	// Create a new reader with the peeked byte prepended
 	bodyReader := io.MultiReader(bytes.NewReader(peek[:n]), r)
-	root, err := rd.readStep(bodyReader)
+	root, err := rd.readStep(bodyReader, 0, maxDepth)
 	if err != nil {
 		return err
 	}
@@ -170,7 +184,12 @@ func (rd *Reader) readBody(r io.Reader, plan *Plan) error {
 }
 
 // readStep reads a single step and its children recursively
-func (rd *Reader) readStep(r io.Reader) (*Step, error) {
+func (rd *Reader) readStep(r io.Reader, depth int, maxDepth int) (*Step, error) {
+	// Check depth limit to prevent stack overflow
+	if depth >= maxDepth {
+		return nil, fmt.Errorf("max recursion depth %d exceeded", maxDepth)
+	}
+
 	step := &Step{}
 
 	// Read step ID (8 bytes, uint64, little-endian)
@@ -226,7 +245,7 @@ func (rd *Reader) readStep(r io.Reader) (*Step, error) {
 	if childrenCount > 0 {
 		step.Children = make([]*Step, childrenCount)
 		for i := 0; i < int(childrenCount); i++ {
-			child, err := rd.readStep(r)
+			child, err := rd.readStep(r, depth+1, maxDepth)
 			if err != nil {
 				return nil, fmt.Errorf("read child %d: %w", i, err)
 			}
