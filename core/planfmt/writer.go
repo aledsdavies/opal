@@ -85,10 +85,11 @@ func (wr *Writer) WritePlan(p *Plan) ([32]byte, error) {
 
 // computeHeaderLen computes the size of the header in bytes
 func (wr *Writer) computeHeaderLen(p *Plan) uint32 {
-	// SchemaID(16) + CreatedAt(8) + Compiler(16) + PlanKind(1) + Reserved(3) + TargetLen(2) + Target(variable)
-	baseSize := 16 + 8 + 16 + 1 + 3 + 2
-	targetSize := len(p.Target)
-	return uint32(baseSize + targetSize)
+	// PlanHeader is fixed size: SchemaID(16) + CreatedAt(8) + Compiler(16) + PlanKind(1) + Reserved(3) = 44 bytes
+	// Target is variable: TargetLen(2) + Target(variable)
+	headerSize := 44                // Fixed PlanHeader size
+	targetSize := 2 + len(p.Target) // Length prefix + string bytes
+	return uint32(headerSize + targetSize)
 }
 
 // computeBodyLen computes the size of the body (TOC + sections) in bytes
