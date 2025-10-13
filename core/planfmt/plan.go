@@ -5,6 +5,20 @@ import (
 	"sort"
 )
 
+// Format limits (enforced by wire types):
+// - Op/arg key/value strings: max 65,535 bytes (uint16 length prefix)
+// - Args per step: max 65,535 (uint16 count)
+// - Children per step: max 65,535 (uint16 count)
+// - Recursion depth: max 1,000 levels (enforced by reader)
+// - Header size: max 64 KB (enforced by reader)
+// - Body size: max 32 MB (enforced by reader)
+//
+// Version compatibility:
+// - Version field: uint16 encoded as major.minor (0x0001 = v1.0)
+// - Breaking changes increment major, additions increment minor
+// - Readers must reject versions with higher major number
+// - Readers should accept higher minor versions (forward compatible)
+
 // Plan is the in-memory representation of an execution plan.
 // This is the stable contract between planner, executor, and formatters.
 type Plan struct {
@@ -88,6 +102,10 @@ func (p *Plan) Validate() error {
 // Canonicalize ensures the plan is in canonical form for deterministic encoding.
 // This sorts args by key and recursively canonicalizes children.
 // Must be called before writing to ensure deterministic output.
+//
+// Note: String comparison is bytewise (Go's native < operator).
+// For cross-platform Unicode reproducibility, consider normalizing strings
+// to NFC form before encoding if visual equality matters.
 func (p *Plan) Canonicalize() {
 	if p.Root != nil {
 		p.Root.canonicalize()
