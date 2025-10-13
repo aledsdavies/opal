@@ -1,6 +1,9 @@
 package planfmt
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // Plan is the in-memory representation of an execution plan.
 // This is the stable contract between planner, executor, and formatters.
@@ -82,6 +85,15 @@ func (p *Plan) Validate() error {
 	return p.Root.validate(seen)
 }
 
+// Canonicalize ensures the plan is in canonical form for deterministic encoding.
+// This sorts args by key and recursively canonicalizes children.
+// Must be called before writing to ensure deterministic output.
+func (p *Plan) Canonicalize() {
+	if p.Root != nil {
+		p.Root.canonicalize()
+	}
+}
+
 // validate checks step invariants recursively
 func (s *Step) validate(seen map[uint64]bool) error {
 	// Check ID uniqueness
@@ -106,4 +118,19 @@ func (s *Step) validate(seen map[uint64]bool) error {
 	}
 
 	return nil
+}
+
+// canonicalize sorts args and recursively canonicalizes children
+func (s *Step) canonicalize() {
+	// Sort args by key for deterministic encoding
+	if len(s.Args) > 1 {
+		sort.Slice(s.Args, func(i, j int) bool {
+			return s.Args[i].Key < s.Args[j].Key
+		})
+	}
+
+	// Recursively canonicalize children (preserve order, but canonicalize each)
+	for _, child := range s.Children {
+		child.canonicalize()
+	}
 }

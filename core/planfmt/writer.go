@@ -45,6 +45,9 @@ type Writer struct {
 // WritePlan writes the plan to the underlying writer.
 // Format: MAGIC(4) | VERSION(2) | FLAGS(2) | HEADER_LEN(4) | BODY_LEN(8) | HEADER | BODY
 func (wr *Writer) WritePlan(p *Plan) ([32]byte, error) {
+	// Canonicalize plan for deterministic encoding (sorts args, preserves child order)
+	p.Canonicalize()
+
 	// Use buffer-then-write pattern: build header and body first, then write preamble with correct lengths
 	var headerBuf, bodyBuf bytes.Buffer
 
@@ -150,7 +153,111 @@ func (wr *Writer) writeHeader(buf *bytes.Buffer, p *Plan) error {
 
 // writeBody writes the plan body (TOC + sections) to the buffer
 func (wr *Writer) writeBody(buf *bytes.Buffer, p *Plan) error {
-	// TODO: Implement TOC and sections
-	// For now, write nothing (empty body)
+	// For now, write a minimal STEPS section (no TOC yet)
+	// This is just enough to make child order tests pass
+	if p.Root != nil {
+		return wr.writeStep(buf, p.Root)
+	}
+	return nil
+}
+
+// writeStep writes a single step and its children recursively
+func (wr *Writer) writeStep(buf *bytes.Buffer, s *Step) error {
+	// Write step ID (8 bytes, uint64, little-endian)
+	if err := binary.Write(buf, binary.LittleEndian, s.ID); err != nil {
+		return err
+	}
+
+	// Write kind (1 byte)
+	if err := buf.WriteByte(uint8(s.Kind)); err != nil {
+		return err
+	}
+
+	// Write op (2-byte length + string)
+	opLen := uint16(len(s.Op))
+	if err := binary.Write(buf, binary.LittleEndian, opLen); err != nil {
+		return err
+	}
+	if _, err := buf.WriteString(s.Op); err != nil {
+		return err
+	}
+
+	// Write args count (2 bytes, uint16)
+	argsCount := uint16(len(s.Args))
+	if err := binary.Write(buf, binary.LittleEndian, argsCount); err != nil {
+		return err
+	}
+
+	// Write each arg
+	for _, arg := range s.Args {
+		if err := wr.writeArg(buf, &arg); err != nil {
+			return err
+		}
+	}
+
+	// Write children count (2 bytes, uint16)
+	childrenCount := uint16(len(s.Children))
+	if err := binary.Write(buf, binary.LittleEndian, childrenCount); err != nil {
+		return err
+	}
+
+	// Write each child recursively
+	for _, child := range s.Children {
+		if err := wr.writeStep(buf, child); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// writeArg writes a single argument
+func (wr *Writer) writeArg(buf *bytes.Buffer, arg *Arg) error {
+	// Write key (2-byte length + string)
+	keyLen := uint16(len(arg.Key))
+	if err := binary.Write(buf, binary.LittleEndian, keyLen); err != nil {
+		return err
+	}
+	if _, err := buf.WriteString(arg.Key); err != nil {
+		return err
+	}
+
+	// Write value kind (1 byte)
+	if err := buf.WriteByte(uint8(arg.Val.Kind)); err != nil {
+		return err
+	}
+
+	// Write value based on kind
+	switch arg.Val.Kind {
+	case ValueString:
+		// String: 2-byte length + string
+		strLen := uint16(len(arg.Val.Str))
+		if err := binary.Write(buf, binary.LittleEndian, strLen); err != nil {
+			return err
+		}
+		if _, err := buf.WriteString(arg.Val.Str); err != nil {
+			return err
+		}
+	case ValueInt:
+		// Int: 8 bytes, int64, little-endian
+		if err := binary.Write(buf, binary.LittleEndian, arg.Val.Int); err != nil {
+			return err
+		}
+	case ValueBool:
+		// Bool: 1 byte (0 or 1)
+		var b byte
+		if arg.Val.Bool {
+			b = 1
+		}
+		if err := buf.WriteByte(b); err != nil {
+			return err
+		}
+	case ValuePlaceholder:
+		// Placeholder: 4 bytes, uint32 (index into placeholder table)
+		if err := binary.Write(buf, binary.LittleEndian, arg.Val.Ref); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
