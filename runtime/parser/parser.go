@@ -581,11 +581,14 @@ func (p *parser) statement() {
 				nextType == lexer.DIVIDE_ASSIGN ||
 				nextType == lexer.MODULO_ASSIGN {
 				p.assignmentStmt()
-				return
+			} else {
+				// Shell command
+				p.shellCommand()
 			}
+		} else {
+			// No next token, treat as shell command
+			p.shellCommand()
 		}
-		// Shell command
-		p.shellCommand()
 	} else if !p.at(lexer.RBRACE) && !p.at(lexer.EOF) {
 		// Unknown statement - error recovery
 		if p.config.debug >= DebugDetailed {
