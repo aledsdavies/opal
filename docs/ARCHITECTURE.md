@@ -1399,6 +1399,72 @@ When building decorators, follow these principles to maintain the contract model
 
 **Handle infrastructure drift gracefully**. When current infrastructure doesn't match plan expectations, provide clear error messages and suggested actions rather than cryptic failures.
 
+## SDK for Decorator Authors
+
+Opal provides a secure-by-default SDK in `core/sdk/` for building decorators:
+
+### Secret Handling (`core/sdk/secret`)
+
+All value decorators return `secret.Handle` for automatic scrubbing:
+
+```go
+import "github.com/aledsdavies/opal/core/sdk/secret"
+
+func awsSecretHandler(ctx ExecutionContext, args []Param) (*secret.Handle, error) {
+    secretName := ctx.ArgString("secretName")
+    value := fetchFromAWS(secretName)
+    return secret.NewHandle(value), nil
+}
+```
+
+**Safe operations:**
+- `handle.ID()` - Opaque display ID: `opal:secret:3J98t56A`
+- `handle.Mask(3)` - Masked display: `abc***xyz`
+- `handle.ForEnv("KEY")` - Environment variable: `KEY=value` (requires capability)
+- `handle.Bytes()` - Raw bytes (requires capability)
+
+**Unsafe operations (explicit, capability-gated):**
+- `handle.UnsafeUnwrap()` - Raw value (panics in debug mode without capability)
+
+**Capability gating**: Only the executor can issue capabilities. This prevents accidental leaks in plugins while enabling legitimate subprocess/environment wiring.
+
+### Command Execution (`core/sdk/executor`)
+
+Use `executor.Command()` instead of `os/exec` for automatic scrubbing:
+
+```go
+import "github.com/aledsdavies/opal/core/sdk/executor"
+
+cmd := executor.Command("kubectl", "get", "pods")
+cmd.AppendEnv(map[string]string{
+    "KUBECONFIG": kubeconfigPath,
+})
+exitCode, err := cmd.Run()
+```
+
+**Why this is safe:**
+- Output automatically routes through scrubber
+- Secrets are redacted before display
+- No way to bypass security
+
+**API:**
+- `Command(name, args...)` - Create command
+- `Bash(script)` - Execute bash script
+- `AppendEnv(map)` - Add environment (preserves PATH)
+- `SetStdin(reader)` - Feed input
+- `Run()` - Execute and wait
+- `Start()` / `Wait()` - Async execution
+- `Output()` / `CombinedOutput()` - Capture output (not scrubbed)
+
+### Security Model
+
+- **Taint tracking**: Secrets panic on `String()` to catch accidental leaks
+- **Per-run keyed fingerprints**: Prevent cross-run correlation
+- **Locked-down I/O**: All subprocess output goes through scrubber
+- **Capability gating**: Raw access requires executor-issued token
+
+See `docs/SDK_GUIDE.md` for complete API reference and examples.
+
 ## Plugin System
 
 Decorators work through a dual-path plugin system that balances safety with flexibility:
@@ -1473,13 +1539,40 @@ Smart optimizations happen automatically:
 
 ## Security Model
 
-The placeholder system protects sensitive values while enabling change detection:
+The placeholder system protects sensitive values while enabling change detection using a **two-track identity model**:
 
-**Placeholder format**: `<length:algorithm:hash>` like `<32:sha256:a1b2c3>`. The length gives size hints for debugging, the algorithm future-proofs against changes, and the hash detects value changes without exposing content.
+**Placeholder format (user-visible)**: `🔒 opal:secret:3J98t56A` - opaque random ID, no length leak, no correlation across runs.
 
 **Security invariant**: Raw secrets never appear in plans, logs, or error messages. This applies to all value decorators - `@env.NAME`, `@aws.secret.NAME`, whatever. Compliance teams can review plans confidently.
 
 **Hash scope**: Plan hashes cover ordered steps, arguments, operator graphs, and timing flags. They exclude ephemeral data like run IDs or timestamps that shouldn't invalidate a plan.
+
+### Two-Track Identity Model
+
+Secrets need two representations for different purposes:
+
+**Track 1: Display (User-Visible)**
+- Format: `🔒 opal:secret:3J98t56A` (Base58 encoded, opaque random ID)
+- Used in: Terminal output, logs, CLI display, plan files
+- Properties: No length leak, no correlation across runs, visually distinct
+- Example: `API_KEY: 🔒 opal:secret:3J98t56A`
+
+**Track 2: Internal (Machine-Readable)**
+- Format: BLAKE2b-256 keyed hash with per-run key
+- Used in: Scrubber matching, secret detection, internal verification
+- Properties: Keyed (per-run), deterministic within run, prevents oracle attacks
+- Never displayed to users
+
+**Why this works:**
+- **Security**: Opaque IDs prevent correlation/oracles; keyed fingerprints prevent detection
+- **Determinism**: Hashes keep caching/rebuilds reproducible; opaque IDs can be deterministic without leaking structure
+- **UX**: Users see short, stable identifiers instead of scary hashes or length hints
+
+**Implementation:**
+- `secret.Handle.ID()` returns opaque display ID
+- `secret.Handle.Fingerprint(key)` returns keyed hash (internal only)
+- Scrubber uses fingerprints for matching, displays opaque IDs in output
+- Per-run key prevents cross-run correlation
 
 ### Plan Provenance Headers
 

@@ -970,7 +970,7 @@ deploy:
 ├─ kubectl apply -f k8s/
 ├─ kubectl create secret --token=¹@aws.secret("api-token")
 └─ @if(ENV == "production")
-   └─ kubectl scale --replicas=<1:sha256:def789> deployment/app
+   └─ kubectl scale --replicas=🔒 opal:secret:3J98t56A deployment/app
 
 Deferred Values:
 1. @aws.secret("api-token") → <expensive: AWS lookup>
@@ -995,15 +995,15 @@ opal deploy --dry-run --resolve > prod.plan
 ```
 deploy:
 ├─ kubectl apply -f k8s/
-├─ kubectl create secret --token=<32:sha256:a1b2c3>
+├─ kubectl create secret --token=🔒 opal:secret:3J98t56A
 └─ @if(ENV == "production")
-   └─ kubectl scale --replicas=<1:sha256:def789> deployment/app
+   └─ kubectl scale --replicas=🔒 opal:secret:3J98t56A deployment/app
 
 Contract Hash: sha256:abc123...
 ```
 
 **Key principles**:
-- All resolved values use `<length:algorithm:hash>` format (security by default)
+- All resolved values use `opal:secret:ID` format (security by default)
 - Metaprogramming constructs (`@if`, `@for`, `@when`) show which path was taken
 - Original constructs are preserved for audit trails while showing expanded results
 
@@ -1025,17 +1025,24 @@ opal run --plan prod.plan
 3. **Contract verification** (if using plan file): Ensures resolved values match contract hashes
 4. **Execution**: Runs commands with internally resolved values
 
-**Security by default**: All values appear as `<N:hashAlgo:hex>` format (e.g., `<32:sha256:a1b2c3d4>`).
+**Security by default**: All values appear as `🔒 opal:secret:3J98t56A` format (opaque random ID, no length leak).
 
 > **Placeholder Format**
-> `<N:hashAlgo:hex>` where N=character count, hashAlgo=algorithm, hex=truncated hash.
-> Examples: `<32:sha256:a1b2c3>`, `<8:sha256:x7y8z9>`.
-> Future-proofs against algorithm changes and aids debugging.
+> `opal:secret:ID` where ID is a Base58-encoded random identifier.
+> Format: `🔒 opal:secret:3J98t56A` (with emoji for terminal display)
+> Machine-readable: `opal:secret:3J98t56A` (without emoji for JSON/files)
+> Prevents oracle attacks (same value = different ID each run)
 
-**Plan hash scope**: Ordered steps + arguments (with `<len:hash>` placeholders) + operator graph + resolution timing flags; excludes ephemeral run IDs/logs.
+
+
+
+
+
+
+**Plan hash scope**: Ordered steps + arguments (with `opal:secret:ID` placeholders) + operator graph + resolution timing flags; excludes ephemeral run IDs/logs.
 
 > **Security Invariant**
-> Raw secrets never appear in plans or logs, only `<len:hash>` placeholders.
+> Raw secrets never appear in plans or logs, only `🔒 opal:secret:3J98t56A` placeholders.
 > This applies to all value decorators: `@env.KEY`, `@var.NAME`, `@aws.secret.name`, etc.
 > Compliance teams can review plans with confidence.
 
@@ -1077,8 +1084,8 @@ Contract execution always replans from current source and state. The plan file i
 ```
 ERROR: Contract verification failed
 
-Expected: kubectl scale --replicas=<1:sha256:abc123> deployment/app
-Actual:   kubectl scale --replicas=<1:sha256:def456> deployment/app
+Expected: kubectl scale --replicas=🔒 opal:secret:3J98t56A deployment/app
+Actual:   kubectl scale --replicas=🔒 opal:secret:3J98t56A deployment/app
 
 Variable REPLICAS changed: was 3, now 5
 → Source or environment changed since plan generation
@@ -1128,7 +1135,7 @@ deploy:
 // Plan shows:
 deploy:
 └─ @if(ENV == "production")
-   └─ kubectl scale --replicas=<1:sha256:abc123> deployment/app
+   └─ kubectl scale --replicas=🔒 opal:secret:3J98t56A deployment/app
 ```
 
 **When patterns** show the matched pattern:
@@ -1138,7 +1145,7 @@ deploy:
 // Plan shows:
 deploy:
 └─ @when(ENV == "production")
-   └─ kubectl scale --replicas=<1:sha256:abc123> deployment/app
+   └─ kubectl scale --replicas=🔒 opal:secret:3J98t56A deployment/app
 ```
 
 **Try/catch blocks** show all possible paths:
@@ -1157,10 +1164,10 @@ deploy:
 
 ### Security and Hash Format
 
-**All resolved values** use the security placeholder format `<length:algorithm:hash>`:
-- `<1:sha256:abc123>` - single character value (e.g., "3")
-- `<32:sha256:def456>` - 32 character value (e.g., secret token)
-- `<8:sha256:xyz789>` - 8 character value (e.g., hostname)
+**All resolved values** use the security placeholder format `opal:secret:ID`:
+- `🔒 opal:secret:3J98t56A` - single character value (e.g., "3")
+- `🔒 opal:secret:3J98t56A` - 32 character value (e.g., secret token)
+- `🔒 opal:secret:3J98t56A` - 8 character value (e.g., hostname)
 
 This format ensures:
 - **No value leakage** in plans or logs
@@ -1254,7 +1261,7 @@ Source file modified since plan generation.
 ```
 ERROR: Infrastructure state changed
 
-Expected: kubectl scale --replicas=<1:sha256:abc123> deployment/app
+Expected: kubectl scale --replicas=🔒 opal:secret:3J98t56A deployment/app
 Current:  No deployment/app found
 
 Infrastructure changed since plan generation.
@@ -1266,8 +1273,8 @@ Consider regenerating plan or using --force.
 ERROR: Contract verification failed
 
 @http.get("https://time-api.com/now") returned different value:
-  Plan time: <20:sha256:abc123>
-  Execution:  <20:sha256:def456>
+  Plan time: 🔒 opal:secret:3J98t56A
+  Execution:  🔒 opal:secret:3J98t56A
 
 Non-deterministic value decorators cannot be used in resolved plans.
 Consider separating dynamic value acquisition from deterministic execution.
@@ -1300,8 +1307,8 @@ rotate-secrets: {
 
 **Plan shows placeholders** (maintaining security invariant):
 ```
-kubectl create secret generic db --from-literal=password=¹<24:sha256:abc123>
-kubectl create secret generic api --from-literal=key=¹<64:sha256:def456>
+kubectl create secret generic db --from-literal=password=¹🔒 opal:secret:3J98t56A
+kubectl create secret generic api --from-literal=key=¹🔒 opal:secret:3J98t56A
 ```
 
 **How PSE works**:
