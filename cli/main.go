@@ -120,8 +120,8 @@ func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, n
 
 	// Register all secrets with scrubber (ALL value decorator results are secrets)
 	for _, secret := range plan.Secrets {
-		placeholder := fmt.Sprintf("<%d:sha256:%s>", len(secret.Value), secret.Hash)
-		scrubber.RegisterSecret(secret.Value, placeholder)
+		// Use DisplayID as placeholder (e.g., "opal:secret:3J98t56A")
+		scrubber.RegisterSecret(secret.Value, secret.DisplayID)
 	}
 
 	// Dry-run mode: just show the plan

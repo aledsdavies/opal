@@ -2,19 +2,25 @@ package scrubber
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/url"
 	"sort"
 	"sync"
 
 	"github.com/aledsdavies/opal/core/invariant"
+	"golang.org/x/crypto/blake2b"
 )
 
 // Scrubber redacts secrets from output streams with robust obfuscation detection
 type Scrubber struct {
 	writer io.Writer
+
+	// Per-run key for keyed fingerprints (prevents cross-run correlation)
+	runKey []byte
 
 	// Secret entries sorted by descending length (longest first)
 	secrets []secretEntry
@@ -35,14 +41,40 @@ type secretEntry struct {
 }
 
 // New creates a new Scrubber that writes to w
+// Generates a per-run key for keyed fingerprints (prevents cross-run correlation)
 func New(w io.Writer) *Scrubber {
 	invariant.NotNil(w, "writer")
 
+	// Generate per-run key (32 bytes for BLAKE2b-256)
+	runKey := make([]byte, 32)
+	if _, err := rand.Read(runKey); err != nil {
+		panic(fmt.Sprintf("failed to generate scrubber run key: %v", err))
+	}
+
 	return &Scrubber{
 		writer: w,
+		runKey: runKey,
 		maxLen: 1024, // Default max secret length
 		carry:  make([]byte, 0, 1024),
 	}
+}
+
+// RunKey returns the per-run key for keyed fingerprints
+// This is used by secret.Handle.Fingerprint() for consistent hashing within a run
+func (s *Scrubber) RunKey() []byte {
+	return s.runKey
+}
+
+// Fingerprint computes a keyed fingerprint of a value using the per-run key
+// This is used internally for detection, NOT for display
+func (s *Scrubber) Fingerprint(value []byte) string {
+	hash, err := blake2b.New256(s.runKey)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create BLAKE2b hash: %v", err))
+	}
+	hash.Write(value)
+	digest := hash.Sum(nil)
+	return hex.EncodeToString(digest)
 }
 
 // RegisterSecret registers a secret value to be scrubbed

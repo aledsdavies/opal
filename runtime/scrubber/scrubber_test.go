@@ -321,3 +321,49 @@ func reverseString(s string) string {
 	}
 	return string(runes)
 }
+
+// TestRunKey tests per-run key generation
+func TestRunKey(t *testing.T) {
+	s1 := New(&bytes.Buffer{})
+	s2 := New(&bytes.Buffer{})
+
+	key1 := s1.RunKey()
+	key2 := s2.RunKey()
+
+	// Keys should be 32 bytes
+	assert.Len(t, key1, 32)
+	assert.Len(t, key2, 32)
+
+	// Different scrubbers should have different keys
+	assert.NotEqual(t, key1, key2, "Different scrubbers should have different run keys")
+}
+
+// TestFingerprint tests keyed fingerprinting
+func TestFingerprint(t *testing.T) {
+	s := New(&bytes.Buffer{})
+
+	fp1 := s.Fingerprint([]byte("my-secret"))
+	fp2 := s.Fingerprint([]byte("my-secret"))
+	fp3 := s.Fingerprint([]byte("different"))
+
+	// Same value should produce same fingerprint
+	assert.Equal(t, fp1, fp2)
+
+	// Different value should produce different fingerprint
+	assert.NotEqual(t, fp1, fp3)
+
+	// Fingerprint should be hex-encoded (64 chars for BLAKE2b-256)
+	assert.Len(t, fp1, 64)
+}
+
+// TestFingerprintDifferentKeys tests that different scrubbers produce different fingerprints
+func TestFingerprintDifferentKeys(t *testing.T) {
+	s1 := New(&bytes.Buffer{})
+	s2 := New(&bytes.Buffer{})
+
+	fp1 := s1.Fingerprint([]byte("my-secret"))
+	fp2 := s2.Fingerprint([]byte("my-secret"))
+
+	// Same value with different keys should produce different fingerprints
+	assert.NotEqual(t, fp1, fp2, "Different run keys should produce different fingerprints")
+}

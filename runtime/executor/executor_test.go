@@ -427,7 +427,7 @@ func TestSecretScrubbing(t *testing.T) {
 			{
 				Key:   "db_password",
 				Value: secret,
-				Hash:  "abc123def456", // Placeholder hash
+				DisplayID: "opal:secret:test123",
 			},
 		},
 	}
@@ -440,7 +440,7 @@ func TestSecretScrubbing(t *testing.T) {
 
 	// Verify secret was scrubbed from output
 	assert.NotContains(t, result.Output, secret, "Secret should not appear in output")
-	assert.Contains(t, result.Output, "<25:sha256:abc123def456>", "Secret should be replaced with placeholder")
+	assert.Contains(t, result.Output, "opal:secret:test123", "Secret should be replaced with placeholder")
 }
 
 // TestLockdownInvariantNilConfig tests that lockdown panics on nil config
