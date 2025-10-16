@@ -20,7 +20,7 @@ func TestExecuteSimpleShellCommand(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'Hello, World!'"}},
 						},
@@ -46,7 +46,7 @@ func TestExecuteMultipleCommands(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'First'"}},
 						},
@@ -57,7 +57,7 @@ func TestExecuteMultipleCommands(t *testing.T) {
 				ID: 2,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'Second'"}},
 						},
@@ -82,7 +82,7 @@ func TestExecuteFailingCommand(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "exit 42"}},
 						},
@@ -107,7 +107,7 @@ func TestExecuteStopOnFirstFailure(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'First'"}},
 						},
@@ -118,7 +118,7 @@ func TestExecuteStopOnFirstFailure(t *testing.T) {
 				ID: 2,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "exit 1"}},
 						},
@@ -129,7 +129,7 @@ func TestExecuteStopOnFirstFailure(t *testing.T) {
 				ID: 3,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'Should not run'"}},
 						},
@@ -167,7 +167,7 @@ func TestExecuteTelemetryBasic(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'test'"}},
 						},
@@ -194,7 +194,7 @@ func TestExecuteTelemetryTiming(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'test'"}},
 						},
@@ -223,7 +223,7 @@ func TestExecuteTelemetryFailedStep(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "exit 1"}},
 						},
@@ -249,7 +249,7 @@ func TestExecuteDebugPaths(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'test'"}},
 						},
@@ -282,7 +282,7 @@ func TestExecuteDebugDetailed(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'test'"}},
 						},
@@ -321,7 +321,7 @@ func TestInvariantEmptyShellCommand(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: ""}},
 						},
@@ -345,14 +345,14 @@ func TestExecuteCommandsWithOperators(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'First'"}},
 						},
 						Operator: "&&",
 					},
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'Second'"}},
 						},
@@ -380,7 +380,7 @@ func TestStdoutStderrLockdown(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'This should be scrubbed'"}},
 						},
@@ -412,7 +412,7 @@ func TestSecretScrubbing(t *testing.T) {
 				ID: 1,
 				Commands: []planfmt.Command{
 					{
-						Decorator: "shell",
+						Decorator: "@shell",
 						Args: []planfmt.Arg{
 							{Key: "command", Val: planfmt.Value{
 								Kind: planfmt.ValueString,

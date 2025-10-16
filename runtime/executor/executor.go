@@ -314,7 +314,7 @@ func (e *executor) executeStep(step planfmt.Step) int {
 	var cmdParts []string
 	for i, cmd := range step.Commands {
 		// Assert invariants
-		invariant.Precondition(cmd.Decorator == "shell", "only shell decorator supported in MVP")
+		invariant.Precondition(cmd.Decorator == "@shell", "only @shell decorator supported in MVP")
 
 		// Extract command string
 		cmdStr := e.getCommandString(cmd)

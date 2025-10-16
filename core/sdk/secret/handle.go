@@ -3,7 +3,6 @@ package secret
 import (
 	"crypto/rand"
 	"crypto/subtle"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -34,24 +33,51 @@ func SetCapability(cap *Capability) {
 // Handle wraps a secret value with taint tracking
 // Prevents accidental leakage by making unsafe operations explicit
 type Handle struct {
-	value   string
-	tainted bool
-	id      uint64 // Random opaque ID (not derived from value)
+	value     string
+	tainted   bool
+	displayID string    // Opaque display ID from IDFactory
+	factory   IDFactory // Factory for generating display IDs
+	context   IDContext // Context for ID generation
 }
 
-// NewHandle creates a new tainted secret handle
+// NewHandle creates a new tainted secret handle with a default run-mode factory
+// For production use, prefer NewHandleWithFactory to control determinism
 func NewHandle(value string) *Handle {
-	// Generate random opaque ID (not derived from value to prevent oracle attacks)
-	var idBytes [8]byte
-	if _, err := rand.Read(idBytes[:]); err != nil {
-		panic(fmt.Sprintf("failed to generate secret ID: %v", err))
+	// Generate random run key for ModeRun (non-deterministic)
+	var runKey [32]byte
+	if _, err := rand.Read(runKey[:]); err != nil {
+		panic(fmt.Sprintf("failed to generate run key: %v", err))
 	}
-	id := binary.LittleEndian.Uint64(idBytes[:])
+
+	factory := NewIDFactory(ModeRun, runKey[:])
+
+	// Default context (minimal - should be overridden with NewHandleWithFactory)
+	ctx := IDContext{
+		PlanHash:  []byte("default-run"),
+		StepPath:  "unknown",
+		Decorator: "unknown",
+		KeyName:   "unknown",
+		Kind:      "s",
+	}
 
 	return &Handle{
-		value:   value,
-		tainted: true,
-		id:      id,
+		value:     value,
+		tainted:   true,
+		displayID: factory.Make(ctx, []byte(value)),
+		factory:   factory,
+		context:   ctx,
+	}
+}
+
+// NewHandleWithFactory creates a new tainted secret handle with explicit factory and context
+// Use this for deterministic DisplayIDs in resolved plans (ModePlan)
+func NewHandleWithFactory(value string, factory IDFactory, context IDContext) *Handle {
+	return &Handle{
+		value:     value,
+		tainted:   true,
+		displayID: factory.Make(context, []byte(value)),
+		factory:   factory,
+		context:   context,
 	}
 }
 
@@ -164,14 +190,11 @@ func (h *Handle) Equal(other *Handle) bool {
 }
 
 // ID returns the opaque identifier for display (user-visible)
-// Format: opal:secret:3J98t56A (Base58 encoded, no length leak)
-// This prevents oracle attacks (same value = different ID each time)
+// Format: opal:s:3J98t56A (Base58 encoded, context-aware)
+// In ModePlan: deterministic (same context+value → same ID)
+// In ModeRun: random-looking (different run → different ID)
 func (h *Handle) ID() string {
-	// Encode 64-bit ID as Base58 for compact, readable format
-	idBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(idBytes, h.id)
-	encoded := EncodeBase58(idBytes)
-	return fmt.Sprintf("opal:secret:%s", encoded)
+	return h.displayID
 }
 
 // IDWithEmoji returns the opaque identifier with emoji for display

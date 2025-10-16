@@ -7,6 +7,7 @@ import (
 
 	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/planfmt"
+	"github.com/aledsdavies/opal/core/sdk/secret"
 	"github.com/aledsdavies/opal/runtime/lexer"
 	"github.com/aledsdavies/opal/runtime/parser"
 	"github.com/lithammer/fuzzysearch/fuzzy"
@@ -14,9 +15,10 @@ import (
 
 // Config configures the planner
 type Config struct {
-	Target    string         // Command name (e.g., "hello") or "" for script mode
-	Telemetry TelemetryLevel // Telemetry level (production-safe)
-	Debug     DebugLevel     // Debug level (development only)
+	Target    string           // Command name (e.g., "hello") or "" for script mode
+	IDFactory secret.IDFactory // Factory for generating deterministic secret IDs (optional, uses run-mode if nil)
+	Telemetry TelemetryLevel   // Telemetry level (production-safe)
+	Debug     DebugLevel       // Debug level (development only)
 }
 
 // TelemetryLevel controls telemetry collection (production-safe)
@@ -288,17 +290,16 @@ func (p *planner) planFunctionBody() ([]planfmt.Step, error) {
 		prevPos := p.pos
 		evt := p.events[p.pos]
 
-		if evt.Kind == parser.EventOpen {
-			if parser.NodeKind(evt.Data) == parser.NodeShellCommand {
-				// Found shell command in function body
-				step, err := p.planShellCommand()
-				if err != nil {
-					return nil, err
-				}
-				steps = append(steps, step)
-				// planShellCommand already advanced p.pos, so continue without incrementing
-				continue
+		if evt.Kind == parser.EventStepEnter {
+			// Found a step boundary - plan the entire step
+			step, err := p.planStep()
+			if err != nil {
+				return nil, err
 			}
+			steps = append(steps, step)
+			// planStep already advanced p.pos past EventStepExit, so continue
+			continue
+		} else if evt.Kind == parser.EventOpen {
 			depth++
 		} else if evt.Kind == parser.EventClose {
 			depth--
@@ -336,29 +337,26 @@ func (p *planner) planSource() ([]planfmt.Step, error) {
 
 	var steps []planfmt.Step
 
-	// Walk events looking for top-level shell commands
+	// Walk events looking for top-level step boundaries (EventStepEnter)
+	// Skip step boundaries inside functions (depth > 1)
 	depth := 0
 	for p.pos < len(p.events) {
 		prevPos := p.pos
 		evt := p.events[p.pos]
 
 		if evt.Kind == parser.EventOpen {
-			nodeKind := parser.NodeKind(evt.Data)
-
-			// Only plan shell commands at depth 1 (inside Source, not inside Function)
-			if nodeKind == parser.NodeShellCommand && depth == 1 {
-				step, err := p.planShellCommand()
-				if err != nil {
-					return nil, err
-				}
-				steps = append(steps, step)
-				// planShellCommand already advanced p.pos, so continue without incrementing
-				continue
-			}
-
 			depth++
 		} else if evt.Kind == parser.EventClose {
 			depth--
+		} else if evt.Kind == parser.EventStepEnter && depth == 1 {
+			// Found a top-level step boundary (depth 1 = inside Source, not inside Function)
+			step, err := p.planStep()
+			if err != nil {
+				return nil, err
+			}
+			steps = append(steps, step)
+			// planStep already advanced p.pos past EventStepExit, so continue
+			continue
 		}
 
 		p.pos++
@@ -481,4 +479,156 @@ func findClosestMatch(target string, candidates []string) string {
 	}
 
 	return ""
+}
+
+// planStep plans a single step (from EventStepEnter to EventStepExit)
+// A step contains one or more shell commands connected by operators
+func (p *planner) planStep() (planfmt.Step, error) {
+	if p.config.Debug >= DebugDetailed {
+		p.recordDebugEvent("enter_planStep", fmt.Sprintf("pos=%d", p.pos))
+	}
+
+	// We're at EventStepEnter, move past it
+	p.pos++
+
+	var commands []planfmt.Command
+
+	// Collect all shell commands until EventStepExit
+	for p.pos < len(p.events) {
+		evt := p.events[p.pos]
+
+		if evt.Kind == parser.EventStepExit {
+			// End of step
+			p.pos++ // Move past EventStepExit
+			break
+		}
+
+		if evt.Kind == parser.EventOpen && parser.NodeKind(evt.Data) == parser.NodeShellCommand {
+			// Found a shell command
+			cmd, err := p.planCommand()
+			if err != nil {
+				return planfmt.Step{}, err
+			}
+			commands = append(commands, cmd)
+			// planCommand already advanced p.pos, continue
+			continue
+		}
+
+		p.pos++
+	}
+
+	if len(commands) == 0 {
+		return planfmt.Step{}, &PlanError{
+			Message:     "step has no commands",
+			Context:     "planning step",
+			EventPos:    p.pos,
+			TotalEvents: len(p.events),
+		}
+	}
+
+	step := planfmt.Step{
+		ID:       p.nextStepID(),
+		Commands: commands,
+	}
+
+	if p.config.Debug >= DebugDetailed {
+		p.recordDebugEvent("step_created", fmt.Sprintf("id=%d commands=%d", step.ID, len(commands)))
+	}
+
+	return step, nil
+}
+
+// planCommand plans a single command within a step (shell command + optional operator)
+func (p *planner) planCommand() (planfmt.Command, error) {
+	if p.config.Debug >= DebugDetailed {
+		p.recordDebugEvent("enter_planCommand", fmt.Sprintf("pos=%d", p.pos))
+	}
+
+	startPos := p.pos
+	p.pos++ // Move past OPEN ShellCommand
+
+	// Collect all tokens in the shell command
+	var commandTokens []string
+	depth := 1
+
+	for p.pos < len(p.events) && depth > 0 {
+		evt := p.events[p.pos]
+
+		if evt.Kind == parser.EventOpen {
+			depth++
+		} else if evt.Kind == parser.EventClose {
+			depth--
+			if depth == 0 {
+				// Move past the CLOSE ShellCommand event
+				p.pos++
+				break
+			}
+		} else if evt.Kind == parser.EventToken {
+			tokenIdx := evt.Data
+			tokenText := string(p.tokens[tokenIdx].Text)
+			commandTokens = append(commandTokens, tokenText)
+		}
+
+		p.pos++
+	}
+
+	// Build command string
+	command := ""
+	for i, tok := range commandTokens {
+		if i > 0 {
+			command += " "
+		}
+		command += tok
+	}
+
+	// POSTCONDITION: command must not be empty
+	invariant.Postcondition(command != "", "shell command must not be empty")
+
+	// Check for operator after this command (&&, ||, |, ;)
+	operator := ""
+	if p.pos < len(p.events) {
+		evt := p.events[p.pos]
+		if evt.Kind == parser.EventToken {
+			tokenIdx := evt.Data
+			tokenType := p.tokens[tokenIdx].Type
+			// Check if it's an operator (use token type, not text)
+			switch tokenType {
+			case lexer.AND_AND:
+				operator = "&&"
+				p.pos++ // Consume the operator
+			case lexer.OR_OR:
+				operator = "||"
+				p.pos++ // Consume the operator
+			case lexer.PIPE:
+				operator = "|"
+				p.pos++ // Consume the operator
+			case lexer.SEMICOLON:
+				operator = ";"
+				p.pos++ // Consume the operator
+			}
+		}
+	}
+
+	cmd := planfmt.Command{
+		Decorator: "@shell",
+		Args: []planfmt.Arg{
+			{
+				Key: "command",
+				Val: planfmt.Value{
+					Kind: planfmt.ValueString,
+					Str:  command,
+				},
+			},
+		},
+		Operator: operator,
+	}
+
+	if p.config.Debug >= DebugDetailed {
+		p.recordDebugEvent("command_created", fmt.Sprintf("decorator=@shell command=%q operator=%q", command, operator))
+	}
+
+	// POSTCONDITION: position must advance
+	invariant.Postcondition(p.pos > startPos, "position must advance in planCommand")
+
+	return cmd, nil
 }

@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/aledsdavies/opal/core/planfmt"
+	"github.com/aledsdavies/opal/core/sdk/secret"
 	"github.com/aledsdavies/opal/runtime/executor"
 	"github.com/aledsdavies/opal/runtime/lexer"
 	"github.com/aledsdavies/opal/runtime/parser"
@@ -25,18 +27,39 @@ func main() {
 	})
 
 	var (
-		file    string
-		dryRun  bool
-		debug   bool
-		noColor bool
+		file     string
+		planFile string
+		dryRun   bool
+		resolve  bool
+		debug    bool
+		noColor  bool
 	)
 
 	rootCmd := &cobra.Command{
 		Use:   "opal [command]",
 		Short: "Execute commands defined in opal files",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1), // 0 args if --plan, 1 arg otherwise
 		RunE: func(cmd *cobra.Command, args []string) error {
-			exitCode, err := runCommand(cmd, args, file, dryRun, debug, noColor, scrubber, &outputBuf)
+			// Mode 4: Execute from plan file (contract verification)
+			if planFile != "" {
+				if len(args) > 0 {
+					return fmt.Errorf("cannot specify command name with --plan flag")
+				}
+				exitCode, err := runFromPlan(planFile, file, debug, scrubber, &outputBuf)
+				if err != nil {
+					return err
+				}
+				if exitCode != 0 {
+					return fmt.Errorf("command failed with exit code %d", exitCode)
+				}
+				return nil
+			}
+
+			// Modes 1-3: Execute from source
+			if len(args) != 1 {
+				return fmt.Errorf("command name required (or use --plan)")
+			}
+			exitCode, err := runCommand(cmd, args, file, dryRun, resolve, debug, noColor, scrubber, &outputBuf)
 			if err != nil {
 				return err
 			}
@@ -50,7 +73,9 @@ func main() {
 
 	// Add flags
 	rootCmd.PersistentFlags().StringVarP(&file, "file", "f", "commands.opl", "Path to command definitions file")
+	rootCmd.PersistentFlags().StringVar(&planFile, "plan", "", "Execute from pre-generated plan file (Mode 4)")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Show execution plan without running commands")
+	rootCmd.PersistentFlags().BoolVar(&resolve, "resolve", false, "Resolve all values in plan (use with --dry-run)")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 
@@ -74,7 +99,7 @@ func main() {
 	}
 }
 
-func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, noColor bool, scrubber *executor.SecretScrubber, outputBuf *bytes.Buffer) (int, error) {
+func runCommand(cmd *cobra.Command, args []string, file string, dryRun, resolve, debug, noColor bool, scrubber *executor.SecretScrubber, outputBuf *bytes.Buffer) (int, error) {
 	commandName := args[0]
 
 	// Get input reader based on file options
@@ -110,9 +135,29 @@ func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, n
 		debugLevel = planner.DebugDetailed
 	}
 
+	// Create IDFactory based on mode
+	// - resolve mode (contract generation): use ModePlan for deterministic IDs
+	// - direct execution: use ModeRun for random IDs (security)
+	// Note: For contract generation, we need to plan twice:
+	//   1. First plan to get the plan hash
+	//   2. Second plan with deterministic IDFactory derived from plan hash
+	// For MVP (no value decorators yet), we can skip this and just use nil
+	var idFactory secret.IDFactory
+	if !resolve {
+		// Mode 1: Direct execution - use random IDs for security
+		var err error
+		idFactory, err = planfmt.NewRunIDFactory()
+		if err != nil {
+			return 1, fmt.Errorf("failed to create ID factory: %w", err)
+		}
+	}
+	// For resolve mode, leave idFactory as nil for now (MVP has no value decorators)
+	// When we add value decorators, we'll need to plan twice to get deterministic IDs
+
 	plan, err := planner.Plan(tree.Events, tokens, planner.Config{
-		Target: commandName,
-		Debug:  debugLevel,
+		Target:    commandName,
+		IDFactory: idFactory,
+		Debug:     debugLevel,
 	})
 	if err != nil {
 		return 1, fmt.Errorf("planning failed: %w", err)
@@ -124,10 +169,35 @@ func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, n
 		scrubber.RegisterSecret(secret.RuntimeValue, secret.DisplayID)
 	}
 
-	// Dry-run mode: just show the plan
+	// Dry-run mode: show plan or generate contract
 	if dryRun {
-		fmt.Printf("Plan for command '%s':\n", commandName)
-		fmt.Printf("  Steps: %d\n", len(plan.Steps))
+		if resolve {
+			// Mode 3: Resolved Plan (Contract Generation)
+			// Generate plan hash and write minimal contract file
+			// Note: In MVP, we don't actually resolve values yet (no value decorators)
+			// but the infrastructure is ready for when we add them
+
+			// Compute plan hash by serializing to buffer
+			var planBuf bytes.Buffer
+			planHash, err := planfmt.Write(&planBuf, plan)
+			if err != nil {
+				return 1, fmt.Errorf("failed to compute plan hash: %w", err)
+			}
+
+			// Write minimal contract to stdout (target + hash only)
+			// Note: Don't write messages to stderr here - they go through lockdown
+			// and end up in the output buffer along with the contract
+			if err := planfmt.WriteContract(os.Stdout, commandName, planHash); err != nil {
+				return 1, fmt.Errorf("failed to write contract: %w", err)
+			}
+
+			// Debug output would also go to the contract file, so skip it
+			// Users can use --dry-run without --resolve to see plan details
+		} else {
+			// Mode 2: Quick Plan (Dry-Run)
+			// Display plan as tree
+			DisplayPlan(os.Stdout, plan, !noColor)
+		}
 		return 0, nil
 	}
 
@@ -197,4 +267,122 @@ func hasPipedInput() bool {
 
 	// Check if stdin is not a character device (i.e., it's piped)
 	return (stat.Mode() & os.ModeCharDevice) == 0
+}
+
+// runFromPlan executes with contract verification (Mode 4: Contract Execution)
+// Flow: Load contract → Replan fresh → Compare hashes → Execute if match
+func runFromPlan(planFile, sourceFile string, debug bool, scrubber *executor.SecretScrubber, outputBuf *bytes.Buffer) (int, error) {
+	// Step 1: Load contract from plan file
+	f, err := os.Open(planFile)
+	if err != nil {
+		return 1, fmt.Errorf("failed to open plan file: %w", err)
+	}
+	defer f.Close()
+
+	target, contractHash, err := planfmt.ReadContract(f)
+	if err != nil {
+		return 1, fmt.Errorf("failed to read contract: %w", err)
+	}
+
+	if debug {
+		fmt.Fprintf(os.Stderr, "Loaded contract from %s\n", planFile)
+		fmt.Fprintf(os.Stderr, "Contract hash: %x\n", contractHash)
+		fmt.Fprintf(os.Stderr, "Target: %s\n", target)
+	}
+
+	// Step 2: Replan from current source
+	reader, closeFunc, err := getInputReader(sourceFile)
+	if err != nil {
+		return 1, err
+	}
+	defer closeFunc()
+
+	source, err := io.ReadAll(reader)
+	if err != nil {
+		return 1, fmt.Errorf("error reading source: %w", err)
+	}
+
+	// Lex
+	l := lexer.NewLexer()
+	l.Init(source)
+	tokens := l.GetTokens()
+
+	// Parse
+	tree := parser.Parse(source)
+	if len(tree.Errors) > 0 {
+		return 1, fmt.Errorf("parse errors in source (contract verification failed)")
+	}
+
+	// Plan (use same target as contract)
+	debugLevel := planner.DebugOff
+	if debug {
+		debugLevel = planner.DebugDetailed
+	}
+
+	// For contract verification, we want deterministic IDs
+	// But we need the plan hash first to create the IDFactory
+	// For MVP (no value decorators), we can use nil
+	// When we add value decorators, we'll need to plan twice
+	freshPlan, err := planner.Plan(tree.Events, tokens, planner.Config{
+		Target:    target,
+		IDFactory: nil, // MVP: no value decorators yet
+		Debug:     debugLevel,
+	})
+	if err != nil {
+		return 1, fmt.Errorf("planning failed: %w", err)
+	}
+
+	// Step 3: Compare hashes (contract verification)
+	var freshHashBuf bytes.Buffer
+	freshHash, err := planfmt.Write(&freshHashBuf, freshPlan)
+	if err != nil {
+		return 1, fmt.Errorf("failed to hash fresh plan: %w", err)
+	}
+
+	if freshHash != contractHash {
+		fmt.Fprintf(os.Stderr, "CONTRACT VERIFICATION FAILED\n")
+		fmt.Fprintf(os.Stderr, "Contract hash: %x\n", contractHash)
+		fmt.Fprintf(os.Stderr, "Fresh hash:    %x\n", freshHash)
+		fmt.Fprintf(os.Stderr, "\nThe current source does not match the contract.\n")
+		fmt.Fprintf(os.Stderr, "This could mean:\n")
+		fmt.Fprintf(os.Stderr, "  - Source code has changed since contract was generated\n")
+		fmt.Fprintf(os.Stderr, "  - Environment or context has changed\n")
+		fmt.Fprintf(os.Stderr, "  - Contract file is corrupted\n")
+		return 1, fmt.Errorf("contract verification failed")
+	}
+
+	if debug {
+		fmt.Fprintf(os.Stderr, "✓ Contract verified (hash matches)\n")
+		fmt.Fprintf(os.Stderr, "Steps: %d\n", len(freshPlan.Steps))
+	}
+
+	// Register all secrets with scrubber
+	for _, secret := range freshPlan.Secrets {
+		scrubber.RegisterSecret(secret.RuntimeValue, secret.DisplayID)
+	}
+
+	// Step 4: Execute the verified plan
+	execDebug := executor.DebugOff
+	if debug {
+		execDebug = executor.DebugDetailed
+	}
+
+	result, err := executor.Execute(freshPlan, executor.Config{
+		Debug:              execDebug,
+		Telemetry:          executor.TelemetryBasic,
+		LockdownStdStreams: false, // Already locked down at CLI level
+	})
+	if err != nil {
+		return 1, fmt.Errorf("execution failed: %w", err)
+	}
+
+	// Print execution summary if debug enabled
+	if debug {
+		fmt.Fprintf(os.Stderr, "\nExecution summary:\n")
+		fmt.Fprintf(os.Stderr, "  Steps run: %d/%d\n", result.StepsRun, len(freshPlan.Steps))
+		fmt.Fprintf(os.Stderr, "  Duration: %v\n", result.Duration)
+		fmt.Fprintf(os.Stderr, "  Exit code: %d\n", result.ExitCode)
+	}
+
+	return result.ExitCode, nil
 }

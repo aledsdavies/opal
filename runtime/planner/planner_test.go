@@ -336,3 +336,134 @@ fun deploy = echo "Deploying"`)
 		t.Errorf("Expected available commands list, got: %s", errMsg)
 	}
 }
+
+func TestPlanShellCommandWithOperators(t *testing.T) {
+	// Test that commands with operators are grouped into a single step
+	source := []byte(`fun test = echo "A" && echo "B"`)
+
+	tree := parser.Parse(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
+		Target: "test",
+	})
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
+
+	// Should have ONE step with TWO commands
+	if len(plan.Steps) != 1 {
+		t.Errorf("Expected 1 step, got %d", len(plan.Steps))
+	}
+
+	if len(plan.Steps[0].Commands) != 2 {
+		t.Errorf("Expected 2 commands in step, got %d", len(plan.Steps[0].Commands))
+	}
+
+	// First command should have && operator
+	if plan.Steps[0].Commands[0].Operator != "&&" {
+		t.Errorf("Expected first command to have && operator, got %q", plan.Steps[0].Commands[0].Operator)
+	}
+
+	// Second command should have empty operator (last in step)
+	if plan.Steps[0].Commands[1].Operator != "" {
+		t.Errorf("Expected second command to have empty operator, got %q", plan.Steps[0].Commands[1].Operator)
+	}
+}
+
+func TestPlanMultipleSteps(t *testing.T) {
+	// Test that newline-separated commands in SCRIPT MODE create separate steps
+	source := []byte("echo \"A\"\necho \"B\"")
+
+	tree := parser.Parse(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
+		Target: "", // Script mode
+	})
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
+
+	// Should have TWO steps, each with ONE command
+	if len(plan.Steps) != 2 {
+		t.Errorf("Expected 2 steps, got %d", len(plan.Steps))
+	}
+
+	if len(plan.Steps[0].Commands) != 1 {
+		t.Errorf("Expected first step to have 1 command, got %d", len(plan.Steps[0].Commands))
+	}
+
+	if len(plan.Steps[1].Commands) != 1 {
+		t.Errorf("Expected second step to have 1 command, got %d", len(plan.Steps[1].Commands))
+	}
+}
+
+func TestPlanFunctionWithOperatorsAndNewline(t *testing.T) {
+	// Test: fun hello = echo "A" && echo "B" || echo "C"\necho "D"
+	// In SCRIPT MODE (no target), should produce: 2 steps, 4 commands total
+	// Step 1: 3 commands (A && B || C) - top-level operators in one step
+	// Step 2: 1 command (D) - newline creates new step
+	source := []byte(`echo "A" && echo "B" || echo "C"
+echo "D"`)
+
+	tree := parser.Parse(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
+		Target: "", // Script mode
+	})
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
+
+	// Should have TWO steps
+	if len(plan.Steps) != 2 {
+		t.Errorf("Expected 2 steps, got %d", len(plan.Steps))
+	}
+
+	// Step 1: THREE commands with operators
+	if len(plan.Steps[0].Commands) != 3 {
+		t.Errorf("Expected step 0 to have 3 commands, got %d", len(plan.Steps[0].Commands))
+	}
+
+	// Verify step 1 commands and operators
+	if plan.Steps[0].Commands[0].Args[0].Val.Str != `echo "A"` {
+		t.Errorf("Step 0, cmd 0: expected 'echo \"A\"', got %q", plan.Steps[0].Commands[0].Args[0].Val.Str)
+	}
+	if plan.Steps[0].Commands[0].Operator != "&&" {
+		t.Errorf("Step 0, cmd 0: expected && operator, got %q", plan.Steps[0].Commands[0].Operator)
+	}
+
+	if plan.Steps[0].Commands[1].Args[0].Val.Str != `echo "B"` {
+		t.Errorf("Step 0, cmd 1: expected 'echo \"B\"', got %q", plan.Steps[0].Commands[1].Args[0].Val.Str)
+	}
+	if plan.Steps[0].Commands[1].Operator != "||" {
+		t.Errorf("Step 0, cmd 1: expected || operator, got %q", plan.Steps[0].Commands[1].Operator)
+	}
+
+	if plan.Steps[0].Commands[2].Args[0].Val.Str != `echo "C"` {
+		t.Errorf("Step 0, cmd 2: expected 'echo \"C\"', got %q", plan.Steps[0].Commands[2].Args[0].Val.Str)
+	}
+	if plan.Steps[0].Commands[2].Operator != "" {
+		t.Errorf("Step 0, cmd 2: expected empty operator (last in step), got %q", plan.Steps[0].Commands[2].Operator)
+	}
+
+	// Step 2: ONE command (top-level echo "D")
+	if len(plan.Steps[1].Commands) != 1 {
+		t.Errorf("Expected step 1 to have 1 command, got %d", len(plan.Steps[1].Commands))
+	}
+
+	if plan.Steps[1].Commands[0].Args[0].Val.Str != `echo "D"` {
+		t.Errorf("Step 1, cmd 0: expected 'echo \"D\"', got %q", plan.Steps[1].Commands[0].Args[0].Val.Str)
+	}
+	if plan.Steps[1].Commands[0].Operator != "" {
+		t.Errorf("Step 1, cmd 0: expected empty operator, got %q", plan.Steps[1].Commands[0].Operator)
+	}
+}

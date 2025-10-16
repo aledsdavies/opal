@@ -182,7 +182,7 @@ type ExecutionContext interface {
 
 Decorators have **no direct access to I/O streams**. All output flows through the executor which:
 1. Maintains a registry of secret values from value decorator resolutions
-2. Automatically replaces secret values with plan placeholders: `<len:algo:hash>`
+2. Automatically replaces secret values with opaque DisplayIDs: `opal:s:3J98t56A`
 3. Ensures audit trail shows which secrets were used without exposing values
 
 This prevents decorators from accidentally (or maliciously) leaking secrets.
@@ -563,7 +563,7 @@ type ExecutionStep struct {
 }
 
 type ResolvedValue struct {
-    Placeholder ValuePlaceholder    // <length:algo:hash> for display/hashing
+    Placeholder ValuePlaceholder    // opal:s:ID for display/hashing
     value       interface{}         // Actual value (memory only, never serialized)
 }
 
@@ -763,12 +763,12 @@ Flow: Load contract → Replan fresh → Compare hashes → Execute if match
 
 ### Value Placeholder Format
 
-All resolved values use security placeholder format: `<length:algorithm:hash>`
+All resolved values use security placeholder format: `opal:s:ID`
 
 Examples:
-- `<1:sha256:abc123>` - single character (e.g., "3")
-- `<32:sha256:def456>` - 32 characters (e.g., secret token)
-- `<8:sha256:xyz789>` - 8 characters (e.g., hostname)
+- `opal:s:3J98t56A` - single character (e.g., "3")
+- `opal:s:7Kx9mN2p` - 32 characters (e.g., secret token)
+- `opal:s:mQp4Tn8X` - 8 characters (e.g., hostname)
 
 **Benefits:**
 - **No value leakage** in plans or logs
@@ -1161,9 +1161,9 @@ const (
     }
   ],
   "values": {
-    "var.REPLICAS": "<1:sha256:abc123>",
-    "env.HOME": "<21:sha256:def456>",
-    "aws.secret.api_key": "<32:sha256:xyz789>"
+    "var.REPLICAS": "opal:s:3J98t56A",
+    "env.HOME": "opal:s:nR5wKp2Y",
+    "aws.secret.api_key": "opal:s:sQ9aTt6C"
   },
   "provenance": {
     "compiler_version": "1.0.0",
@@ -1209,12 +1209,12 @@ Plan Hash: <algorithm>:<hash>
 ```
 deploy:
 ├─ kubectl apply -f k8s/
-├─ kubectl create secret --token=<32:sha256:a1b2c3>
-└─ kubectl scale --replicas=<1:sha256:def789> deployment/app
+├─ kubectl create secret --token=opal:s:qN7yOr4A
+└─ kubectl scale --replicas=opal:s:rP8zQs5B deployment/app
 
 Values:
-  var.REPLICAS = <1:sha256:def789>
-  env.HOME = <21:sha256:abc123>
+  var.REPLICAS = opal:s:rP8zQs5B
+  env.HOME = opal:s:pL6xMq3Z
 
 Plan Hash: sha256:xyz789...
 ```
@@ -1301,13 +1301,13 @@ const (
 ```
 ERROR: Contract verification failed
 
-Expected: kubectl scale --replicas=<1:sha256:abc123> deployment/app
-Actual:   kubectl scale --replicas=<1:sha256:def456> deployment/app
+Expected: kubectl scale --replicas=opal:s:3J98t56A deployment/app
+Actual:   kubectl scale --replicas=opal:s:tR1bUv7D deployment/app
 
 Value changed:
   var.REPLICAS
-    Contract: <1:sha256:abc123...> (was "3")
-    Current:  <1:sha256:def456...> (now "5")
+    Contract: opal:s:3J98t56A (was "3")
+    Current:  opal:s:tR1bUv7D (now "5")
 
 Drift Code: env_changed
 Action: Run 'opal deploy --dry-run --resolve' to generate new plan
@@ -1418,7 +1418,7 @@ func awsSecretHandler(ctx ExecutionContext, args []Param) (*secret.Handle, error
 ```
 
 **Safe operations:**
-- `handle.ID()` - Opaque display ID: `opal:secret:3J98t56A`
+- `handle.ID()` - Opaque display ID: `opal:s:3J98t56A`
 - `handle.Mask(3)` - Masked display: `abc***xyz`
 - `handle.ForEnv("KEY")` - Environment variable: `KEY=value` (requires capability)
 - `handle.Bytes()` - Raw bytes (requires capability)
@@ -1528,8 +1528,8 @@ Deferred: 1. @aws.secret.api_token → <expensive: AWS lookup>
 
 **Resolved plans** materialize all values for deterministic execution:
 ```  
-kubectl create secret --token=¹<32:sha256:a1b2c3>
-Resolved: 1. @aws.secret.api_token → <32:sha256:a1b2c3>
+kubectl create secret --token=¹opal:s:qN7yOr4A
+Resolved: 1. @aws.secret.api_token → opal:s:qN7yOr4A
 ```
 
 Smart optimizations happen automatically:
@@ -1541,7 +1541,7 @@ Smart optimizations happen automatically:
 
 The placeholder system protects sensitive values while enabling change detection using a **two-track identity model**:
 
-**Placeholder format (user-visible)**: `🔒 opal:secret:3J98t56A` - opaque random ID, no length leak, no correlation across runs.
+**Placeholder format (user-visible)**: `🔒 opal:s:3J98t56A` - opaque random ID, no length leak, no correlation across runs.
 
 **Security invariant**: Raw secrets never appear in plans, logs, or error messages. This applies to all value decorators - `@env.NAME`, `@aws.secret.NAME`, whatever. Compliance teams can review plans confidently.
 
@@ -1552,10 +1552,10 @@ The placeholder system protects sensitive values while enabling change detection
 Secrets need two representations for different purposes:
 
 **Track 1: Display (User-Visible)**
-- Format: `🔒 opal:secret:3J98t56A` (Base58 encoded, opaque random ID)
+- Format: `🔒 opal:s:3J98t56A` (Base58 encoded, context-aware ID)
 - Used in: Terminal output, logs, CLI display, plan files
-- Properties: No length leak, no correlation across runs, visually distinct
-- Example: `API_KEY: 🔒 opal:secret:3J98t56A`
+- Properties: No length leak, context-sensitive, deterministic in resolved plans
+- Example: `API_KEY: 🔒 opal:s:3J98t56A`
 
 **Track 2: Internal (Machine-Readable)**
 - Format: BLAKE2b-256 keyed hash with per-run key
@@ -1563,16 +1563,35 @@ Secrets need two representations for different purposes:
 - Properties: Keyed (per-run), deterministic within run, prevents oracle attacks
 - Never displayed to users
 
+**DisplayID Generation (Keyed PRF):**
+
+DisplayIDs use a keyed BLAKE2s-128 PRF over `(plan_hash, step_path, decorator, key_name, hash(value))`:
+
+- **Resolved plans** (`ModePlan`): Deterministic IDs derived from plan digest
+  - Key: `plan_key = HKDF(plan_digest, "opal/displayid/plan/v1")`
+  - Same plan + context + value → same DisplayID
+  - Enables contract verification (plan hash includes DisplayIDs)
+  - Different plans → different DisplayIDs (unlinkability)
+
+- **Direct execution** (`ModeRun`): Random-looking IDs with fresh per-run key
+  - Key: `run_key = CSPRNG(32 bytes)`
+  - Different runs → different DisplayIDs
+  - Prevents correlation and tracking
+
 **Why this works:**
-- **Security**: Opaque IDs prevent correlation/oracles; keyed fingerprints prevent detection
-- **Determinism**: Hashes keep caching/rebuilds reproducible; opaque IDs can be deterministic without leaking structure
-- **UX**: Users see short, stable identifiers instead of scary hashes or length hints
+- **Contract verification**: Deterministic DisplayIDs in resolved plans ensure same plan → same hash
+- **Security**: Context-aware PRF prevents oracle attacks; per-run keys prevent correlation
+- **Unlinkability**: Different plans produce different DisplayIDs even for same value
+- **No length leak**: `hash(value)` used in PRF input, not raw value
+- **UX**: Users see short, readable identifiers (11 chars typical)
 
 **Implementation:**
-- `secret.Handle.ID()` returns opaque display ID
-- `secret.Handle.Fingerprint(key)` returns keyed hash (internal only)
-- Scrubber uses fingerprints for matching, displays opaque IDs in output
-- Per-run key prevents cross-run correlation
+- `secret.IDFactory` interface with `ModePlan` and `ModeRun` modes
+- `planfmt.NewPlanIDFactory(plan)` creates deterministic factory for resolved plans
+- `planfmt.NewRunIDFactory()` creates random factory for direct execution
+- `secret.Handle.ID()` returns DisplayID from factory
+- `secret.Handle.Fingerprint(key)` returns keyed hash for scrubber (separate from DisplayID)
+- Scrubber uses fingerprints for matching, displays DisplayIDs in output
 
 ### Plan Provenance Headers
 
@@ -1687,7 +1706,7 @@ deploy: {
 
 **Plan display**: Shows placeholders maintaining security invariant:
 ```
-kubectl create secret generic db --from-literal=password=¹<24:sha256:abcd>
+kubectl create secret generic db --from-literal=password=¹opal:s:uS2cVw8E
 ```
 
 **Execution flow**:
