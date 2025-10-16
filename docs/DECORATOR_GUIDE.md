@@ -781,6 +781,217 @@ opal test decorators/@your.decorator
 # ✓ Memoization works
 ```
 
+## The Execution Context Pattern
+
+### What Decorators Really Do
+
+**Core insight:** Decorators take a declaration of what needs to run and wrap it in their execution context.
+
+```opal
+# User writes a declaration:
+@aws.instance.ssh(host="prod-server") {
+    cat /var/log/app.log
+}
+
+# Decorator does:
+# 1. Setup: Establish SSH connection
+# 2. Execute: Run the block in SSH context
+# 3. Teardown: Close connection
+```
+
+### The Pattern: Execution Context with Callback
+
+**Execution decorators receive three things:**
+
+1. **Parameters** - Configuration for the decorator (`host="prod-server"`)
+2. **Block** - The work to execute (the child steps)
+3. **Execution Context** - A callback to execute the block
+
+**Handler signature:**
+```go
+type ExecutionHandler func(
+    ctx ExecutionContext,    // Callback to executor
+    args []Arg,              // Decorator parameters
+    block []Step,            // Child steps to execute
+) (exitCode int, err error)
+```
+
+**Execution context interface:**
+```go
+type ExecutionContext interface {
+    // Execute block within this context
+    ExecuteBlock(steps []Step) (exitCode int, err error)
+    
+    // Access decorator parameters
+    GetArg(key string) (Value, bool)
+    
+    // I/O streams
+    Stdout() io.Writer
+    Stderr() io.Writer
+}
+```
+
+### Example: SSH Decorator
+
+```go
+func sshHandler(ctx ExecutionContext, args []Arg, block []Step) (int, error) {
+    // 1. SETUP: Extract parameters and establish connection
+    host := ctx.GetArg("host").Str
+    conn, err := ssh.Dial("tcp", host+":22", sshConfig)
+    if err != nil {
+        return 1, err
+    }
+    defer conn.Close()
+    
+    // 2. EXECUTE: Create wrapped context and run block
+    sshCtx := &SSHExecutionContext{
+        parent: ctx,
+        conn:   conn,
+    }
+    exitCode, err := sshCtx.ExecuteBlock(block)
+    
+    // 3. TEARDOWN: Connection closed via defer
+    return exitCode, err
+}
+```
+
+### How It Works: Recursive Execution
+
+```
+User writes:
+  @retry(times=3) {
+      @aws.instance.ssh(host="prod") {
+          cat /var/log/app.log
+      }
+  }
+
+Executor calls:
+  retryHandler(ctx, args=[times=3], block=[ssh step])
+
+Retry handler does:
+  for attempt := 1; attempt <= 3; attempt++ {
+      exitCode := ctx.ExecuteBlock(block)  ← Calls back to executor
+      if exitCode == 0 { return 0 }
+  }
+
+Executor receives ssh step, calls:
+  sshHandler(ctx, args=[host="prod"], block=[cat command])
+
+SSH handler does:
+  conn := ssh.Dial(...)
+  sshCtx := wrapContext(ctx, conn)
+  exitCode := sshCtx.ExecuteBlock(block)  ← Calls back to executor
+
+Executor receives cat command, calls:
+  shellHandler(ctx, args=[command="cat ..."], block=[])
+
+Shell handler does:
+  cmd := exec.Command("bash", "-c", "cat /var/log/app.log")
+  return cmd.Run()
+```
+
+### Key Properties
+
+**1. Decorator Controls Execution**
+- **When**: Immediately, after setup, conditionally, in parallel
+- **How**: With modified stdout, within SSH session, with timeout
+- **Whether**: Can skip block entirely, retry, or execute multiple times
+
+**2. Context Wrapping**
+Decorators can wrap the execution context to modify behavior:
+
+```go
+type SSHExecutionContext struct {
+    parent ExecutionContext  // Original context
+    conn   *ssh.Client       // SSH connection
+}
+
+func (s *SSHExecutionContext) ExecuteBlock(steps []Step) (int, error) {
+    // Redirect stdout/stderr through SSH
+    // Run commands on remote host
+    // Return exit code
+}
+```
+
+**3. Recursive Composition**
+Decorators can be nested arbitrarily deep:
+
+```opal
+@retry(times=3) {
+    @timeout(30s) {
+        @aws.instance.ssh(host="prod") {
+            @parallel {
+                kubectl apply -f deployment.yaml
+                kubectl rollout status deployment/app
+            }
+        }
+    }
+}
+```
+
+Each decorator wraps the next, creating a chain of execution contexts.
+
+### Pattern Classification
+
+**Name:** Execution Context Pattern
+
+**Combines:**
+- **Middleware's** wrap-around behavior (setup/execute/teardown)
+- **Inversion of Control's** callback mechanism (handler calls executor)
+- **Context pattern's** state management (ExecutionContext)
+- **Registry pattern's** extensibility (decorator registration)
+
+**Similar to:**
+- Python's `with` statement (context managers)
+- React's Context API (providers wrapping children)
+- Go's http.Handler middleware (wrapping with `next.ServeHTTP()`)
+
+### Implementing a Block-Based Decorator
+
+**Step 1: Define schema with block**
+```go
+schema := types.NewSchema("timeout", "execution").
+    Description("Execute block with timeout").
+    Param("duration", "duration").
+        Description("Maximum execution time").
+        Required().
+        Done().
+    WithBlock(types.BlockRequired).  // ← Accepts block
+    Build()
+```
+
+**Step 2: Implement handler**
+```go
+func timeoutHandler(ctx ExecutionContext, args []Arg, block []Step) (int, error) {
+    duration := ctx.GetArg("duration").Duration
+    
+    // Create context with timeout
+    timeoutCtx, cancel := context.WithTimeout(context.Background(), duration)
+    defer cancel()
+    
+    // Execute block with timeout
+    done := make(chan int, 1)
+    go func() {
+        exitCode, _ := ctx.ExecuteBlock(block)
+        done <- exitCode
+    }()
+    
+    select {
+    case exitCode := <-done:
+        return exitCode, nil
+    case <-timeoutCtx.Done():
+        return 124, fmt.Errorf("timeout after %v", duration)
+    }
+}
+```
+
+**Step 3: Register decorator**
+```go
+func init() {
+    types.Global().RegisterExecutionWithSchema(schema, timeoutHandler)
+}
+```
+
 ## Summary
 
 These patterns enable:
@@ -790,5 +1001,7 @@ These patterns enable:
 - **Observable operations** - Full traceability without exposing secrets
 - **Type safety** - Optional types catch errors at plan-time
 - **Natural composition** - Decorators work together seamlessly
+- **Context wrapping** - Decorators establish execution environments
+- **Recursive execution** - Arbitrary nesting of decorators
 
 All while maintaining Opal's core guarantee: **resolved plans are execution contracts**.

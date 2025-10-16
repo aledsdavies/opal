@@ -115,6 +115,121 @@ This separation means:
 - **Execution model** is unified through decorators (no special cases for different work types)  
 - **New features** integrate by adding decorators, not special execution paths
 
+## The Execution Context Pattern
+
+### How Decorators Execute Blocks
+
+**Core insight:** Decorators take a declaration of what needs to run and wrap it in their execution context.
+
+When you write:
+```opal
+@aws.instance.ssh(host="prod-server") {
+    cat /var/log/app.log
+}
+```
+
+The decorator does three things:
+1. **Setup** - Establish SSH connection to prod-server
+2. **Execute** - Run the block (cat command) within SSH context
+3. **Teardown** - Close connection
+
+### The Pattern: Execution Context with Callback
+
+**Decorators receive:**
+- **Parameters** - Configuration (`host="prod-server"`)
+- **Block** - Child steps to execute
+- **Execution Context** - Callback to executor
+
+**Handler signature:**
+```go
+type ExecutionHandler func(
+    ctx ExecutionContext,    // Callback to executor
+    args []Arg,              // Decorator parameters
+    block []Step,            // Child steps to execute
+) (exitCode int, err error)
+```
+
+**Execution context provides:**
+```go
+type ExecutionContext interface {
+    ExecuteBlock(steps []Step) (int, error)  // Execute block in this context
+    GetArg(key string) (Value, bool)         // Access parameters
+    Stdout() io.Writer                       // Output streams
+    Stderr() io.Writer
+}
+```
+
+### Recursive Execution: Nested Decorators
+
+When decorators are nested, each wraps the next:
+
+```opal
+@retry(times=3) {
+    @aws.instance.ssh(host="prod") {
+        cat /var/log/app.log
+    }
+}
+```
+
+**Execution flow:**
+1. Executor calls `retryHandler(ctx, args=[times=3], block=[ssh step])`
+2. Retry handler loops 3 times, calling `ctx.ExecuteBlock(block)` each time
+3. Executor receives ssh step, calls `sshHandler(ctx, args=[host="prod"], block=[cat command])`
+4. SSH handler establishes connection, wraps context, calls `sshCtx.ExecuteBlock(block)`
+5. Executor receives cat command, calls `shellHandler(ctx, args=[command="cat ..."], block=[])`
+6. Shell handler executes command and returns exit code
+7. Exit code bubbles back up through SSH handler → Retry handler → Executor
+
+Each decorator wraps the execution context, creating a chain of responsibility where:
+- **Retry** controls whether to retry
+- **SSH** controls how to execute (on remote host)
+- **Shell** controls what to execute (the actual command)
+
+### Context Wrapping: Modifying Execution Behavior
+
+Decorators can wrap the execution context to modify behavior:
+
+```go
+type SSHExecutionContext struct {
+    parent ExecutionContext  // Original context
+    conn   *ssh.Client       // SSH connection
+}
+
+func (s *SSHExecutionContext) ExecuteBlock(steps []Step) (int, error) {
+    // Redirect stdout/stderr through SSH
+    // Run commands on remote host
+    // Return exit code
+}
+```
+
+This allows decorators to:
+- **Redirect I/O** - Capture, filter, or transform output
+- **Modify environment** - Set variables, change working directory
+- **Add constraints** - Enforce timeouts, resource limits
+- **Control flow** - Retry, parallelize, conditionally execute
+
+### Why This Pattern Works
+
+**1. Separation of Concerns**
+- Executor doesn't know about SSH, retry logic, or timeouts
+- Decorators don't know about plan structure or step ordering
+- Each component has a single responsibility
+
+**2. Extensibility**
+- New decorators are just new handlers registered in the registry
+- No changes to executor needed
+- External packages can provide decorators
+
+**3. Composability**
+- Decorators can be nested arbitrarily deep
+- Each decorator is independent and testable
+- Composition is declarative (visible in source code)
+
+**4. Observability**
+- Each decorator can emit telemetry
+- Execution context provides hooks for logging
+- Full traceability without special cases
+
 ## Steps, Decorators, and Operators
 
 Understanding the distinction between steps, decorators, and operators is critical to Opal's execution model.

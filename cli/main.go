@@ -5,6 +5,10 @@ import (
 	"io"
 	"os"
 
+	"github.com/aledsdavies/opal/runtime/executor"
+	"github.com/aledsdavies/opal/runtime/lexer"
+	"github.com/aledsdavies/opal/runtime/parser"
+	"github.com/aledsdavies/opal/runtime/planner"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +30,7 @@ func main() {
 	}
 
 	// Add flags
-	rootCmd.PersistentFlags().StringVarP(&file, "file", "f", "commands.cli", "Path to command definitions file")
+	rootCmd.PersistentFlags().StringVarP(&file, "file", "f", "commands.opl", "Path to command definitions file")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Show execution plan without running commands")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
@@ -47,18 +51,80 @@ func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, n
 	}
 	defer func() { _ = closeFunc() }()
 
-	// TODO: Execute using new runtime implementation
-	_ = reader // Ignore unused reader for now
-	fmt.Fprintf(os.Stderr, "Runtime execution not yet implemented - AST redesign in progress\n")
-	fmt.Fprintf(os.Stderr, "Command: %s, File: %s, DryRun: %t\n", commandName, file, dryRun)
-	fmt.Fprintf(os.Stderr, "This is expected during the transition to new AST implementation\n")
-	return nil // Return success during transition period
+	// Read source
+	source, err := io.ReadAll(reader)
+	if err != nil {
+		return fmt.Errorf("error reading input: %w", err)
+	}
+
+	// Lex
+	tokens := lexer.Lex(source)
+
+	// Parse
+	tree := parser.Parse(source, tokens)
+	if len(tree.Errors) > 0 {
+		for _, parseErr := range tree.Errors {
+			fmt.Fprintf(os.Stderr, "Parse error: %v\n", parseErr)
+		}
+		return fmt.Errorf("parse errors encountered")
+	}
+
+	// Plan
+	debugLevel := planner.DebugOff
+	if debug {
+		debugLevel = planner.DebugDetailed
+	}
+
+	planResult, err := planner.Plan(tree.Events, tokens, planner.Config{
+		Target: commandName,
+		Debug:  debugLevel,
+	})
+	if err != nil {
+		return fmt.Errorf("planning failed: %w", err)
+	}
+
+	// Dry-run mode: just show the plan
+	if dryRun {
+		fmt.Printf("Plan for command '%s':\n", commandName)
+		fmt.Printf("  Steps: %d\n", len(planResult.Plan.Steps))
+		fmt.Printf("  Planning time: %v\n", planResult.PlanTime)
+		return nil
+	}
+
+	// Execute
+	execDebug := executor.DebugOff
+	if debug {
+		execDebug = executor.DebugDetailed
+	}
+
+	result, err := executor.Execute(planResult.Plan, executor.Config{
+		Debug:     execDebug,
+		Telemetry: executor.TelemetryBasic,
+	})
+	if err != nil {
+		return fmt.Errorf("execution failed: %w", err)
+	}
+
+	// Print execution summary if debug enabled
+	if debug {
+		fmt.Fprintf(os.Stderr, "\nExecution summary:\n")
+		fmt.Fprintf(os.Stderr, "  Steps run: %d/%d\n", result.StepsRun, len(planResult.Plan.Steps))
+		fmt.Fprintf(os.Stderr, "  Duration: %v\n", result.Duration)
+		fmt.Fprintf(os.Stderr, "  Exit code: %d\n", result.ExitCode)
+	}
+
+	// Exit with the command's exit code
+	if result.ExitCode != 0 {
+		os.Exit(result.ExitCode)
+	}
+
+	return nil
 }
 
 // getInputReader handles the 3 modes of input:
 // 1. Explicit stdin with -f -
 // 2. Piped input (auto-detected when using default file)
-// 3. File input (specific file or default commands.cli)
+// 3. File input (specific file or default commands.opl)
 func getInputReader(file string) (io.Reader, func() error, error) {
 	// Mode 1: Explicit stdin
 	if file == "-" {
@@ -66,7 +132,7 @@ func getInputReader(file string) (io.Reader, func() error, error) {
 	}
 
 	// Mode 2: Check for piped input when using default file
-	if file == "commands.cli" {
+	if file == "commands.opl" {
 		if hasPipedInput() {
 			return os.Stdin, func() error { return nil }, nil
 		}
@@ -93,6 +159,5 @@ func hasPipedInput() bool {
 	}
 
 	// Check if stdin is not a character device (i.e., it's piped)
-	// Note: We don't check Size() > 0 because pipes may not report size correctly
 	return (stat.Mode() & os.ModeCharDevice) == 0
 }
