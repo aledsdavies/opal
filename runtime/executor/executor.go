@@ -211,7 +211,7 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 		// Register all secrets from plan
 		for _, secret := range plan.Secrets {
 			// Use DisplayID as placeholder (e.g., "opal:secret:3J98t56A")
-			scrubber.RegisterSecret(secret.Value, secret.DisplayID)
+			scrubber.RegisterSecret(secret.RuntimeValue, secret.DisplayID)
 		}
 
 		// Lock down stdout/stderr

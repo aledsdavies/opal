@@ -35,11 +35,11 @@ type Plan struct {
 //
 // Two-track identity:
 // - DisplayID: Opaque random ID shown to users (no length leak, no correlation)
-// - Value: Actual secret value (runtime only, never serialized)
+// - RuntimeValue: Actual secret value (runtime only, never serialized)
 type Secret struct {
-	Key       string // Variable name (e.g., "db_password", "HOME", "commit_hash")
-	Value     string // Actual resolved value (runtime only, never serialized)
-	DisplayID string // Opaque ID for display: <secret:a3f8b2c1d4e5f6a7>
+	Key          string // Variable name (e.g., "db_password", "HOME", "commit_hash")
+	RuntimeValue string // Actual resolved value (runtime only, never serialized)
+	DisplayID    string // Opaque ID for display: opal:secret:3J98t56A
 }
 
 // PlanHeader contains metadata about the plan.

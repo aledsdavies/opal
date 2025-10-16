@@ -291,3 +291,22 @@ func TestCombinedOutput(t *testing.T) {
 	assert.Contains(t, string(output), "stdout")
 	assert.Contains(t, string(output), "stderr")
 }
+
+// TestStartWaitCancellation tests that Start+Wait normalizes timeout to 124
+func TestStartWaitCancellation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	var stdout bytes.Buffer
+
+	cmd := CommandContext(ctx, "sleep", "10")
+	cmd.SetStdout(&stdout)
+
+	err := cmd.Start()
+	require.NoError(t, err)
+
+	exitCode, _ := cmd.Wait()
+
+	// Should return 124 (same as Run() with timeout)
+	assert.Equal(t, 124, exitCode, "Start+Wait should normalize timeout to 124")
+}

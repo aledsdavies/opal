@@ -426,7 +426,7 @@ func TestSecretScrubbing(t *testing.T) {
 		Secrets: []planfmt.Secret{
 			{
 				Key:   "db_password",
-				Value: secret,
+				RuntimeValue: secret,
 				DisplayID: "opal:secret:test123",
 			},
 		},

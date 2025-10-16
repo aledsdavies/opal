@@ -46,6 +46,9 @@ func TestHandleUnwrapLast4(t *testing.T) {
 
 // TestHandleUnsafeUnwrap tests explicit unsafe unwrapping
 func TestHandleUnsafeUnwrap(t *testing.T) {
+	// Set capability for testing
+	SetCapability(&Capability{token: 12345})
+	defer SetCapability(nil)
 	h := NewHandle("my-secret")
 
 	// Unsafe unwrap requires explicit acknowledgment
@@ -145,6 +148,9 @@ func TestHandleMaskNegativePanics(t *testing.T) {
 
 // TestHandleForEnv tests environment variable formatting
 func TestHandleForEnv(t *testing.T) {
+	// Set capability for testing
+	SetCapability(&Capability{token: 12345})
+	defer SetCapability(nil)
 	// Skip in debug mode (would panic)
 	if DebugMode {
 		t.Skip("Skipping ForEnv test in debug mode")
@@ -158,6 +164,9 @@ func TestHandleForEnv(t *testing.T) {
 
 // TestHandleForEnvEmptyKeyPanics tests that empty key panics
 func TestHandleForEnvEmptyKeyPanics(t *testing.T) {
+	// Set capability for testing
+	SetCapability(&Capability{token: 12345})
+	defer SetCapability(nil)
 	if DebugMode {
 		t.Skip("Skipping in debug mode")
 	}
@@ -170,6 +179,9 @@ func TestHandleForEnvEmptyKeyPanics(t *testing.T) {
 
 // TestHandleBytes tests byte conversion
 func TestHandleBytes(t *testing.T) {
+	// Set capability for testing
+	SetCapability(&Capability{token: 12345})
+	defer SetCapability(nil)
 	// Skip in debug mode (would panic)
 	if DebugMode {
 		t.Skip("Skipping Bytes test in debug mode")
@@ -245,4 +257,49 @@ func TestHandleID(t *testing.T) {
 	// IDs should be opaque (not reveal value)
 	assert.Contains(t, id1, "opal:secret:")
 	assert.NotContains(t, id1, "my-secret")
+}
+
+// TestCapabilityGate tests that raw access requires capability
+func TestCapabilityGate(t *testing.T) {
+	h := NewHandle("secret")
+
+	// Without capability, should panic
+	assert.Panics(t, func() {
+		h.UnsafeUnwrap()
+	}, "UnsafeUnwrap should panic without capability")
+
+	assert.Panics(t, func() {
+		h.Bytes()
+	}, "Bytes should panic without capability")
+
+	assert.Panics(t, func() {
+		h.ForEnv("KEY")
+	}, "ForEnv should panic without capability")
+
+	// Set capability
+	SetCapability(&Capability{token: 12345})
+	defer SetCapability(nil) // Clean up
+
+	// With capability, should work
+	assert.NotPanics(t, func() {
+		_ = h.UnsafeUnwrap()
+	}, "UnsafeUnwrap should work with capability")
+
+	assert.NotPanics(t, func() {
+		_ = h.Bytes()
+	}, "Bytes should work with capability")
+
+	assert.NotPanics(t, func() {
+		_ = h.ForEnv("KEY")
+	}, "ForEnv should work with capability")
+}
+
+// TestHandleQuotedFormat tests %q formatting
+func TestHandleQuotedFormat(t *testing.T) {
+	h := NewHandle("my-secret-value")
+
+	// %q should return quoted placeholder, not the actual value
+	quoted := fmt.Sprintf("%q", h)
+	assert.Contains(t, quoted, "opal:secret:")
+	assert.NotContains(t, quoted, "my-secret-value")
 }

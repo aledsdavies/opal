@@ -152,11 +152,24 @@ func (c *Cmd) Start() error {
 
 // Wait waits for the command to complete
 // Must be called after Start()
+// Context cancellation returns exit code 124 (same as Run())
 func (c *Cmd) Wait() (int, error) {
 	if err := c.cmd.Wait(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		// Context cancellation/timeout
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return 124, nil // Conventional timeout exit code
+		}
+		// Process exited with non-zero code
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			// Check if process was killed by signal (exit code -1)
+			// This happens when context is cancelled
+			if exitErr.ExitCode() == -1 {
+				return 124, nil // Normalize to timeout code
+			}
 			return exitErr.ExitCode(), nil
 		}
+		// Other errors (e.g., command not found) return 127
 		return 127, err
 	}
 	return 0, nil
@@ -169,6 +182,7 @@ func (c *Cmd) Process() *os.Process {
 
 // Output runs the command and returns its stdout output
 // Stderr is still routed through the locked-down stderr
+// WARNING: Captured buffers are not scrubbed; print responsibly
 // Returns (output, exitCode, error)
 func (c *Cmd) Output() ([]byte, int, error) {
 	var buf bytes.Buffer
@@ -179,6 +193,7 @@ func (c *Cmd) Output() ([]byte, int, error) {
 }
 
 // CombinedOutput runs the command and returns combined stdout+stderr output
+// WARNING: Captured buffers are not scrubbed; print responsibly
 // Returns (output, exitCode, error)
 func (c *Cmd) CombinedOutput() ([]byte, int, error) {
 	var buf bytes.Buffer

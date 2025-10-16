@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/aledsdavies/opal/core/invariant"
 	"golang.org/x/crypto/blake2b"
@@ -16,6 +15,21 @@ import (
 // DebugMode enables panic-on-leak for testing
 // Set OPAL_SECRET_DEBUG=1 to enable
 var DebugMode = os.Getenv("OPAL_SECRET_DEBUG") == "1"
+
+// Capability is a token required to unwrap secrets in production
+// Only the executor can issue capabilities
+type Capability struct {
+	token uint64 // Opaque token (checked internally)
+}
+
+// globalCapability is set by the executor at runtime
+var globalCapability *Capability
+
+// SetCapability sets the global capability (executor only)
+// This enables UnsafeUnwrap/Bytes/ForEnv in production
+func SetCapability(cap *Capability) {
+	globalCapability = cap
+}
 
 // Handle wraps a secret value with taint tracking
 // Prevents accidental leakage by making unsafe operations explicit
@@ -87,34 +101,43 @@ func (h *Handle) Mask(n int) string {
 
 // ForEnv returns a safe environment variable assignment string
 // Format: "KEY=<value>" - safe to pass to subprocess environment
-// Panics in debug mode if called outside executor context
+// Requires capability in production (issued by executor)
+// Panics in debug mode or without capability
 func (h *Handle) ForEnv(key string) string {
 	invariant.Precondition(key != "", "environment variable key cannot be empty")
 	if DebugMode {
-		// In debug mode, only allow this from executor context
-		// This prevents accidental leaks during testing
 		panic("ForEnv() called in debug mode - only use within executor context")
+	}
+	if globalCapability == nil {
+		panic("ForEnv() requires capability - only call from executor-issued decorators")
 	}
 	return key + "=" + h.value
 }
 
 // Bytes returns the secret as bytes
-// Only available when capability is present (set by executor)
-// Panics in debug mode to catch misuse during testing
+// Requires capability in production (issued by executor)
+// Panics in debug mode or without capability
 func (h *Handle) Bytes() []byte {
 	if DebugMode {
 		panic("Bytes() called in debug mode - only use within executor context")
+	}
+	if globalCapability == nil {
+		panic("Bytes() requires capability - only call from executor-issued decorators")
 	}
 	return []byte(h.value)
 }
 
 // UnsafeUnwrap returns the raw secret value
 // ONLY use when absolutely necessary (e.g., passing to subprocess)
-// In debug mode, this will panic to catch leaks during testing
+// Requires capability in production (issued by executor)
+// Panics in debug mode or without capability
 // Consider using ForEnv() or Bytes() instead for safer alternatives
 func (h *Handle) UnsafeUnwrap() string {
 	if DebugMode {
 		panic("UnsafeUnwrap() called in debug mode - secret leak detected")
+	}
+	if globalCapability == nil {
+		panic("UnsafeUnwrap() requires capability - only call from executor-issued decorators")
 	}
 	return h.value
 }
@@ -217,19 +240,4 @@ func (h *Handle) MarshalJSON() ([]byte, error) {
 // Returns placeholder instead of raw value
 func (h *Handle) MarshalText() ([]byte, error) {
 	return []byte(h.Placeholder()), nil
-}
-
-// Contains checks if the secret contains a substring (safe)
-func (h *Handle) Contains(substr string) bool {
-	return strings.Contains(h.value, substr)
-}
-
-// HasPrefix checks if the secret has a prefix (safe)
-func (h *Handle) HasPrefix(prefix string) bool {
-	return strings.HasPrefix(h.value, prefix)
-}
-
-// HasSuffix checks if the secret has a suffix (safe)
-func (h *Handle) HasSuffix(suffix string) bool {
-	return strings.HasSuffix(h.value, suffix)
 }

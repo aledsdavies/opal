@@ -32,7 +32,7 @@ const (
 	// Bits 2-15 reserved for future use
 )
 
-// Write writes a plan to w and returns the 32-byte file hash (BLAKE3).
+// Write writes a plan to w and returns the 32-byte file hash (BLAKE2b-256).
 // The plan is canonicalized before writing to ensure deterministic output.
 func Write(w io.Writer, p *Plan) ([32]byte, error) {
 	wr := &Writer{w: w}
