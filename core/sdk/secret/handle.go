@@ -239,17 +239,17 @@ func (h *Handle) Format(f fmt.State, verb rune) {
 	case 'v':
 		if f.Flag('#') {
 			// %#v -> GoString()
-			fmt.Fprint(f, h.GoString())
+			_, _ = fmt.Fprint(f, h.GoString())
 		} else {
 			// %v -> Placeholder()
-			fmt.Fprint(f, h.Placeholder())
+			_, _ = fmt.Fprint(f, h.Placeholder())
 		}
 	case 's':
 		// %s -> Placeholder()
-		fmt.Fprint(f, h.Placeholder())
+		_, _ = fmt.Fprint(f, h.Placeholder())
 	default:
 		// Unknown verb -> Placeholder()
-		fmt.Fprint(f, h.Placeholder())
+		_, _ = fmt.Fprint(f, h.Placeholder())
 	}
 }
 

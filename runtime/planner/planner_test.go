@@ -24,7 +24,6 @@ func TestSimpleShellCommand(t *testing.T) {
 	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
 		Target: "", // Script mode
 	})
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -78,7 +77,6 @@ echo "Second"`)
 	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
 		Target: "",
 	})
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -119,7 +117,6 @@ func TestFunctionDefinition(t *testing.T) {
 	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
 		Target: "hello",
 	})
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -159,7 +156,6 @@ fun goodbye = echo "Goodbye"`)
 	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
 		Target: "goodbye",
 	})
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -191,7 +187,6 @@ echo "Another top level"`)
 	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
 		Target: "",
 	})
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -221,7 +216,6 @@ func TestEmptyPlan(t *testing.T) {
 	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
 		Target: "",
 	})
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -243,7 +237,6 @@ echo "Third"`)
 	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
 		Target: "",
 	})
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -272,7 +265,6 @@ func TestArgSorting(t *testing.T) {
 	plan, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
 		Target: "",
 	})
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}

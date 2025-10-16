@@ -91,7 +91,7 @@ func main() {
 	restore()
 
 	// Now write captured (and scrubbed) output to real stdout
-	os.Stdout.Write(outputBuf.Bytes())
+	_, _ = os.Stdout.Write(outputBuf.Bytes())
 
 	// Exit with proper code (after all cleanup)
 	if exitCode != 0 {
@@ -277,7 +277,7 @@ func runFromPlan(planFile, sourceFile string, debug bool, scrubber *executor.Sec
 	if err != nil {
 		return 1, fmt.Errorf("failed to open plan file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	target, contractHash, err := planfmt.ReadContract(f)
 	if err != nil {
@@ -295,7 +295,7 @@ func runFromPlan(planFile, sourceFile string, debug bool, scrubber *executor.Sec
 	if err != nil {
 		return 1, err
 	}
-	defer closeFunc()
+	defer func() { _ = closeFunc() }()
 
 	source, err := io.ReadAll(reader)
 	if err != nil {

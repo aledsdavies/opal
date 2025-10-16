@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/aledsdavies/opal/core/invariant"
@@ -54,15 +55,18 @@ func New(w io.Writer) *Scrubber {
 	return &Scrubber{
 		writer: w,
 		runKey: runKey,
-		maxLen: 1024, // Default max secret length
+		maxLen: 0, // Will be set to longest secret when secrets are registered
 		carry:  make([]byte, 0, 1024),
 	}
 }
 
-// RunKey returns the per-run key for keyed fingerprints
+// RunKey returns a copy of the per-run key for keyed fingerprints
 // This is used by secret.Handle.Fingerprint() for consistent hashing within a run
+// Returns a copy to prevent external mutation of the internal key
 func (s *Scrubber) RunKey() []byte {
-	return s.runKey
+	k := make([]byte, len(s.runKey))
+	copy(k, s.runKey)
+	return k
 }
 
 // Fingerprint computes a keyed fingerprint of a value using the per-run key
@@ -90,10 +94,19 @@ func RegisterSecret(s *Scrubber, value, placeholder string) {
 	s.addEntry([]byte(value), []byte(placeholder))
 
 	// Register common encodings (all use same placeholder for obfuscation)
+	// Hex: lowercase and uppercase
 	s.addEntry([]byte(hex.EncodeToString([]byte(value))), []byte(placeholder))
+	s.addEntry([]byte(strings.ToUpper(hex.EncodeToString([]byte(value)))), []byte(placeholder))
+
+	// Base64: standard, URL, and raw (no padding) variants
 	s.addEntry([]byte(base64.StdEncoding.EncodeToString([]byte(value))), []byte(placeholder))
 	s.addEntry([]byte(base64.URLEncoding.EncodeToString([]byte(value))), []byte(placeholder))
+	s.addEntry([]byte(base64.RawStdEncoding.EncodeToString([]byte(value))), []byte(placeholder))
+	s.addEntry([]byte(base64.RawURLEncoding.EncodeToString([]byte(value))), []byte(placeholder))
+
+	// URL encoding
 	s.addEntry([]byte(url.QueryEscape(value)), []byte(placeholder))
+	s.addEntry([]byte(url.PathEscape(value)), []byte(placeholder))
 
 	// Register reversed (common obfuscation)
 	s.addEntry(reverse([]byte(value)), []byte(placeholder))
@@ -104,11 +117,6 @@ func RegisterSecret(s *Scrubber, value, placeholder string) {
 	s.addEntry(withSeparators([]byte(value), '.'), []byte(placeholder))
 	s.addEntry(withSeparators([]byte(value), ':'), []byte(placeholder))
 
-	// Update maxLen if needed
-	if len(value) > s.maxLen {
-		s.maxLen = len(value)
-	}
-
 	// Sort by descending length (longest first to handle substrings)
 	sort.Slice(s.secrets, func(i, j int) bool {
 		return len(s.secrets[i].value) > len(s.secrets[j].value)
@@ -116,6 +124,7 @@ func RegisterSecret(s *Scrubber, value, placeholder string) {
 }
 
 // addEntry adds a secret entry (internal, assumes lock held)
+// Updates maxLen to track the longest registered variant
 func (s *Scrubber) addEntry(value, placeholder []byte) {
 	if len(value) == 0 {
 		return // Skip empty values
@@ -124,6 +133,11 @@ func (s *Scrubber) addEntry(value, placeholder []byte) {
 		value:       value,
 		placeholder: placeholder,
 	})
+
+	// Update maxLen to longest variant (not just raw value)
+	if len(value) > s.maxLen {
+		s.maxLen = len(value)
+	}
 }
 
 // Write implements io.Writer with secret scrubbing
@@ -146,8 +160,13 @@ func (s *Scrubber) Write(p []byte) (int, error) {
 
 	// Keep last maxLen-1 bytes as carry for next write
 	// (in case secret is split across chunk boundary)
-	carrySize := s.maxLen - 1
-	if len(redacted) > carrySize {
+	// If no secrets registered (maxLen==0), don't buffer anything
+	carrySize := 0
+	if s.maxLen > 0 {
+		carrySize = s.maxLen - 1
+	}
+
+	if carrySize > 0 && len(redacted) > carrySize {
 		// Write everything except the carry
 		toWrite := redacted[:len(redacted)-carrySize]
 		s.carry = append(s.carry[:0], redacted[len(redacted)-carrySize:]...)
@@ -159,13 +178,29 @@ func (s *Scrubber) Write(p []byte) (int, error) {
 		if n < len(toWrite) {
 			return n, io.ErrShortWrite
 		}
-	} else {
+	} else if carrySize > 0 {
 		// Buffer is smaller than carry size, accumulate
 		s.carry = append(s.carry[:0], redacted...)
+	} else {
+		// No secrets registered, write everything immediately
+		n, err := s.writer.Write(redacted)
+		if err != nil {
+			return n, err
+		}
+		if n < len(redacted) {
+			return n, io.ErrShortWrite
+		}
 	}
 
 	// Report original chunk size as written
 	return len(p), nil
+}
+
+// Close implements io.WriteCloser by flushing remaining data
+// This ensures trailing secrets at chunk boundaries are caught
+// Callers MUST defer Close() to prevent secret leakage
+func (s *Scrubber) Close() error {
+	return s.Flush()
 }
 
 // Flush writes any remaining carry bytes after redaction

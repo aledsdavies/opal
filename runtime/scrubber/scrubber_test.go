@@ -29,7 +29,7 @@ func TestBasicScrubbing(t *testing.T) {
 	assert.Equal(t, len(input), n)
 
 	// Flush to write remaining carry
-	s.Flush()
+	_ = s.Flush()
 
 	assert.Equal(t, "The password is: <secret:1>\n", buf.String())
 	assert.NotContains(t, buf.String(), secret)
@@ -45,12 +45,12 @@ func TestChunkBoundarySplit(t *testing.T) {
 	RegisterSecret(s, secret, placeholder)
 
 	// Split secret across three writes
-	s.Write([]byte("prefix secret-"))
-	s.Write([]byte("value-"))
-	s.Write([]byte("123 suffix"))
+	_, _ = s.Write([]byte("prefix secret-"))
+	_, _ = s.Write([]byte("value-"))
+	_, _ = s.Write([]byte("123 suffix"))
 
 	// Flush remaining carry
-	s.Flush()
+	_ = s.Flush()
 
 	output := buf.String()
 	assert.NotContains(t, output, secret, "Secret should be scrubbed even when split")
@@ -68,8 +68,8 @@ func TestMultipleSecrets(t *testing.T) {
 	RegisterSecret(s, "medium-secret", "<s3>")
 
 	input := "short this-is-a-longer-secret medium-secret"
-	s.Write([]byte(input))
-	s.Flush()
+	_, _ = s.Write([]byte(input))
+	_ = s.Flush()
 
 	output := buf.String()
 	assert.NotContains(t, output, "short")
@@ -90,8 +90,8 @@ func TestSubstringSecrets(t *testing.T) {
 	RegisterSecret(s, "password123", "<long>")
 
 	input := "password password123"
-	s.Write([]byte(input))
-	s.Flush()
+	_, _ = s.Write([]byte(input))
+	_ = s.Flush()
 
 	output := buf.String()
 	// Longer secret should match first, leaving shorter one
@@ -113,8 +113,8 @@ func TestBase64EncodedSecret(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(secret))
 	input := "Encoded: " + encoded + "\n"
 
-	s.Write([]byte(input))
-	s.Flush()
+	_, _ = s.Write([]byte(input))
+	_ = s.Flush()
 
 	output := buf.String()
 	assert.NotContains(t, output, encoded, "Base64-encoded secret should be scrubbed")
@@ -134,8 +134,8 @@ func TestHexEncodedSecret(t *testing.T) {
 	encoded := hex.EncodeToString([]byte(secret))
 	input := "Hex: " + encoded + "\n"
 
-	s.Write([]byte(input))
-	s.Flush()
+	_, _ = s.Write([]byte(input))
+	_ = s.Flush()
 
 	output := buf.String()
 	assert.NotContains(t, output, encoded, "Hex-encoded secret should be scrubbed")
@@ -155,8 +155,8 @@ func TestURLEncodedSecret(t *testing.T) {
 	encoded := url.QueryEscape(secret)
 	input := "URL: " + encoded + "\n"
 
-	s.Write([]byte(input))
-	s.Flush()
+	_, _ = s.Write([]byte(input))
+	_ = s.Flush()
 
 	output := buf.String()
 	assert.NotContains(t, output, encoded, "URL-encoded secret should be scrubbed")
@@ -176,8 +176,8 @@ func TestReversedSecret(t *testing.T) {
 	reversed := reverseString(secret)
 	input := "Reversed: " + reversed + "\n"
 
-	s.Write([]byte(input))
-	s.Flush()
+	_, _ = s.Write([]byte(input))
+	_ = s.Flush()
 
 	output := buf.String()
 	assert.NotContains(t, output, reversed, "Reversed secret should be scrubbed")
@@ -197,8 +197,8 @@ func TestSeparatorObfuscation(t *testing.T) {
 	obfuscated := "p-a-s-s-w-o-r-d"
 	input := "Obfuscated: " + obfuscated + "\n"
 
-	s.Write([]byte(input))
-	s.Flush()
+	_, _ = s.Write([]byte(input))
+	_ = s.Flush()
 
 	output := buf.String()
 	assert.NotContains(t, output, obfuscated, "Separator-obfuscated secret should be scrubbed")
@@ -220,12 +220,12 @@ func TestConcurrentWrites(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			msg := strings.Repeat("concurrent-secret ", 100)
-			s.Write([]byte(msg))
+			_, _ = s.Write([]byte(msg))
 		}(i)
 	}
 
 	wg.Wait()
-	s.Flush()
+	_ = s.Flush()
 
 	output := buf.String()
 	assert.NotContains(t, output, secret, "Concurrent writes should not leak secrets")
@@ -268,14 +268,14 @@ func TestFlushCarry(t *testing.T) {
 	RegisterSecret(s, secret, placeholder)
 
 	// Write secret but don't complete it
-	s.Write([]byte("prefix secret-at-"))
+	_, _ = s.Write([]byte("prefix secret-at-"))
 
 	// Before flush, secret is incomplete
 	assert.NotContains(t, buf.String(), placeholder)
 
 	// Complete the secret
-	s.Write([]byte("end"))
-	s.Flush()
+	_, _ = s.Write([]byte("end"))
+	_ = s.Flush()
 
 	// After flush, secret should be scrubbed
 	output := buf.String()
@@ -308,7 +308,7 @@ func TestBinaryData(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, len(input), n)
 
-	s.Flush()
+	_ = s.Flush()
 	output := buf.Bytes()
 	assert.NotContains(t, output, secret)
 }
@@ -366,4 +366,96 @@ func TestFingerprintDifferentKeys(t *testing.T) {
 
 	// Same value with different keys should produce different fingerprints
 	assert.NotEqual(t, fp1, fp2, "Different run keys should produce different fingerprints")
+}
+
+// TestRunKeyCopy verifies that RunKey() returns a copy, not the internal slice
+func TestRunKeyCopy(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+
+	// Get key and mutate it
+	key1 := s.RunKey()
+	original := make([]byte, len(key1))
+	copy(original, key1)
+
+	// Mutate the returned key
+	for i := range key1 {
+		key1[i] = 0xFF
+	}
+
+	// Get key again - should be unchanged
+	key2 := s.RunKey()
+	assert.Equal(t, original, key2, "RunKey should return a copy, not mutable reference")
+	assert.NotEqual(t, key1, key2, "Mutating returned key should not affect internal key")
+}
+
+// TestNoSecretsNoBuffering verifies that with no secrets, output is not buffered
+func TestNoSecretsNoBuffering(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+
+	// Write without registering any secrets
+	data := []byte("This should pass through immediately")
+	n, err := s.Write(data)
+
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+
+	// Should be written immediately (no carry buffering)
+	assert.Equal(t, string(data), buf.String(), "With no secrets, output should not be buffered")
+}
+
+// TestCloseFlushes verifies that Close() calls Flush()
+func TestCloseFlushes(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+
+	RegisterSecret(s, "secret", "REDACTED")
+
+	// Write data that will be held in carry
+	_, _ = s.Write([]byte("prefix"))
+
+	// Before Close, buffer should be empty (data in carry)
+	assert.Equal(t, "", buf.String())
+
+	// Close should flush carry
+	err := s.Close()
+	require.NoError(t, err)
+
+	// Now buffer should have the data
+	assert.Equal(t, "prefix", buf.String())
+}
+
+// TestHexUpperCase verifies that uppercase hex encoding is caught
+func TestHexUpperCase(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+
+	secret := "test"
+	RegisterSecret(s, secret, "REDACTED")
+
+	// Hex uppercase: 74657374
+	_, _ = s.Write([]byte("prefix 74657374 suffix"))
+	_ = s.Flush()
+
+	output := buf.String()
+	assert.Contains(t, output, "REDACTED", "Uppercase hex should be caught")
+	assert.NotContains(t, output, "74657374", "Uppercase hex should be replaced")
+}
+
+// TestBase64RawEncoding verifies that base64 raw (no padding) is caught
+func TestBase64RawEncoding(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+
+	secret := "test"
+	RegisterSecret(s, secret, "REDACTED")
+
+	// Base64 raw (no padding): dGVzdA (vs dGVzdA== with padding)
+	_, _ = s.Write([]byte("prefix dGVzdA suffix"))
+	_ = s.Flush()
+
+	output := buf.String()
+	assert.Contains(t, output, "REDACTED", "Base64 raw encoding should be caught")
+	assert.NotContains(t, output, "dGVzdA", "Base64 raw should be replaced")
 }

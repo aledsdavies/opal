@@ -11,11 +11,11 @@ import (
 // DisplayPlan renders a plan as a tree structure
 func DisplayPlan(w io.Writer, plan *planfmt.Plan, useColor bool) {
 	// Print target name
-	fmt.Fprintf(w, "%s:\n", plan.Target)
+	_, _ = fmt.Fprintf(w, "%s:\n", plan.Target)
 
 	// Handle empty plan
 	if len(plan.Steps) == 0 {
-		fmt.Fprintf(w, "(no steps)\n")
+		_, _ = fmt.Fprintf(w, "(no steps)\n")
 		return
 	}
 
@@ -51,7 +51,7 @@ func renderStep(w io.Writer, step planfmt.Step, isLast bool, useColor bool) {
 		}
 
 		fullCommand := decorator + " " + strings.Join(cmdParts, " ")
-		fmt.Fprintf(w, "%s%s\n", prefix, fullCommand)
+		_, _ = fmt.Fprintf(w, "%s%s\n", prefix, fullCommand)
 		return
 	}
 
@@ -59,7 +59,7 @@ func renderStep(w io.Writer, step planfmt.Step, isLast bool, useColor bool) {
 	cmd := step.Commands[0]
 	decorator := Colorize(cmd.Decorator, ColorBlue, useColor)
 	commandStr := getCommandString(cmd)
-	fmt.Fprintf(w, "%s%s %s\n", prefix, decorator, commandStr)
+	_, _ = fmt.Fprintf(w, "%s%s %s\n", prefix, decorator, commandStr)
 }
 
 // getCommandString extracts the command string from a Command

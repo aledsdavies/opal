@@ -11,8 +11,9 @@ import (
 // TestPreconditionPass verifies Precondition does not panic when condition is true
 func TestPreconditionPass(t *testing.T) {
 	// Should not panic
+	x := 1
 	invariant.Precondition(true, "this should pass")
-	invariant.Precondition(1 == 1, "math works")
+	invariant.Precondition(x == 1, "math works")
 	invariant.Precondition(len("hello") > 0, "string not empty")
 }
 

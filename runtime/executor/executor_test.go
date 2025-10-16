@@ -308,7 +308,7 @@ func TestExecuteDebugDetailed(t *testing.T) {
 // TestInvariantNilPlan tests that nil plan causes panic
 func TestInvariantNilPlan(t *testing.T) {
 	assert.Panics(t, func() {
-		Execute(nil, Config{})
+		_, _ = Execute(nil, Config{})
 	})
 }
 
@@ -332,7 +332,7 @@ func TestInvariantEmptyShellCommand(t *testing.T) {
 	}
 
 	assert.Panics(t, func() {
-		Execute(plan, Config{})
+		_, _ = Execute(plan, Config{})
 	})
 }
 
@@ -425,9 +425,9 @@ func TestSecretScrubbing(t *testing.T) {
 		},
 		Secrets: []planfmt.Secret{
 			{
-				Key:   "db_password",
+				Key:          "db_password",
 				RuntimeValue: secret,
-				DisplayID: "opal:secret:test123",
+				DisplayID:    "opal:secret:test123",
 			},
 		},
 	}

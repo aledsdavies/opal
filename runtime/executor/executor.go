@@ -146,26 +146,26 @@ func LockDownStdStreams(config *LockdownConfig) (restore func()) {
 
 	go func() {
 		defer wg.Done()
-		io.Copy(config.Scrubber, rOut)
+		_, _ = io.Copy(config.Scrubber, rOut)
 	}()
 
 	go func() {
 		defer wg.Done()
-		io.Copy(config.Scrubber, rErr)
+		_, _ = io.Copy(config.Scrubber, rErr)
 	}()
 
 	// Return restore function
 	return func() {
 		// Close write ends to signal EOF to copy goroutines
-		wOut.Close()
-		wErr.Close()
+		_ = wOut.Close()
+		_ = wErr.Close()
 
 		// Wait for copy goroutines to finish
 		wg.Wait()
 
 		// Close read ends
-		rOut.Close()
-		rErr.Close()
+		_ = rOut.Close()
+		_ = rErr.Close()
 
 		// Restore original streams
 		os.Stdout = originalStdout
@@ -196,6 +196,7 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 	// Set up stdout/stderr lockdown if enabled
 	var outputBuf bytes.Buffer
 	var restore func()
+	var needsRestore bool
 
 	if config.LockdownStdStreams {
 		// Create scrubber
@@ -218,7 +219,8 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 		restore = LockDownStdStreams(&LockdownConfig{
 			Scrubber: scrubber,
 		})
-		defer restore()
+		needsRestore = true
+		// Note: We call restore() explicitly before reading outputBuf to avoid race
 	}
 
 	e := &executor{
@@ -290,6 +292,12 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 		e.recordDebugEvent("exit_execute", 0, fmt.Sprintf("steps_run=%d, exit=%d, duration=%v", e.stepsRun, e.exitCode, duration))
 	}
 
+	// Restore stdout/stderr BEFORE reading outputBuf to avoid race condition
+	// The goroutines in LockDownStdStreams must finish writing before we read
+	if needsRestore {
+		restore()
+	}
+
 	// OUTPUT CONTRACT (postconditions)
 	invariant.InRange(e.exitCode, 0, 255, "exit code")
 	invariant.Postcondition(e.stepsRun >= 0, "steps run must be non-negative")
@@ -299,7 +307,7 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 		ExitCode:    e.exitCode,
 		Duration:    duration,
 		StepsRun:    e.stepsRun,
-		Output:      outputBuf.String(), // Captured and scrubbed output
+		Output:      outputBuf.String(), // Captured and scrubbed output (safe after restore())
 		Telemetry:   e.telemetry,
 		DebugEvents: e.debugEvents,
 	}, nil

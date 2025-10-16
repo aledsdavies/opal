@@ -73,13 +73,6 @@ func (c *Cmd) SetStderr(w io.Writer) *Cmd {
 }
 
 // SetEnv replaces the entire environment for the command
-// WARNING: This replaces ALL environment variables including PATH
-// Consider using AppendEnv() instead to preserve existing environment
-func (c *Cmd) SetEnv(env []string) *Cmd {
-	c.cmd.Env = env
-	return c
-}
-
 // AppendEnv adds environment variables to the command
 // Preserves existing environment (including PATH) and adds new variables
 // This is the recommended way to set environment variables

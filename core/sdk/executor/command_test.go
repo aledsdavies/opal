@@ -85,21 +85,6 @@ func TestBashFailure(t *testing.T) {
 	assert.Equal(t, 42, exitCode)
 }
 
-// TestSetEnv tests environment variable setting
-func TestSetEnv(t *testing.T) {
-	var stdout bytes.Buffer
-
-	cmd := Bash("echo $MY_VAR")
-	cmd.SetEnv([]string{"MY_VAR=test-value"})
-	cmd.SetStdout(&stdout)
-
-	exitCode, err := cmd.Run()
-
-	require.NoError(t, err)
-	assert.Equal(t, 0, exitCode)
-	assert.Equal(t, "test-value\n", stdout.String())
-}
-
 // TestSetDir tests working directory setting
 func TestSetDir(t *testing.T) {
 	var stdout bytes.Buffer
@@ -162,6 +147,7 @@ func TestInvariantEmptyBashScript(t *testing.T) {
 // TestInvariantNilContext tests panic on nil context
 func TestInvariantNilContext(t *testing.T) {
 	assert.Panics(t, func() {
+		//nolint:staticcheck // Testing nil context handling
 		CommandContext(nil, "echo", "test")
 	})
 }
@@ -206,27 +192,6 @@ func TestAppendEnv(t *testing.T) {
 	assert.Contains(t, output, "test-value")
 	// PATH should still be present
 	assert.Contains(t, output, "/")
-}
-
-// TestSetEnvReplacesAll tests that SetEnv replaces entire environment
-func TestSetEnvReplacesAll(t *testing.T) {
-	var stdout bytes.Buffer
-
-	// Use a simple command that doesn't need PATH
-	cmd := Command("sh", "-c", "echo $MY_VAR:$PATH")
-	cmd.SetEnv([]string{"MY_VAR=test-value"})
-	cmd.SetStdout(&stdout)
-
-	exitCode, err := cmd.Run()
-
-	require.NoError(t, err)
-	assert.Equal(t, 0, exitCode)
-	output := stdout.String()
-	assert.Contains(t, output, "test-value")
-	// PATH should NOT be present (entire env replaced)
-	// Output should be "test-value:" with empty PATH
-	assert.True(t, strings.HasPrefix(output, "test-value:"), "Should start with MY_VAR value")
-	assert.NotContains(t, output, "/usr/bin", "Should not contain system PATH")
 }
 
 // TestSetStdin tests feeding input to command
