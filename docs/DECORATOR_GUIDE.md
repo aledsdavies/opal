@@ -314,6 +314,82 @@ All three forms are valid. Use what's clearest for your use case.
 ❌ Bad:  level="INFO|Warning|err"  # Inconsistent casing
 ```
 
+## SDK for Decorator Authors
+
+Opal provides a secure-by-default SDK for building decorators safely.
+
+### Secret Handling (`core/sdk/secret`)
+
+All value decorators return `secret.Handle` for automatic scrubbing:
+
+```go
+import "github.com/aledsdavies/opal/core/sdk/secret"
+
+func awsSecretHandler(ctx ExecutionContext, args []Param) (*secret.Handle, error) {
+    secretName := ctx.ArgString("secretName")
+    value := fetchFromAWS(secretName)
+    return secret.NewHandle(value), nil
+}
+```
+
+**Safe operations (always available):**
+- `handle.ID()` - Opaque display ID: `opal:secret:3J98t56A`
+- `handle.IDWithEmoji()` - Display with emoji: `🔒 opal:secret:3J98t56A`
+- `handle.Mask(3)` - Masked display: `abc***xyz`
+- `handle.Len()` - Length without exposing value
+- `handle.Equal(other)` - Constant-time comparison
+
+**Controlled access (requires capability from executor):**
+- `handle.ForEnv("KEY")` - Environment variable: `KEY=value`
+- `handle.Bytes()` - Raw bytes for subprocess
+- `handle.UnsafeUnwrap()` - Raw value (explicit, panics in debug mode)
+
+**Why capability gating?** Prevents accidental leaks in plugins while enabling legitimate subprocess/environment wiring. Only the executor can issue capabilities.
+
+### Command Execution (`core/sdk/executor`)
+
+Use `executor.Command()` instead of `os/exec` for automatic scrubbing:
+
+```go
+import "github.com/aledsdavies/opal/core/sdk/executor"
+
+cmd := executor.Command("kubectl", "get", "pods")
+cmd.AppendEnv(map[string]string{
+    "KUBECONFIG": kubeconfigPath,
+})
+exitCode, err := cmd.Run()
+```
+
+**Why this is safe:**
+- Output automatically routes through scrubber
+- Secrets are redacted before display
+- No way to bypass security
+
+**API:**
+- `Command(name, args...)` - Create command
+- `Bash(script)` - Execute bash script
+- `AppendEnv(map)` - Add environment (preserves PATH)
+- `SetEnv([]string)` - Replace entire environment
+- `SetStdin(reader)` - Feed input
+- `SetDir(path)` - Set working directory
+- `Run()` - Execute and wait (normalizes timeouts to exit code 124)
+- `Start()` / `Wait()` - Async execution
+- `Output()` / `CombinedOutput()` - Capture output (not scrubbed)
+
+### Security Model
+
+**Taint tracking**: Secrets panic on `String()` to catch accidental leaks during testing.
+
+**Per-run keyed fingerprints**: Prevent cross-run correlation and oracle attacks.
+
+**Locked-down I/O**: All subprocess output goes through scrubber automatically.
+
+**Capability gating**: Raw access (ForEnv, Bytes, UnsafeUnwrap) requires executor-issued token.
+
+**Debug mode**: Set `OPAL_SECRET_DEBUG=1` to catch leaks during testing.
+
+See `docs/SDK_GUIDE.md` for complete API reference and examples.
+
 ## Design Patterns
 
 ### Pattern: Opaque Capability Handles
