@@ -61,6 +61,8 @@ deploy: {
 
 **Deterministic planning**: Same inputs always produce the same plan. Control flow resolves at plan-time.
 
+**Scope semantics**: All blocks can read outer values; only language control blocks (`for`, `if`, `when`, `fun`) can mutate outer scope. Execution decorator blocks (`@retry`, `@timeout`, etc.) and `try/catch` blocks use scope isolation—mutations don't leak out. See [Variable Scope](#variable-scope) for details.
+
 **Scope**: Operations and task running. We're proving the model here before extending to infrastructure provisioning.
 
 ## Mental Model
@@ -88,6 +90,27 @@ Source Code → Parse → Replan → Verify → Execute
 3. Executes ONLY if they match, aborts if they differ
 
 **Unlike Terraform** (which applies old plan to new state), Opal verifies current reality would still produce the same plan. This prevents executing stale or tampered plans.
+
+## Error Handling Model
+
+**Error precedence rule** (normative for all executors and decorators):
+
+1. **`err != nil`** → Failure. Exit code becomes informational (logged but not used for control flow).
+2. **`err == nil`** → Success if and only if `exitCode == 0`. Non-zero exit code with `nil` error is a failure.
+
+**Typed errors** enable policy decisions:
+- `RetryableError` - Decorator can retry (network timeout, rate limit)
+- `TimeoutError` - Decorator exceeded time limit
+- `CancelledError` - Context cancelled (user interrupt, deadline)
+
+**Example:**
+```opal
+@retry(times=3) {
+    curl https://api.example.com/health
+}
+```
+
+If `curl` returns exit code 7 (connection failed) with `err == nil`, retry decorator sees non-zero exit and retries. If it returns `TimeoutError`, retry decorator can apply backoff strategy.
 
 ## Two Ways to Run
 
@@ -677,6 +700,33 @@ Every `{ ... }` block in opal represents a **phase** - a unit of execution with 
 **Outputs are deterministically merged.** Each step produces its own stdout and stderr streams. When these need to be combined (for logging or display), they're merged in the canonical order, ensuring the same plan always produces the same combined output.
 
 Block-specific constructs like `for`, `if`, `when`, `try/catch`, and `@parallel` work within this framework. They define how blocks expand (unrolling loops, selecting branches) or add constraints (parallel independence), but they all inherit the same phase execution guarantees.
+
+### @parallel Output Determinism
+
+**Output merge contract**: Stdout/stderr from parallel branches are buffered per-step and emitted in **plan order** (by step ID), not completion order.
+
+**Example:**
+```opal
+@parallel {
+    sleep 3 && echo "Branch A (slow)"     # Step ID: 1
+    sleep 1 && echo "Branch B (fast)"     # Step ID: 2  
+    echo "Branch C (instant)"             # Step ID: 3
+}
+```
+
+**Output (always in this order):**
+```
+Branch A (slow)
+Branch B (fast)
+Branch C (instant)
+```
+
+Even though Branch C completes first, output is deterministic by step ID. This ensures:
+- **Reproducible logs** - Same plan always produces same output order
+- **Contract verification** - Output order is part of the execution contract
+- **Debugging** - Output matches plan structure, not race conditions
+
+**TUI/live progress**: Separate from final output. TUI can show live progress in completion order, but final stdout/stderr follows plan order.
 
 ### Command Definitions
 

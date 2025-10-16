@@ -143,8 +143,7 @@ The decorator does three things:
 **Handler signature:**
 ```go
 type ExecutionHandler func(
-    ctx ExecutionContext,    // Callback to executor
-    args []Arg,              // Decorator parameters
+    ctx ExecutionContext,    // Execution context with args and I/O
     block []Step,            // Child steps to execute
 ) (exitCode int, err error)
 ```
@@ -152,12 +151,41 @@ type ExecutionHandler func(
 **Execution context provides:**
 ```go
 type ExecutionContext interface {
-    ExecuteBlock(steps []Step) (int, error)  // Execute block in this context
-    GetArg(key string) (Value, bool)         // Access parameters
-    Stdout() io.Writer                       // Output streams
-    Stderr() io.Writer
+    // Execute block within this context
+    ExecuteBlock(steps []Step) (exitCode int, err error)
+    Context() context.Context  // For cancellation and deadlines
+    
+    // Decorator arguments (typed accessors)
+    ArgString(key string) string
+    ArgInt(key string) int64
+    ArgBool(key string) bool
+    ArgDuration(key string) time.Duration
+    Args() map[string]Value  // Snapshot for logging
+    
+    // Controlled I/O (executor scrubs secrets automatically)
+    // Decorators CANNOT write directly to streams
+    LogOutput(message string)  // Scrubbed before output
+    LogError(message string)   // Scrubbed before output
+    
+    // Environment and working directory
+    Environ() map[string]string
+    Workdir() string
+    
+    // Context wrapping (returns new context with modifications)
+    WithContext(ctx context.Context) ExecutionContext
+    WithEnviron(env map[string]string) ExecutionContext
+    WithWorkdir(dir string) ExecutionContext
 }
 ```
+
+**Security model:**
+
+Decorators have **no direct access to I/O streams**. All output flows through the executor which:
+1. Maintains a registry of secret values from value decorator resolutions
+2. Automatically replaces secret values with plan placeholders: `<len:algo:hash>`
+3. Ensures audit trail shows which secrets were used without exposing values
+
+This prevents decorators from accidentally (or maliciously) leaking secrets.
 
 ### Recursive Execution: Nested Decorators
 
@@ -172,11 +200,11 @@ When decorators are nested, each wraps the next:
 ```
 
 **Execution flow:**
-1. Executor calls `retryHandler(ctx, args=[times=3], block=[ssh step])`
+1. Executor calls `retryHandler(ctx, block=[ssh step])`
 2. Retry handler loops 3 times, calling `ctx.ExecuteBlock(block)` each time
-3. Executor receives ssh step, calls `sshHandler(ctx, args=[host="prod"], block=[cat command])`
+3. Executor receives ssh step, calls `sshHandler(ctx, block=[cat command])`
 4. SSH handler establishes connection, wraps context, calls `sshCtx.ExecuteBlock(block)`
-5. Executor receives cat command, calls `shellHandler(ctx, args=[command="cat ..."], block=[])`
+5. Executor receives cat command, calls `shellHandler(ctx, block=[])`
 6. Shell handler executes command and returns exit code
 7. Exit code bubbles back up through SSH handler → Retry handler → Executor
 
