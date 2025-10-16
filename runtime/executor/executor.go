@@ -1,10 +1,13 @@
 package executor
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aledsdavies/opal/core/invariant"
@@ -13,8 +16,10 @@ import (
 
 // Config configures the executor
 type Config struct {
-	Debug     DebugLevel     // Debug tracing (development only)
-	Telemetry TelemetryLevel // Telemetry collection (production-safe)
+	Debug              DebugLevel     // Debug tracing (development only)
+	Telemetry          TelemetryLevel // Telemetry collection (production-safe)
+	LockdownStdStreams bool           // Lock down stdout/stderr (security)
+	Scrubber           io.Writer      // Output writer with secret scrubbing (optional)
 }
 
 // DebugLevel controls debug tracing (development only)
@@ -40,6 +45,7 @@ type ExecutionResult struct {
 	ExitCode    int                 // Final exit code (0 = success)
 	Duration    time.Duration       // Total execution time
 	StepsRun    int                 // Number of steps executed
+	Output      string              // Captured output (scrubbed)
 	Telemetry   *ExecutionTelemetry // Additional metrics (nil if TelemetryOff)
 	DebugEvents []DebugEvent        // Debug events (nil if DebugOff)
 }
@@ -67,6 +73,106 @@ type DebugEvent struct {
 	Context   string // Additional context
 }
 
+// SecretScrubber wraps an io.Writer and redacts registered secrets
+type SecretScrubber struct {
+	writer  io.Writer
+	secrets map[string]string // secret value -> placeholder
+	mu      sync.RWMutex
+}
+
+// NewSecretScrubber creates a new secret scrubber
+func NewSecretScrubber(w io.Writer) *SecretScrubber {
+	invariant.NotNil(w, "writer")
+	return &SecretScrubber{
+		writer:  w,
+		secrets: make(map[string]string),
+	}
+}
+
+// RegisterSecret marks a value for redaction with its placeholder
+func (s *SecretScrubber) RegisterSecret(value, placeholder string) {
+	invariant.Precondition(value != "", "secret value cannot be empty")
+	invariant.Precondition(placeholder != "", "placeholder cannot be empty")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.secrets[value] = placeholder
+}
+
+// Write implements io.Writer, redacting secrets before output
+func (s *SecretScrubber) Write(p []byte) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	output := string(p)
+	for secret, placeholder := range s.secrets {
+		output = strings.ReplaceAll(output, secret, placeholder)
+	}
+
+	n, err := s.writer.Write([]byte(output))
+	// Return original length to satisfy io.Writer contract
+	if err == nil {
+		return len(p), nil
+	}
+	return n, err
+}
+
+// LockdownConfig configures stdout/stderr lockdown
+type LockdownConfig struct {
+	Scrubber io.Writer // Writer to redirect output to (must not be nil)
+}
+
+// LockDownStdStreams redirects stdout/stderr to a controlled writer
+// Returns a restore function that must be called to restore original streams
+func LockDownStdStreams(config *LockdownConfig) (restore func()) {
+	// INPUT CONTRACT
+	invariant.NotNil(config, "config")
+	invariant.NotNil(config.Scrubber, "config.Scrubber")
+
+	// Save original streams
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+
+	// Create pipes that redirect to scrubber
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	// Copy from pipes to scrubber in background
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		io.Copy(config.Scrubber, rOut)
+	}()
+
+	go func() {
+		defer wg.Done()
+		io.Copy(config.Scrubber, rErr)
+	}()
+
+	// Return restore function
+	return func() {
+		// Close write ends to signal EOF to copy goroutines
+		wOut.Close()
+		wErr.Close()
+
+		// Wait for copy goroutines to finish
+		wg.Wait()
+
+		// Close read ends
+		rOut.Close()
+		rErr.Close()
+
+		// Restore original streams
+		os.Stdout = originalStdout
+		os.Stderr = originalStderr
+	}
+}
+
 // executor holds execution state
 type executor struct {
 	plan   *planfmt.Plan
@@ -86,6 +192,35 @@ type executor struct {
 func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 	// INPUT CONTRACT (preconditions)
 	invariant.NotNil(plan, "plan")
+
+	// Set up stdout/stderr lockdown if enabled
+	var outputBuf bytes.Buffer
+	var restore func()
+
+	if config.LockdownStdStreams {
+		// Create scrubber
+		var scrubber *SecretScrubber
+		if config.Scrubber != nil {
+			// Use provided scrubber
+			scrubber = NewSecretScrubber(config.Scrubber)
+		} else {
+			// Default: capture to buffer
+			scrubber = NewSecretScrubber(&outputBuf)
+		}
+
+		// Register all secrets from plan
+		for _, secret := range plan.Secrets {
+			// Generate placeholder: <len:algo:hash>
+			placeholder := fmt.Sprintf("<%d:sha256:%s>", len(secret.Value), secret.Hash)
+			scrubber.RegisterSecret(secret.Value, placeholder)
+		}
+
+		// Lock down stdout/stderr
+		restore = LockDownStdStreams(&LockdownConfig{
+			Scrubber: scrubber,
+		})
+		defer restore()
+	}
 
 	e := &executor{
 		plan:      plan,
@@ -165,6 +300,7 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 		ExitCode:    e.exitCode,
 		Duration:    duration,
 		StepsRun:    e.stepsRun,
+		Output:      outputBuf.String(), // Captured and scrubbed output
 		Telemetry:   e.telemetry,
 		DebugEvents: e.debugEvents,
 	}, nil

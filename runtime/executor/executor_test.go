@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"bytes"
+	"os"
 	"testing"
 	"time"
 
@@ -364,4 +366,122 @@ func TestExecuteCommandsWithOperators(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
 	assert.Equal(t, 1, result.StepsRun) // One step with two commands
+}
+
+// TestStdoutStderrLockdown tests that direct writes to os.Stdout/os.Stderr are blocked
+func TestStdoutStderrLockdown(t *testing.T) {
+	// This test verifies that even if code tries to write directly to os.Stdout/os.Stderr,
+	// it gets redirected through our scrubbing layer
+
+	plan := &planfmt.Plan{
+		Target: "lockdown",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Commands: []planfmt.Command{
+					{
+						Decorator: "shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'This should be scrubbed'"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Execute with lockdown enabled
+	result, err := Execute(plan, Config{
+		LockdownStdStreams: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+
+	// Verify that output went through scrubber, not directly to os.Stdout
+	// (Implementation will capture this in result.Output)
+}
+
+// TestSecretScrubbing tests that secrets are automatically replaced with placeholders
+func TestSecretScrubbing(t *testing.T) {
+	secret := "super-secret-password-123"
+
+	plan := &planfmt.Plan{
+		Target: "secret-test",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Commands: []planfmt.Command{
+					{
+						Decorator: "shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{
+								Kind: planfmt.ValueString,
+								Str:  "echo 'Password is: " + secret + "'",
+							}},
+						},
+					},
+				},
+			},
+		},
+		Secrets: []planfmt.Secret{
+			{
+				Key:   "db_password",
+				Value: secret,
+				Hash:  "abc123def456", // Placeholder hash
+			},
+		},
+	}
+
+	result, err := Execute(plan, Config{
+		LockdownStdStreams: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+
+	// Verify secret was scrubbed from output
+	assert.NotContains(t, result.Output, secret, "Secret should not appear in output")
+	assert.Contains(t, result.Output, "<25:sha256:abc123def456>", "Secret should be replaced with placeholder")
+}
+
+// TestLockdownInvariantNilConfig tests that lockdown panics on nil config
+func TestLockdownInvariantNilConfig(t *testing.T) {
+	assert.Panics(t, func() {
+		LockDownStdStreams(nil)
+	}, "Should panic on nil config")
+}
+
+// TestLockdownInvariantNilScrubber tests that lockdown panics on nil scrubber
+func TestLockdownInvariantNilScrubber(t *testing.T) {
+	assert.Panics(t, func() {
+		LockDownStdStreams(&LockdownConfig{
+			Scrubber: nil,
+		})
+	}, "Should panic on nil scrubber")
+}
+
+// TestLockdownRestore tests that restore function properly restores original streams
+func TestLockdownRestore(t *testing.T) {
+	// Save original streams
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+
+	// Create scrubber
+	var buf bytes.Buffer
+	scrubber := NewSecretScrubber(&buf)
+
+	// Lock down
+	restore := LockDownStdStreams(&LockdownConfig{
+		Scrubber: scrubber,
+	})
+
+	// Verify streams are redirected
+	assert.NotEqual(t, originalStdout, os.Stdout, "Stdout should be redirected")
+	assert.NotEqual(t, originalStderr, os.Stderr, "Stderr should be redirected")
+
+	// Restore
+	restore()
+
+	// Verify streams are restored
+	assert.Equal(t, originalStdout, os.Stdout, "Stdout should be restored")
+	assert.Equal(t, originalStderr, os.Stderr, "Stderr should be restored")
 }

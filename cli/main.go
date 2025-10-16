@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,16 @@ import (
 )
 
 func main() {
+	// CRITICAL: Lock down stdout/stderr at CLI entry point
+	// This ensures even lexer/parser/planner cannot leak secrets
+	var outputBuf bytes.Buffer
+	scrubber := executor.NewSecretScrubber(&outputBuf)
+
+	// Redirect all stdout/stderr through scrubber
+	restore := executor.LockDownStdStreams(&executor.LockdownConfig{
+		Scrubber: scrubber,
+	})
+
 	var (
 		file    string
 		dryRun  bool
@@ -25,7 +36,15 @@ func main() {
 		Short: "Execute commands defined in opal files",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommand(cmd, args, file, dryRun, debug, noColor)
+			exitCode, err := runCommand(cmd, args, file, dryRun, debug, noColor, scrubber, &outputBuf)
+			if err != nil {
+				return err
+			}
+			if exitCode != 0 {
+				// Store exit code for later (can't os.Exit here - skips defers)
+				return fmt.Errorf("command failed with exit code %d", exitCode)
+			}
+			return nil
 		},
 	}
 
@@ -35,38 +54,54 @@ func main() {
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 
+	// Execute command and capture exit code
+	exitCode := 0
 	if err := rootCmd.Execute(); err != nil {
+		// Error messages go through scrubber
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		exitCode = 1
+	}
+
+	// CRITICAL: Restore streams BEFORE writing to real stdout
+	restore()
+
+	// Now write captured (and scrubbed) output to real stdout
+	os.Stdout.Write(outputBuf.Bytes())
+
+	// Exit with proper code (after all cleanup)
+	if exitCode != 0 {
+		os.Exit(exitCode)
 	}
 }
 
-func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, noColor bool) error {
+func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, noColor bool, scrubber *executor.SecretScrubber, outputBuf *bytes.Buffer) (int, error) {
 	commandName := args[0]
 
 	// Get input reader based on file options
 	reader, closeFunc, err := getInputReader(file)
 	if err != nil {
-		return err
+		return 1, err
 	}
 	defer func() { _ = closeFunc() }()
 
 	// Read source
 	source, err := io.ReadAll(reader)
 	if err != nil {
-		return fmt.Errorf("error reading input: %w", err)
+		return 1, fmt.Errorf("error reading input: %w", err)
 	}
 
 	// Lex
-	tokens := lexer.Lex(source)
+	l := lexer.NewLexer()
+	l.Init(source)
+	tokens := l.GetTokens()
 
 	// Parse
-	tree := parser.Parse(source, tokens)
+	tree := parser.Parse(source)
 	if len(tree.Errors) > 0 {
 		for _, parseErr := range tree.Errors {
 			fmt.Fprintf(os.Stderr, "Parse error: %v\n", parseErr)
 		}
-		return fmt.Errorf("parse errors encountered")
+		return 1, fmt.Errorf("parse errors encountered")
 	}
 
 	// Plan
@@ -75,50 +110,52 @@ func runCommand(cmd *cobra.Command, args []string, file string, dryRun, debug, n
 		debugLevel = planner.DebugDetailed
 	}
 
-	planResult, err := planner.Plan(tree.Events, tokens, planner.Config{
+	plan, err := planner.Plan(tree.Events, tokens, planner.Config{
 		Target: commandName,
 		Debug:  debugLevel,
 	})
 	if err != nil {
-		return fmt.Errorf("planning failed: %w", err)
+		return 1, fmt.Errorf("planning failed: %w", err)
+	}
+
+	// Register all secrets with scrubber (ALL value decorator results are secrets)
+	for _, secret := range plan.Secrets {
+		placeholder := fmt.Sprintf("<%d:sha256:%s>", len(secret.Value), secret.Hash)
+		scrubber.RegisterSecret(secret.Value, placeholder)
 	}
 
 	// Dry-run mode: just show the plan
 	if dryRun {
 		fmt.Printf("Plan for command '%s':\n", commandName)
-		fmt.Printf("  Steps: %d\n", len(planResult.Plan.Steps))
-		fmt.Printf("  Planning time: %v\n", planResult.PlanTime)
-		return nil
+		fmt.Printf("  Steps: %d\n", len(plan.Steps))
+		return 0, nil
 	}
 
-	// Execute
+	// Execute (lockdown already active from main())
 	execDebug := executor.DebugOff
 	if debug {
 		execDebug = executor.DebugDetailed
 	}
 
-	result, err := executor.Execute(planResult.Plan, executor.Config{
-		Debug:     execDebug,
-		Telemetry: executor.TelemetryBasic,
+	result, err := executor.Execute(plan, executor.Config{
+		Debug:              execDebug,
+		Telemetry:          executor.TelemetryBasic,
+		LockdownStdStreams: false, // Already locked down at CLI level
 	})
 	if err != nil {
-		return fmt.Errorf("execution failed: %w", err)
+		return 1, fmt.Errorf("execution failed: %w", err)
 	}
 
 	// Print execution summary if debug enabled
 	if debug {
 		fmt.Fprintf(os.Stderr, "\nExecution summary:\n")
-		fmt.Fprintf(os.Stderr, "  Steps run: %d/%d\n", result.StepsRun, len(planResult.Plan.Steps))
+		fmt.Fprintf(os.Stderr, "  Steps run: %d/%d\n", result.StepsRun, len(plan.Steps))
 		fmt.Fprintf(os.Stderr, "  Duration: %v\n", result.Duration)
 		fmt.Fprintf(os.Stderr, "  Exit code: %d\n", result.ExitCode)
 	}
 
-	// Exit with the command's exit code
-	if result.ExitCode != 0 {
-		os.Exit(result.ExitCode)
-	}
-
-	return nil
+	// Return exit code to main (don't call os.Exit - skips defers!)
+	return result.ExitCode, nil
 }
 
 // getInputReader handles the 3 modes of input:

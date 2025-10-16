@@ -22,9 +22,19 @@ import (
 // Plan is the in-memory representation of an execution plan.
 // This is the stable contract between planner, executor, and formatters.
 type Plan struct {
-	Header PlanHeader
-	Target string // Function/command being executed (e.g., "deploy")
-	Steps  []Step // List of steps (newline-separated statements)
+	Header  PlanHeader
+	Target  string   // Function/command being executed (e.g., "deploy")
+	Steps   []Step   // List of steps (newline-separated statements)
+	Secrets []Secret // Secrets to scrub from output (value decorators)
+}
+
+// Secret represents a resolved value that must be scrubbed from output.
+// ALL value decorators produce secrets - even @env.HOME or @git.commit_hash
+// could leak sensitive system information. Scrub everything by default.
+type Secret struct {
+	Key   string // Variable name (e.g., "db_password", "HOME", "commit_hash")
+	Value string // Actual resolved value (never serialized to plan files)
+	Hash  string // Hash for placeholder format: <len:algo:hash>
 }
 
 // PlanHeader contains metadata about the plan.
