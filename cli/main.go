@@ -36,9 +36,10 @@ func main() {
 	)
 
 	rootCmd := &cobra.Command{
-		Use:   "opal [command]",
-		Short: "Execute commands defined in opal files",
-		Args:  cobra.MaximumNArgs(1), // 0 args if --plan, 1 arg otherwise
+		Use:           "opal [command]",
+		Short:         "Execute commands defined in opal files",
+		Args:          cobra.MaximumNArgs(1), // 0 args if --plan, 1 arg otherwise
+		SilenceErrors: true,                  // We handle error printing ourselves
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Mode 4: Execute from plan file (contract verification)
 			if planFile != "" {
@@ -125,8 +126,15 @@ func runCommand(cmd *cobra.Command, args []string, file string, dryRun, resolve,
 	// Parse
 	tree := parser.Parse(source)
 	if len(tree.Errors) > 0 {
+		// Use parser's error formatter for nice output
+		formatter := &parser.ErrorFormatter{
+			Source:   source,
+			Filename: file,
+			Compact:  false, // Use detailed format
+			Color:    !noColor,
+		}
 		for _, parseErr := range tree.Errors {
-			fmt.Fprintf(os.Stderr, "Parse error: %v\n", parseErr)
+			fmt.Fprint(os.Stderr, formatter.Format(parseErr))
 		}
 		return 1, fmt.Errorf("parse errors encountered")
 	}
@@ -313,6 +321,16 @@ func runFromPlan(planFile, sourceFile string, debug, noColor bool, scrubber *exe
 	// Parse
 	tree := parser.Parse(source)
 	if len(tree.Errors) > 0 {
+		// Use parser's error formatter for nice output
+		formatter := &parser.ErrorFormatter{
+			Source:   source,
+			Filename: sourceFile,
+			Compact:  false, // Use detailed format
+			Color:    !noColor,
+		}
+		for _, parseErr := range tree.Errors {
+			fmt.Fprint(os.Stderr, formatter.Format(parseErr))
+		}
 		return 1, fmt.Errorf("parse errors in source (contract verification failed)")
 	}
 
