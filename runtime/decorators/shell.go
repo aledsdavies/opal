@@ -3,10 +3,9 @@ package decorators
 import (
 	"fmt"
 
-	"github.com/aledsdavies/opal/core/planfmt"
+	"github.com/aledsdavies/opal/core/sdk"
 	"github.com/aledsdavies/opal/core/sdk/executor"
 	"github.com/aledsdavies/opal/core/types"
-	execruntime "github.com/aledsdavies/opal/runtime/executor"
 )
 
 func init() {
@@ -19,23 +18,22 @@ func init() {
 		Done().
 		Build()
 
-	if err := types.Global().RegisterExecutionWithSchema(schema, shellHandlerAdapter); err != nil {
+	if err := types.Global().RegisterSDKHandlerWithSchema(schema, shellHandler); err != nil {
 		panic(fmt.Sprintf("failed to register @shell decorator: %v", err))
 	}
 }
 
-// shellHandlerAdapter adapts the old registry signature to the new ExecutionContext signature
-// This is a temporary bridge until we update the registry to support the new signature
-func shellHandlerAdapter(ctx types.Context, args types.Args) error {
-	// For now, this is a placeholder
-	// We'll implement the real handler once we update the registry
-	panic("@shell decorator not yet implemented - registry needs ExecutionContext support")
-}
+// shellHandler implements the @shell decorator using SDK types.
+// This is a leaf decorator - it doesn't use the block parameter.
+//
+// CRITICAL: Uses context workdir and environ, NOT os globals.
+// This ensures isolation for @parallel, @ssh, @docker, etc.
+func shellHandler(ctx sdk.ExecutionContext, block []sdk.Step) (int, error) {
+	// Leaf decorator - block should be empty
+	if len(block) > 0 {
+		return 127, fmt.Errorf("@shell does not accept a block")
+	}
 
-// shellHandler implements the @shell decorator using ExecutionContext
-// This is the real implementation that will be used once registry is updated
-// CRITICAL: Uses context workdir and environ, NOT os globals
-func shellHandler(ctx execruntime.ExecutionContext, block []planfmt.Step) (int, error) {
 	// Get command string from context args
 	cmdStr := ctx.ArgString("command")
 	if cmdStr == "" {
