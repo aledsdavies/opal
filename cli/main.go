@@ -45,8 +45,9 @@ func main() {
 				if len(args) > 0 {
 					return fmt.Errorf("cannot specify command name with --plan flag")
 				}
-				exitCode, err := runFromPlan(planFile, file, debug, scrubber, &outputBuf)
+				exitCode, err := runFromPlan(planFile, file, debug, noColor, scrubber, &outputBuf)
 				if err != nil {
+					cmd.SilenceUsage = true // We've already printed detailed error
 					return err
 				}
 				if exitCode != 0 {
@@ -61,6 +62,7 @@ func main() {
 			}
 			exitCode, err := runCommand(cmd, args, file, dryRun, resolve, debug, noColor, scrubber, &outputBuf)
 			if err != nil {
+				cmd.SilenceUsage = true // We've already printed detailed error
 				return err
 			}
 			if exitCode != 0 {
@@ -271,7 +273,7 @@ func hasPipedInput() bool {
 
 // runFromPlan executes with contract verification (Mode 4: Contract Execution)
 // Flow: Load contract → Replan fresh → Compare hashes → Execute if match
-func runFromPlan(planFile, sourceFile string, debug bool, scrubber *executor.SecretScrubber, outputBuf *bytes.Buffer) (int, error) {
+func runFromPlan(planFile, sourceFile string, debug, noColor bool, scrubber *executor.SecretScrubber, outputBuf *bytes.Buffer) (int, error) {
 	// Step 1: Load contract from plan file
 	f, err := os.Open(planFile)
 	if err != nil {
@@ -341,14 +343,16 @@ func runFromPlan(planFile, sourceFile string, debug bool, scrubber *executor.Sec
 	}
 
 	if freshHash != contractHash {
-		fmt.Fprintf(os.Stderr, "CONTRACT VERIFICATION FAILED\n")
-		fmt.Fprintf(os.Stderr, "Contract hash: %x\n", contractHash)
-		fmt.Fprintf(os.Stderr, "Fresh hash:    %x\n", freshHash)
-		fmt.Fprintf(os.Stderr, "\nThe current source does not match the contract.\n")
-		fmt.Fprintf(os.Stderr, "This could mean:\n")
-		fmt.Fprintf(os.Stderr, "  - Source code has changed since contract was generated\n")
-		fmt.Fprintf(os.Stderr, "  - Environment or context has changed\n")
-		fmt.Fprintf(os.Stderr, "  - Contract file is corrupted\n")
+		// Use error formatter for consistent output
+		FormatContractVerificationError(os.Stderr, contractPlan, freshPlan, !noColor)
+
+		// Show hashes for debugging
+		if debug {
+			fmt.Fprintf(os.Stderr, "\n%s\n", Colorize("Debug info:", ColorCyan, !noColor))
+			fmt.Fprintf(os.Stderr, "  Contract hash: %x\n", contractHash)
+			fmt.Fprintf(os.Stderr, "  Fresh hash:    %x\n", freshHash)
+		}
+
 		return 1, fmt.Errorf("contract verification failed")
 	}
 
