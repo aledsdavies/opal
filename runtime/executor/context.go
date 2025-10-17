@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -179,15 +180,43 @@ func (e *executionContext) WithEnviron(env map[string]string) ExecutionContext {
 
 // WithWorkdir returns a new context with the specified working directory
 // Original context is unchanged (immutable)
+//
+// Accepts both absolute and relative paths:
+// - Absolute paths (e.g., "/tmp") are used as-is
+// - Relative paths (e.g., "subdir", "../other", "./foo") are resolved against current context workdir
+//
+// Examples:
+//
+//	ctx.WithWorkdir("/tmp")           // → /tmp
+//	ctx.WithWorkdir("subdir")         // → /current/subdir
+//	ctx.WithWorkdir("../other")       // → /other (if current is /current)
+//	ctx.WithWorkdir("foo/bar")        // → /current/foo/bar
+//
+// Chaining works intuitively:
+//
+//	ctx.WithWorkdir("foo").WithWorkdir("bar")  // → /current/foo/bar
+//	ctx.WithWorkdir("foo").WithWorkdir("..")   // → /current
 func (e *executionContext) WithWorkdir(dir string) ExecutionContext {
 	invariant.Precondition(dir != "", "working directory cannot be empty")
+
+	var resolved string
+	if filepath.IsAbs(dir) {
+		// Absolute path - use as-is
+		resolved = dir
+	} else {
+		// Relative path - resolve against current context workdir
+		resolved = filepath.Join(e.workdir, dir)
+	}
+
+	// Clean the path (remove . and .. components, collapse multiple slashes)
+	resolved = filepath.Clean(resolved)
 
 	return &executionContext{
 		executor: e.executor,
 		command:  e.command,
 		ctx:      e.ctx,
 		environ:  e.environ,
-		workdir:  dir,
+		workdir:  resolved,
 	}
 }
 

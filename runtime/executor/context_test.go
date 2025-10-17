@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/aledsdavies/opal/core/planfmt"
 )
@@ -118,25 +119,124 @@ func TestExecutionContext_WithEnviron(t *testing.T) {
 	}
 }
 
-// TestExecutionContext_WithWorkdir tests working directory isolation
-func TestExecutionContext_WithWorkdir(t *testing.T) {
+// TestExecutionContext_WithWorkdir_Absolute tests absolute path handling
+func TestExecutionContext_WithWorkdir_Absolute(t *testing.T) {
 	// Given: Execution context with original workdir
 	cmd := planfmt.Command{Decorator: "test"}
 	ctx := newExecutionContext(cmd, nil, context.Background())
 	originalWd := ctx.Workdir()
 
-	// When: Creating new context with different workdir
-	newWd := "/tmp"
-	wrapped := ctx.WithWorkdir(newWd)
+	// When: Creating new context with absolute path
+	wrapped := ctx.WithWorkdir("/tmp/test")
 
-	// Then: New context has the new workdir
-	if wrapped.Workdir() != newWd {
-		t.Errorf("WithWorkdir() = %q, want %q", wrapped.Workdir(), newWd)
+	// Then: New context has the absolute path
+	if wrapped.Workdir() != "/tmp/test" {
+		t.Errorf("WithWorkdir(/tmp/test) = %q, want /tmp/test", wrapped.Workdir())
 	}
 
 	// And: Original context unchanged
 	if ctx.Workdir() != originalWd {
 		t.Error("WithWorkdir() modified original context")
+	}
+}
+
+// TestExecutionContext_WithWorkdir_Relative tests relative path resolution
+func TestExecutionContext_WithWorkdir_Relative(t *testing.T) {
+	// Given: Execution context
+	cmd := planfmt.Command{Decorator: "test"}
+	ctx := newExecutionContext(cmd, nil, context.Background())
+	baseDir := ctx.Workdir()
+
+	// When: Creating new context with relative path
+	wrapped := ctx.WithWorkdir("subdir")
+
+	// Then: Path is resolved relative to base
+	expected := baseDir + "/subdir"
+	if wrapped.Workdir() != expected {
+		t.Errorf("WithWorkdir(subdir) = %q, want %q", wrapped.Workdir(), expected)
+	}
+}
+
+// TestExecutionContext_WithWorkdir_ParentDir tests parent directory navigation
+func TestExecutionContext_WithWorkdir_ParentDir(t *testing.T) {
+	// Given: Execution context
+	cmd := planfmt.Command{Decorator: "test"}
+	ctx := newExecutionContext(cmd, nil, context.Background())
+	original := ctx.Workdir()
+
+	// When: Going into subdir then back to parent
+	wrapped := ctx.WithWorkdir("foo").WithWorkdir("..")
+
+	// Then: Returns to original directory
+	if wrapped.Workdir() != original {
+		t.Errorf("WithWorkdir(foo).WithWorkdir(..) = %q, want %q", wrapped.Workdir(), original)
+	}
+}
+
+// TestExecutionContext_WithWorkdir_Chained tests chained relative paths
+func TestExecutionContext_WithWorkdir_Chained(t *testing.T) {
+	// Given: Execution context
+	cmd := planfmt.Command{Decorator: "test"}
+	ctx := newExecutionContext(cmd, nil, context.Background())
+	baseDir := ctx.Workdir()
+
+	// When: Chaining multiple relative paths
+	wrapped := ctx.WithWorkdir("foo").WithWorkdir("bar")
+
+	// Then: Paths are resolved sequentially
+	expected := baseDir + "/foo/bar"
+	if wrapped.Workdir() != expected {
+		t.Errorf("WithWorkdir(foo).WithWorkdir(bar) = %q, want %q", wrapped.Workdir(), expected)
+	}
+}
+
+// TestExecutionContext_WithWorkdir_DotSlash tests ./path handling
+func TestExecutionContext_WithWorkdir_DotSlash(t *testing.T) {
+	// Given: Execution context
+	cmd := planfmt.Command{Decorator: "test"}
+	ctx := newExecutionContext(cmd, nil, context.Background())
+	baseDir := ctx.Workdir()
+
+	// When: Using ./subdir notation
+	wrapped := ctx.WithWorkdir("./subdir")
+
+	// Then: ./ is normalized away
+	expected := baseDir + "/subdir"
+	if wrapped.Workdir() != expected {
+		t.Errorf("WithWorkdir(./subdir) = %q, want %q", wrapped.Workdir(), expected)
+	}
+}
+
+// TestExecutionContext_WithWorkdir_ComplexPath tests complex relative paths
+func TestExecutionContext_WithWorkdir_ComplexPath(t *testing.T) {
+	// Given: Execution context
+	cmd := planfmt.Command{Decorator: "test"}
+	ctx := newExecutionContext(cmd, nil, context.Background())
+	baseDir := ctx.Workdir()
+
+	// When: Using complex relative path with .. and .
+	wrapped := ctx.WithWorkdir("foo/bar/../baz/./qux")
+
+	// Then: Path is cleaned and normalized
+	expected := baseDir + "/foo/baz/qux"
+	if wrapped.Workdir() != expected {
+		t.Errorf("WithWorkdir(foo/bar/../baz/./qux) = %q, want %q", wrapped.Workdir(), expected)
+	}
+}
+
+// TestExecutionContext_WithWorkdir_AbsoluteOverridesRelative tests absolute path overrides
+func TestExecutionContext_WithWorkdir_AbsoluteOverridesRelative(t *testing.T) {
+	// Given: Execution context with relative path set
+	cmd := planfmt.Command{Decorator: "test"}
+	ctx := newExecutionContext(cmd, nil, context.Background())
+	withRelative := ctx.WithWorkdir("foo/bar")
+
+	// When: Setting absolute path
+	wrapped := withRelative.WithWorkdir("/tmp/test")
+
+	// Then: Absolute path replaces relative
+	if wrapped.Workdir() != "/tmp/test" {
+		t.Errorf("WithWorkdir(/tmp/test) after relative = %q, want /tmp/test", wrapped.Workdir())
 	}
 }
 
@@ -276,5 +376,76 @@ func TestExecutionContext_Args(t *testing.T) {
 	}
 	if args["enabled"] != true {
 		t.Errorf("Args()[enabled] = %v, want true", args["enabled"])
+	}
+}
+
+// TestExecutionContext_ContextCancellation tests that child contexts inherit cancellation
+func TestExecutionContext_ContextCancellation(t *testing.T) {
+	// Given: Base context with cancellation
+	cmd := planfmt.Command{Decorator: "test"}
+	parentGoCtx, cancel := context.WithCancel(context.Background())
+	baseCtx := newExecutionContext(cmd, nil, parentGoCtx)
+
+	// When: Creating child context (simulating @timeout decorator)
+	childGoCtx, _ := context.WithTimeout(baseCtx.Context(), 1*time.Hour)
+	childCtx := baseCtx.WithContext(childGoCtx)
+
+	// And: Cancelling parent
+	cancel()
+
+	// Then: Child context is also cancelled
+	select {
+	case <-childCtx.Context().Done():
+		// Expected - child context cancelled when parent cancelled
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Child context not cancelled when parent cancelled")
+	}
+}
+
+// TestExecutionContext_ContextTimeout tests timeout propagation
+func TestExecutionContext_ContextTimeout(t *testing.T) {
+	// Given: Base context
+	cmd := planfmt.Command{Decorator: "test"}
+	baseCtx := newExecutionContext(cmd, nil, context.Background())
+
+	// When: Creating child context with short timeout (simulating @timeout decorator)
+	childGoCtx, cancel := context.WithTimeout(baseCtx.Context(), 10*time.Millisecond)
+	defer cancel()
+	childCtx := baseCtx.WithContext(childGoCtx)
+
+	// Then: Child context times out
+	select {
+	case <-childCtx.Context().Done():
+		// Expected - context timed out
+		if childCtx.Context().Err() != context.DeadlineExceeded {
+			t.Errorf("Expected DeadlineExceeded, got %v", childCtx.Context().Err())
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Context did not timeout")
+	}
+}
+
+// TestExecutionContext_NestedTimeouts tests that shortest timeout wins
+func TestExecutionContext_NestedTimeouts(t *testing.T) {
+	// Given: Base context with long timeout
+	cmd := planfmt.Command{Decorator: "test"}
+	baseGoCtx, cancel1 := context.WithTimeout(context.Background(), 1*time.Hour)
+	defer cancel1()
+	baseCtx := newExecutionContext(cmd, nil, baseGoCtx)
+
+	// When: Creating child context with shorter timeout
+	childGoCtx, cancel2 := context.WithTimeout(baseCtx.Context(), 10*time.Millisecond)
+	defer cancel2()
+	childCtx := baseCtx.WithContext(childGoCtx)
+
+	// Then: Child context times out first (shortest deadline wins)
+	select {
+	case <-childCtx.Context().Done():
+		// Expected - child timeout is shorter
+		if childCtx.Context().Err() != context.DeadlineExceeded {
+			t.Errorf("Expected DeadlineExceeded, got %v", childCtx.Context().Err())
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Context did not timeout")
 	}
 }
