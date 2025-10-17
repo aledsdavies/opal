@@ -54,7 +54,8 @@ type DecoratorInfo struct {
 	Kind             DecoratorKind    // Value or Execution
 	Schema           DecoratorSchema  // Schema describing the decorator's interface
 	ValueHandler     ValueHandler     // Handler for value decorators (nil for execution)
-	ExecutionHandler ExecutionHandler // Handler for execution decorators (nil for value)
+	ExecutionHandler ExecutionHandler // Handler for execution decorators (nil for value) - OLD STYLE
+	RawHandler       interface{}      // Raw handler (type depends on decorator kind) - NEW STYLE
 }
 
 // Registry holds registered decorator paths and their metadata
