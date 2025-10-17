@@ -308,10 +308,15 @@ func (wr *Writer) writeArg(buf *bytes.Buffer, arg *Arg) error {
 	return nil
 }
 
-// WriteContract writes a minimal contract file (target + hash only).
-// Contract format: MAGIC(4) "OPAL" | VERSION(2) 0x0001 | TYPE(1) 'C' | TARGET_LEN(2) | TARGET(var) | HASH(32)
-// This is much smaller than a full plan - just enough to verify the plan hasn't changed.
-func WriteContract(w io.Writer, target string, planHash [32]byte) error {
+// WriteContract writes a contract file with target, hash, and full plan.
+//
+// Contract format: MAGIC(4) "OPAL" | VERSION(2) 0x0001 | TYPE(1) 'C' | TARGET_LEN(2) | TARGET(var) | HASH(32) | PLAN(binary)
+//
+// The hash is for fast verification (cryptographic comparison).
+// The full plan enables detailed diff display when verification fails, showing users
+// exactly what changed (steps added/removed/modified). The plan also enables future
+// capabilities like visualization, format conversion, and audit inspection.
+func WriteContract(w io.Writer, target string, planHash [32]byte, plan *Plan) error {
 	// Create hasher to compute contract hash (not used yet, but for future verification)
 	hasher, err := blake2b.New256(nil)
 	if err != nil {
@@ -350,5 +355,7 @@ func WriteContract(w io.Writer, target string, planHash [32]byte) error {
 		return err
 	}
 
-	return nil
+	// Write full binary plan (for diff display when verification fails)
+	_, err = Write(w, plan)
+	return err
 }

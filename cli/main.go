@@ -184,10 +184,10 @@ func runCommand(cmd *cobra.Command, args []string, file string, dryRun, resolve,
 				return 1, fmt.Errorf("failed to compute plan hash: %w", err)
 			}
 
-			// Write minimal contract to stdout (target + hash only)
+			// Write contract to stdout (target + hash + full plan)
 			// Note: Don't write messages to stderr here - they go through lockdown
 			// and end up in the output buffer along with the contract
-			if err := planfmt.WriteContract(os.Stdout, commandName, planHash); err != nil {
+			if err := planfmt.WriteContract(os.Stdout, commandName, planHash, plan); err != nil {
 				return 1, fmt.Errorf("failed to write contract: %w", err)
 			}
 
@@ -279,7 +279,7 @@ func runFromPlan(planFile, sourceFile string, debug bool, scrubber *executor.Sec
 	}
 	defer func() { _ = f.Close() }()
 
-	target, contractHash, err := planfmt.ReadContract(f)
+	target, contractHash, contractPlan, err := planfmt.ReadContract(f)
 	if err != nil {
 		return 1, fmt.Errorf("failed to read contract: %w", err)
 	}
@@ -288,6 +288,7 @@ func runFromPlan(planFile, sourceFile string, debug bool, scrubber *executor.Sec
 		fmt.Fprintf(os.Stderr, "Loaded contract from %s\n", planFile)
 		fmt.Fprintf(os.Stderr, "Contract hash: %x\n", contractHash)
 		fmt.Fprintf(os.Stderr, "Target: %s\n", target)
+		fmt.Fprintf(os.Stderr, "Contract plan steps: %d\n", len(contractPlan.Steps))
 	}
 
 	// Step 2: Replan from current source
