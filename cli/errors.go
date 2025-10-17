@@ -47,46 +47,46 @@ func FormatError(w io.Writer, err error, useColor bool) {
 		formatCLIError(w, e, useColor)
 	default:
 		// Generic error
-		fmt.Fprintf(w, "%s%s%s\n", Colorize("Error: ", ColorRed, useColor), err.Error(), ColorReset)
+		_, _ = fmt.Fprintf(w, "%s%s%s\n", Colorize("Error: ", ColorRed, useColor), err.Error(), ColorReset)
 	}
 }
 
 // formatPlanError formats planner errors with suggestions
 func formatPlanError(w io.Writer, err *planner.PlanError, useColor bool) {
-	fmt.Fprintf(w, "%s%s%s\n", Colorize("Error: ", ColorRed, useColor), err.Message, ColorReset)
+	_, _ = fmt.Fprintf(w, "%s%s%s\n", Colorize("Error: ", ColorRed, useColor), err.Message, ColorReset)
 
 	if err.Context != "" {
-		fmt.Fprintf(w, "%sContext: %s%s\n", Colorize("  ", ColorGray, useColor), err.Context, ColorReset)
+		_, _ = fmt.Fprintf(w, "%sContext: %s%s\n", Colorize("  ", ColorGray, useColor), err.Context, ColorReset)
 	}
 
 	if err.Suggestion != "" {
-		fmt.Fprintf(w, "%s%s%s\n", Colorize("  ", ColorYellow, useColor), err.Suggestion, ColorReset)
+		_, _ = fmt.Fprintf(w, "%s%s%s\n", Colorize("  ", ColorYellow, useColor), err.Suggestion, ColorReset)
 	}
 
 	if err.Example != "" {
-		fmt.Fprintf(w, "%s%s%s\n", Colorize("  ", ColorGray, useColor), err.Example, ColorReset)
+		_, _ = fmt.Fprintf(w, "%s%s%s\n", Colorize("  ", ColorGray, useColor), err.Example, ColorReset)
 	}
 }
 
 // formatCLIError formats CLI errors
 func formatCLIError(w io.Writer, err *CLIError, useColor bool) {
-	fmt.Fprintf(w, "%s%s%s\n", Colorize("Error: ", ColorRed, useColor), err.Message, ColorReset)
+	_, _ = fmt.Fprintf(w, "%s%s%s\n", Colorize("Error: ", ColorRed, useColor), err.Message, ColorReset)
 
 	if err.Details != "" {
-		fmt.Fprintf(w, "\n%s\n", err.Details)
+		_, _ = fmt.Fprintf(w, "\n%s\n", err.Details)
 	}
 
 	if err.Hint != "" {
-		fmt.Fprintf(w, "%s%s%s\n", Colorize("Hint: ", ColorYellow, useColor), err.Hint, ColorReset)
+		_, _ = fmt.Fprintf(w, "%s%s%s\n", Colorize("Hint: ", ColorYellow, useColor), err.Hint, ColorReset)
 	}
 }
 
 // FormatContractVerificationError formats contract verification failures with diff
 func FormatContractVerificationError(w io.Writer, contractPlan, freshPlan *planfmt.Plan, useColor bool) {
-	fmt.Fprintf(w, "%sCONTRACT VERIFICATION FAILED%s\n\n", Colorize("", ColorRed, useColor), ColorReset)
+	_, _ = fmt.Fprintf(w, "%sCONTRACT VERIFICATION FAILED%s\n\n", Colorize("", ColorRed, useColor), ColorReset)
 
 	// Show detailed diff of what changed
 	diff := formatter.Diff(contractPlan, freshPlan)
 	diffOutput := formatter.FormatDiff(diff, useColor)
-	fmt.Fprint(w, diffOutput)
+	_, _ = fmt.Fprint(w, diffOutput)
 }
