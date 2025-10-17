@@ -9,35 +9,10 @@ import (
 
 	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/planfmt"
+	"github.com/aledsdavies/opal/core/sdk"
 )
 
-// ExecutionContext provides execution environment for decorators
-// Follows the Execution Context Pattern from DECORATOR_GUIDE.md
-type ExecutionContext interface {
-	// Execute nested block (callback to executor)
-	ExecuteBlock(steps []planfmt.Step) (exitCode int, err error)
-
-	// Context for cancellation and deadlines
-	Context() context.Context
-
-	// Decorator arguments (typed accessors)
-	ArgString(key string) string
-	ArgInt(key string) int64
-	ArgBool(key string) bool
-	ArgDuration(key string) time.Duration
-	Args() map[string]interface{} // Snapshot for logging
-
-	// Environment and working directory (immutable snapshots)
-	Environ() map[string]string
-	Workdir() string
-
-	// Context wrapping (returns new context with modifications)
-	WithContext(ctx context.Context) ExecutionContext
-	WithEnviron(env map[string]string) ExecutionContext
-	WithWorkdir(dir string) ExecutionContext
-}
-
-// executionContext implements ExecutionContext
+// executionContext implements sdk.ExecutionContext
 // All fields are immutable - modifications create new contexts
 type executionContext struct {
 	executor *executor
@@ -49,7 +24,7 @@ type executionContext struct {
 
 // newExecutionContext creates a new execution context for a decorator
 // Captures current environment and working directory as immutable snapshots
-func newExecutionContext(cmd planfmt.Command, exec *executor, ctx context.Context) ExecutionContext {
+func newExecutionContext(cmd planfmt.Command, exec *executor, ctx context.Context) sdk.ExecutionContext {
 	invariant.NotNil(ctx, "context")
 
 	// Capture current working directory at context creation time
@@ -69,8 +44,9 @@ func newExecutionContext(cmd planfmt.Command, exec *executor, ctx context.Contex
 }
 
 // ExecuteBlock executes nested steps (callback to executor)
-func (e *executionContext) ExecuteBlock(steps []planfmt.Step) (int, error) {
-	// TODO: Implement in Phase 3C when we update executor
+// Converts sdk.Step to planfmt.Step internally for execution
+func (e *executionContext) ExecuteBlock(steps []sdk.Step) (int, error) {
+	// TODO: Implement conversion and execution in Phase 3E
 	panic("ExecuteBlock not yet implemented")
 }
 
@@ -146,7 +122,7 @@ func (e *executionContext) Workdir() string {
 
 // WithContext returns a new context with the specified Go context
 // Original context is unchanged (immutable)
-func (e *executionContext) WithContext(ctx context.Context) ExecutionContext {
+func (e *executionContext) WithContext(ctx context.Context) sdk.ExecutionContext {
 	invariant.NotNil(ctx, "context")
 
 	return &executionContext{
@@ -160,7 +136,7 @@ func (e *executionContext) WithContext(ctx context.Context) ExecutionContext {
 
 // WithEnviron returns a new context with the specified environment
 // Original context is unchanged (immutable)
-func (e *executionContext) WithEnviron(env map[string]string) ExecutionContext {
+func (e *executionContext) WithEnviron(env map[string]string) sdk.ExecutionContext {
 	invariant.NotNil(env, "environment")
 
 	// Deep copy to ensure immutability
@@ -196,7 +172,7 @@ func (e *executionContext) WithEnviron(env map[string]string) ExecutionContext {
 //
 //	ctx.WithWorkdir("foo").WithWorkdir("bar")  // → /current/foo/bar
 //	ctx.WithWorkdir("foo").WithWorkdir("..")   // → /current
-func (e *executionContext) WithWorkdir(dir string) ExecutionContext {
+func (e *executionContext) WithWorkdir(dir string) sdk.ExecutionContext {
 	invariant.Precondition(dir != "", "working directory cannot be empty")
 
 	var resolved string
