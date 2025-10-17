@@ -46,7 +46,15 @@ type Writer struct {
 
 // WritePlan writes the plan to the underlying writer.
 // Format: MAGIC(4) | VERSION(2) | FLAGS(2) | HEADER_LEN(4) | BODY_LEN(8) | HEADER | BODY
-// Returns the BLAKE2b-256 hash of the entire file.
+//
+// Returns the BLAKE2b-256 hash of target + body (execution semantics only).
+// Header metadata (SchemaID, CreatedAt, Compiler) is NOT included in the hash
+// to ensure contract stability. Only execution semantics affect the hash:
+//   - Target: which function to execute
+//   - Body: the steps to execute
+//
+// This means you can set CreatedAt timestamps, compiler versions, etc. without
+// invalidating contracts.
 func (wr *Writer) WritePlan(p *Plan) ([32]byte, error) {
 	// Canonicalize plan for deterministic encoding (sorts args, preserves command order)
 	p.canonicalize()
@@ -59,40 +67,52 @@ func (wr *Writer) WritePlan(p *Plan) ([32]byte, error) {
 		return [32]byte{}, err
 	}
 
-	// Build body in buffer (TODO: implement sections)
+	// Build body in buffer
 	if err := wr.writeBody(&bodyBuf, p); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Create hasher and multi-writer to compute hash while writing
+	// Compute hash of target + body (execution semantics only, not metadata)
+	// Target is part of execution semantics (which function to run)
+	// Metadata (SchemaID, CreatedAt, Compiler) is excluded from hash
 	hasher, err := blake2b.New256(nil)
 	if err != nil {
 		return [32]byte{}, err
 	}
-	mw := io.MultiWriter(hasher, wr.w)
 
-	// Write preamble with actual lengths (to both hasher and output)
+	// Hash target (execution semantic)
+	targetBytes := []byte(p.Target)
+	if _, err := hasher.Write(targetBytes); err != nil {
+		return [32]byte{}, err
+	}
+
+	// Hash body (execution semantics)
+	if _, err := hasher.Write(bodyBuf.Bytes()); err != nil {
+		return [32]byte{}, err
+	}
+
+	var digest [32]byte
+	copy(digest[:], hasher.Sum(nil))
+
+	// Write preamble
 	var preambleBuf bytes.Buffer
 	if err := wr.writePreambleToBuffer(&preambleBuf, uint32(headerBuf.Len()), uint64(bodyBuf.Len())); err != nil {
 		return [32]byte{}, err
 	}
-	if _, err := mw.Write(preambleBuf.Bytes()); err != nil {
+	if _, err := wr.w.Write(preambleBuf.Bytes()); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Write header (to both hasher and output)
-	if _, err := mw.Write(headerBuf.Bytes()); err != nil {
+	// Write header (metadata only, not in hash)
+	if _, err := wr.w.Write(headerBuf.Bytes()); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Write body (to both hasher and output)
-	if _, err := mw.Write(bodyBuf.Bytes()); err != nil {
+	// Write body (this is what was hashed)
+	if _, err := wr.w.Write(bodyBuf.Bytes()); err != nil {
 		return [32]byte{}, err
 	}
 
-	// Extract hash
-	var digest [32]byte
-	copy(digest[:], hasher.Sum(nil))
 	return digest, nil
 }
 

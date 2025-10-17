@@ -28,12 +28,11 @@ func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
 		return nil, [32]byte{}, fmt.Errorf("create hasher: %w", err)
 	}
 
-	// Read preamble (20 bytes)
+	// Read preamble (20 bytes) - not included in hash (metadata)
 	var preamble [20]byte
 	if _, err := io.ReadFull(rd.r, preamble[:]); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("read preamble: %w", err)
 	}
-	hasher.Write(preamble[:])
 
 	// Verify magic
 	magic := string(preamble[0:4])
@@ -84,27 +83,35 @@ func (rd *Reader) ReadPlan() (*Plan, [32]byte, error) {
 		return nil, [32]byte{}, fmt.Errorf("body length %d exceeds maximum %d", bodyLen, maxBodyLen)
 	}
 
-	// Read header
+	// Read header (metadata - not included in hash except target)
 	headerBuf := make([]byte, headerLen)
 	if _, err := io.ReadFull(rd.r, headerBuf); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("read header: %w", err)
 	}
-	hasher.Write(headerBuf)
 
 	plan, err := rd.readHeader(bytes.NewReader(headerBuf))
 	if err != nil {
 		return nil, [32]byte{}, fmt.Errorf("parse header: %w", err)
 	}
 
-	// Read body
+	// Read body (execution semantics - included in hash)
 	bodyBuf := make([]byte, bodyLen)
 	if _, err := io.ReadFull(rd.r, bodyBuf); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("read body: %w", err)
 	}
-	hasher.Write(bodyBuf)
 
 	if err := rd.readBody(bytes.NewReader(bodyBuf), plan, maxDepth); err != nil {
 		return nil, [32]byte{}, fmt.Errorf("parse body: %w", err)
+	}
+
+	// Compute hash of target + body (execution semantics only)
+	// Target is part of execution semantics (which function to run)
+	// Metadata (SchemaID, CreatedAt, Compiler) is excluded from hash
+	if _, err := hasher.Write([]byte(plan.Target)); err != nil {
+		return nil, [32]byte{}, fmt.Errorf("hash target: %w", err)
+	}
+	if _, err := hasher.Write(bodyBuf); err != nil {
+		return nil, [32]byte{}, fmt.Errorf("hash body: %w", err)
 	}
 
 	// Extract hash
