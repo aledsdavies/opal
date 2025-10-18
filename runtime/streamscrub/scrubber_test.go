@@ -4,8 +4,27 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 )
+
+// safeBuffer is a thread-safe bytes.Buffer for testing
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (sb *safeBuffer) Write(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Write(p)
+}
+
+func (sb *safeBuffer) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.String()
+}
 
 // TestBasicScrubbing - simplest possible test
 func TestBasicScrubbing(t *testing.T) {
@@ -196,7 +215,7 @@ func TestEncodingVariants(t *testing.T) {
 
 // TestLockdownStreams - stdout/stderr are redirected through scrubber
 func TestLockdownStreams(t *testing.T) {
-	var buf bytes.Buffer
+	var buf safeBuffer // Use thread-safe buffer for concurrent writes
 	s := New(&buf)
 
 	// Register a secret
@@ -252,5 +271,113 @@ func TestCloseZeroization(t *testing.T) {
 	}
 	if len(s.frames) != 0 {
 		t.Errorf("frames not cleared after Close, len=%d", len(s.frames))
+	}
+}
+
+// TestIdempotentRestore - verify restore function can be called multiple times
+func TestIdempotentRestore(t *testing.T) {
+	var buf safeBuffer
+	s := New(&buf)
+
+	// Lockdown streams
+	restore := s.LockdownStreams()
+
+	// Call restore multiple times - should not panic
+	restore()
+	restore()
+	restore()
+
+	// Should still work after multiple calls
+	fmt.Println("test output")
+}
+
+// TestConcurrentWrites - verify thread safety with concurrent writes
+func TestConcurrentWrites(t *testing.T) {
+	var buf safeBuffer
+	s := New(&buf)
+
+	// Register a secret
+	secret := []byte("secret123")
+	placeholder := []byte("<REDACTED>")
+	s.RegisterSecret(secret, placeholder)
+
+	// Launch multiple goroutines writing concurrently
+	var wg sync.WaitGroup
+	numWriters := 10
+	writesPerWriter := 100
+
+	wg.Add(numWriters)
+	for i := 0; i < numWriters; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < writesPerWriter; j++ {
+				msg := fmt.Sprintf("writer %d: message %d with secret123\n", id, j)
+				s.Write([]byte(msg))
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	s.Flush()
+
+	// Verify no secrets leaked
+	got := buf.String()
+	if bytes.Contains([]byte(got), secret) {
+		t.Errorf("secret leaked in concurrent writes: %q", got)
+	}
+
+	// Verify placeholder is present
+	if !bytes.Contains([]byte(got), placeholder) {
+		t.Errorf("placeholder not found in concurrent writes output")
+	}
+}
+
+// TestExpandedEncodingVariants - all encoding variants are scrubbed
+func TestExpandedEncodingVariants(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+
+	// Register secret with all variants
+	secret := []byte("pass")
+	s.RegisterSecretWithVariants(secret)
+
+	tests := []struct {
+		name  string
+		input string
+		want  string // empty means should be redacted
+	}{
+		{"raw", "raw: pass", ""},
+		{"hex-lower", "hex: 70617373", ""},
+		{"hex-upper", "hex: 70617373", ""},
+		{"base64-std", "b64: cGFzcw==", ""},
+		{"base64-raw", "b64raw: cGFzcw", ""},
+		{"base64-url", "b64url: cGFzcw==", ""},
+		{"percent-lower", "url: %70%61%73%73", ""},
+		{"percent-upper", "url: %70%61%73%73", ""},
+		{"separator-dash", "sep: p-a-s-s", ""},
+		{"separator-underscore", "sep: p_a_s_s", ""},
+		{"separator-colon", "sep: p:a:s:s", ""},
+		{"separator-dot", "sep: p.a.s.s", ""},
+		{"separator-space", "sep: p a s s", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf.Reset()
+			s.Write([]byte(tt.input))
+			s.Flush()
+
+			got := buf.String()
+			// Check that the secret variant was redacted
+			if tt.want == "" {
+				// Should contain placeholder, not original
+				if bytes.Contains([]byte(got), secret) {
+					t.Errorf("%s: secret leaked in output: %q", tt.name, got)
+				}
+				if !bytes.Contains([]byte(got), []byte("opal:s:")) {
+					t.Errorf("%s: placeholder not found in output: %q", tt.name, got)
+				}
+			}
+		})
 	}
 }

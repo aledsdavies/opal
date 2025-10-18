@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"sort"
 	"sync"
 
 	"github.com/aledsdavies/opal/core/invariant"
@@ -14,6 +15,7 @@ import (
 
 // Scrubber redacts secrets from output streams.
 type Scrubber struct {
+	mu      sync.Mutex // Protects all fields below
 	out     io.Writer
 	secrets []secretEntry
 	frames  []frame
@@ -53,6 +55,9 @@ func (s *Scrubber) RegisterSecret(secret, placeholder []byte) {
 	// INPUT CONTRACT
 	invariant.Precondition(len(secret) > 0, "secret cannot be empty")
 	invariant.Precondition(len(placeholder) > 0, "placeholder cannot be empty")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	oldMaxLen := s.maxLen
 	oldSecretCount := len(s.secrets)
@@ -95,6 +100,9 @@ func (s *Scrubber) EndFrame(secrets [][]byte) error {
 	// INPUT CONTRACT
 	invariant.Precondition(len(s.frames) > 0, "cannot end frame when no frame is active")
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	oldFrameCount := len(s.frames)
 	oldSecretCount := len(s.secrets)
 
@@ -102,7 +110,7 @@ func (s *Scrubber) EndFrame(secrets [][]byte) error {
 	currentFrame := s.frames[len(s.frames)-1]
 	s.frames = s.frames[:len(s.frames)-1]
 
-	// Register secrets with generated placeholders
+	// Register secrets with generated placeholders (unlock during registration)
 	// LOOP INVARIANT: Track progress through secrets slice
 	prevIdx := -1
 	for idx, secret := range secrets {
@@ -112,22 +120,22 @@ func (s *Scrubber) EndFrame(secrets [][]byte) error {
 
 		if len(secret) > 0 {
 			placeholder := generatePlaceholder(secret)
+			// Unlock before calling RegisterSecret (which locks)
+			s.mu.Unlock()
 			s.RegisterSecret(secret, []byte(placeholder))
+			s.mu.Lock()
 		}
 	}
 
-	// Scrub frame buffer with all known secrets
-	scrubbed := currentFrame.buf.Bytes()
+	// Scrub frame buffer with all known secrets (longest-first)
+	scrubbed := s.scrubAll(currentFrame.buf.Bytes())
 
-	// LOOP INVARIANT: Track progress through secrets
-	prevIdx = -1
-	for idx, entry := range s.secrets {
-		// Assert loop makes progress
-		invariant.Postcondition(idx > prevIdx, "loop must make progress")
-		prevIdx = idx
-
-		scrubbed = bytes.ReplaceAll(scrubbed, entry.pattern, entry.placeholder)
+	// Zeroize frame buffer after scrubbing
+	frameBuf := currentFrame.buf.Bytes()
+	for i := range frameBuf {
+		frameBuf[i] = 0
 	}
+	currentFrame.buf.Reset()
 
 	// OUTPUT CONTRACT
 	invariant.Postcondition(len(s.frames) == oldFrameCount-1, "frame must be popped from stack")
@@ -160,11 +168,26 @@ func (s *Scrubber) registerVariants(secret, placeholder []byte) {
 	s.RegisterSecret(hexLower, placeholder)
 	s.RegisterSecret(hexUpper, placeholder)
 
-	// Base64: standard encoding
-	b64 := []byte(toBase64(secret))
-	s.RegisterSecret(b64, placeholder)
+	// Base64: standard, raw, and URL encodings
+	b64Std := []byte(toBase64(secret))
+	b64Raw := []byte(toBase64Raw(secret))
+	b64URL := []byte(toBase64URL(secret))
+	s.RegisterSecret(b64Std, placeholder)
+	s.RegisterSecret(b64Raw, placeholder)
+	s.RegisterSecret(b64URL, placeholder)
 
-	// TODO: Add more variants (URL encoding, path escape, separators, etc.)
+	// Percent encoding: lowercase and uppercase
+	percentLower := []byte(toPercentEncoding(secret, false))
+	percentUpper := []byte(toPercentEncoding(secret, true))
+	s.RegisterSecret(percentLower, placeholder)
+	s.RegisterSecret(percentUpper, placeholder)
+
+	// Separator-inserted variants
+	separators := []string{"-", "_", ":", ".", " "}
+	for _, sep := range separators {
+		variant := []byte(insertSeparators(secret, sep))
+		s.RegisterSecret(variant, placeholder)
+	}
 }
 
 // SecretCount returns the number of registered secret patterns (for testing/debugging).
@@ -182,6 +205,30 @@ func (s *Scrubber) MaxPatternLen() int {
 func generatePlaceholder(secret []byte) string {
 	// Simple hash for now - we'll improve this
 	return "opal:s:xxxxxxxx"
+}
+
+// scrubAll replaces all secrets in buf using longest-first matching.
+// Assumes mu is held.
+func (s *Scrubber) scrubAll(buf []byte) []byte {
+	// Sort secrets by descending length (longest first)
+	entries := make([]secretEntry, len(s.secrets))
+	copy(entries, s.secrets)
+	sort.Slice(entries, func(i, j int) bool {
+		return len(entries[i].pattern) > len(entries[j].pattern)
+	})
+
+	result := buf
+	// LOOP INVARIANT: Track progress through secrets
+	prevIdx := -1
+	for idx, entry := range entries {
+		// Assert loop makes progress
+		invariant.Postcondition(idx > prevIdx, "loop must make progress")
+		prevIdx = idx
+
+		result = bytes.ReplaceAll(result, entry.pattern, entry.placeholder)
+	}
+
+	return result
 }
 
 // Helper functions for encoding variants
@@ -204,6 +251,42 @@ func toUpperHex(s string) string {
 
 func toBase64(b []byte) string {
 	return base64.StdEncoding.EncodeToString(b)
+}
+
+func toBase64Raw(b []byte) string {
+	return base64.RawStdEncoding.EncodeToString(b)
+}
+
+func toBase64URL(b []byte) string {
+	return base64.URLEncoding.EncodeToString(b)
+}
+
+func toPercentEncoding(b []byte, uppercase bool) string {
+	result := make([]byte, 0, len(b)*3)
+	for _, c := range b {
+		result = append(result, '%')
+		if uppercase {
+			result = append(result, "0123456789ABCDEF"[c>>4])
+			result = append(result, "0123456789ABCDEF"[c&0xF])
+		} else {
+			result = append(result, "0123456789abcdef"[c>>4])
+			result = append(result, "0123456789abcdef"[c&0xF])
+		}
+	}
+	return string(result)
+}
+
+func insertSeparators(b []byte, sep string) string {
+	if len(b) == 0 {
+		return ""
+	}
+	result := make([]byte, 0, len(b)*2)
+	result = append(result, b[0])
+	for i := 1; i < len(b); i++ {
+		result = append(result, []byte(sep)...)
+		result = append(result, b[i])
+	}
+	return string(result)
 }
 
 // LockdownStreams redirects stdout and stderr through the scrubber.
@@ -252,25 +335,28 @@ func (s *Scrubber) LockdownStreams() func() {
 		_, _ = io.Copy(s, rErr)
 	}()
 
-	// Return restore function
+	// Return idempotent restore function
+	var once sync.Once
 	return func() {
-		// Close write ends to signal EOF to copy goroutines
-		_ = wOut.Close()
-		_ = wErr.Close()
+		once.Do(func() {
+			// Close write ends to signal EOF to copy goroutines
+			_ = wOut.Close()
+			_ = wErr.Close()
 
-		// Wait for copy goroutines to finish
-		wg.Wait()
+			// Wait for copy goroutines to finish
+			wg.Wait()
 
-		// Close read ends
-		_ = rOut.Close()
-		_ = rErr.Close()
+			// Close read ends
+			_ = rOut.Close()
+			_ = rErr.Close()
 
-		// Restore original streams
-		os.Stdout = originalStdout
-		os.Stderr = originalStderr
+			// Restore original streams
+			os.Stdout = originalStdout
+			os.Stderr = originalStderr
 
-		// Flush any remaining buffered data
-		_ = s.Flush()
+			// Flush any remaining buffered data
+			_ = s.Flush()
+		})
 	}
 }
 
@@ -282,6 +368,9 @@ func (s *Scrubber) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// If we're in a frame, buffer the output
 	if len(s.frames) > 0 {
@@ -356,24 +445,23 @@ func (s *Scrubber) Write(p []byte) (int, error) {
 
 // Flush writes any remaining carry bytes after redaction.
 func (s *Scrubber) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if len(s.carry) == 0 {
 		return nil
 	}
 
-	// Scrub carry one final time
-	// LOOP INVARIANT: Track progress through secrets
-	result := s.carry
-	prevIdx := -1
-	for idx, entry := range s.secrets {
-		// Assert loop makes progress
-		invariant.Postcondition(idx > prevIdx, "loop must make progress")
-		prevIdx = idx
+	// Scrub carry one final time (longest-first)
+	result := s.scrubAll(s.carry)
 
-		result = bytes.ReplaceAll(result, entry.pattern, entry.placeholder)
-	}
-
-	// Write and clear carry
+	// Write and zeroize carry
 	_, err := s.out.Write(result)
+
+	// Zeroize carry buffer
+	for i := range s.carry {
+		s.carry[i] = 0
+	}
 	s.carry = s.carry[:0]
 
 	// OUTPUT CONTRACT
@@ -384,17 +472,20 @@ func (s *Scrubber) Flush() error {
 
 // Close flushes remaining data and zeroizes sensitive buffers.
 // Callers MUST defer Close() to prevent secret leakage.
+//
+// WARNING: Any open frames are discarded (not flushed). This prevents
+// secret leakage but may lose buffered output. Ensure all frames are
+// ended before calling Close().
 func (s *Scrubber) Close() error {
-	// Flush any remaining data
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Flush any remaining carry data (Flush locks, so unlock first)
+	s.mu.Unlock()
 	err := s.Flush()
+	s.mu.Lock()
 
-	// Zeroize carry buffer
-	for i := range s.carry {
-		s.carry[i] = 0
-	}
-	s.carry = s.carry[:0]
-
-	// Zeroize any open frame buffers
+	// Zeroize any open frame buffers (discarded, not flushed)
 	// LOOP INVARIANT: Track progress through frames
 	prevIdx := -1
 	for idx := range s.frames {
