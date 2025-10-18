@@ -76,7 +76,7 @@ func TestExecuteBlockRecording(t *testing.T) {
 	steps := []sdk.Step{
 		{ID: 1, Commands: []sdk.Command{{Name: "shell"}}},
 	}
-	ctx.ExecuteBlock(steps)
+	_, _ = ctx.ExecuteBlock(steps)
 
 	// Verify it was recorded
 	if err := ctx.AssertExecutedBlocks(1); err != nil {
@@ -84,7 +84,7 @@ func TestExecuteBlockRecording(t *testing.T) {
 	}
 
 	// Execute another block
-	ctx.ExecuteBlock(steps)
+	_, _ = ctx.ExecuteBlock(steps)
 
 	// Verify both recorded
 	if err := ctx.AssertExecutedBlocks(2); err != nil {

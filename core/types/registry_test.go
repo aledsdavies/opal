@@ -297,19 +297,19 @@ func TestHandlerWithArgs(t *testing.T) {
 // TestRegisterSDKHandler verifies SDK-based handler registration
 func TestRegisterSDKHandler(t *testing.T) {
 	registry := NewRegistry()
-	
+
 	// Register an execution decorator with SDK handler
 	handler := func(ctx interface{}, block []interface{}) (int, error) {
 		return 0, nil
 	}
-	
+
 	registry.RegisterSDKHandler("shell", DecoratorKindExecution, handler)
-	
+
 	// Verify it's registered
 	if !registry.IsRegistered("shell") {
 		t.Error("shell should be registered")
 	}
-	
+
 	// Retrieve the handler
 	retrievedHandler, kind, exists := registry.GetSDKHandler("shell")
 	if !exists {
@@ -326,20 +326,20 @@ func TestRegisterSDKHandler(t *testing.T) {
 // TestRegisterSDKHandlerWithSchema verifies SDK handler with schema
 func TestRegisterSDKHandlerWithSchema(t *testing.T) {
 	registry := NewRegistry()
-	
+
 	schema := NewSchema("test", KindExecution).
 		Description("Test decorator").
 		Build()
-	
+
 	handler := func(ctx interface{}, block []interface{}) (int, error) {
 		return 0, nil
 	}
-	
+
 	err := registry.RegisterSDKHandlerWithSchema(schema, handler)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	
+
 	// Verify registration
 	retrievedHandler, kind, exists := registry.GetSDKHandler("test")
 	if !exists {
@@ -351,7 +351,7 @@ func TestRegisterSDKHandlerWithSchema(t *testing.T) {
 	if retrievedHandler == nil {
 		t.Error("handler should not be nil")
 	}
-	
+
 	// Verify schema
 	retrievedSchema, schemaExists := registry.GetSchema("test")
 	if !schemaExists {
@@ -365,7 +365,7 @@ func TestRegisterSDKHandlerWithSchema(t *testing.T) {
 // TestGetSDKHandlerNotFound verifies missing handler returns false
 func TestGetSDKHandlerNotFound(t *testing.T) {
 	registry := NewRegistry()
-	
+
 	handler, kind, exists := registry.GetSDKHandler("nonexistent")
 	if exists {
 		t.Error("nonexistent handler should not exist")

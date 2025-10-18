@@ -14,7 +14,6 @@ func TestShellDecorator_SimpleCommand(t *testing.T) {
 		WithArg("command", "echo hello")
 
 	exitCode, err := shellHandler(ctx, []sdk.Step{})
-
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
@@ -34,7 +33,6 @@ func TestShellDecorator_FailingCommand(t *testing.T) {
 		WithArg("command", "exit 42")
 
 	exitCode, err := shellHandler(ctx, []sdk.Step{})
-
 	// Exit code should be 42, no error
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
@@ -54,7 +52,6 @@ func TestShellDecorator_UsesContextWorkdir(t *testing.T) {
 		WithWorkingDir(tmpDir)
 
 	exitCode, err := shellHandler(ctx, []sdk.Step{})
-
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
@@ -73,7 +70,6 @@ func TestShellDecorator_UsesContextEnviron(t *testing.T) {
 		WithEnv("TEST_SHELL_VAR", "from_context")
 
 	exitCode, err := shellHandler(ctx, []sdk.Step{})
-
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
