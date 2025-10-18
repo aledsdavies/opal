@@ -8,6 +8,7 @@ import (
 
 	"github.com/aledsdavies/opal/core/planfmt"
 	"github.com/aledsdavies/opal/core/sdk/secret"
+	_ "github.com/aledsdavies/opal/runtime/decorators" // Register built-in decorators
 	"github.com/aledsdavies/opal/runtime/executor"
 	"github.com/aledsdavies/opal/runtime/lexer"
 	"github.com/aledsdavies/opal/runtime/parser"
@@ -21,15 +22,8 @@ func main() {
 	// This ensures even lexer/parser/planner cannot leak secrets
 	var outputBuf bytes.Buffer
 
-	// Create placeholder generator with random per-run key
-	placeholderGen, err := streamscrub.NewPlaceholderGenerator()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Fatal: failed to create placeholder generator: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create scrubber with keyed placeholders
-	scrubber := streamscrub.New(&outputBuf, streamscrub.WithPlaceholderFunc(placeholderGen.PlaceholderFunc()))
+	// Create scrubber (uses keyed BLAKE2b placeholders by default)
+	scrubber := streamscrub.New(&outputBuf)
 
 	// Redirect all stdout/stderr through scrubber
 	restore := scrubber.LockdownStreams()

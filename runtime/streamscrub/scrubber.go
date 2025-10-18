@@ -52,16 +52,33 @@ func WithPlaceholderFunc(fn PlaceholderFunc) Option {
 }
 
 // New creates a new Scrubber that writes to w.
+// By default, uses keyed BLAKE2b placeholders with a random per-run key.
+// This prevents correlation attacks across runs.
 func New(w io.Writer, opts ...Option) *Scrubber {
 	// INPUT CONTRACT
 	invariant.NotNil(w, "writer")
 
-	s := &Scrubber{
-		out:             w,
-		placeholderFunc: defaultPlaceholder,
+	// Create default keyed placeholder generator (security by default)
+	gen, err := NewPlaceholderGenerator()
+	if err != nil {
+		// Fallback to simple placeholder if random key generation fails
+		// (should never happen in practice)
+		gen = nil
 	}
 
-	// Apply options
+	var defaultFunc PlaceholderFunc
+	if gen != nil {
+		defaultFunc = gen.PlaceholderFunc()
+	} else {
+		defaultFunc = simplePlaceholder
+	}
+
+	s := &Scrubber{
+		out:             w,
+		placeholderFunc: defaultFunc,
+	}
+
+	// Apply options (can override default placeholder)
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -75,11 +92,8 @@ func New(w io.Writer, opts ...Option) *Scrubber {
 	return s
 }
 
-// defaultPlaceholder is the default placeholder generator.
-// TODO: Replace with keyed BLAKE2b using plan key from PSE/KMS.
-func defaultPlaceholder(secret []byte) string {
-	// Simple placeholder for now - will be replaced with keyed hash
-	// Using a generic redacted marker that doesn't leak information
+// simplePlaceholder is a fallback placeholder generator (used only if keyed generation fails).
+func simplePlaceholder(secret []byte) string {
 	return "<REDACTED>"
 }
 

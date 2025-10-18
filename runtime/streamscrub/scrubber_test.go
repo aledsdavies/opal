@@ -105,7 +105,11 @@ func TestFrameBuffering(t *testing.T) {
 // TestFrameScrubbingHierarchical - secret registered in frame scrubs frame output
 func TestFrameScrubbingHierarchical(t *testing.T) {
 	var buf bytes.Buffer
-	s := New(&buf)
+	// Use fixed key for deterministic testing
+	key := make([]byte, 32)
+	gen, _ := NewPlaceholderGeneratorWithKey(key)
+	s := New(&buf, WithPlaceholderFunc(gen.PlaceholderFunc()))
+	defer s.Close()
 
 	// Start a frame
 	s.StartFrame("decorator-frame")
@@ -118,10 +122,13 @@ func TestFrameScrubbingHierarchical(t *testing.T) {
 	s.EndFrame([][]byte{secret})
 
 	// Frame output should be scrubbed before flushing
-	want := "Loading secret: <REDACTED>"
+	// With fixed key, placeholder is deterministic
 	got := buf.String()
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+	if bytes.Contains([]byte(got), secret) {
+		t.Errorf("secret leaked: %q", got)
+	}
+	if !bytes.Contains([]byte(got), []byte("<REDACTED:")) {
+		t.Errorf("keyed placeholder not found: %q", got)
 	}
 }
 
@@ -211,9 +218,9 @@ func TestEncodingVariants(t *testing.T) {
 	if bytes.Contains([]byte(got), secret) {
 		t.Errorf("raw secret leaked: %q", got)
 	}
-	// Should have placeholder
-	if !bytes.Contains([]byte(got), []byte("<REDACTED>")) {
-		t.Errorf("placeholder missing: %q", got)
+	// Should have keyed placeholder
+	if !bytes.Contains([]byte(got), []byte("<REDACTED:")) {
+		t.Errorf("keyed placeholder missing: %q", got)
 	}
 }
 
@@ -436,9 +443,9 @@ func TestNestedFramesDontLeak(t *testing.T) {
 	if bytes.Contains([]byte(got), innerSecret) {
 		t.Fatalf("SECURITY: inner secret leaked: %q", got)
 	}
-	// Should have placeholders
-	if !bytes.Contains([]byte(got), []byte("<REDACTED>")) {
-		t.Fatalf("placeholders missing in output: %q", got)
+	// Should have keyed placeholders
+	if !bytes.Contains([]byte(got), []byte("<REDACTED:")) {
+		t.Fatalf("keyed placeholders missing in output: %q", got)
 	}
 }
 
@@ -731,12 +738,12 @@ func TestExpandedEncodingVariants(t *testing.T) {
 			got := buf.String()
 			// Check that the secret variant was redacted
 			if tt.want == "" {
-				// Should contain placeholder, not original
+				// Should contain keyed placeholder, not original
 				if bytes.Contains([]byte(got), secret) {
 					t.Errorf("%s: secret leaked in output: %q", tt.name, got)
 				}
-				if !bytes.Contains([]byte(got), []byte("<REDACTED>")) {
-					t.Errorf("%s: placeholder not found in output: %q", tt.name, got)
+				if !bytes.Contains([]byte(got), []byte("<REDACTED:")) {
+					t.Errorf("%s: keyed placeholder not found in output: %q", tt.name, got)
 				}
 			}
 		})
