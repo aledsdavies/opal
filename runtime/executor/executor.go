@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/aledsdavies/opal/core/invariant"
-	"github.com/aledsdavies/opal/core/planfmt"
 	"github.com/aledsdavies/opal/core/sdk"
 	"github.com/aledsdavies/opal/core/types"
 )
@@ -177,7 +176,6 @@ func LockDownStdStreams(config *LockdownConfig) (restore func()) {
 
 // executor holds execution state
 type executor struct {
-	plan   *planfmt.Plan
 	config Config
 
 	// Execution state
@@ -190,10 +188,12 @@ type executor struct {
 	startTime   time.Time
 }
 
-// Execute runs a plan and returns the result
-func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
+// Execute runs SDK steps and returns the result.
+// The executor only sees SDK types - it has no knowledge of planfmt.
+// Secret scrubbing is handled by the CLI before calling Execute.
+func Execute(steps []sdk.Step, config Config) (*ExecutionResult, error) {
 	// INPUT CONTRACT (preconditions)
-	invariant.NotNil(plan, "plan")
+	invariant.NotNil(steps, "steps")
 
 	// Set up stdout/stderr lockdown if enabled
 	var outputBuf bytes.Buffer
@@ -211,11 +211,8 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 			scrubber = NewSecretScrubber(&outputBuf)
 		}
 
-		// Register all secrets from plan
-		for _, secret := range plan.Secrets {
-			// Use DisplayID as placeholder (e.g., "opal:secret:3J98t56A")
-			scrubber.RegisterSecret(secret.RuntimeValue, secret.DisplayID)
-		}
+		// Note: Secret registration is handled by CLI before calling Execute
+		// The executor has no knowledge of secrets - that's a CLI concern
 
 		// Lock down stdout/stderr
 		restore = LockDownStdStreams(&LockdownConfig{
@@ -226,7 +223,6 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 	}
 
 	e := &executor{
-		plan:      plan,
 		config:    config,
 		startTime: time.Now(),
 	}
@@ -234,23 +230,20 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 	// Initialize telemetry if enabled
 	if config.Telemetry != TelemetryOff {
 		e.telemetry = &ExecutionTelemetry{
-			StepCount: len(plan.Steps),
+			StepCount: len(steps),
 		}
 		if config.Telemetry == TelemetryTiming {
-			e.telemetry.StepTimings = make([]StepTiming, 0, len(plan.Steps))
+			e.telemetry.StepTimings = make([]StepTiming, 0, len(steps))
 		}
 	}
 
 	// Record debug event: enter_execute
 	if config.Debug >= DebugPaths {
-		e.recordDebugEvent("enter_execute", 0, fmt.Sprintf("target=%s, steps=%d", plan.Target, len(plan.Steps)))
+		e.recordDebugEvent("enter_execute", 0, fmt.Sprintf("steps=%d", len(steps)))
 	}
 
-	// Convert plan steps to SDK steps (separates binary format from execution model)
-	sdkSteps := convertPlanStepsToSDK(plan.Steps)
-
 	// Execute all steps sequentially
-	for _, step := range sdkSteps {
+	for _, step := range steps {
 		stepStart := time.Now()
 
 		if config.Debug >= DebugDetailed {
@@ -306,7 +299,7 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 	// OUTPUT CONTRACT (postconditions)
 	invariant.InRange(e.exitCode, 0, 255, "exit code")
 	invariant.Postcondition(e.stepsRun >= 0, "steps run must be non-negative")
-	invariant.Postcondition(e.stepsRun <= len(plan.Steps), "steps run cannot exceed total steps")
+	invariant.Postcondition(e.stepsRun <= len(steps), "steps run cannot exceed total steps")
 
 	return &ExecutionResult{
 		ExitCode:    e.exitCode,
@@ -350,16 +343,11 @@ func (e *executor) executeStep(step sdk.Step) int {
 		panic(fmt.Sprintf("invalid handler type for %s", cmd.Name))
 	}
 
-	// Create execution context (converts sdk.Command back to planfmt.Command for now)
-	// TODO: Update newExecutionContext to accept sdk.Command directly
-	planCmd := convertSDKCommandsToPlan([]sdk.Command{cmd})[0]
-	ctx := newExecutionContext(planCmd, e, context.Background())
+	// Create execution context with SDK args directly
+	ctx := newExecutionContext(cmd.Args, e, context.Background())
 
-	// Convert block to SDK types
-	sdkBlock := cmd.Block
-
-	// Call handler
-	exitCode, err := sdkHandler(ctx, sdkBlock)
+	// Call handler with SDK block
+	exitCode, err := sdkHandler(ctx, cmd.Block)
 	if err != nil {
 		// Log error but return exit code
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

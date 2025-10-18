@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/aledsdavies/opal/core/invariant"
-	"github.com/aledsdavies/opal/core/planfmt"
 	"github.com/aledsdavies/opal/core/sdk"
 )
 
@@ -16,7 +15,7 @@ import (
 // All fields are immutable - modifications create new contexts
 type executionContext struct {
 	executor *executor
-	command  planfmt.Command
+	args     map[string]interface{} // Decorator arguments (from sdk.Command)
 	ctx      context.Context
 	environ  map[string]string // Immutable snapshot
 	workdir  string            // Immutable snapshot
@@ -24,8 +23,9 @@ type executionContext struct {
 
 // newExecutionContext creates a new execution context for a decorator
 // Captures current environment and working directory as immutable snapshots
-func newExecutionContext(cmd planfmt.Command, exec *executor, ctx context.Context) sdk.ExecutionContext {
+func newExecutionContext(args map[string]interface{}, exec *executor, ctx context.Context) sdk.ExecutionContext {
 	invariant.NotNil(ctx, "context")
+	invariant.NotNil(args, "args")
 
 	// Capture current working directory at context creation time
 	// This ensures isolation - changes to os.Getwd() won't affect this context
@@ -36,7 +36,7 @@ func newExecutionContext(cmd planfmt.Command, exec *executor, ctx context.Contex
 
 	return &executionContext{
 		executor: exec,
-		command:  cmd,
+		args:     args,
 		ctx:      ctx,
 		environ:  captureEnviron(), // Immutable snapshot
 		workdir:  wd,               // Immutable snapshot
@@ -63,9 +63,9 @@ func (e *executionContext) Context() context.Context {
 
 // ArgString retrieves a string argument
 func (e *executionContext) ArgString(key string) string {
-	for _, arg := range e.command.Args {
-		if arg.Key == key && arg.Val.Kind == planfmt.ValueString {
-			return arg.Val.Str
+	if val, ok := e.args[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
 		}
 	}
 	return ""
@@ -73,9 +73,12 @@ func (e *executionContext) ArgString(key string) string {
 
 // ArgInt retrieves an integer argument
 func (e *executionContext) ArgInt(key string) int64 {
-	for _, arg := range e.command.Args {
-		if arg.Key == key && arg.Val.Kind == planfmt.ValueInt {
-			return arg.Val.Int
+	if val, ok := e.args[key]; ok {
+		if i, ok := val.(int64); ok {
+			return i
+		}
+		if i, ok := val.(int); ok {
+			return int64(i)
 		}
 	}
 	return 0
@@ -83,37 +86,31 @@ func (e *executionContext) ArgInt(key string) int64 {
 
 // ArgBool retrieves a boolean argument
 func (e *executionContext) ArgBool(key string) bool {
-	for _, arg := range e.command.Args {
-		if arg.Key == key && arg.Val.Kind == planfmt.ValueBool {
-			return arg.Val.Bool
+	if val, ok := e.args[key]; ok {
+		if b, ok := val.(bool); ok {
+			return b
 		}
 	}
 	return false
 }
 
 // ArgDuration retrieves a duration argument
-// TODO: Implement when planfmt.Value supports Duration type
+// TODO: Implement when SDK supports Duration type
 func (e *executionContext) ArgDuration(key string) time.Duration {
 	// For now, durations are stored as strings and parsed
-	// This will be updated when planfmt.Value adds Duration support
+	// This will be updated when SDK adds Duration support
 	_ = key
 	return 0
 }
 
 // Args returns a snapshot of all arguments for logging
 func (e *executionContext) Args() map[string]interface{} {
-	args := make(map[string]interface{})
-	for _, arg := range e.command.Args {
-		switch arg.Val.Kind {
-		case planfmt.ValueString:
-			args[arg.Key] = arg.Val.Str
-		case planfmt.ValueInt:
-			args[arg.Key] = arg.Val.Int
-		case planfmt.ValueBool:
-			args[arg.Key] = arg.Val.Bool
-		}
+	// Return a copy to prevent external mutation
+	copy := make(map[string]interface{}, len(e.args))
+	for k, v := range e.args {
+		copy[k] = v
 	}
-	return args
+	return copy
 }
 
 // Environ returns the environment variables (immutable snapshot)
@@ -133,7 +130,7 @@ func (e *executionContext) WithContext(ctx context.Context) sdk.ExecutionContext
 
 	return &executionContext{
 		executor: e.executor,
-		command:  e.command,
+		args:     e.args,
 		ctx:      ctx,
 		environ:  e.environ, // Share immutable snapshot
 		workdir:  e.workdir, // Share immutable snapshot
@@ -153,7 +150,7 @@ func (e *executionContext) WithEnviron(env map[string]string) sdk.ExecutionConte
 
 	return &executionContext{
 		executor: e.executor,
-		command:  e.command,
+		args:     e.args,
 		ctx:      e.ctx,
 		environ:  envCopy,
 		workdir:  e.workdir,
@@ -195,7 +192,7 @@ func (e *executionContext) WithWorkdir(dir string) sdk.ExecutionContext {
 
 	return &executionContext{
 		executor: e.executor,
-		command:  e.command,
+		args:     e.args,
 		ctx:      e.ctx,
 		environ:  e.environ,
 		workdir:  resolved,

@@ -4,22 +4,17 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/aledsdavies/opal/core/planfmt"
 )
 
 // TestExecutionContext_ArgString tests retrieving string arguments
 func TestExecutionContext_ArgString(t *testing.T) {
-	// Given: A command with string argument
-	cmd := planfmt.Command{
-		Decorator: "shell",
-		Args: []planfmt.Arg{
-			{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo hello"}},
-		},
+	// Given: Arguments with string value
+	args := map[string]interface{}{
+		"command": "echo hello",
 	}
 
 	// When: Creating execution context
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	ctx := newExecutionContext(args, nil, context.Background())
 
 	// Then: Can retrieve argument
 	got := ctx.ArgString("command")
@@ -31,14 +26,11 @@ func TestExecutionContext_ArgString(t *testing.T) {
 
 // TestExecutionContext_ArgString_Missing tests missing argument returns empty string
 func TestExecutionContext_ArgString_Missing(t *testing.T) {
-	// Given: A command without the requested argument
-	cmd := planfmt.Command{
-		Decorator: "shell",
-		Args:      []planfmt.Arg{},
-	}
+	// Given: Empty arguments
+	args := map[string]interface{}{}
 
 	// When: Creating execution context
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	ctx := newExecutionContext(args, nil, context.Background())
 
 	// Then: Returns empty string for missing argument
 	got := ctx.ArgString("missing")
@@ -51,11 +43,11 @@ func TestExecutionContext_ArgString_Missing(t *testing.T) {
 // TestExecutionContext_Context tests retrieving Go context
 func TestExecutionContext_Context(t *testing.T) {
 	// Given: Execution context with Go context
-	cmd := planfmt.Command{Decorator: "test"}
+	args := map[string]interface{}{}
 	goCtx := context.Background()
 
 	// When: Creating execution context
-	ctx := newExecutionContext(cmd, nil, goCtx)
+	ctx := newExecutionContext(args, nil, goCtx)
 
 	// Then: Can retrieve Go context
 	if ctx.Context() != goCtx {
@@ -66,8 +58,8 @@ func TestExecutionContext_Context(t *testing.T) {
 // TestExecutionContext_WithContext tests context wrapping
 func TestExecutionContext_WithContext(t *testing.T) {
 	// Given: Execution context
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 
 	// When: Wrapping with new context
 	newGoCtx := context.WithValue(context.Background(), "key", "value")
@@ -87,8 +79,8 @@ func TestExecutionContext_WithContext(t *testing.T) {
 // TestExecutionContext_WithEnviron tests environment isolation
 func TestExecutionContext_WithEnviron(t *testing.T) {
 	// Given: Execution context with original environment
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 	originalEnv := ctx.Environ()
 
 	// When: Creating new context with modified environment
@@ -122,8 +114,8 @@ func TestExecutionContext_WithEnviron(t *testing.T) {
 // TestExecutionContext_WithWorkdir_Absolute tests absolute path handling
 func TestExecutionContext_WithWorkdir_Absolute(t *testing.T) {
 	// Given: Execution context with original workdir
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 	originalWd := ctx.Workdir()
 
 	// When: Creating new context with absolute path
@@ -143,8 +135,8 @@ func TestExecutionContext_WithWorkdir_Absolute(t *testing.T) {
 // TestExecutionContext_WithWorkdir_Relative tests relative path resolution
 func TestExecutionContext_WithWorkdir_Relative(t *testing.T) {
 	// Given: Execution context
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 	baseDir := ctx.Workdir()
 
 	// When: Creating new context with relative path
@@ -160,8 +152,8 @@ func TestExecutionContext_WithWorkdir_Relative(t *testing.T) {
 // TestExecutionContext_WithWorkdir_ParentDir tests parent directory navigation
 func TestExecutionContext_WithWorkdir_ParentDir(t *testing.T) {
 	// Given: Execution context
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 	original := ctx.Workdir()
 
 	// When: Going into subdir then back to parent
@@ -176,8 +168,8 @@ func TestExecutionContext_WithWorkdir_ParentDir(t *testing.T) {
 // TestExecutionContext_WithWorkdir_Chained tests chained relative paths
 func TestExecutionContext_WithWorkdir_Chained(t *testing.T) {
 	// Given: Execution context
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 	baseDir := ctx.Workdir()
 
 	// When: Chaining multiple relative paths
@@ -193,8 +185,8 @@ func TestExecutionContext_WithWorkdir_Chained(t *testing.T) {
 // TestExecutionContext_WithWorkdir_DotSlash tests ./path handling
 func TestExecutionContext_WithWorkdir_DotSlash(t *testing.T) {
 	// Given: Execution context
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 	baseDir := ctx.Workdir()
 
 	// When: Using ./subdir notation
@@ -210,8 +202,8 @@ func TestExecutionContext_WithWorkdir_DotSlash(t *testing.T) {
 // TestExecutionContext_WithWorkdir_ComplexPath tests complex relative paths
 func TestExecutionContext_WithWorkdir_ComplexPath(t *testing.T) {
 	// Given: Execution context
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 	baseDir := ctx.Workdir()
 
 	// When: Using complex relative path with .. and .
@@ -227,8 +219,8 @@ func TestExecutionContext_WithWorkdir_ComplexPath(t *testing.T) {
 // TestExecutionContext_WithWorkdir_AbsoluteOverridesRelative tests absolute path overrides
 func TestExecutionContext_WithWorkdir_AbsoluteOverridesRelative(t *testing.T) {
 	// Given: Execution context with relative path set
-	cmd := planfmt.Command{Decorator: "test"}
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	ctx := newExecutionContext(args, nil, context.Background())
 	withRelative := ctx.WithWorkdir("foo/bar")
 
 	// When: Setting absolute path
@@ -244,8 +236,8 @@ func TestExecutionContext_WithWorkdir_AbsoluteOverridesRelative(t *testing.T) {
 // This is critical for @parallel decorator where each branch must be independent
 func TestExecutionContext_IsolationForParallel(t *testing.T) {
 	// Given: Base execution context
-	cmd := planfmt.Command{Decorator: "test"}
-	baseCtx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	baseCtx := newExecutionContext(args, nil, context.Background())
 
 	// When: Creating two "parallel" contexts with different environments
 	env1 := map[string]string{"BRANCH": "A", "VALUE": "1"}
@@ -278,8 +270,8 @@ func TestExecutionContext_IsolationForParallel(t *testing.T) {
 // TestExecutionContext_ChainedWrapping tests multiple levels of context wrapping
 func TestExecutionContext_ChainedWrapping(t *testing.T) {
 	// Given: Base execution context
-	cmd := planfmt.Command{Decorator: "test"}
-	baseCtx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	baseCtx := newExecutionContext(args, nil, context.Background())
 
 	// When: Chaining multiple context modifications
 	ctx1 := baseCtx.WithWorkdir("/tmp")
@@ -305,16 +297,13 @@ func TestExecutionContext_ChainedWrapping(t *testing.T) {
 
 // TestExecutionContext_ArgInt tests integer argument retrieval
 func TestExecutionContext_ArgInt(t *testing.T) {
-	// Given: Command with int argument
-	cmd := planfmt.Command{
-		Decorator: "retry",
-		Args: []planfmt.Arg{
-			{Key: "times", Val: planfmt.Value{Kind: planfmt.ValueInt, Int: 3}},
-		},
+	// Given: Arguments with int value
+	args := map[string]interface{}{
+		"times": int64(3),
 	}
 
 	// When: Creating execution context
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	ctx := newExecutionContext(args, nil, context.Background())
 
 	// Then: Can retrieve int argument
 	if got := ctx.ArgInt("times"); got != 3 {
@@ -329,16 +318,13 @@ func TestExecutionContext_ArgInt(t *testing.T) {
 
 // TestExecutionContext_ArgBool tests boolean argument retrieval
 func TestExecutionContext_ArgBool(t *testing.T) {
-	// Given: Command with bool argument
-	cmd := planfmt.Command{
-		Decorator: "test",
-		Args: []planfmt.Arg{
-			{Key: "enabled", Val: planfmt.Value{Kind: planfmt.ValueBool, Bool: true}},
-		},
+	// Given: Arguments with bool value
+	args := map[string]interface{}{
+		"enabled": true,
 	}
 
 	// When: Creating execution context
-	ctx := newExecutionContext(cmd, nil, context.Background())
+	ctx := newExecutionContext(args, nil, context.Background())
 
 	// Then: Can retrieve bool argument
 	if got := ctx.ArgBool("enabled"); got != true {
@@ -353,38 +339,35 @@ func TestExecutionContext_ArgBool(t *testing.T) {
 
 // TestExecutionContext_Args tests snapshot of all arguments
 func TestExecutionContext_Args(t *testing.T) {
-	// Given: Command with multiple argument types
-	cmd := planfmt.Command{
-		Decorator: "test",
-		Args: []planfmt.Arg{
-			{Key: "name", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "test"}},
-			{Key: "count", Val: planfmt.Value{Kind: planfmt.ValueInt, Int: 42}},
-			{Key: "enabled", Val: planfmt.Value{Kind: planfmt.ValueBool, Bool: true}},
-		},
+	// Given: Arguments with multiple types
+	args := map[string]interface{}{
+		"name":    "test",
+		"count":   int64(42),
+		"enabled": true,
 	}
 
 	// When: Creating execution context and getting args snapshot
-	ctx := newExecutionContext(cmd, nil, context.Background())
-	args := ctx.Args()
+	ctx := newExecutionContext(args, nil, context.Background())
+	snapshot := ctx.Args()
 
 	// Then: Snapshot contains all arguments
-	if args["name"] != "test" {
-		t.Errorf("Args()[name] = %v, want test", args["name"])
+	if snapshot["name"] != "test" {
+		t.Errorf("Args()[name] = %v, want test", snapshot["name"])
 	}
-	if args["count"] != int64(42) {
-		t.Errorf("Args()[count] = %v, want 42", args["count"])
+	if snapshot["count"] != int64(42) {
+		t.Errorf("Args()[count] = %v, want 42", snapshot["count"])
 	}
-	if args["enabled"] != true {
-		t.Errorf("Args()[enabled] = %v, want true", args["enabled"])
+	if snapshot["enabled"] != true {
+		t.Errorf("Args()[enabled] = %v, want true", snapshot["enabled"])
 	}
 }
 
 // TestExecutionContext_ContextCancellation tests that child contexts inherit cancellation
 func TestExecutionContext_ContextCancellation(t *testing.T) {
 	// Given: Base context with cancellation
-	cmd := planfmt.Command{Decorator: "test"}
+	args := map[string]interface{}{}
 	parentGoCtx, cancel := context.WithCancel(context.Background())
-	baseCtx := newExecutionContext(cmd, nil, parentGoCtx)
+	baseCtx := newExecutionContext(args, nil, parentGoCtx)
 
 	// When: Creating child context (simulating @timeout decorator)
 	childGoCtx, _ := context.WithTimeout(baseCtx.Context(), 1*time.Hour)
@@ -405,8 +388,8 @@ func TestExecutionContext_ContextCancellation(t *testing.T) {
 // TestExecutionContext_ContextTimeout tests timeout propagation
 func TestExecutionContext_ContextTimeout(t *testing.T) {
 	// Given: Base context
-	cmd := planfmt.Command{Decorator: "test"}
-	baseCtx := newExecutionContext(cmd, nil, context.Background())
+	args := map[string]interface{}{}
+	baseCtx := newExecutionContext(args, nil, context.Background())
 
 	// When: Creating child context with short timeout (simulating @timeout decorator)
 	childGoCtx, cancel := context.WithTimeout(baseCtx.Context(), 10*time.Millisecond)
@@ -428,10 +411,10 @@ func TestExecutionContext_ContextTimeout(t *testing.T) {
 // TestExecutionContext_NestedTimeouts tests that shortest timeout wins
 func TestExecutionContext_NestedTimeouts(t *testing.T) {
 	// Given: Base context with long timeout
-	cmd := planfmt.Command{Decorator: "test"}
+	args := map[string]interface{}{}
 	baseGoCtx, cancel1 := context.WithTimeout(context.Background(), 1*time.Hour)
 	defer cancel1()
-	baseCtx := newExecutionContext(cmd, nil, baseGoCtx)
+	baseCtx := newExecutionContext(args, nil, baseGoCtx)
 
 	// When: Creating child context with shorter timeout
 	childGoCtx, cancel2 := context.WithTimeout(baseCtx.Context(), 10*time.Millisecond)
