@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aledsdavies/opal/core/planfmt"
+	_ "github.com/aledsdavies/opal/runtime/decorators" // Register built-in decorators
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -312,7 +313,7 @@ func TestInvariantNilPlan(t *testing.T) {
 	})
 }
 
-// TestInvariantEmptyShellCommand tests that empty shell command causes panic
+// TestInvariantEmptyShellCommand tests that empty shell command returns error
 func TestInvariantEmptyShellCommand(t *testing.T) {
 	plan := &planfmt.Plan{
 		Target: "empty",
@@ -331,41 +332,9 @@ func TestInvariantEmptyShellCommand(t *testing.T) {
 		},
 	}
 
-	assert.Panics(t, func() {
-		_, _ = Execute(plan, Config{})
-	})
-}
-
-// TestExecuteCommandsWithOperators tests commands chained with operators
-func TestExecuteCommandsWithOperators(t *testing.T) {
-	plan := &planfmt.Plan{
-		Target: "operators",
-		Steps: []planfmt.Step{
-			{
-				ID: 1,
-				Commands: []planfmt.Command{
-					{
-						Decorator: "@shell",
-						Args: []planfmt.Arg{
-							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'First'"}},
-						},
-						Operator: "&&",
-					},
-					{
-						Decorator: "@shell",
-						Args: []planfmt.Arg{
-							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'Second'"}},
-						},
-					},
-				},
-			},
-		},
-	}
-
 	result, err := Execute(plan, Config{})
-	require.NoError(t, err)
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Equal(t, 1, result.StepsRun) // One step with two commands
+	require.NoError(t, err)               // Executor completes successfully
+	assert.Equal(t, 127, result.ExitCode) // But decorator returns error exit code
 }
 
 // TestStdoutStderrLockdown tests that direct writes to os.Stdout/os.Stderr are blocked

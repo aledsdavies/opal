@@ -44,10 +44,16 @@ func newExecutionContext(cmd planfmt.Command, exec *executor, ctx context.Contex
 }
 
 // ExecuteBlock executes nested steps (callback to executor)
-// Converts sdk.Step to planfmt.Step internally for execution
+// Works with sdk.Step natively - no conversion needed
 func (e *executionContext) ExecuteBlock(steps []sdk.Step) (int, error) {
-	// TODO: Implement conversion and execution in Phase 3E
-	panic("ExecuteBlock not yet implemented")
+	// Execute steps using executor logic (now works with sdk.Step natively)
+	for _, step := range steps {
+		exitCode := e.executor.executeStep(step)
+		if exitCode != 0 {
+			return exitCode, nil
+		}
+	}
+	return 0, nil
 }
 
 // Context returns the Go context for cancellation and deadlines

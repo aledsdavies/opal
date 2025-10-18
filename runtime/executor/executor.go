@@ -2,16 +2,18 @@ package executor
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/planfmt"
+	"github.com/aledsdavies/opal/core/sdk"
+	"github.com/aledsdavies/opal/core/types"
 )
 
 // Config configures the executor
@@ -244,8 +246,11 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 		e.recordDebugEvent("enter_execute", 0, fmt.Sprintf("target=%s, steps=%d", plan.Target, len(plan.Steps)))
 	}
 
+	// Convert plan steps to SDK steps (separates binary format from execution model)
+	sdkSteps := convertPlanStepsToSDK(plan.Steps)
+
 	// Execute all steps sequentially
-	for _, step := range plan.Steps {
+	for _, step := range sdkSteps {
 		stepStart := time.Now()
 
 		if config.Debug >= DebugDetailed {
@@ -313,60 +318,54 @@ func Execute(plan *planfmt.Plan, config Config) (*ExecutionResult, error) {
 	}, nil
 }
 
-// executeStep executes a single step (which may contain multiple commands)
-func (e *executor) executeStep(step planfmt.Step) int {
+// executeStep executes a single step using the decorator registry
+func (e *executor) executeStep(step sdk.Step) int {
 	// INPUT CONTRACT
 	invariant.Precondition(len(step.Commands) > 0, "step must have at least one command")
 
-	// Build the full command string by chaining commands with operators
-	var cmdParts []string
-	for i, cmd := range step.Commands {
-		// Assert invariants
-		invariant.Precondition(cmd.Decorator == "@shell", "only @shell decorator supported in MVP")
-
-		// Extract command string
-		cmdStr := e.getCommandString(cmd)
-		invariant.Precondition(cmdStr != "", "shell command cannot be empty")
-
-		cmdParts = append(cmdParts, cmdStr)
-
-		// Add operator if not last command
-		if i < len(step.Commands)-1 {
-			invariant.Precondition(cmd.Operator != "", "non-last command must have operator")
-			cmdParts = append(cmdParts, cmd.Operator)
-		} else {
-			invariant.Postcondition(cmd.Operator == "", "last command must have empty operator")
-		}
+	// For MVP: Only support single command per step (no operators yet)
+	if len(step.Commands) > 1 {
+		panic("operator chaining not yet implemented in Phase 3E")
 	}
 
-	// Join all parts into single shell command
-	fullCmd := strings.Join(cmdParts, " ")
+	cmd := step.Commands[0]
 
-	// Execute via bash
-	cmd := exec.Command("bash", "-c", fullCmd)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Strip @ prefix from decorator name for registry lookup
+	decoratorName := strings.TrimPrefix(cmd.Name, "@")
 
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return exitErr.ExitCode()
-		}
-		// Other errors (e.g., command not found) return 127
-		return 127
+	// Look up handler from registry
+	handler, kind, exists := types.Global().GetSDKHandler(decoratorName)
+	if !exists {
+		panic(fmt.Sprintf("unknown decorator: %s", cmd.Name))
 	}
 
-	return 0
-}
-
-// getCommandString extracts the command string from a shell decorator
-func (e *executor) getCommandString(cmd planfmt.Command) string {
-	for _, arg := range cmd.Args {
-		if arg.Key == "command" {
-			invariant.Precondition(arg.Val.Kind == planfmt.ValueString, "command arg must be string")
-			return arg.Val.Str
-		}
+	// Verify it's an execution decorator
+	if kind != types.DecoratorKindExecution {
+		panic(fmt.Sprintf("%s is not an execution decorator", cmd.Name))
 	}
-	panic("shell decorator missing 'command' argument")
+
+	// Type assert to SDK handler
+	sdkHandler, ok := handler.(func(sdk.ExecutionContext, []sdk.Step) (int, error))
+	if !ok {
+		panic(fmt.Sprintf("invalid handler type for %s", cmd.Name))
+	}
+
+	// Create execution context (converts sdk.Command back to planfmt.Command for now)
+	// TODO: Update newExecutionContext to accept sdk.Command directly
+	planCmd := convertSDKCommandsToPlan([]sdk.Command{cmd})[0]
+	ctx := newExecutionContext(planCmd, e, context.Background())
+
+	// Convert block to SDK types
+	sdkBlock := cmd.Block
+
+	// Call handler
+	exitCode, err := sdkHandler(ctx, sdkBlock)
+	if err != nil {
+		// Log error but return exit code
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	}
+
+	return exitCode
 }
 
 // recordDebugEvent records a debug event (only if debug enabled)
