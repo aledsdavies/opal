@@ -22,8 +22,15 @@ func main() {
 	// This ensures even lexer/parser/planner cannot leak secrets
 	var outputBuf bytes.Buffer
 
-	// Create scrubber (uses keyed BLAKE2b placeholders by default)
-	scrubber := streamscrub.New(&outputBuf)
+	// Create Opal-specific placeholder generator (format: opal:s:hash)
+	opalGen, err := streamscrub.NewOpalPlaceholderGenerator()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Fatal: failed to create placeholder generator: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create scrubber with Opal placeholders
+	scrubber := streamscrub.New(&outputBuf, streamscrub.WithPlaceholderFunc(opalGen.PlaceholderFunc()))
 
 	// Redirect all stdout/stderr through scrubber
 	restore := scrubber.LockdownStreams()
