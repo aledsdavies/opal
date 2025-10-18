@@ -118,10 +118,10 @@ func TestFrameScrubbingHierarchical(t *testing.T) {
 	s.EndFrame([][]byte{secret})
 
 	// Frame output should be scrubbed before flushing
-	want := "Loading secret: opal:s:" // Placeholder will be generated
+	want := "Loading secret: <REDACTED>"
 	got := buf.String()
-	if !bytes.HasPrefix([]byte(got), []byte(want)) {
-		t.Errorf("got %q, want prefix %q", got, want)
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
@@ -210,6 +210,10 @@ func TestEncodingVariants(t *testing.T) {
 	}
 	if bytes.Contains([]byte(got), secret) {
 		t.Errorf("raw secret leaked: %q", got)
+	}
+	// Should have placeholder
+	if !bytes.Contains([]byte(got), []byte("<REDACTED>")) {
+		t.Errorf("placeholder missing: %q", got)
 	}
 }
 
@@ -332,6 +336,363 @@ func TestConcurrentWrites(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// RED TEAM SECURITY TESTS - Phase 1 (Critical)
+// ============================================================================
+
+// TestSplitBoundaryRedaction - secret split across multiple writes must be caught
+func TestSplitBoundaryRedaction(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+	defer s.Close()
+
+	secret := []byte("SECRET_TOKEN_12345")
+	placeholder := []byte("<REDACTED>")
+	s.RegisterSecret(secret, placeholder)
+
+	// Split secret across 2 writes
+	part1 := []byte("start-of-output " + string(secret[:8]))
+	part2 := []byte(string(secret[8:]) + " end-of-output\n")
+
+	// No active frame (execution mode): streaming should redact safely
+	if _, err := s.Write(part1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Write(part2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := buf.String()
+	if bytes.Contains([]byte(got), secret) {
+		t.Fatalf("SECURITY: secret leaked across boundary: %q in %q", secret, got)
+	}
+	if !bytes.Contains([]byte(got), placeholder) {
+		t.Fatalf("placeholder not present, want %q in %q", placeholder, got)
+	}
+}
+
+// TestSplitBoundaryFourWrites - secret split across 4 writes (worst case)
+func TestSplitBoundaryFourWrites(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+	defer s.Close()
+
+	secret := []byte("VERYLONGSECRETTOKEN123456789")
+	placeholder := []byte("<REDACTED>")
+	s.RegisterSecret(secret, placeholder)
+
+	// Split into 4 chunks
+	chunk1 := []byte("prefix " + string(secret[:7]))
+	chunk2 := []byte(string(secret[7:14]))
+	chunk3 := []byte(string(secret[14:21]))
+	chunk4 := []byte(string(secret[21:]) + " suffix\n")
+
+	s.Write(chunk1)
+	s.Write(chunk2)
+	s.Write(chunk3)
+	s.Write(chunk4)
+	s.Flush()
+
+	got := buf.String()
+	if bytes.Contains([]byte(got), secret) {
+		t.Fatalf("SECURITY: secret leaked across 4-way split: %q", got)
+	}
+	if !bytes.Contains([]byte(got), placeholder) {
+		t.Fatalf("placeholder missing: %q", got)
+	}
+}
+
+// TestNestedFramesDontLeak - inner frame must scrub with outer secrets
+func TestNestedFramesDontLeak(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+	defer s.Close()
+
+	outerSecret := []byte("OUTER_SECRET")
+	innerSecret := []byte("INNER_SECRET")
+
+	// Start outer frame
+	s.StartFrame("outer")
+	s.Write([]byte("outer prints pre-secret\n"))
+
+	// End outer frame, registering outer secret
+	s.EndFrame([][]byte{outerSecret})
+
+	// Start inner frame AFTER outer ended
+	s.StartFrame("inner")
+	// Inner frame prints BOTH secrets
+	s.Write([]byte("inner prints outer: " + string(outerSecret) + "\n"))
+	s.Write([]byte("inner prints inner: " + string(innerSecret) + "\n"))
+	s.EndFrame([][]byte{innerSecret})
+
+	got := buf.String()
+	// Both secrets should be scrubbed
+	if bytes.Contains([]byte(got), outerSecret) {
+		t.Fatalf("SECURITY: outer secret leaked in inner frame: %q", got)
+	}
+	if bytes.Contains([]byte(got), innerSecret) {
+		t.Fatalf("SECURITY: inner secret leaked: %q", got)
+	}
+	// Should have placeholders
+	if !bytes.Contains([]byte(got), []byte("<REDACTED>")) {
+		t.Fatalf("placeholders missing in output: %q", got)
+	}
+}
+
+// TestTrulyNestedFrames - inner frame starts BEFORE outer ends
+func TestTrulyNestedFrames(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+	defer s.Close()
+
+	outerSecret := []byte("OUTER")
+	innerSecret := []byte("INNER")
+
+	// Start outer frame
+	s.StartFrame("outer")
+	s.Write([]byte("outer-start\n"))
+
+	// Start inner frame WHILE outer is still active
+	s.StartFrame("inner")
+	s.Write([]byte("inner has: " + string(innerSecret) + "\n"))
+	s.EndFrame([][]byte{innerSecret}) // End inner first
+
+	// Continue outer frame
+	s.Write([]byte("outer has: " + string(outerSecret) + "\n"))
+	s.EndFrame([][]byte{outerSecret}) // End outer second
+
+	got := buf.String()
+	if bytes.Contains([]byte(got), outerSecret) || bytes.Contains([]byte(got), innerSecret) {
+		t.Fatalf("SECURITY: nested frame leaked secrets: %q", got)
+	}
+}
+
+// TestPanicMidFrameZeroizes - panic during frame must not leak secrets
+func TestPanicMidFrameZeroizes(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+
+	secret := []byte("LEAKYSECRET")
+
+	// Ensure Close is called even on panic
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic")
+		}
+		// Close should zeroize buffers
+		s.Close()
+
+		// Check that secret didn't leak
+		got := buf.String()
+		if bytes.Contains([]byte(got), secret) {
+			t.Fatalf("SECURITY: secret leaked on panic: %q", got)
+		}
+
+		// Verify zeroization (internal check)
+		if len(s.carry) != 0 {
+			t.Errorf("carry not cleared after panic+close")
+		}
+		if len(s.frames) != 0 {
+			t.Errorf("frames not cleared after panic+close")
+		}
+	}()
+
+	s.StartFrame("panic-test")
+	s.Write([]byte("about to leak: " + string(secret)))
+	panic("boom") // Simulate crash mid-frame
+}
+
+// TestOverlappingSecrets - longer secret should win (longest-first matching)
+func TestOverlappingSecrets(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+	defer s.Close()
+
+	// Register shorter secret first
+	short := []byte("SECRET")
+	shortPH := []byte("<SHORT>")
+	s.RegisterSecret(short, shortPH)
+
+	// Register longer secret that contains the short one
+	long := []byte("SECRET_EXTENDED")
+	longPH := []byte("<LONG>")
+	s.RegisterSecret(long, longPH)
+
+	// Write the long secret
+	s.Write([]byte("value: " + string(long) + "\n"))
+	s.Flush()
+
+	got := buf.String()
+	// Should use LONG placeholder (longest-first)
+	if !bytes.Contains([]byte(got), longPH) {
+		t.Fatalf("longest-first failed: want %q in %q", longPH, got)
+	}
+	// Should NOT have the short placeholder
+	if bytes.Contains([]byte(got), shortPH) {
+		t.Fatalf("longest-first failed: got short placeholder %q in %q", shortPH, got)
+	}
+	// Should NOT leak the secret
+	if bytes.Contains([]byte(got), long) {
+		t.Fatalf("SECURITY: overlapping secret leaked: %q", got)
+	}
+}
+
+// TestZeroizationInternals - verify buffers are actually zeroed
+func TestZeroizationInternals(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+
+	secret := []byte("SENSITIVE")
+	placeholder := []byte("<REDACTED>")
+	s.RegisterSecret(secret, placeholder)
+
+	// Write partial data to create carry buffer
+	s.Write([]byte("prefix"))
+
+	// Start a frame to create frame buffer
+	s.StartFrame("test")
+	s.Write([]byte("frame data with " + string(secret)))
+
+	// Close should zeroize everything
+	s.Close()
+
+	// Check carry is zeroed
+	for i, b := range s.carry {
+		if b != 0 {
+			t.Fatalf("SECURITY: carry[%d] not zeroized: %x", i, b)
+		}
+	}
+
+	// Check frames are cleared
+	if len(s.frames) != 0 {
+		t.Fatalf("SECURITY: frames not cleared after Close")
+	}
+}
+
+// TestPropertyNoSecretLeak - property test: scrubbed output never contains secrets
+func TestPropertyNoSecretLeak(t *testing.T) {
+	secret := []byte("PROPERTY_SECRET_123")
+	placeholder := []byte("<REDACTED>")
+
+	// Test with various input patterns
+	testCases := []struct {
+		name  string
+		input []byte
+	}{
+		{"empty", []byte("")},
+		{"no-secret", []byte("just normal text")},
+		{"secret-only", secret},
+		{"secret-prefix", append([]byte("prefix "), secret...)},
+		{"secret-suffix", append(secret, []byte(" suffix")...)},
+		{"secret-middle", append(append([]byte("before "), secret...), []byte(" after")...)},
+		{"secret-repeated", bytes.Repeat(secret, 3)},
+		{"secret-with-newlines", append(append([]byte("line1\n"), secret...), []byte("\nline3")...)},
+		{"secret-with-nulls", append(append([]byte{0, 0}, secret...), []byte{0, 0}...)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			s := New(&buf)
+			defer s.Close()
+
+			s.RegisterSecret(secret, placeholder)
+
+			// Write and flush
+			s.Write(tc.input)
+			s.Flush()
+
+			got := buf.Bytes()
+
+			// PROPERTY: Output must never contain the secret
+			if bytes.Contains(got, secret) {
+				t.Fatalf("SECURITY VIOLATION: secret leaked in %q case: %q", tc.name, got)
+			}
+
+			// If input contained secret, output must contain placeholder
+			if bytes.Contains(tc.input, secret) && !bytes.Contains(got, placeholder) {
+				t.Fatalf("placeholder missing in %q case: %q", tc.name, got)
+			}
+		})
+	}
+}
+
+// TestPlaceholderDeterminism - same secret should produce same placeholder
+func TestPlaceholderDeterminism(t *testing.T) {
+	secret := []byte("MY_SECRET")
+
+	// Create a deterministic placeholder function (simulates keyed hash)
+	callCount := 0
+	deterministicPlaceholder := func(s []byte) string {
+		callCount++
+		// Simulate keyed BLAKE2b: same input -> same output
+		if bytes.Equal(s, secret) {
+			return "<PLACEHOLDER_ABC123>"
+		}
+		return "<PLACEHOLDER_OTHER>"
+	}
+
+	var buf1, buf2 bytes.Buffer
+	s1 := New(&buf1, WithPlaceholderFunc(deterministicPlaceholder))
+	s2 := New(&buf2, WithPlaceholderFunc(deterministicPlaceholder))
+
+	// Register same secret in both scrubbers
+	s1.RegisterSecretWithVariants(secret)
+	s2.RegisterSecretWithVariants(secret)
+
+	// Write same content to both
+	input := []byte("The secret is: " + string(secret) + "\n")
+	s1.Write(input)
+	s1.Flush()
+	s2.Write(input)
+	s2.Flush()
+
+	// Both should produce identical output
+	if buf1.String() != buf2.String() {
+		t.Fatalf("non-deterministic placeholders:\n  s1: %q\n  s2: %q", buf1.String(), buf2.String())
+	}
+
+	// Output should contain the deterministic placeholder
+	want := "The secret is: <PLACEHOLDER_ABC123>\n"
+	if buf1.String() != want {
+		t.Errorf("got %q, want %q", buf1.String(), want)
+	}
+}
+
+// TestPlaceholderFunctionCalled - verify custom placeholder function is used
+func TestPlaceholderFunctionCalled(t *testing.T) {
+	var called bool
+	customPlaceholder := func(secret []byte) string {
+		called = true
+		return "<CUSTOM>"
+	}
+
+	var buf bytes.Buffer
+	s := New(&buf, WithPlaceholderFunc(customPlaceholder))
+
+	secret := []byte("test")
+	s.RegisterSecretWithVariants(secret)
+
+	if !called {
+		t.Fatal("custom placeholder function was not called")
+	}
+
+	// Verify custom placeholder is used
+	s.Write([]byte("value: test"))
+	s.Flush()
+
+	if !bytes.Contains(buf.Bytes(), []byte("<CUSTOM>")) {
+		t.Errorf("custom placeholder not found in output: %q", buf.String())
+	}
+}
+
+// ============================================================================
+// END RED TEAM SECURITY TESTS - Phase 1
+// ============================================================================
+
 // TestExpandedEncodingVariants - all encoding variants are scrubbed
 func TestExpandedEncodingVariants(t *testing.T) {
 	var buf bytes.Buffer
@@ -374,7 +735,7 @@ func TestExpandedEncodingVariants(t *testing.T) {
 				if bytes.Contains([]byte(got), secret) {
 					t.Errorf("%s: secret leaked in output: %q", tt.name, got)
 				}
-				if !bytes.Contains([]byte(got), []byte("opal:s:")) {
+				if !bytes.Contains([]byte(got), []byte("<REDACTED>")) {
 					t.Errorf("%s: placeholder not found in output: %q", tt.name, got)
 				}
 			}

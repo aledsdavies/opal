@@ -13,14 +13,19 @@ import (
 	"github.com/aledsdavies/opal/core/invariant"
 )
 
+// PlaceholderFunc generates a placeholder for a secret.
+// The function should return a deterministic placeholder for the same secret+key.
+type PlaceholderFunc func(secret []byte) string
+
 // Scrubber redacts secrets from output streams.
 type Scrubber struct {
-	mu      sync.Mutex // Protects all fields below
-	out     io.Writer
-	secrets []secretEntry
-	frames  []frame
-	carry   []byte // Rolling window for chunk-boundary secrets
-	maxLen  int    // Longest registered secret
+	mu              sync.Mutex // Protects all fields below
+	out             io.Writer
+	secrets         []secretEntry
+	frames          []frame
+	carry           []byte // Rolling window for chunk-boundary secrets
+	maxLen          int    // Longest registered secret
+	placeholderFunc PlaceholderFunc
 }
 
 // secretEntry holds a secret pattern and its placeholder.
@@ -35,19 +40,47 @@ type frame struct {
 	buf   bytes.Buffer
 }
 
+// Option configures a Scrubber.
+type Option func(*Scrubber)
+
+// WithPlaceholderFunc sets a custom placeholder generation function.
+// If not provided, uses a default simple placeholder.
+func WithPlaceholderFunc(fn PlaceholderFunc) Option {
+	return func(s *Scrubber) {
+		s.placeholderFunc = fn
+	}
+}
+
 // New creates a new Scrubber that writes to w.
-func New(w io.Writer) *Scrubber {
+func New(w io.Writer, opts ...Option) *Scrubber {
 	// INPUT CONTRACT
 	invariant.NotNil(w, "writer")
 
-	s := &Scrubber{out: w}
+	s := &Scrubber{
+		out:             w,
+		placeholderFunc: defaultPlaceholder,
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(s)
+	}
 
 	// OUTPUT CONTRACT
 	invariant.Postcondition(s.out != nil, "scrubber must have output writer")
 	invariant.Postcondition(len(s.frames) == 0, "scrubber must start with no active frames")
 	invariant.Postcondition(len(s.secrets) == 0, "scrubber must start with no registered secrets")
+	invariant.Postcondition(s.placeholderFunc != nil, "scrubber must have placeholder function")
 
 	return s
+}
+
+// defaultPlaceholder is the default placeholder generator.
+// TODO: Replace with keyed BLAKE2b using plan key from PSE/KMS.
+func defaultPlaceholder(secret []byte) string {
+	// Simple placeholder for now - will be replaced with keyed hash
+	// Using a generic redacted marker that doesn't leak information
+	return "<REDACTED>"
 }
 
 // RegisterSecret registers a secret to be redacted.
@@ -58,6 +91,16 @@ func (s *Scrubber) RegisterSecret(secret, placeholder []byte) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.registerSecretNoLock(secret, placeholder)
+}
+
+// registerSecretNoLock registers a secret without acquiring the mutex.
+// Caller MUST hold s.mu.
+func (s *Scrubber) registerSecretNoLock(secret, placeholder []byte) {
+	// INPUT CONTRACT
+	invariant.Precondition(len(secret) > 0, "secret cannot be empty")
+	invariant.Precondition(len(placeholder) > 0, "placeholder cannot be empty")
 
 	oldMaxLen := s.maxLen
 	oldSecretCount := len(s.secrets)
@@ -82,6 +125,9 @@ func (s *Scrubber) RegisterSecret(secret, placeholder []byte) {
 func (s *Scrubber) StartFrame(label string) {
 	// INPUT CONTRACT
 	invariant.Precondition(label != "", "frame label cannot be empty")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	oldFrameCount := len(s.frames)
 
@@ -110,7 +156,7 @@ func (s *Scrubber) EndFrame(secrets [][]byte) error {
 	currentFrame := s.frames[len(s.frames)-1]
 	s.frames = s.frames[:len(s.frames)-1]
 
-	// Register secrets with generated placeholders (unlock during registration)
+	// Register secrets with generated placeholders
 	// LOOP INVARIANT: Track progress through secrets slice
 	prevIdx := -1
 	for idx, secret := range secrets {
@@ -119,11 +165,8 @@ func (s *Scrubber) EndFrame(secrets [][]byte) error {
 		prevIdx = idx
 
 		if len(secret) > 0 {
-			placeholder := generatePlaceholder(secret)
-			// Unlock before calling RegisterSecret (which locks)
-			s.mu.Unlock()
-			s.RegisterSecret(secret, []byte(placeholder))
-			s.mu.Lock()
+			placeholder := s.placeholderFunc(secret)
+			s.registerSecretNoLock(secret, []byte(placeholder))
 		}
 	}
 
@@ -151,7 +194,7 @@ func (s *Scrubber) RegisterSecretWithVariants(secret []byte) {
 	// INPUT CONTRACT
 	invariant.Precondition(len(secret) > 0, "secret cannot be empty")
 
-	placeholder := []byte(generatePlaceholder(secret))
+	placeholder := []byte(s.placeholderFunc(secret))
 
 	// Register raw secret
 	s.RegisterSecret(secret, placeholder)
@@ -192,19 +235,16 @@ func (s *Scrubber) registerVariants(secret, placeholder []byte) {
 
 // SecretCount returns the number of registered secret patterns (for testing/debugging).
 func (s *Scrubber) SecretCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return len(s.secrets)
 }
 
 // MaxPatternLen returns the longest registered secret pattern (for testing/debugging).
 func (s *Scrubber) MaxPatternLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.maxLen
-}
-
-// generatePlaceholder creates a placeholder for a secret.
-// For now, just use a simple format. We'll add keyed hashing later.
-func generatePlaceholder(secret []byte) string {
-	// Simple hash for now - we'll improve this
-	return "opal:s:xxxxxxxx"
 }
 
 // scrubAll replaces all secrets in buf using longest-first matching.
@@ -385,17 +425,8 @@ func (s *Scrubber) Write(p []byte) (int, error) {
 	// Streaming mode: merge with carry from previous write
 	buf := append(append([]byte{}, s.carry...), p...)
 
-	// Scrub all secrets
-	// LOOP INVARIANT: Track progress through secrets
-	result := buf
-	prevIdx := -1
-	for idx, entry := range s.secrets {
-		// Assert loop makes progress
-		invariant.Postcondition(idx > prevIdx, "loop must make progress")
-		prevIdx = idx
-
-		result = bytes.ReplaceAll(result, entry.pattern, entry.placeholder)
-	}
+	// Scrub all secrets (longest-first)
+	result := s.scrubAll(buf)
 
 	// Keep last maxLen-1 bytes as carry for next write
 	// (in case secret is split across chunk boundary)
