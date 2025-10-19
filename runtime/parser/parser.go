@@ -1755,6 +1755,34 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 				paramName, expectedType, actualType, actualType == expectedType))
 	}
 
+	// Special case: Enum parameters accept STRING tokens
+	// The enum type (e.g., TypeScrubMode) is just a string with restricted values
+	if len(paramSchema.Enum) > 0 && valueToken.Type == lexer.STRING {
+		// Validate the string value is in the allowed enum values
+		value := string(valueToken.Text)
+		// Remove quotes from string literal
+		if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+			value = value[1 : len(value)-1]
+		}
+
+		validValue := false
+		for _, allowed := range paramSchema.Enum {
+			if value == allowed {
+				validValue = true
+				break
+			}
+		}
+
+		if !validValue {
+			p.errorWithDetails(
+				fmt.Sprintf("parameter '%s' has invalid value %q", paramName, value),
+				"decorator parameter",
+				fmt.Sprintf("Allowed values: %v", paramSchema.Enum),
+			)
+		}
+		return // Enum validation complete
+	}
+
 	if actualType != expectedType {
 		p.errorWithDetails(
 			fmt.Sprintf("parameter '%s' expects %s, got %s", paramName, expectedType, actualType),
