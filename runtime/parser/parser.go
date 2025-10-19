@@ -167,12 +167,13 @@ func ParseTokens(source []byte, tokens []lexer.Token, opts ...ParserOpt) *ParseT
 
 // parser is the internal parser state
 type parser struct {
-	tokens      []lexer.Token
-	pos         int
-	events      []Event
-	errors      []ParseError
-	config      *ParserConfig
-	debugEvents []DebugEvent
+	tokens            []lexer.Token
+	pos               int
+	events            []Event
+	errors            []ParseError
+	config            *ParserConfig
+	debugEvents       []DebugEvent
+	lastDecoratorName string // Track last decorator for pipe validation
 }
 
 // recordDebugEvent records debug events when debug tracing is enabled
@@ -1226,6 +1227,9 @@ func (p *parser) shellCommand() {
 		p.recordDebugEvent("enter_shell_command", "parsing shell command")
 	}
 
+	// Clear decorator tracking - plain shell commands are @shell syntax sugar
+	p.lastDecoratorName = ""
+
 	kind := p.start(NodeShellCommand)
 
 	// Parse shell arguments until we hit an operator or boundary
@@ -1518,6 +1522,9 @@ func (p *parser) decorator() {
 	// Reset position to @ and start the node
 	p.pos = atPos
 	kind := p.start(NodeDecorator)
+
+	// Track decorator name for pipe validation
+	p.lastDecoratorName = decoratorName
 
 	// Consume @ token (emit it)
 	p.token()
@@ -2156,8 +2163,69 @@ func (p *parser) recover() {
 
 // validatePipeOperator validates that decorators used with pipe operator support I/O
 // This is called before consuming the | operator to check both sides of the pipe
+//
+// Key insight: Plain shell commands (like `echo "test"`) are syntax sugar for @shell("echo test").
+// Since @shell declares WithIO(AcceptsStdin, ProducesStdout), plain shell always supports I/O.
+// We only need to validate explicit decorators (those starting with @).
 func (p *parser) validatePipeOperator(leftCommandKind NodeKind) {
-	// TODO: Implement pipe operator validation
-	// For now, we only validate decorators, not shell commands
-	// Shell commands always support stdin/stdout
+	// Validate left side (what we just parsed)
+	if p.lastDecoratorName != "" {
+		// lastDecoratorName is set when we parse an explicit decorator (e.g., @retry)
+		// If empty, it's plain shell syntax sugar for @shell, which always supports stdout
+		schema, exists := types.Global().GetSchema(p.lastDecoratorName)
+		if exists {
+			if schema.IO == nil {
+				// Decorator doesn't declare I/O capabilities - cannot pipe from it
+				p.errorWithDetails(
+					fmt.Sprintf("@%s does not support stdout", p.lastDecoratorName),
+					"pipe operator",
+					"Cannot pipe from a decorator that doesn't produce output",
+				)
+				return
+			}
+			if !schema.IO.SupportsStdout {
+				// Decorator explicitly doesn't support stdout
+				p.errorWithDetails(
+					fmt.Sprintf("@%s does not support stdout", p.lastDecoratorName),
+					"pipe operator",
+					"This decorator cannot be used as a pipe source",
+				)
+				return
+			}
+		}
+	}
+
+	// Validate right side (peek ahead after |)
+	nextPos := p.pos + 1 // Position after |
+	if nextPos < len(p.tokens) && p.tokens[nextPos].Type == lexer.AT {
+		// Right side starts with @ - it's an explicit decorator
+		// If it doesn't start with @, it's plain shell (@shell syntax sugar), which always supports stdin
+		// Get decorator name (should be next token after @)
+		namePos := nextPos + 1
+		if namePos < len(p.tokens) && (p.tokens[namePos].Type == lexer.IDENTIFIER || p.tokens[namePos].Type == lexer.VAR) {
+			decoratorName := string(p.tokens[namePos].Text)
+			schema, exists := types.Global().GetSchema(decoratorName)
+			if exists {
+				if schema.IO == nil {
+					// Decorator doesn't declare I/O capabilities - cannot pipe to it
+					p.errorWithDetails(
+						fmt.Sprintf("@%s does not support stdin", decoratorName),
+						"pipe operator",
+						"Cannot pipe to a decorator that doesn't accept input",
+					)
+					return
+				}
+				if !schema.IO.SupportsStdin {
+					// Decorator explicitly doesn't support stdin
+					p.errorWithDetails(
+						fmt.Sprintf("@%s does not support stdin", decoratorName),
+						"pipe operator",
+						"This decorator cannot be used as a pipe destination",
+					)
+					return
+				}
+			}
+		}
+	}
+	// else: Plain shell command on right side - always supports stdin (it's @shell)
 }

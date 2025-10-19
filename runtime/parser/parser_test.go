@@ -4,8 +4,27 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aledsdavies/opal/core/types"
 	"github.com/google/go-cmp/cmp"
 )
+
+func init() {
+	// Register test decorators for pipe validation tests
+	// @testvalue - value decorator without I/O support (for testing pipe validation)
+	testValueSchema := types.NewSchema("testvalue", types.KindValue).
+		Description("Test value decorator without I/O").
+		Param("arg", types.TypeString).
+		Description("Test argument").
+		Required().
+		Done().
+		Returns(types.TypeString, "Test value").
+		Build()
+
+	// Register without I/O capabilities - this decorator doesn't support piping
+	if err := types.Global().RegisterValueWithSchema(testValueSchema, nil); err != nil {
+		panic(err)
+	}
+}
 
 // TestParseEventStructure uses table-driven tests to verify parse tree events
 func TestParseEventStructure(t *testing.T) {
@@ -505,7 +524,7 @@ func TestEnumParameterValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tree := Parse([]byte(tt.input))
-			
+
 			if tt.expectError {
 				if len(tree.Errors) == 0 {
 					t.Errorf("expected parse error but got none")
