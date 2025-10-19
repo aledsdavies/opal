@@ -1251,8 +1251,13 @@ func (p *parser) shellCommand() {
 		p.recordDebugEvent("exit_shell_command", "shell command complete")
 	}
 
-	// If we stopped at a shell operator, consume it and parse next command
+	// If we stopped at a shell operator, validate and consume it
 	if p.isShellOperator() {
+		// Validate pipe operator I/O compatibility before consuming
+		if p.at(lexer.PIPE) {
+			p.validatePipeOperator(kind)
+		}
+
 		p.token() // Consume operator (&&, ||, |)
 
 		// Parse next command after operator
@@ -2119,4 +2124,12 @@ func (p *parser) recover() {
 	for !p.isSyncToken() && !p.at(lexer.EOF) {
 		p.advance()
 	}
+}
+
+// validatePipeOperator validates that decorators used with pipe operator support I/O
+// This is called before consuming the | operator to check both sides of the pipe
+func (p *parser) validatePipeOperator(leftCommandKind NodeKind) {
+	// TODO: Implement pipe operator validation
+	// For now, we only validate decorators, not shell commands
+	// Shell commands always support stdin/stdout
 }

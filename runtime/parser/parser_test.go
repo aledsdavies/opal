@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -402,4 +403,129 @@ func TestDebugTracing(t *testing.T) {
 			t.Error("Expected exit_source debug event")
 		}
 	})
+}
+
+// TestPipeOperatorValidation tests that pipe operator validates I/O capabilities
+func TestPipeOperatorValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "pipe to decorator without stdin support",
+			input:       `echo "test" | @retry(3) { echo "hi" }`,
+			expectError: true,
+			errorMsg:    "does not support stdin",
+		},
+		{
+			name:        "pipe from decorator without stdout support",
+			input:       `@file.read("test.txt") | grep "pattern"`,
+			expectError: true,
+			errorMsg:    "does not support stdout",
+		},
+		{
+			name:        "valid pipe between shell commands",
+			input:       `echo "test" | grep "test"`,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := Parse([]byte(tt.input))
+
+			if tt.expectError {
+				if len(tree.Errors) == 0 {
+					t.Errorf("expected parse error but got none")
+				} else {
+					found := false
+					for _, err := range tree.Errors {
+						if strings.Contains(err.Message, tt.errorMsg) {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("expected error containing %q, got: %v", tt.errorMsg, tree.Errors)
+					}
+				}
+			} else {
+				if len(tree.Errors) > 0 {
+					t.Errorf("unexpected parse errors: %v", tree.Errors)
+				}
+			}
+		})
+	}
+}
+
+// TestEnumParameterValidation tests that enum parameters are validated
+func TestEnumParameterValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid enum value: none",
+			input:       `@shell("echo test", scrub="none")`,
+			expectError: false,
+		},
+		{
+			name:        "valid enum value: stdin",
+			input:       `@shell("echo test", scrub="stdin")`,
+			expectError: false,
+		},
+		{
+			name:        "valid enum value: stdout",
+			input:       `@shell("echo test", scrub="stdout")`,
+			expectError: false,
+		},
+		{
+			name:        "valid enum value: both",
+			input:       `@shell("echo test", scrub="both")`,
+			expectError: false,
+		},
+		{
+			name:        "invalid enum value",
+			input:       `@shell("echo test", scrub="invalid")`,
+			expectError: true,
+			errorMsg:    "invalid value",
+		},
+		{
+			name:        "wrong type for enum",
+			input:       `@shell("echo test", scrub=true)`,
+			expectError: true,
+			errorMsg:    "expects",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := Parse([]byte(tt.input))
+			
+			if tt.expectError {
+				if len(tree.Errors) == 0 {
+					t.Errorf("expected parse error but got none")
+				} else {
+					found := false
+					for _, err := range tree.Errors {
+						if strings.Contains(err.Message, tt.errorMsg) {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("expected error containing %q, got: %v", tt.errorMsg, tree.Errors)
+					}
+				}
+			} else {
+				if len(tree.Errors) > 0 {
+					t.Errorf("unexpected parse errors: %v", tree.Errors)
+				}
+			}
+		})
+	}
 }
