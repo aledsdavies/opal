@@ -476,7 +476,8 @@ func displayPipelineTiming(timing struct {
 	ParseTime   time.Duration
 	PlanTime    time.Duration
 	ExecuteTime time.Duration
-}, result *executor.ExecutionResult) {
+}, result *executor.ExecutionResult,
+) {
 	totalTime := timing.ParseTime + timing.PlanTime + timing.ExecuteTime
 
 	fmt.Fprintf(os.Stderr, "\nPipeline Timing:\n")
