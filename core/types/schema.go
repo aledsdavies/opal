@@ -17,6 +17,19 @@ const (
 	// Custom types for handles and references
 	TypeAuthHandle   ParamType = "AuthHandle"
 	TypeSecretHandle ParamType = "SecretHandle"
+
+	// Enum type for scrub parameter
+	TypeScrubMode ParamType = "ScrubMode"
+)
+
+// ScrubMode represents scrubbing behavior for I/O decorators
+type ScrubMode string
+
+const (
+	ScrubNone   ScrubMode = "none"   // No scrubbing (raw data, bash-compatible)
+	ScrubStdin  ScrubMode = "stdin"  // Scrub only stdin
+	ScrubStdout ScrubMode = "stdout" // Scrub only stdout
+	ScrubBoth   ScrubMode = "both"   // Scrub both stdin and stdout
 )
 
 // DecoratorKindString represents decorator kind as string
@@ -51,10 +64,27 @@ const (
 	ProducesStdout
 
 	// ScrubByDefault enables secret scrubbing by default (recommended).
-	// Secrets are scrubbed unless user explicitly sets scrub=false.
-	// Omit this flag for binary/non-text decorators that need raw data.
+	// Sets default scrub mode based on I/O capabilities:
+	//   - Both stdin+stdout: default="both"
+	//   - Stdin only: default="stdin"
+	//   - Stdout only: default="stdout"
+	// Omit this flag for binary/non-text decorators (default="none").
 	ScrubByDefault
 )
+
+// IOOpts provides fine-grained control over I/O capabilities and scrubbing defaults.
+// Use this when you need to set a specific default scrub mode.
+type IOOpts struct {
+	// AcceptsStdin indicates this decorator can read from stdin
+	AcceptsStdin bool
+
+	// ProducesStdout indicates this decorator can write to stdout
+	ProducesStdout bool
+
+	// DefaultScrubMode sets the default scrubbing behavior
+	// If empty, defaults to ScrubNone (bash-compatible)
+	DefaultScrubMode ScrubMode
+}
 
 // IOCapability describes a decorator's I/O capabilities for pipe operator support.
 //
@@ -203,27 +233,38 @@ func (b *SchemaBuilder) RequiresBlock() *SchemaBuilder {
 // Only call this for decorators that interact with stdin/stdout.
 // Decorators that wrap execution (@retry, @timeout) should NOT call this.
 //
+// Automatically adds a "scrub" parameter (TypeScrubMode) with default based on flags or opts.
+//
 // Use IOFlag constants (can be combined in any order):
 //   - AcceptsStdin: Can read from stdin (allows: cmd | @decorator)
 //   - ProducesStdout: Can write to stdout (allows: @decorator | cmd)
 //   - ScrubByDefault: Scrub secrets by default (recommended for text data)
 //
+// The scrub parameter accepts: "none", "stdin", "stdout", "both"
+//   - Default is "none" (bash-compatible) unless ScrubByDefault is set
+//   - ScrubByDefault sets default based on I/O capabilities
+//
 // Examples:
 //
-//	// @shell: reads stdin, writes stdout, scrubs by default
-//	WithIO(AcceptsStdin, ProducesStdout, ScrubByDefault)
+//	// @shell: reads stdin, writes stdout, no scrubbing by default (bash-compatible)
+//	WithIO(AcceptsStdin, ProducesStdout)
+//	// Automatically adds: scrub parameter with default="none"
+//	// Usage: @shell("grep pass", scrub="both") to enable scrubbing
 //
 //	// @file.write: reads stdin only, scrubs by default
 //	WithIO(AcceptsStdin, ScrubByDefault)
+//	// Automatically adds: scrub parameter with default="stdin"
 //
 //	// @http.get: writes stdout only, scrubs by default
 //	WithIO(ProducesStdout, ScrubByDefault)
+//	// Automatically adds: scrub parameter with default="stdout"
 //
-//	// @image.process: binary data, no scrubbing by default
-//	WithIO(AcceptsStdin, ProducesStdout)
+//	// @shell with scrubbing: reads stdin, writes stdout, scrubs by default
+//	WithIO(AcceptsStdin, ProducesStdout, ScrubByDefault)
+//	// Automatically adds: scrub parameter with default="both"
 //
 //	// Order doesn't matter
-//	WithIO(ScrubByDefault, AcceptsStdin, ProducesStdout)  // Same as first example
+//	WithIO(ScrubByDefault, AcceptsStdin, ProducesStdout)  // Same as above
 func (b *SchemaBuilder) WithIO(flags ...IOFlag) *SchemaBuilder {
 	capability := &IOCapability{}
 
@@ -240,6 +281,87 @@ func (b *SchemaBuilder) WithIO(flags ...IOFlag) *SchemaBuilder {
 	}
 
 	b.schema.IO = capability
+
+	// Determine default scrub mode based on capabilities and ScrubByDefault flag
+	var defaultScrubMode ScrubMode
+	if capability.DefaultScrub {
+		// ScrubByDefault flag set - scrub based on what we support
+		if capability.SupportsStdin && capability.SupportsStdout {
+			defaultScrubMode = ScrubBoth
+		} else if capability.SupportsStdin {
+			defaultScrubMode = ScrubStdin
+		} else if capability.SupportsStdout {
+			defaultScrubMode = ScrubStdout
+		} else {
+			defaultScrubMode = ScrubNone
+		}
+	} else {
+		// No ScrubByDefault - raw data (bash-compatible)
+		defaultScrubMode = ScrubNone
+	}
+
+	// Automatically add "scrub" parameter with enum type
+	b.schema.Parameters["scrub"] = ParamSchema{
+		Name:        "scrub",
+		Type:        TypeScrubMode,
+		Description: "Scrub secrets from stdin/stdout",
+		Required:    false,
+		Default:     string(defaultScrubMode),
+		Enum:        []string{string(ScrubNone), string(ScrubStdin), string(ScrubStdout), string(ScrubBoth)},
+	}
+	// Add to parameter order
+	b.parameterOrder = append(b.parameterOrder, "scrub")
+
+	return b
+}
+
+// WithIOOpts declares I/O capabilities with fine-grained control over defaults.
+//
+// Use this when you need to set a specific default scrub mode that doesn't match
+// the automatic behavior of WithIO().
+//
+// Examples:
+//
+//	// @log.write: writes stdout, but scrub stdin by default (unusual case)
+//	WithIOOpts(IOOpts{
+//	    AcceptsStdin:     true,
+//	    ProducesStdout:   true,
+//	    DefaultScrubMode: ScrubStdin,  // Only scrub stdin, not stdout
+//	})
+//
+//	// @binary.encode: I/O but never scrub by default
+//	WithIOOpts(IOOpts{
+//	    AcceptsStdin:     true,
+//	    ProducesStdout:   true,
+//	    DefaultScrubMode: ScrubNone,  // Explicit: never scrub
+//	})
+func (b *SchemaBuilder) WithIOOpts(opts IOOpts) *SchemaBuilder {
+	capability := &IOCapability{
+		SupportsStdin:  opts.AcceptsStdin,
+		SupportsStdout: opts.ProducesStdout,
+		DefaultScrub:   opts.DefaultScrubMode != ScrubNone,
+	}
+
+	b.schema.IO = capability
+
+	// Use explicit default scrub mode from opts
+	defaultScrubMode := opts.DefaultScrubMode
+	if defaultScrubMode == "" {
+		defaultScrubMode = ScrubNone
+	}
+
+	// Automatically add "scrub" parameter with enum type
+	b.schema.Parameters["scrub"] = ParamSchema{
+		Name:        "scrub",
+		Type:        TypeScrubMode,
+		Description: "Scrub secrets from stdin/stdout",
+		Required:    false,
+		Default:     string(defaultScrubMode),
+		Enum:        []string{string(ScrubNone), string(ScrubStdin), string(ScrubStdout), string(ScrubBoth)},
+	}
+	// Add to parameter order
+	b.parameterOrder = append(b.parameterOrder, "scrub")
+
 	return b
 }
 
@@ -343,7 +465,7 @@ func ValidateSchema(schema DecoratorSchema) error {
 func isValidParamType(typ ParamType) bool {
 	switch typ {
 	case TypeString, TypeInt, TypeFloat, TypeBool, TypeDuration,
-		TypeObject, TypeArray, TypeAuthHandle, TypeSecretHandle:
+		TypeObject, TypeArray, TypeAuthHandle, TypeSecretHandle, TypeScrubMode:
 		return true
 	default:
 		return false
