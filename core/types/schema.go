@@ -36,6 +36,50 @@ const (
 	BlockRequired  BlockRequirement = "required"  // Must have block (@parallel, @timeout)
 )
 
+// IOFlag represents I/O capabilities for decorators (used with WithIO)
+type IOFlag int
+
+const (
+	// AcceptsStdin indicates this decorator can read from stdin (piped input).
+	// Parser will allow: cmd | @decorator
+	// Decorator receives ctx.Stdin() when used after pipe operator.
+	AcceptsStdin IOFlag = 1 << iota
+
+	// ProducesStdout indicates this decorator can write to stdout (piped output).
+	// Parser will allow: @decorator | cmd
+	// Decorator receives ctx.StdoutPipe() when used before pipe operator.
+	ProducesStdout
+
+	// ScrubByDefault enables secret scrubbing by default (recommended).
+	// Secrets are scrubbed unless user explicitly sets scrub=false.
+	// Omit this flag for binary/non-text decorators that need raw data.
+	ScrubByDefault
+)
+
+// IOCapability describes a decorator's I/O capabilities for pipe operator support.
+//
+// Decorators that don't interact with stdin/stdout should leave this nil.
+// Only decorators that read from stdin or write to stdout need to declare I/O capabilities.
+//
+// Use WithIO() with IOFlag constants to declare capabilities.
+type IOCapability struct {
+	// SupportsStdin indicates this decorator can read from stdin (piped input).
+	// If true, the decorator will receive ctx.Stdin() when used after pipe operator.
+	// Parser will allow: cmd | @decorator
+	SupportsStdin bool
+
+	// SupportsStdout indicates this decorator can write to stdout (piped output).
+	// If true, the decorator will receive ctx.StdoutPipe() when used before pipe operator.
+	// Parser will allow: @decorator | cmd
+	SupportsStdout bool
+
+	// DefaultScrub is the default scrubbing behavior for this decorator.
+	// - true: Scrub secrets by default (safe, recommended for most decorators)
+	// - false: Pass raw data by default (use for binary/non-text decorators)
+	// Users can override with scrub=true/false parameter.
+	DefaultScrub bool
+}
+
 // DecoratorSchema describes a decorator's interface
 type DecoratorSchema struct {
 	Path             string                 // "env", "aws.secret"
@@ -46,6 +90,7 @@ type DecoratorSchema struct {
 	ParameterOrder   []string               // Order of parameter declaration (for positional mapping)
 	Returns          *ReturnSchema          // What the decorator returns (value decorators only)
 	BlockRequirement BlockRequirement       // Whether decorator accepts/requires a block
+	IO               *IOCapability          // I/O capabilities for pipe operator (nil = no I/O)
 }
 
 // ParamSchema describes a single parameter
@@ -150,6 +195,51 @@ func (b *SchemaBuilder) AcceptsBlock() *SchemaBuilder {
 // RequiresBlock marks that this decorator requires a block
 func (b *SchemaBuilder) RequiresBlock() *SchemaBuilder {
 	b.schema.BlockRequirement = BlockRequired
+	return b
+}
+
+// WithIO declares I/O capabilities for pipe operator support.
+//
+// Only call this for decorators that interact with stdin/stdout.
+// Decorators that wrap execution (@retry, @timeout) should NOT call this.
+//
+// Use IOFlag constants (can be combined in any order):
+//   - AcceptsStdin: Can read from stdin (allows: cmd | @decorator)
+//   - ProducesStdout: Can write to stdout (allows: @decorator | cmd)
+//   - ScrubByDefault: Scrub secrets by default (recommended for text data)
+//
+// Examples:
+//
+//	// @shell: reads stdin, writes stdout, scrubs by default
+//	WithIO(AcceptsStdin, ProducesStdout, ScrubByDefault)
+//
+//	// @file.write: reads stdin only, scrubs by default
+//	WithIO(AcceptsStdin, ScrubByDefault)
+//
+//	// @http.get: writes stdout only, scrubs by default
+//	WithIO(ProducesStdout, ScrubByDefault)
+//
+//	// @image.process: binary data, no scrubbing by default
+//	WithIO(AcceptsStdin, ProducesStdout)
+//
+//	// Order doesn't matter
+//	WithIO(ScrubByDefault, AcceptsStdin, ProducesStdout)  // Same as first example
+func (b *SchemaBuilder) WithIO(flags ...IOFlag) *SchemaBuilder {
+	capability := &IOCapability{}
+
+	// Process flags in any order
+	for _, flag := range flags {
+		switch flag {
+		case AcceptsStdin:
+			capability.SupportsStdin = true
+		case ProducesStdout:
+			capability.SupportsStdout = true
+		case ScrubByDefault:
+			capability.DefaultScrub = true
+		}
+	}
+
+	b.schema.IO = capability
 	return b
 }
 

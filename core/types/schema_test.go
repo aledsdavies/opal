@@ -344,3 +344,91 @@ func TestParameterOrderValidation(t *testing.T) {
 		t.Error("expected error for parameter in order but not in parameters map")
 	}
 }
+
+func TestIOCapabilityWithFlags(t *testing.T) {
+	tests := []struct {
+		name         string
+		flags        []IOFlag
+		expectStdin  bool
+		expectStdout bool
+		expectScrub  bool
+	}{
+		{
+			name:         "shell: full I/O with scrubbing",
+			flags:        []IOFlag{AcceptsStdin, ProducesStdout, ScrubByDefault},
+			expectStdin:  true,
+			expectStdout: true,
+			expectScrub:  true,
+		},
+		{
+			name:         "file.write: stdin only with scrubbing",
+			flags:        []IOFlag{AcceptsStdin, ScrubByDefault},
+			expectStdin:  true,
+			expectStdout: false,
+			expectScrub:  true,
+		},
+		{
+			name:         "http.get: stdout only with scrubbing",
+			flags:        []IOFlag{ProducesStdout, ScrubByDefault},
+			expectStdin:  false,
+			expectStdout: true,
+			expectScrub:  true,
+		},
+		{
+			name:         "image.process: binary data, no scrubbing",
+			flags:        []IOFlag{AcceptsStdin, ProducesStdout},
+			expectStdin:  true,
+			expectStdout: true,
+			expectScrub:  false,
+		},
+		{
+			name:         "order doesn't matter",
+			flags:        []IOFlag{ScrubByDefault, ProducesStdout, AcceptsStdin},
+			expectStdin:  true,
+			expectStdout: true,
+			expectScrub:  true,
+		},
+		{
+			name:         "empty flags",
+			flags:        []IOFlag{},
+			expectStdin:  false,
+			expectStdout: false,
+			expectScrub:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := NewSchema("test", KindExecution).
+				Description("Test decorator").
+				WithIO(tt.flags...).
+				Build()
+
+			if schema.IO == nil {
+				t.Fatal("expected IO capability to be set")
+			}
+
+			if schema.IO.SupportsStdin != tt.expectStdin {
+				t.Errorf("SupportsStdin: expected %v, got %v", tt.expectStdin, schema.IO.SupportsStdin)
+			}
+			if schema.IO.SupportsStdout != tt.expectStdout {
+				t.Errorf("SupportsStdout: expected %v, got %v", tt.expectStdout, schema.IO.SupportsStdout)
+			}
+			if schema.IO.DefaultScrub != tt.expectScrub {
+				t.Errorf("DefaultScrub: expected %v, got %v", tt.expectScrub, schema.IO.DefaultScrub)
+			}
+		})
+	}
+}
+
+func TestIOCapabilityNotSet(t *testing.T) {
+	// Decorators that don't call WithIO should have nil IO capability
+	schema := NewSchema("retry", KindExecution).
+		Description("Retry decorator").
+		RequiresBlock().
+		Build()
+
+	if schema.IO != nil {
+		t.Error("expected IO capability to be nil for decorator without WithIO")
+	}
+}
