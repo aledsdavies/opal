@@ -167,13 +167,12 @@ func ParseTokens(source []byte, tokens []lexer.Token, opts ...ParserOpt) *ParseT
 
 // parser is the internal parser state
 type parser struct {
-	tokens            []lexer.Token
-	pos               int
-	events            []Event
-	errors            []ParseError
-	config            *ParserConfig
-	debugEvents       []DebugEvent
-	lastDecoratorName string // Track last decorator for pipe validation
+	tokens      []lexer.Token
+	pos         int
+	events      []Event
+	errors      []ParseError
+	config      *ParserConfig
+	debugEvents []DebugEvent
 }
 
 // recordDebugEvent records debug events when debug tracing is enabled
@@ -575,6 +574,17 @@ func (p *parser) statement() {
 	} else if p.at(lexer.AT) {
 		// Decorator (execution decorator with block)
 		p.decorator()
+
+		// Check for shell operators after decorator (for piping, chaining)
+		// e.g., @timeout(5s) { echo "test" } | grep "pattern"
+		if p.isShellOperator() {
+			p.token() // Consume operator (&&, ||, |)
+
+			// Parse next command after operator
+			if !p.isStatementBoundary() && !p.at(lexer.EOF) {
+				p.shellCommand()
+			}
+		}
 	} else if p.at(lexer.IDENTIFIER) {
 		// Check if this is an assignment statement or shell command
 		// Look ahead to see if next token is an assignment operator
@@ -1227,9 +1237,6 @@ func (p *parser) shellCommand() {
 		p.recordDebugEvent("enter_shell_command", "parsing shell command")
 	}
 
-	// Clear decorator tracking - plain shell commands are @shell syntax sugar
-	p.lastDecoratorName = ""
-
 	kind := p.start(NodeShellCommand)
 
 	// Parse shell arguments until we hit an operator or boundary
@@ -1257,11 +1264,6 @@ func (p *parser) shellCommand() {
 
 	// If we stopped at a shell operator, validate and consume it
 	if p.isShellOperator() {
-		// Validate pipe operator I/O compatibility before consuming
-		if p.at(lexer.PIPE) {
-			p.validatePipeOperator(kind)
-		}
-
 		p.token() // Consume operator (&&, ||, |)
 
 		// Parse next command after operator
@@ -1505,14 +1507,60 @@ func (p *parser) decorator() {
 		return
 	}
 
-	// Get the decorator name
+	// Build the decorator path by trying progressively longer dot-separated names
+	//
+	// Decorator syntax: @namespace.subnamespace.function.primaryParam
+	//   - Namespace can be arbitrarily long (like a URI): @aws.secret.api_key
+	//   - Primary param is dot syntax for the main parameter: @var.name where "name" is the primary param
+	//   - We try progressively longer paths until we find a registered decorator
+	//
+	// Examples:
+	//   @var.name        → try "var" (registered) → use "var", ".name" is primary param
+	//   @file.read       → try "file" (not registered), try "file.read" (registered) → use "file.read"
+	//   @aws.secret.key  → try "aws", "aws.secret", "aws.secret.key" until one is registered
+	//   @file.read.path  → try "file", "file.read" (registered) → use "file.read", ".path" is primary param
 	decoratorName := string(p.current().Text)
+	tempPos := p.pos
 
-	// Check if it's a registered decorator
-	if !types.Global().IsRegistered(decoratorName) {
-		// Not a registered decorator, treat @ as literal
-		// Don't consume the identifier, let it be parsed normally
-		return
+	// Try the first identifier
+	if types.Global().IsRegistered(decoratorName) {
+		// Found it - use this name
+		p.pos = tempPos
+	} else {
+		// Not found - try adding dot-separated parts
+		foundRegistered := false
+		for {
+			p.advance() // Move to next token
+			if p.at(lexer.DOT) {
+				p.advance() // Move past dot
+				if p.at(lexer.IDENTIFIER) {
+					// Try adding this part to the name
+					testName := decoratorName + "." + string(p.current().Text)
+					if types.Global().IsRegistered(testName) {
+						// Found it!
+						decoratorName = testName
+						foundRegistered = true
+						break
+					}
+					// Not found yet - add it and keep trying
+					decoratorName = testName
+				} else {
+					// Dot not followed by identifier - stop here
+					break
+				}
+			} else {
+				// No more dots
+				break
+			}
+		}
+
+		// Reset position
+		p.pos = tempPos
+
+		// If we never found a registered decorator, treat @ as literal
+		if !foundRegistered {
+			return
+		}
 	}
 
 	// Get the schema for validation
@@ -1523,19 +1571,34 @@ func (p *parser) decorator() {
 	p.pos = atPos
 	kind := p.start(NodeDecorator)
 
-	// Track decorator name for pipe validation
-	p.lastDecoratorName = decoratorName
-
 	// Consume @ token (emit it)
 	p.token()
 
-	// Consume decorator name (IDENTIFIER or VAR keyword)
+	// Consume decorator name (may be dot-separated: file.read, aws.secret.api_key)
+	// Count dots in decorator name to know how many tokens to consume
+	dotCount := 0
+	for _, ch := range decoratorName {
+		if ch == '.' {
+			dotCount++
+		}
+	}
+
+	// Consume first identifier
 	p.token()
+
+	// Consume remaining dot + identifier pairs
+	for i := 0; i < dotCount; i++ {
+		p.token() // Consume DOT
+		p.token() // Consume IDENTIFIER
+	}
 
 	// Track if primary parameter was provided via dot syntax
 	hasPrimaryViaDot := false
 
-	// Parse property access: .property
+	// Parse primary parameter via dot syntax (e.g., @var.name where "name" is the primary param)
+	// This is AFTER the decorator name, so @file.read.property would have:
+	//   - decorator: "file.read"
+	//   - primary param: "property"
 	if p.at(lexer.DOT) {
 		p.token() // Consume DOT
 		if p.at(lexer.IDENTIFIER) {
@@ -2159,73 +2222,4 @@ func (p *parser) recover() {
 	for !p.isSyncToken() && !p.at(lexer.EOF) {
 		p.advance()
 	}
-}
-
-// validatePipeOperator validates that decorators used with pipe operator support I/O
-// This is called before consuming the | operator to check both sides of the pipe
-//
-// Key insight: Plain shell commands (like `echo "test"`) are syntax sugar for @shell("echo test").
-// Since @shell declares WithIO(AcceptsStdin, ProducesStdout), plain shell always supports I/O.
-// We only need to validate explicit decorators (those starting with @).
-func (p *parser) validatePipeOperator(leftCommandKind NodeKind) {
-	// Validate left side (what we just parsed)
-	if p.lastDecoratorName != "" {
-		// lastDecoratorName is set when we parse an explicit decorator (e.g., @retry)
-		// If empty, it's plain shell syntax sugar for @shell, which always supports stdout
-		schema, exists := types.Global().GetSchema(p.lastDecoratorName)
-		if exists {
-			if schema.IO == nil {
-				// Decorator doesn't declare I/O capabilities - cannot pipe from it
-				p.errorWithDetails(
-					fmt.Sprintf("@%s does not support stdout", p.lastDecoratorName),
-					"pipe operator",
-					"Cannot pipe from a decorator that doesn't produce output",
-				)
-				return
-			}
-			if !schema.IO.SupportsStdout {
-				// Decorator explicitly doesn't support stdout
-				p.errorWithDetails(
-					fmt.Sprintf("@%s does not support stdout", p.lastDecoratorName),
-					"pipe operator",
-					"This decorator cannot be used as a pipe source",
-				)
-				return
-			}
-		}
-	}
-
-	// Validate right side (peek ahead after |)
-	nextPos := p.pos + 1 // Position after |
-	if nextPos < len(p.tokens) && p.tokens[nextPos].Type == lexer.AT {
-		// Right side starts with @ - it's an explicit decorator
-		// If it doesn't start with @, it's plain shell (@shell syntax sugar), which always supports stdin
-		// Get decorator name (should be next token after @)
-		namePos := nextPos + 1
-		if namePos < len(p.tokens) && (p.tokens[namePos].Type == lexer.IDENTIFIER || p.tokens[namePos].Type == lexer.VAR) {
-			decoratorName := string(p.tokens[namePos].Text)
-			schema, exists := types.Global().GetSchema(decoratorName)
-			if exists {
-				if schema.IO == nil {
-					// Decorator doesn't declare I/O capabilities - cannot pipe to it
-					p.errorWithDetails(
-						fmt.Sprintf("@%s does not support stdin", decoratorName),
-						"pipe operator",
-						"Cannot pipe to a decorator that doesn't accept input",
-					)
-					return
-				}
-				if !schema.IO.SupportsStdin {
-					// Decorator explicitly doesn't support stdin
-					p.errorWithDetails(
-						fmt.Sprintf("@%s does not support stdin", decoratorName),
-						"pipe operator",
-						"This decorator cannot be used as a pipe destination",
-					)
-					return
-				}
-			}
-		}
-	}
-	// else: Plain shell command on right side - always supports stdin (it's @shell)
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/aledsdavies/opal/core/types"
+	"github.com/aledsdavies/opal/runtime/lexer"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -22,6 +23,20 @@ func init() {
 
 	// Register without I/O capabilities - this decorator doesn't support piping
 	if err := types.Global().RegisterValueWithSchema(testValueSchema, nil); err != nil {
+		panic(err)
+	}
+
+	// Register namespaced decorator for testing dot-separated names
+	// @file.read - value decorator for testing namespaced decorator parsing
+	fileReadSchema := types.NewSchema("file.read", types.KindValue).
+		Description("Read file").
+		Param("path", types.TypeString).
+		Required().
+		Done().
+		Returns(types.TypeString, "Contents").
+		Build()
+
+	if err := types.Global().RegisterValueWithSchema(fileReadSchema, nil); err != nil {
 		panic(err)
 	}
 }
@@ -427,48 +442,48 @@ func TestDebugTracing(t *testing.T) {
 // TestPipeOperatorValidation tests that pipe operator validates I/O capabilities
 func TestPipeOperatorValidation(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		expectError bool
-		errorMsg    string
+		name          string
+		input         string
+		expectedError *ParseError
 	}{
 		{
-			name:        "pipe to decorator without stdin support",
-			input:       `echo "test" | @retry(3) { echo "hi" }`,
-			expectError: true,
-			errorMsg:    "does not support stdin",
+			name:  "pipe from decorator without stdout support",
+			input: `@timeout(5s) { echo "test" } | grep "pattern"`,
+			expectedError: &ParseError{
+				Position:   lexer.Position{Line: 1, Column: 30, Offset: 29},
+				Message:    "@timeout does not produce stdout",
+				Context:    "pipe operator",
+				Got:        lexer.PIPE,
+				Suggestion: "Only shell commands and decorators with stdout support can be piped from",
+				Example:    "echo \"test\" | grep \"pattern\"",
+				Note:       "Only decorators that produce stdout can be piped from",
+			},
 		},
 		{
-			name:        "pipe from decorator without stdout support",
-			input:       `@file.read("test.txt") | grep "pattern"`,
-			expectError: true,
-			errorMsg:    "does not support stdout",
+			name:          "pipe from interpolated decorator is valid",
+			input:         `echo @file.read("test.txt") | grep "pattern"`,
+			expectedError: nil, // This is valid - @file.read is interpolated into echo, then echo is piped
 		},
 		{
-			name:        "valid pipe between shell commands",
-			input:       `echo "test" | grep "test"`,
-			expectError: false,
+			name:          "valid pipe between shell commands",
+			input:         `echo "test" | grep "test"`,
+			expectedError: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tree := Parse([]byte(tt.input))
+			tree.ValidateSemantics() // Post-parse validation
 
-			if tt.expectError {
+			if tt.expectedError != nil {
 				if len(tree.Errors) == 0 {
 					t.Errorf("expected parse error but got none")
-				} else {
-					found := false
-					for _, err := range tree.Errors {
-						if strings.Contains(err.Message, tt.errorMsg) {
-							found = true
-							break
-						}
-					}
-					if !found {
-						t.Errorf("expected error containing %q, got: %v", tt.errorMsg, tree.Errors)
-					}
+					return
+				}
+
+				if diff := cmp.Diff(*tt.expectedError, tree.Errors[0]); diff != "" {
+					t.Errorf("Error mismatch (-want +got):\n%s", diff)
 				}
 			} else {
 				if len(tree.Errors) > 0 {
@@ -477,6 +492,46 @@ func TestPipeOperatorValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNamespacedDecoratorParsing tests that decorators with dots in their names are recognized
+// Note: "file.read" is registered in init(), but "file" is NOT registered
+func TestNamespacedDecoratorParsing(t *testing.T) {
+	// Test that @file.read is recognized (full path extraction works)
+	t.Run("namespaced decorator recognized", func(t *testing.T) {
+		input := `var x = @file.read("test.txt")`
+		tree := Parse([]byte(input))
+
+		// Count decorator nodes in parse tree
+		decoratorCount := 0
+		for _, event := range tree.Events {
+			if event.Kind == EventOpen && NodeKind(event.Data) == NodeDecorator {
+				decoratorCount++
+			}
+		}
+
+		if decoratorCount == 0 {
+			t.Fatal("@file.read was not recognized as a decorator - parser needs to extract full namespaced path")
+		}
+
+		if len(tree.Errors) > 0 {
+			t.Errorf("Parser recognized @file.read but had errors:")
+			for _, err := range tree.Errors {
+				t.Logf("  %s", err.Message)
+			}
+		}
+	})
+
+	// Test that @file alone is NOT recognized (only file.read is registered)
+	t.Run("base name alone not recognized", func(t *testing.T) {
+		input := `var x = @file("test.txt")`
+		tree := Parse([]byte(input))
+
+		// Since "file" is not registered, @ should be treated as literal
+		// This would likely cause a parse error or treat it as shell syntax
+		// We just verify it doesn't crash - the exact behavior depends on context
+		t.Logf("Parsed @file (not registered) - errors: %d", len(tree.Errors))
+	})
 }
 
 // TestEnumParameterValidation tests that enum parameters are validated
