@@ -34,7 +34,6 @@ func TestBasicScrubbing(t *testing.T) {
 	// Write some output
 	input := []byte("hello world")
 	n, err := s.Write(input)
-
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}

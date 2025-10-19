@@ -39,13 +39,13 @@ func (g *OpalPlaceholderGenerator) Generate(secret []byte) string {
 	if err != nil {
 		panic(fmt.Sprintf("blake2b.New256 failed: %v", err))
 	}
-	
+
 	hash.Write(secret)
 	digest := hash.Sum(nil)
-	
+
 	// Use first 8 bytes (64 bits) for compact representation
 	encoded := base64.RawURLEncoding.EncodeToString(digest[:8])
-	
+
 	// Format: opal:s:hash (Opal secret with keyed hash)
 	return fmt.Sprintf("opal:s:%s", encoded)
 }
