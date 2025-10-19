@@ -57,11 +57,13 @@ type PlanHeader struct {
 // A step can contain multiple commands chained with operators.
 // Invariants:
 // - ID must be unique within a plan
+// - Either Tree or Commands must be set (Tree is preferred)
 // - Commands order is semantically significant (operators depend on order)
 // - Last command in step must have empty Operator
 type Step struct {
-	ID       uint64    // Unique identifier (stable across plan versions)
-	Commands []Command // Commands in this step (operator-chained)
+	ID       uint64        // Unique identifier (stable across plan versions)
+	Tree     ExecutionNode // Operator precedence tree (preferred, nil for backward compat)
+	Commands []Command     // DEPRECATED: Flat command list (will be removed in future)
 }
 
 // Command represents a single decorator invocation within a step.
