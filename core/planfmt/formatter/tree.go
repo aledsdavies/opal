@@ -59,6 +59,33 @@ func renderTreeStep(w io.Writer, step planfmt.Step, isLast bool, useColor bool) 
 	// Render the execution tree
 	treeStr := renderExecutionNode(step.Tree, useColor)
 	_, _ = fmt.Fprintf(w, "%s%s\n", prefix, treeStr)
+
+	// Render nested blocks if this is a CommandNode with a Block
+	if cmd, ok := step.Tree.(*planfmt.CommandNode); ok && len(cmd.Block) > 0 {
+		renderNestedBlock(w, cmd.Block, "   ", useColor)
+	}
+}
+
+// renderNestedBlock renders nested steps with proper indentation
+func renderNestedBlock(w io.Writer, steps []planfmt.Step, indent string, useColor bool) {
+	for i, step := range steps {
+		isLast := i == len(steps)-1
+		var prefix string
+		if isLast {
+			prefix = indent + "└─ "
+		} else {
+			prefix = indent + "├─ "
+		}
+
+		treeStr := renderExecutionNode(step.Tree, useColor)
+		_, _ = fmt.Fprintf(w, "%s%s\n", prefix, treeStr)
+
+		// Recursively render nested blocks
+		if cmd, ok := step.Tree.(*planfmt.CommandNode); ok && len(cmd.Block) > 0 {
+			newIndent := indent + "   "
+			renderNestedBlock(w, cmd.Block, newIndent, useColor)
+		}
+	}
 }
 
 // renderExecutionNode renders an execution node to a string
@@ -126,10 +153,10 @@ func getCommandString(cmd *planfmt.CommandNode) string {
 			return arg.Val.Str
 		}
 	}
-	// Fallback: show all args
+	// Fallback: show all args with proper value formatting
 	var parts []string
 	for _, arg := range cmd.Args {
-		parts = append(parts, fmt.Sprintf("%s=%v", arg.Key, arg.Val.Str))
+		parts = append(parts, fmt.Sprintf("%s=%s", arg.Key, formatValue(&arg.Val)))
 	}
 	return strings.Join(parts, " ")
 }
