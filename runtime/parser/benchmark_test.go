@@ -204,7 +204,7 @@ func BenchmarkSemanticValidation(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			// Parse once outside the loop
 			tree := Parse([]byte(tt.input))
-			
+
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				tree.ValidateSemantics()

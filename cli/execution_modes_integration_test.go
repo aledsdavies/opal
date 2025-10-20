@@ -49,7 +49,7 @@ fun complex = echo "A" && echo "B" || echo "C"
 		require.NoError(t, err)
 
 		// Save plan to file
-		err = os.WriteFile(planFile, planData, 0644)
+		err = os.WriteFile(planFile, planData, 0o644)
 		require.NoError(t, err)
 
 		// Verify plan file exists and has content
@@ -70,7 +70,7 @@ fun complex = echo "A" && echo "B" || echo "C"
 		cmd := exec.Command(opalBin, "-f", testFile, "hello", "--dry-run", "--resolve")
 		planData, err := cmd.Output()
 		require.NoError(t, err)
-		err = os.WriteFile(planFile, planData, 0644)
+		err = os.WriteFile(planFile, planData, 0o644)
 		require.NoError(t, err)
 
 		// Execute from plan
@@ -139,7 +139,7 @@ fun complex = echo "A" && echo "B" || echo "C"
 				cmd := exec.Command(opalBin, "-f", testFile, tt.command, "--dry-run", "--resolve")
 				planData, err := cmd.Output()
 				require.NoError(t, err)
-				err = os.WriteFile(planFile, planData, 0644)
+				err = os.WriteFile(planFile, planData, 0o644)
 				require.NoError(t, err)
 
 				// Execute from plan
@@ -164,11 +164,11 @@ func TestContractVerificationFailure(t *testing.T) {
 	cmd := exec.Command(opalBin, "-f", testFile, "hello", "--dry-run", "--resolve")
 	planData, err := cmd.Output()
 	require.NoError(t, err)
-	err = os.WriteFile(planFile, planData, 0644)
+	err = os.WriteFile(planFile, planData, 0o644)
 	require.NoError(t, err)
 
 	// Modify source file
-	err = os.WriteFile(testFile, []byte(`fun hello = echo "Modified"`), 0644)
+	err = os.WriteFile(testFile, []byte(`fun hello = echo "Modified"`), 0o644)
 	require.NoError(t, err)
 
 	// Try to execute - should fail contract verification
@@ -202,7 +202,7 @@ func createTestFile(t *testing.T, content string) string {
 	t.Helper()
 
 	tmpFile := filepath.Join(t.TempDir(), "test.opl")
-	err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(content)), 0644)
+	err := os.WriteFile(tmpFile, []byte(strings.TrimSpace(content)), 0o644)
 	require.NoError(t, err)
 
 	return tmpFile

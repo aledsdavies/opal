@@ -203,9 +203,10 @@ func (v *semanticValidator) findDecoratorBeforeBlock(rbracePos int) string {
 	// Find matching { by counting braces backward
 	braceDepth := 1
 	for i := rbracePos - 1; i >= 0; i-- {
-		if v.tokens[i].Type == lexer.RBRACE {
+		switch v.tokens[i].Type {
+		case lexer.RBRACE:
 			braceDepth++
-		} else if v.tokens[i].Type == lexer.LBRACE {
+		case lexer.LBRACE:
 			braceDepth--
 			if braceDepth == 0 {
 				// Found matching {, now look backward for @
@@ -260,9 +261,10 @@ func (v *semanticValidator) skipParameterListBackward(rparenPos int) int {
 	// Skip backward from ) to matching (
 	parenDepth := 1
 	for i := rparenPos - 1; i >= 0; i-- {
-		if v.tokens[i].Type == lexer.RPAREN {
+		switch v.tokens[i].Type {
+		case lexer.RPAREN:
 			parenDepth++
-		} else if v.tokens[i].Type == lexer.LPAREN {
+		case lexer.LPAREN:
 			parenDepth--
 			if parenDepth == 0 {
 				return i - 1 // Return position before (
