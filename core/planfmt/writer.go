@@ -205,24 +205,131 @@ func (wr *Writer) writeBody(buf *bytes.Buffer, p *Plan) error {
 	return nil
 }
 
-// writeStep writes a single step and its commands recursively
+// writeStep writes a single step and its execution tree
 func (wr *Writer) writeStep(buf *bytes.Buffer, s *Step) error {
 	// Write step ID (8 bytes, uint64, little-endian)
 	if err := binary.Write(buf, binary.LittleEndian, s.ID); err != nil {
 		return err
 	}
 
-	// Write command count (2 bytes, uint16)
-	cmdCount := uint16(len(s.Commands))
-	if err := binary.Write(buf, binary.LittleEndian, cmdCount); err != nil {
-		return err
-	}
-
-	// Write each command
-	for i := range s.Commands {
-		if err := wr.writeCommand(buf, &s.Commands[i]); err != nil {
+	// Write execution tree (preferred) or fallback to commands (backward compat)
+	if s.Tree != nil {
+		// Write tree marker (1 byte: 0x01 = has tree)
+		if err := buf.WriteByte(0x01); err != nil {
 			return err
 		}
+		// Write the tree
+		if err := wr.writeExecutionNode(buf, s.Tree); err != nil {
+			return err
+		}
+	} else {
+		// Write legacy commands marker (1 byte: 0x00 = no tree, use commands)
+		if err := buf.WriteByte(0x00); err != nil {
+			return err
+		}
+		// Write command count (2 bytes, uint16)
+		cmdCount := uint16(len(s.Commands))
+		if err := binary.Write(buf, binary.LittleEndian, cmdCount); err != nil {
+			return err
+		}
+		// Write each command
+		for i := range s.Commands {
+			if err := wr.writeCommand(buf, &s.Commands[i]); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// Node type constants for binary serialization
+const (
+	nodeTypeCommand  = 0x01
+	nodeTypePipeline = 0x02
+	nodeTypeAnd      = 0x03
+	nodeTypeOr       = 0x04
+	nodeTypeSequence = 0x05
+)
+
+// writeExecutionNode writes an execution tree node recursively
+func (wr *Writer) writeExecutionNode(buf *bytes.Buffer, node ExecutionNode) error {
+	switch n := node.(type) {
+	case *CommandNode:
+		// Write node type
+		if err := buf.WriteByte(nodeTypeCommand); err != nil {
+			return err
+		}
+		// Write command data (reuse writeCommand logic)
+		return wr.writeCommand(buf, &Command{
+			Decorator: n.Decorator,
+			Args:      n.Args,
+			Block:     n.Block,
+			Operator:  "", // Commands in tree don't have operators
+		})
+
+	case *PipelineNode:
+		// Write node type
+		if err := buf.WriteByte(nodeTypePipeline); err != nil {
+			return err
+		}
+		// Write command count
+		cmdCount := uint16(len(n.Commands))
+		if err := binary.Write(buf, binary.LittleEndian, cmdCount); err != nil {
+			return err
+		}
+		// Write each command
+		for i := range n.Commands {
+			if err := wr.writeExecutionNode(buf, &n.Commands[i]); err != nil {
+				return err
+			}
+		}
+
+	case *AndNode:
+		// Write node type
+		if err := buf.WriteByte(nodeTypeAnd); err != nil {
+			return err
+		}
+		// Write left and right nodes
+		if err := wr.writeExecutionNode(buf, n.Left); err != nil {
+			return err
+		}
+		if err := wr.writeExecutionNode(buf, n.Right); err != nil {
+			return err
+		}
+
+	case *OrNode:
+		// Write node type
+		if err := buf.WriteByte(nodeTypeOr); err != nil {
+			return err
+		}
+		// Write left and right nodes
+		if err := wr.writeExecutionNode(buf, n.Left); err != nil {
+			return err
+		}
+		if err := wr.writeExecutionNode(buf, n.Right); err != nil {
+			return err
+		}
+
+	case *SequenceNode:
+		// Write node type
+		if err := buf.WriteByte(nodeTypeSequence); err != nil {
+			return err
+		}
+		// Write node count
+		nodeCount := uint16(len(n.Nodes))
+		if err := binary.Write(buf, binary.LittleEndian, nodeCount); err != nil {
+			return err
+		}
+		// Write each node
+		for i := range n.Nodes {
+			if err := wr.writeExecutionNode(buf, n.Nodes[i]); err != nil {
+				return err
+			}
+		}
+
+	default:
+		return io.ErrUnexpectedEOF // Unknown node type
 	}
 
 	return nil

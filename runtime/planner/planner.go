@@ -465,7 +465,8 @@ func (p *planner) planStep() (planfmt.Step, error) {
 
 	step := planfmt.Step{
 		ID:       p.nextStepID(),
-		Commands: commands,
+		Tree:     buildStepTree(commands),
+		Commands: commands, // Keep until executor uses Tree
 	}
 
 	if p.config.Debug >= DebugDetailed {
