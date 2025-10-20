@@ -209,39 +209,12 @@ func (rd *Reader) readStep(r io.Reader, depth int, maxDepth int) (*Step, error) 
 		return nil, fmt.Errorf("read step ID: %w", err)
 	}
 
-	// Read tree marker (1 byte: 0x01 = has tree, 0x00 = legacy commands)
-	var treeMarker byte
-	if err := binary.Read(r, binary.LittleEndian, &treeMarker); err != nil {
-		return nil, fmt.Errorf("read tree marker: %w", err)
+	// Read execution tree (Commands field not serialized - only exists in-memory for executor)
+	node, err := rd.readExecutionNode(r, depth, maxDepth)
+	if err != nil {
+		return nil, fmt.Errorf("read execution tree: %w", err)
 	}
-
-	if treeMarker == 0x01 {
-		// Read execution tree
-		node, err := rd.readExecutionNode(r, depth, maxDepth)
-		if err != nil {
-			return nil, fmt.Errorf("read execution tree: %w", err)
-		}
-		step.Tree = node
-	} else {
-		// Read legacy commands
-		// Read command count (2 bytes, uint16, little-endian)
-		var cmdCount uint16
-		if err := binary.Read(r, binary.LittleEndian, &cmdCount); err != nil {
-			return nil, fmt.Errorf("read command count: %w", err)
-		}
-
-		// Read each command
-		if cmdCount > 0 {
-			step.Commands = make([]Command, cmdCount)
-			for i := 0; i < int(cmdCount); i++ {
-				cmd, err := rd.readCommand(r, depth, maxDepth)
-				if err != nil {
-					return nil, fmt.Errorf("read command %d: %w", i, err)
-				}
-				step.Commands[i] = *cmd
-			}
-		}
-	}
+	step.Tree = node
 
 	return step, nil
 }
@@ -342,8 +315,8 @@ func (rd *Reader) readExecutionNode(r io.Reader, depth int, maxDepth int) (Execu
 }
 
 // readCommand reads a single command
-func (rd *Reader) readCommand(r io.Reader, depth int, maxDepth int) (*Command, error) {
-	cmd := &Command{}
+func (rd *Reader) readCommand(r io.Reader, depth int, maxDepth int) (*CommandNode, error) {
+	cmd := &CommandNode{}
 
 	// Read decorator length (2 bytes, uint16, little-endian)
 	var decoratorLen uint16
@@ -393,19 +366,6 @@ func (rd *Reader) readCommand(r io.Reader, depth int, maxDepth int) (*Command, e
 			cmd.Block[i] = *step
 		}
 	}
-
-	// Read operator length (2 bytes, uint16, little-endian)
-	var operatorLen uint16
-	if err := binary.Read(r, binary.LittleEndian, &operatorLen); err != nil {
-		return nil, fmt.Errorf("read operator length: %w", err)
-	}
-
-	// Read operator string
-	operatorBuf := make([]byte, operatorLen)
-	if _, err := io.ReadFull(r, operatorBuf); err != nil {
-		return nil, fmt.Errorf("read operator: %w", err)
-	}
-	cmd.Operator = string(operatorBuf)
 
 	return cmd, nil
 }

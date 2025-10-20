@@ -135,6 +135,39 @@ func TestTreeRoundTrip(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "plan with sequence tree (semicolon operator)",
+			plan: &planfmt.Plan{
+				Target: "test",
+				Steps: []planfmt.Step{
+					{
+						ID: 1,
+						Tree: &planfmt.SequenceNode{
+							Nodes: []planfmt.ExecutionNode{
+								&planfmt.CommandNode{
+									Decorator: "@shell",
+									Args: []planfmt.Arg{
+										{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo a"}},
+									},
+								},
+								&planfmt.CommandNode{
+									Decorator: "@shell",
+									Args: []planfmt.Arg{
+										{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo b"}},
+									},
+								},
+								&planfmt.CommandNode{
+									Decorator: "@shell",
+									Args: []planfmt.Arg{
+										{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo c"}},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -184,12 +217,64 @@ func TestTreeRoundTrip(t *testing.T) {
 				t.Errorf("plan mismatch (-want +got):\n%s", diff)
 			}
 
-			// Debug: show what we got back
-			t.Logf("Original tree: %T", tt.plan.Steps[0].Tree)
-			t.Logf("Read back tree: %T", plan2.Steps[0].Tree)
-			if plan2.Steps[0].Commands != nil {
-				t.Logf("Read back has Commands: %d", len(plan2.Steps[0].Commands))
+			// Verify Tree is present
+			if plan2.Steps[0].Tree == nil {
+				t.Errorf("Tree should be present after deserialization")
 			}
 		})
+	}
+}
+
+// TestTreeOnlySerialized verifies that only the Tree is serialized.
+func TestTreeOnlySerialized(t *testing.T) {
+	plan := &planfmt.Plan{
+		Target: "test",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo hello"}},
+					},
+				},
+			},
+		},
+	}
+
+	// Write plan
+	var buf bytes.Buffer
+	_, err := planfmt.Write(&buf, plan)
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	// Read plan back
+	plan2, _, err := planfmt.Read(&buf)
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+
+	// Verify Tree was serialized
+	if plan2.Steps[0].Tree == nil {
+		t.Fatalf("Tree should be present")
+	}
+
+	// Verify Tree has correct data
+	cmdNode, ok := plan2.Steps[0].Tree.(*planfmt.CommandNode)
+	if !ok {
+		t.Fatalf("expected CommandNode, got %T", plan2.Steps[0].Tree)
+	}
+
+	if cmdNode.Decorator != "@shell" {
+		t.Errorf("expected decorator '@shell', got %q", cmdNode.Decorator)
+	}
+
+	if len(cmdNode.Args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(cmdNode.Args))
+	}
+
+	if cmdNode.Args[0].Val.Str != "echo hello" {
+		t.Errorf("expected command 'echo hello', got %q", cmdNode.Args[0].Val.Str)
 	}
 }

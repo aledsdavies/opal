@@ -56,34 +56,70 @@ func renderTreeStep(w io.Writer, step planfmt.Step, isLast bool, useColor bool) 
 		prefix = "├─ "
 	}
 
-	// For steps with operators, show decorator once then commands with operators
-	if len(step.Commands) > 1 {
-		// Get decorator from first command (all should be same in a step)
-		decorator := Colorize(step.Commands[0].Decorator, ColorBlue, useColor)
-
-		// Build command parts with operators
-		var cmdParts []string
-		for i, cmd := range step.Commands {
-			cmdParts = append(cmdParts, getTreeCommandString(cmd))
-			if i < len(step.Commands)-1 {
-				cmdParts = append(cmdParts, cmd.Operator)
-			}
-		}
-
-		fullCommand := decorator + " " + strings.Join(cmdParts, " ")
-		_, _ = fmt.Fprintf(w, "%s%s\n", prefix, fullCommand)
-		return
-	}
-
-	// Single command: show decorator + command
-	cmd := step.Commands[0]
-	decorator := Colorize(cmd.Decorator, ColorBlue, useColor)
-	commandStr := getTreeCommandString(cmd)
-	_, _ = fmt.Fprintf(w, "%s%s %s\n", prefix, decorator, commandStr)
+	// Render the execution tree
+	treeStr := renderExecutionNode(step.Tree, useColor)
+	_, _ = fmt.Fprintf(w, "%s%s\n", prefix, treeStr)
 }
 
-// getTreeCommandString extracts the command string from a Command for tree display
-func getTreeCommandString(cmd planfmt.Command) string {
+// renderExecutionNode renders an execution node to a string
+func renderExecutionNode(node planfmt.ExecutionNode, useColor bool) string {
+	switch n := node.(type) {
+	case *planfmt.CommandNode:
+		return renderCommandNode(n, useColor)
+	case *planfmt.PipelineNode:
+		return renderPipelineNode(n, useColor)
+	case *planfmt.AndNode:
+		return renderAndNode(n, useColor)
+	case *planfmt.OrNode:
+		return renderOrNode(n, useColor)
+	case *planfmt.SequenceNode:
+		return renderSequenceNode(n, useColor)
+	default:
+		return fmt.Sprintf("(unknown node type: %T)", node)
+	}
+}
+
+// renderCommandNode renders a single command
+func renderCommandNode(cmd *planfmt.CommandNode, useColor bool) string {
+	decorator := Colorize(cmd.Decorator, ColorBlue, useColor)
+	commandStr := getCommandString(cmd)
+	return fmt.Sprintf("%s %s", decorator, commandStr)
+}
+
+// renderPipelineNode renders a pipeline (cmd1 | cmd2 | cmd3)
+func renderPipelineNode(pipe *planfmt.PipelineNode, useColor bool) string {
+	var parts []string
+	for _, cmd := range pipe.Commands {
+		parts = append(parts, renderCommandNode(&cmd, useColor))
+	}
+	return strings.Join(parts, " | ")
+}
+
+// renderAndNode renders an AND node (left && right)
+func renderAndNode(and *planfmt.AndNode, useColor bool) string {
+	left := renderExecutionNode(and.Left, useColor)
+	right := renderExecutionNode(and.Right, useColor)
+	return fmt.Sprintf("%s && %s", left, right)
+}
+
+// renderOrNode renders an OR node (left || right)
+func renderOrNode(or *planfmt.OrNode, useColor bool) string {
+	left := renderExecutionNode(or.Left, useColor)
+	right := renderExecutionNode(or.Right, useColor)
+	return fmt.Sprintf("%s || %s", left, right)
+}
+
+// renderSequenceNode renders a sequence node (node1 ; node2 ; node3)
+func renderSequenceNode(seq *planfmt.SequenceNode, useColor bool) string {
+	var parts []string
+	for _, node := range seq.Nodes {
+		parts = append(parts, renderExecutionNode(node, useColor))
+	}
+	return strings.Join(parts, " ; ")
+}
+
+// getCommandString extracts the command string from a CommandNode for display
+func getCommandString(cmd *planfmt.CommandNode) string {
 	// For @shell decorator, look for "command" arg
 	for _, arg := range cmd.Args {
 		if arg.Key == "command" && arg.Val.Kind == planfmt.ValueString {

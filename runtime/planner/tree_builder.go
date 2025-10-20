@@ -14,7 +14,7 @@ import (
 // - Parallel variable resolution
 // - Plan serialization with operator structure
 // - Beautiful dry-run visualization
-func buildStepTree(commands []planfmt.Command) planfmt.ExecutionNode {
+func buildStepTree(commands []Command) planfmt.ExecutionNode {
 	invariant.Precondition(len(commands) > 0, "commands cannot be empty")
 
 	// Single command - no operators
@@ -50,7 +50,7 @@ func buildStepTree(commands []planfmt.Command) planfmt.ExecutionNode {
 }
 
 // commandToNode converts planfmt.Command to CommandNode
-func commandToNode(cmd planfmt.Command) *planfmt.CommandNode {
+func commandToNode(cmd Command) *planfmt.CommandNode {
 	return &planfmt.CommandNode{
 		Decorator: cmd.Decorator,
 		Args:      cmd.Args,
@@ -59,8 +59,8 @@ func commandToNode(cmd planfmt.Command) *planfmt.CommandNode {
 }
 
 // parseSemicolon splits on semicolon operators (lowest precedence)
-func parseSemicolon(commands []planfmt.Command) planfmt.ExecutionNode {
-	var segments [][]planfmt.Command
+func parseSemicolon(commands []Command) planfmt.ExecutionNode {
+	var segments [][]Command
 	start := 0
 
 	for i, cmd := range commands {
@@ -90,14 +90,14 @@ func parseSemicolon(commands []planfmt.Command) planfmt.ExecutionNode {
 }
 
 // parseOr splits on OR operators (|| has lower precedence than &&)
-func parseOr(commands []planfmt.Command) planfmt.ExecutionNode {
+func parseOr(commands []Command) planfmt.ExecutionNode {
 	// Find rightmost || (left-to-right associativity)
 	// Operator is on the command BEFORE the split point
 	for i := len(commands) - 1; i >= 0; i-- {
 		if commands[i].Operator == "||" {
 			// Split: commands[0..i] (without operator) || commands[i+1..end]
 			// Need to copy left side and clear the operator on last command
-			leftCmds := make([]planfmt.Command, i+1)
+			leftCmds := make([]Command, i+1)
 			copy(leftCmds, commands[:i+1])
 			leftCmds[i].Operator = "" // Clear the || operator
 
@@ -110,14 +110,14 @@ func parseOr(commands []planfmt.Command) planfmt.ExecutionNode {
 }
 
 // parseAnd splits on AND operators (&& has lower precedence than |)
-func parseAnd(commands []planfmt.Command) planfmt.ExecutionNode {
+func parseAnd(commands []Command) planfmt.ExecutionNode {
 	// Find rightmost && (left-to-right associativity)
 	// Operator is on the command BEFORE the split point
 	for i := len(commands) - 1; i >= 0; i-- {
 		if commands[i].Operator == "&&" {
 			// Split: commands[0..i] (without operator) && commands[i+1..end]
 			// Need to copy left side and clear the operator on last command
-			leftCmds := make([]planfmt.Command, i+1)
+			leftCmds := make([]Command, i+1)
 			copy(leftCmds, commands[:i+1])
 			leftCmds[i].Operator = "" // Clear the && operator
 
@@ -131,7 +131,7 @@ func parseAnd(commands []planfmt.Command) planfmt.ExecutionNode {
 
 // parsePipe scans for contiguous pipe operators (highest precedence)
 // All commands with | operators form a single pipeline
-func parsePipe(commands []planfmt.Command) planfmt.ExecutionNode {
+func parsePipe(commands []Command) planfmt.ExecutionNode {
 	// Check if all operators are pipes (contiguous pipeline)
 	allPipes := true
 	for i := 0; i < len(commands)-1; i++ {

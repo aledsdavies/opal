@@ -13,12 +13,12 @@ import (
 func TestBuildStepTree(t *testing.T) {
 	tests := []struct {
 		name     string
-		commands []planfmt.Command
+		commands []Command
 		want     planfmt.ExecutionNode
 	}{
 		{
 			name: "single command",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{
@@ -36,7 +36,7 @@ func TestBuildStepTree(t *testing.T) {
 		},
 		{
 			name: "two commands with AND",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{
@@ -69,7 +69,7 @@ func TestBuildStepTree(t *testing.T) {
 		},
 		{
 			name: "two commands with OR",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{
@@ -102,7 +102,7 @@ func TestBuildStepTree(t *testing.T) {
 		},
 		{
 			name: "two commands with pipe",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{
@@ -137,7 +137,7 @@ func TestBuildStepTree(t *testing.T) {
 		},
 		{
 			name: "three commands with chained pipes",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{
@@ -185,7 +185,7 @@ func TestBuildStepTree(t *testing.T) {
 		},
 		{
 			name: "operator precedence: pipe > AND",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{
@@ -235,7 +235,7 @@ func TestBuildStepTree(t *testing.T) {
 		},
 		{
 			name: "operator precedence: AND > OR",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{
@@ -283,7 +283,7 @@ func TestBuildStepTree(t *testing.T) {
 		},
 		{
 			name: "complex precedence: pipe > AND > OR",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{
@@ -365,7 +365,7 @@ func TestBuildStepTree(t *testing.T) {
 		},
 		{
 			name: "semicolon operator (lowest precedence)",
-			commands: []planfmt.Command{
+			commands: []Command{
 				{
 					Decorator: "@shell",
 					Args: []planfmt.Arg{

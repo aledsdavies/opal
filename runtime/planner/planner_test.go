@@ -11,6 +11,35 @@ import (
 	"github.com/aledsdavies/opal/runtime/planner"
 )
 
+// Helper: Extract command argument from tree (assumes tree is a CommandNode)
+func getCommandArg(tree planfmt.ExecutionNode, key string) string {
+	if tree == nil {
+		return ""
+	}
+	cmd, ok := tree.(*planfmt.CommandNode)
+	if !ok {
+		return ""
+	}
+	for _, arg := range cmd.Args {
+		if arg.Key == key {
+			return arg.Val.Str
+		}
+	}
+	return ""
+}
+
+// Helper: Get decorator name from tree (assumes tree is a CommandNode)
+func getDecorator(tree planfmt.ExecutionNode) string {
+	if tree == nil {
+		return ""
+	}
+	cmd, ok := tree.(*planfmt.CommandNode)
+	if !ok {
+		return ""
+	}
+	return cmd.Decorator
+}
+
 // TestSimpleShellCommand tests converting a simple shell command to @shell decorator
 func TestSimpleShellCommand(t *testing.T) {
 	source := []byte(`echo "Hello, World!"`)
@@ -36,32 +65,19 @@ func TestSimpleShellCommand(t *testing.T) {
 	}
 
 	step := plan.Steps[0]
-	if len(step.Commands) != 1 {
-		t.Errorf("Expected 1 command, got %d", len(step.Commands))
+	if step.Tree == nil {
+		t.Fatal("Expected tree, got nil")
 	}
 
-	cmd := step.Commands[0]
-	if cmd.Decorator != "@shell" {
-		t.Errorf("Expected @shell decorator, got %q", cmd.Decorator)
+	// Tree should be a CommandNode with @shell decorator
+	if getDecorator(step.Tree) != "@shell" {
+		t.Errorf("Expected @shell decorator, got %q", getDecorator(step.Tree))
 	}
 
 	// Check command argument
-	if len(cmd.Args) != 1 {
-		t.Fatalf("Expected 1 arg, got %d", len(cmd.Args))
-	}
-
-	arg := cmd.Args[0]
-	if arg.Key != "command" {
-		t.Errorf("Expected arg key 'command', got %q", arg.Key)
-	}
-
-	if arg.Val.Kind != planfmt.ValueString {
-		t.Errorf("Expected ValueString, got %v", arg.Val.Kind)
-	}
-
 	expectedCmd := `echo "Hello, World!"`
-	if arg.Val.Str != expectedCmd {
-		t.Errorf("Expected command %q, got %q", expectedCmd, arg.Val.Str)
+	if getCommandArg(step.Tree, "command") != expectedCmd {
+		t.Errorf("Expected command %q, got %q", expectedCmd, getCommandArg(step.Tree, "command"))
 	}
 }
 
@@ -89,19 +105,19 @@ echo "Second"`)
 	}
 
 	// Verify first step
-	if len(plan.Steps[0].Commands) != 1 {
-		t.Errorf("Step 0: expected 1 command, got %d", len(plan.Steps[0].Commands))
+	if plan.Steps[0].Tree == nil {
+		t.Errorf("Step 0: expected 1 command, got %d", len(plan.Steps[0].Tree))
 	}
-	if plan.Steps[0].Commands[0].Args[0].Val.Str != `echo "First"` {
-		t.Errorf("Step 0: wrong command: %q", plan.Steps[0].Commands[0].Args[0].Val.Str)
+	if getCommandArg(plan.Steps[0].Tree, "command") != `echo "First"` {
+		t.Errorf("Step 0: wrong command: %q", getCommandArg(plan.Steps[0].Tree, "command"))
 	}
 
 	// Verify second step
-	if len(plan.Steps[1].Commands) != 1 {
-		t.Errorf("Step 1: expected 1 command, got %d", len(plan.Steps[1].Commands))
+	if plan.Steps[1].Tree == nil {
+		t.Errorf("Step 1: expected 1 command, got %d", len(plan.Steps[1].Tree))
 	}
-	if plan.Steps[1].Commands[0].Args[0].Val.Str != `echo "Second"` {
-		t.Errorf("Step 1: wrong command: %q", plan.Steps[1].Commands[0].Args[0].Val.Str)
+	if getCommandArg(plan.Steps[1].Tree, "command") != `echo "Second"` {
+		t.Errorf("Step 1: wrong command: %q", getCommandArg(plan.Steps[1].Tree, "command"))
 	}
 }
 
@@ -129,11 +145,11 @@ func TestFunctionDefinition(t *testing.T) {
 	}
 
 	// Verify it's the shell command from the function body
-	if len(plan.Steps[0].Commands) != 1 {
-		t.Fatalf("Expected 1 command, got %d", len(plan.Steps[0].Commands))
+	if plan.Steps[0].Tree == nil {
+		t.Fatalf("Expected 1 command, got %d", len(plan.Steps[0].Tree))
 	}
 
-	cmd := plan.Steps[0].Commands[0]
+	cmd := plan.Steps[0].Tree[0]
 	if cmd.Decorator != "@shell" {
 		t.Errorf("Expected @shell, got %q", cmd.Decorator)
 	}
@@ -168,8 +184,8 @@ fun goodbye = echo "Goodbye"`)
 	}
 
 	// Verify it's the goodbye command
-	if plan.Steps[0].Commands[0].Args[0].Val.Str != `echo "Goodbye"` {
-		t.Errorf("Wrong command: %q", plan.Steps[0].Commands[0].Args[0].Val.Str)
+	if getCommandArg(plan.Steps[0].Tree, "command") != `echo "Goodbye"` {
+		t.Errorf("Wrong command: %q", getCommandArg(plan.Steps[0].Tree, "command"))
 	}
 }
 
@@ -199,13 +215,13 @@ echo "Another top level"`)
 	}
 
 	// Verify first command
-	if plan.Steps[0].Commands[0].Args[0].Val.Str != `echo "Top level"` {
-		t.Errorf("Step 0: wrong command: %q", plan.Steps[0].Commands[0].Args[0].Val.Str)
+	if getCommandArg(plan.Steps[0].Tree, "command") != `echo "Top level"` {
+		t.Errorf("Step 0: wrong command: %q", getCommandArg(plan.Steps[0].Tree, "command"))
 	}
 
 	// Verify second command
-	if plan.Steps[1].Commands[0].Args[0].Val.Str != `echo "Another top level"` {
-		t.Errorf("Step 1: wrong command: %q", plan.Steps[1].Commands[0].Args[0].Val.Str)
+	if getCommandArg(plan.Steps[1].Tree, "command") != `echo "Another top level"` {
+		t.Errorf("Step 1: wrong command: %q", getCommandArg(plan.Steps[1].Tree, "command"))
 	}
 }
 
@@ -272,7 +288,7 @@ func TestArgSorting(t *testing.T) {
 	}
 
 	// Verify args are sorted (for determinism)
-	cmd := plan.Steps[0].Commands[0]
+	cmd := plan.Steps[0].Tree[0]
 	for i := 1; i < len(cmd.Args); i++ {
 		if cmd.Args[i-1].Key >= cmd.Args[i].Key {
 			t.Errorf("Args not sorted: %q >= %q", cmd.Args[i-1].Key, cmd.Args[i].Key)
@@ -352,18 +368,18 @@ func TestPlanShellCommandWithOperators(t *testing.T) {
 		t.Errorf("Expected 1 step, got %d", len(plan.Steps))
 	}
 
-	if len(plan.Steps[0].Commands) != 2 {
-		t.Errorf("Expected 2 commands in step, got %d", len(plan.Steps[0].Commands))
+	if len(plan.Steps[0].Tree) != 2 {
+		t.Errorf("Expected 2 commands in step, got %d", len(plan.Steps[0].Tree))
 	}
 
 	// First command should have && operator
-	if plan.Steps[0].Commands[0].Operator != "&&" {
-		t.Errorf("Expected first command to have && operator, got %q", plan.Steps[0].Commands[0].Operator)
+	if plan.Steps[0].Tree[0].Operator != "&&" {
+		t.Errorf("Expected first command to have && operator, got %q", plan.Steps[0].Tree[0].Operator)
 	}
 
 	// Second command should have empty operator (last in step)
-	if plan.Steps[0].Commands[1].Operator != "" {
-		t.Errorf("Expected second command to have empty operator, got %q", plan.Steps[0].Commands[1].Operator)
+	if plan.Steps[0].Tree[1].Operator != "" {
+		t.Errorf("Expected second command to have empty operator, got %q", plan.Steps[0].Tree[1].Operator)
 	}
 }
 
@@ -388,12 +404,12 @@ func TestPlanMultipleSteps(t *testing.T) {
 		t.Errorf("Expected 2 steps, got %d", len(plan.Steps))
 	}
 
-	if len(plan.Steps[0].Commands) != 1 {
-		t.Errorf("Expected first step to have 1 command, got %d", len(plan.Steps[0].Commands))
+	if plan.Steps[0].Tree == nil {
+		t.Errorf("Expected first step to have 1 command, got %d", len(plan.Steps[0].Tree))
 	}
 
-	if len(plan.Steps[1].Commands) != 1 {
-		t.Errorf("Expected second step to have 1 command, got %d", len(plan.Steps[1].Commands))
+	if plan.Steps[1].Tree == nil {
+		t.Errorf("Expected second step to have 1 command, got %d", len(plan.Steps[1].Tree))
 	}
 }
 
@@ -423,42 +439,42 @@ echo "D"`)
 	}
 
 	// Step 1: THREE commands with operators
-	if len(plan.Steps[0].Commands) != 3 {
-		t.Errorf("Expected step 0 to have 3 commands, got %d", len(plan.Steps[0].Commands))
+	if len(plan.Steps[0].Tree) != 3 {
+		t.Errorf("Expected step 0 to have 3 commands, got %d", len(plan.Steps[0].Tree))
 	}
 
 	// Verify step 1 commands and operators
-	if plan.Steps[0].Commands[0].Args[0].Val.Str != `echo "A"` {
-		t.Errorf("Step 0, cmd 0: expected 'echo \"A\"', got %q", plan.Steps[0].Commands[0].Args[0].Val.Str)
+	if getCommandArg(plan.Steps[0].Tree, "command") != `echo "A"` {
+		t.Errorf("Step 0, cmd 0: expected 'echo \"A\"', got %q", getCommandArg(plan.Steps[0].Tree, "command"))
 	}
-	if plan.Steps[0].Commands[0].Operator != "&&" {
-		t.Errorf("Step 0, cmd 0: expected && operator, got %q", plan.Steps[0].Commands[0].Operator)
-	}
-
-	if plan.Steps[0].Commands[1].Args[0].Val.Str != `echo "B"` {
-		t.Errorf("Step 0, cmd 1: expected 'echo \"B\"', got %q", plan.Steps[0].Commands[1].Args[0].Val.Str)
-	}
-	if plan.Steps[0].Commands[1].Operator != "||" {
-		t.Errorf("Step 0, cmd 1: expected || operator, got %q", plan.Steps[0].Commands[1].Operator)
+	if plan.Steps[0].Tree[0].Operator != "&&" {
+		t.Errorf("Step 0, cmd 0: expected && operator, got %q", plan.Steps[0].Tree[0].Operator)
 	}
 
-	if plan.Steps[0].Commands[2].Args[0].Val.Str != `echo "C"` {
-		t.Errorf("Step 0, cmd 2: expected 'echo \"C\"', got %q", plan.Steps[0].Commands[2].Args[0].Val.Str)
+	if plan.Steps[0].Tree[1].Args[0].Val.Str != `echo "B"` {
+		t.Errorf("Step 0, cmd 1: expected 'echo \"B\"', got %q", plan.Steps[0].Tree[1].Args[0].Val.Str)
 	}
-	if plan.Steps[0].Commands[2].Operator != "" {
-		t.Errorf("Step 0, cmd 2: expected empty operator (last in step), got %q", plan.Steps[0].Commands[2].Operator)
+	if plan.Steps[0].Tree[1].Operator != "||" {
+		t.Errorf("Step 0, cmd 1: expected || operator, got %q", plan.Steps[0].Tree[1].Operator)
+	}
+
+	if plan.Steps[0].Tree[2].Args[0].Val.Str != `echo "C"` {
+		t.Errorf("Step 0, cmd 2: expected 'echo \"C\"', got %q", plan.Steps[0].Tree[2].Args[0].Val.Str)
+	}
+	if plan.Steps[0].Tree[2].Operator != "" {
+		t.Errorf("Step 0, cmd 2: expected empty operator (last in step), got %q", plan.Steps[0].Tree[2].Operator)
 	}
 
 	// Step 2: ONE command (top-level echo "D")
-	if len(plan.Steps[1].Commands) != 1 {
-		t.Errorf("Expected step 1 to have 1 command, got %d", len(plan.Steps[1].Commands))
+	if plan.Steps[1].Tree == nil {
+		t.Errorf("Expected step 1 to have 1 command, got %d", len(plan.Steps[1].Tree))
 	}
 
-	if plan.Steps[1].Commands[0].Args[0].Val.Str != `echo "D"` {
-		t.Errorf("Step 1, cmd 0: expected 'echo \"D\"', got %q", plan.Steps[1].Commands[0].Args[0].Val.Str)
+	if getCommandArg(plan.Steps[1].Tree, "command") != `echo "D"` {
+		t.Errorf("Step 1, cmd 0: expected 'echo \"D\"', got %q", getCommandArg(plan.Steps[1].Tree, "command"))
 	}
-	if plan.Steps[1].Commands[0].Operator != "" {
-		t.Errorf("Step 1, cmd 0: expected empty operator, got %q", plan.Steps[1].Commands[0].Operator)
+	if plan.Steps[1].Tree[0].Operator != "" {
+		t.Errorf("Step 1, cmd 0: expected empty operator, got %q", plan.Steps[1].Tree[0].Operator)
 	}
 }
 

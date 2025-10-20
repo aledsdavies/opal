@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 
+	"github.com/aledsdavies/opal/core/invariant"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -207,37 +208,17 @@ func (wr *Writer) writeBody(buf *bytes.Buffer, p *Plan) error {
 
 // writeStep writes a single step and its execution tree
 func (wr *Writer) writeStep(buf *bytes.Buffer, s *Step) error {
+	// INPUT CONTRACT
+	invariant.Precondition(s.Tree != nil, "Step.Tree must not be nil (Commands field is ignored)")
+
 	// Write step ID (8 bytes, uint64, little-endian)
 	if err := binary.Write(buf, binary.LittleEndian, s.ID); err != nil {
 		return err
 	}
 
-	// Write execution tree (preferred) or fallback to commands (backward compat)
-	if s.Tree != nil {
-		// Write tree marker (1 byte: 0x01 = has tree)
-		if err := buf.WriteByte(0x01); err != nil {
-			return err
-		}
-		// Write the tree
-		if err := wr.writeExecutionNode(buf, s.Tree); err != nil {
-			return err
-		}
-	} else {
-		// Write legacy commands marker (1 byte: 0x00 = no tree, use commands)
-		if err := buf.WriteByte(0x00); err != nil {
-			return err
-		}
-		// Write command count (2 bytes, uint16)
-		cmdCount := uint16(len(s.Commands))
-		if err := binary.Write(buf, binary.LittleEndian, cmdCount); err != nil {
-			return err
-		}
-		// Write each command
-		for i := range s.Commands {
-			if err := wr.writeCommand(buf, &s.Commands[i]); err != nil {
-				return err
-			}
-		}
+	// Write execution tree (Commands field is ignored - only exists for executor during transition)
+	if err := wr.writeExecutionNode(buf, s.Tree); err != nil {
+		return err
 	}
 
 	return nil
@@ -261,11 +242,10 @@ func (wr *Writer) writeExecutionNode(buf *bytes.Buffer, node ExecutionNode) erro
 			return err
 		}
 		// Write command data (reuse writeCommand logic)
-		return wr.writeCommand(buf, &Command{
+		return wr.writeCommand(buf, &CommandNode{
 			Decorator: n.Decorator,
 			Args:      n.Args,
 			Block:     n.Block,
-			Operator:  "", // Commands in tree don't have operators
 		})
 
 	case *PipelineNode:
@@ -336,7 +316,7 @@ func (wr *Writer) writeExecutionNode(buf *bytes.Buffer, node ExecutionNode) erro
 }
 
 // writeCommand writes a single command
-func (wr *Writer) writeCommand(buf *bytes.Buffer, cmd *Command) error {
+func (wr *Writer) writeCommand(buf *bytes.Buffer, cmd *CommandNode) error {
 	// Write decorator (2-byte length + string)
 	decoratorLen := uint16(len(cmd.Decorator))
 	if err := binary.Write(buf, binary.LittleEndian, decoratorLen); err != nil {
@@ -370,15 +350,6 @@ func (wr *Writer) writeCommand(buf *bytes.Buffer, cmd *Command) error {
 		if err := wr.writeStep(buf, &cmd.Block[i]); err != nil {
 			return err
 		}
-	}
-
-	// Write operator (2-byte length + string)
-	operatorLen := uint16(len(cmd.Operator))
-	if err := binary.Write(buf, binary.LittleEndian, operatorLen); err != nil {
-		return err
-	}
-	if _, err := buf.WriteString(cmd.Operator); err != nil {
-		return err
 	}
 
 	return nil
