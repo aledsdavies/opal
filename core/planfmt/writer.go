@@ -270,6 +270,9 @@ func (wr *Writer) writeExecutionNode(buf *bytes.Buffer, node ExecutionNode) erro
 			return err
 		}
 		// Write command count
+		if err := validateUint16(len(n.Commands), "pipeline command count"); err != nil {
+			return err
+		}
 		cmdCount := uint16(len(n.Commands))
 		if err := binary.Write(buf, binary.LittleEndian, cmdCount); err != nil {
 			return err
@@ -313,6 +316,9 @@ func (wr *Writer) writeExecutionNode(buf *bytes.Buffer, node ExecutionNode) erro
 			return err
 		}
 		// Write node count
+		if err := validateUint16(len(n.Nodes), "sequence node count"); err != nil {
+			return err
+		}
 		nodeCount := uint16(len(n.Nodes))
 		if err := binary.Write(buf, binary.LittleEndian, nodeCount); err != nil {
 			return err
@@ -346,6 +352,9 @@ func (wr *Writer) writeCommand(buf *bytes.Buffer, cmd *CommandNode) error {
 	}
 
 	// Write args count (2 bytes, uint16)
+	if err := validateUint16(len(cmd.Args), "argument count"); err != nil {
+		return err
+	}
 	argsCount := uint16(len(cmd.Args))
 	if err := binary.Write(buf, binary.LittleEndian, argsCount); err != nil {
 		return err
@@ -359,6 +368,9 @@ func (wr *Writer) writeCommand(buf *bytes.Buffer, cmd *CommandNode) error {
 	}
 
 	// Write block step count (2 bytes, uint16)
+	if err := validateUint16(len(cmd.Block), "block step count"); err != nil {
+		return err
+	}
 	blockCount := uint16(len(cmd.Block))
 	if err := binary.Write(buf, binary.LittleEndian, blockCount); err != nil {
 		return err
@@ -377,6 +389,9 @@ func (wr *Writer) writeCommand(buf *bytes.Buffer, cmd *CommandNode) error {
 // writeArg writes a single argument
 func (wr *Writer) writeArg(buf *bytes.Buffer, arg *Arg) error {
 	// Write key (2-byte length + string)
+	if err := validateUint16(len(arg.Key), "argument key length"); err != nil {
+		return err
+	}
 	keyLen := uint16(len(arg.Key))
 	if err := binary.Write(buf, binary.LittleEndian, keyLen); err != nil {
 		return err
@@ -394,6 +409,9 @@ func (wr *Writer) writeArg(buf *bytes.Buffer, arg *Arg) error {
 	switch arg.Val.Kind {
 	case ValueString:
 		// String: 2-byte length + string
+		if err := validateUint16(len(arg.Val.Str), "string value length"); err != nil {
+			return err
+		}
 		strLen := uint16(len(arg.Val.Str))
 		if err := binary.Write(buf, binary.LittleEndian, strLen); err != nil {
 			return err
@@ -457,6 +475,9 @@ func WriteContract(w io.Writer, target string, planHash [32]byte, plan *Plan) er
 	}
 
 	// Write target length (2 bytes, little-endian)
+	if err := validateUint16(len(target), "target length"); err != nil {
+		return err
+	}
 	targetLen := uint16(len(target))
 	if err := binary.Write(mw, binary.LittleEndian, targetLen); err != nil {
 		return err
