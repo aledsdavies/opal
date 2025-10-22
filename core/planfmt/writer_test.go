@@ -255,3 +255,78 @@ func TestContractRoundtrip(t *testing.T) {
 		t.Errorf("Step ID mismatch: got %d, want %d", readPlan.Steps[0].ID, plan.Steps[0].ID)
 	}
 }
+
+// TestWriteTargetTooLong tests that target strings exceeding uint16 max are rejected
+func TestWriteTargetTooLong(t *testing.T) {
+	// Create a target string longer than uint16 max (65535 bytes)
+	longTarget := string(make([]byte, 65536))
+	
+	plan := &planfmt.Plan{
+		Target: longTarget,
+	}
+
+	var buf bytes.Buffer
+	_, err := planfmt.Write(&buf, plan)
+	
+	if err == nil {
+		t.Fatal("Expected error for target exceeding uint16 max, got nil")
+	}
+	
+	if err.Error() != "target length 65536 exceeds maximum 65535" {
+		t.Errorf("Wrong error message: %v", err)
+	}
+}
+
+// TestWriteTooManySteps tests that step counts exceeding uint16 max are rejected
+func TestWriteTooManySteps(t *testing.T) {
+	// Create more steps than uint16 max (65535)
+	steps := make([]planfmt.Step, 65536)
+	for i := range steps {
+		steps[i] = planfmt.Step{
+			ID:   uint64(i + 1),
+			Tree: &planfmt.CommandNode{Decorator: "test"},
+		}
+	}
+	
+	plan := &planfmt.Plan{
+		Target: "test",
+		Steps:  steps,
+	}
+
+	var buf bytes.Buffer
+	_, err := planfmt.Write(&buf, plan)
+	
+	if err == nil {
+		t.Fatal("Expected error for step count exceeding uint16 max, got nil")
+	}
+	
+	if err.Error() != "step count 65536 exceeds maximum 65535" {
+		t.Errorf("Wrong error message: %v", err)
+	}
+}
+
+// TestWriteDecoratorNameTooLong tests that decorator names exceeding uint16 max are rejected
+func TestWriteDecoratorNameTooLong(t *testing.T) {
+	longDecorator := string(make([]byte, 65536))
+	
+	plan := &planfmt.Plan{
+		Target: "test",
+		Steps: []planfmt.Step{
+			{
+				ID:   1,
+				Tree: &planfmt.CommandNode{Decorator: longDecorator},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	_, err := planfmt.Write(&buf, plan)
+	
+	if err == nil {
+		t.Fatal("Expected error for decorator name exceeding uint16 max, got nil")
+	}
+	
+	if err.Error() != "decorator name length 65536 exceeds maximum 65535" {
+		t.Errorf("Wrong error message: %v", err)
+	}
+}

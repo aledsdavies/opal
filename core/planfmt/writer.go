@@ -3,7 +3,9 @@ package planfmt
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
+	"math"
 
 	"github.com/aledsdavies/opal/core/invariant"
 	"golang.org/x/crypto/blake2b"
@@ -32,6 +34,14 @@ const (
 
 	// Bits 2-15 reserved for future use
 )
+
+// validateUint16 checks if a value fits in uint16, returns error if it exceeds max
+func validateUint16(value int, fieldName string) error {
+	if value > math.MaxUint16 {
+		return fmt.Errorf("%s %d exceeds maximum %d", fieldName, value, math.MaxUint16)
+	}
+	return nil
+}
 
 // Write writes a plan to w and returns the 32-byte file hash (BLAKE2b-256).
 // The plan is canonicalized before writing to ensure deterministic output.
@@ -177,6 +187,9 @@ func (wr *Writer) writeHeader(buf *bytes.Buffer, p *Plan) error {
 	}
 
 	// Target (variable length: 2-byte length prefix + string bytes)
+	if err := validateUint16(len(p.Target), "target length"); err != nil {
+		return err
+	}
 	targetLen := uint16(len(p.Target))
 	if err := binary.Write(buf, binary.LittleEndian, targetLen); err != nil {
 		return err
@@ -191,6 +204,9 @@ func (wr *Writer) writeHeader(buf *bytes.Buffer, p *Plan) error {
 // writeBody writes the plan body (TOC + sections) to the buffer
 func (wr *Writer) writeBody(buf *bytes.Buffer, p *Plan) error {
 	// Write step count (2 bytes, uint16)
+	if err := validateUint16(len(p.Steps), "step count"); err != nil {
+		return err
+	}
 	stepCount := uint16(len(p.Steps))
 	if err := binary.Write(buf, binary.LittleEndian, stepCount); err != nil {
 		return err
@@ -318,6 +334,9 @@ func (wr *Writer) writeExecutionNode(buf *bytes.Buffer, node ExecutionNode) erro
 // writeCommand writes a single command
 func (wr *Writer) writeCommand(buf *bytes.Buffer, cmd *CommandNode) error {
 	// Write decorator (2-byte length + string)
+	if err := validateUint16(len(cmd.Decorator), "decorator name length"); err != nil {
+		return err
+	}
 	decoratorLen := uint16(len(cmd.Decorator))
 	if err := binary.Write(buf, binary.LittleEndian, decoratorLen); err != nil {
 		return err
