@@ -80,6 +80,18 @@ These OEPs propose tools and integrations to improve the developer experience.
   - Hash-based trust for plans
   - **Status:** Design phase
 
+- **OEP-014: Drift Review Command** (Draft)
+  - `opal review` reports contract vs reality drift without mutations
+  - Deterministic human-readable and JSON outputs for CI/governance
+  - CI-friendly exit codes and telemetry integration
+  - **Status:** Design phase
+
+- **OEP-015: Bidirectional Drift Reconciliation** (Draft)
+  - `opal apply` enforces code-defined desired state safely
+  - `opal bless` updates source to reflect intentional real-world changes
+  - Shared drift metadata, confirmations, and formatting guarantees
+  - **Status:** Design phase
+
 ### Ecosystem Extensions (Reach & Integration)
 
 These OEPs propose integrations with external systems and providers.
