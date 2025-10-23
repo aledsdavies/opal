@@ -37,6 +37,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/aledsdavies/opal/core/invariant"
@@ -385,6 +386,12 @@ func (t *LocalTransport) OpenFileWriter(ctx context.Context, path string, mode R
 	invariant.NotNil(ctx, "context")
 	invariant.Precondition(path != "", "path cannot be empty")
 
+	// Create parent directories (same as Put method)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+
 	switch mode {
 	case RedirectOverwrite:
 		// Atomic write: write to temp file, rename on Close()
@@ -394,7 +401,7 @@ func (t *LocalTransport) OpenFileWriter(ctx context.Context, path string, mode R
 		if err != nil {
 			return nil, err
 		}
-		return &atomicWriter{f: file, final: path}, nil
+		return &atomicWriter{f: file, final: path, ctx: ctx}, nil
 
 	case RedirectAppend:
 		// Append mode: direct write (POSIX doesn't guarantee atomic append anyway)
@@ -412,21 +419,50 @@ func (t *LocalTransport) OpenFileWriter(ctx context.Context, path string, mode R
 // atomicWriter wraps a file and performs atomic rename on Close().
 // Used for RedirectOverwrite mode to ensure readers never see partial writes.
 type atomicWriter struct {
-	f     *os.File
-	final string
+	f      *os.File
+	final  string
+	ctx    context.Context
+	hadErr bool // Track if any write/close error occurred
 }
 
 func (w *atomicWriter) Write(b []byte) (int, error) {
-	return w.f.Write(b)
+	// Check context cancellation
+	select {
+	case <-w.ctx.Done():
+		w.hadErr = true
+		return 0, w.ctx.Err()
+	default:
+	}
+
+	n, err := w.f.Write(b)
+	if err != nil {
+		w.hadErr = true
+	}
+	return n, err
 }
 
 func (w *atomicWriter) Close() error {
 	// Close the temp file first
-	if err := w.f.Close(); err != nil {
-		return err
+	closeErr := w.f.Close()
+	if closeErr != nil {
+		w.hadErr = true
 	}
+
+	// Only rename if no errors occurred during write/close
+	if w.hadErr {
+		// Clean up temp file on error
+		os.Remove(w.f.Name())
+		return closeErr
+	}
+
 	// Atomically rename temp file to final destination
-	// This is atomic on POSIX systems (rename(2) is atomic)
+	// On Windows, os.Rename fails if dest exists, so delete first
+	if runtime.GOOS == "windows" {
+		// Delete existing file (if any) then rename
+		// This isn't perfectly atomic on Windows, but close enough
+		os.Remove(w.final)
+	}
+
 	return os.Rename(w.f.Name(), w.final)
 }
 
