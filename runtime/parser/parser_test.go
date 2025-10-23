@@ -39,6 +39,17 @@ func init() {
 	if err := types.Global().RegisterValueWithSchema(fileReadSchema, nil); err != nil {
 		panic(err)
 	}
+
+	// Register @file.temp for redirect validation tests
+	// Supports overwrite only (no append)
+	fileTempSchema := types.NewSchema("file.temp", types.KindExecution).
+		Description("Create temporary file").
+		WithRedirect(types.RedirectOverwriteOnly).
+		Build()
+
+	if err := types.Global().RegisterSDKHandlerWithSchema(fileTempSchema, nil); err != nil {
+		panic(err)
+	}
 }
 
 // TestParseEventStructure uses table-driven tests to verify parse tree events
@@ -505,7 +516,7 @@ func TestRedirectOperatorValidation(t *testing.T) {
 			name:  "redirect to decorator without redirect support",
 			input: `echo "test" > @timeout(5s)`,
 			expectedError: &ParseError{
-				Position:   lexer.Position{Line: 1, Column: 15, Offset: 14},
+				Position:   lexer.Position{Line: 1, Column: 13, Offset: 12},
 				Message:    "@timeout does not support redirection",
 				Context:    "redirect operator",
 				Got:        lexer.GT,
@@ -518,13 +529,13 @@ func TestRedirectOperatorValidation(t *testing.T) {
 			name:  "append to decorator that only supports overwrite",
 			input: `echo "test" >> @file.temp()`,
 			expectedError: &ParseError{
-				Position:   lexer.Position{Line: 1, Column: 15, Offset: 14},
+				Position:   lexer.Position{Line: 1, Column: 13, Offset: 12},
 				Message:    "@file.temp does not support append (>>)",
 				Context:    "redirect operator",
 				Got:        lexer.APPEND,
-				Suggestion: "Use > (overwrite) instead, or use a decorator that supports append",
-				Example:    "echo \"test\" > @file.temp()",
-				Note:       "@file.temp only supports overwrite (>)",
+				Suggestion: "Use a different redirect mode or a decorator that supports append",
+				Example:    "echo \"test\" >> output.txt",
+				Note:       "@file.temp only supports overwrite-only",
 			},
 		},
 		{
