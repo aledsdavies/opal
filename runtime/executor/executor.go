@@ -214,6 +214,9 @@ func (e *executor) executeTree(node sdk.TreeNode) int {
 		}
 		return lastExit
 
+	case *sdk.RedirectNode:
+		return e.executeRedirect(n)
+
 	default:
 		invariant.Invariant(false, "unknown TreeNode type: %T", node)
 		return 1 // Unreachable
@@ -324,6 +327,44 @@ func (e *executor) executeCommandWithPipes(cmd *sdk.CommandNode, stdin io.Reader
 	}
 
 	return exitCode
+}
+
+// executeRedirect executes a redirect operation (> or >>)
+// Opens the target file and redirects source's stdout to it
+func (e *executor) executeRedirect(redirect *sdk.RedirectNode) int {
+	// Extract file path from target command
+	// The target is @shell("output.txt"), so we get the "command" arg
+	targetPath, ok := redirect.Target.Args["command"].(string)
+	if !ok || targetPath == "" {
+		fmt.Fprintf(os.Stderr, "Error: redirect target must be a file path\n")
+		return 127
+	}
+
+	// Open file with appropriate mode
+	var file *os.File
+	var err error
+
+	switch redirect.Mode {
+	case sdk.RedirectOverwrite:
+		// > operator: truncate file (or create if doesn't exist)
+		file, err = os.Create(targetPath)
+	case sdk.RedirectAppend:
+		// >> operator: append to file (or create if doesn't exist)
+		file, err = os.OpenFile(targetPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unknown redirect mode: %v\n", redirect.Mode)
+		return 127
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to open redirect target %q: %v\n", targetPath, err)
+		return 1
+	}
+	defer file.Close()
+
+	// TODO: Execute source with stdout redirected to file
+	// For now, just execute source normally
+	return e.executeTree(redirect.Source)
 }
 
 // recordDebugEvent records a debug event (only if debug enabled)

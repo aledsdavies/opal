@@ -63,6 +63,16 @@ func toSDKTree(node ExecutionNode) sdk.TreeNode {
 			nodes[i] = toSDKTree(child)
 		}
 		return &sdk.SequenceNode{Nodes: nodes}
+	case *RedirectNode:
+		return &sdk.RedirectNode{
+			Source: toSDKTree(n.Source),
+			Target: sdk.CommandNode{
+				Name:  n.Target.Decorator,
+				Args:  ToSDKArgs(n.Target.Args),
+				Block: ToSDKSteps(n.Target.Block),
+			},
+			Mode: sdk.RedirectMode(n.Mode), // Convert planfmt.RedirectMode to sdk.RedirectMode
+		}
 	default:
 		panic("unknown ExecutionNode type")
 	}

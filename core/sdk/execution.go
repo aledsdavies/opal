@@ -168,6 +168,24 @@ type SequenceNode struct {
 
 func (*SequenceNode) isTreeNode() {}
 
+// RedirectMode specifies how to open the redirect target.
+type RedirectMode int
+
+const (
+	RedirectOverwrite RedirectMode = iota // > (truncate file)
+	RedirectAppend                        // >> (append to file)
+)
+
+// RedirectNode redirects stdout from Source to Target.
+// The target is always a CommandNode (decorator) that provides the sink.
+type RedirectNode struct {
+	Source TreeNode    // Command/pipeline producing output
+	Target CommandNode // Decorator providing the sink
+	Mode   RedirectMode
+}
+
+func (*RedirectNode) isTreeNode() {}
+
 // ExecutionContext provides execution environment for decorators.
 // This is the interface decorators receive - it abstracts away the executor implementation.
 //

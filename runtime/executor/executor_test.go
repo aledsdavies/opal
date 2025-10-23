@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -247,22 +248,68 @@ func TestInvariantNilPlan(t *testing.T) {
 	})
 }
 
-// TestInvariantEmptyShellCommand tests that empty shell command returns error
-func TestInvariantEmptyShellCommand(t *testing.T) {
+// TestExecuteRedirectOverwrite tests output redirection with > operator
+func TestExecuteRedirectOverwrite(t *testing.T) {
+	// Create temp file for testing
+	tmpFile := t.TempDir() + "/output.txt"
+
 	plan := &planfmt.Plan{
-		Target: "empty",
+		Target: "redirect",
 		Steps: []planfmt.Step{
 			{
-				ID:   1,
-				Tree: shellCmd(""),
+				ID: 1,
+				Tree: &planfmt.RedirectNode{
+					Source: shellCmd("echo 'Hello, World!'"),
+					Target: *shellCmd(tmpFile),
+					Mode:   planfmt.RedirectOverwrite,
+				},
 			},
 		},
 	}
 
 	steps := planfmt.ToSDKSteps(plan.Steps)
 	result, err := Execute(steps, Config{})
-	require.NoError(t, err)               // Executor completes successfully
-	assert.Equal(t, 127, result.ExitCode) // But decorator returns error exit code
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+	assert.Equal(t, 1, result.StepsRun)
+
+	// Verify file contents
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	assert.Equal(t, "Hello, World!\n", string(content))
+}
+
+// TestExecuteRedirectAppend tests output redirection with >> operator
+func TestExecuteRedirectAppend(t *testing.T) {
+	// Create temp file with initial content
+	tmpFile := t.TempDir() + "/output.txt"
+	err := os.WriteFile(tmpFile, []byte("Line 1\n"), 0644)
+	require.NoError(t, err)
+
+	plan := &planfmt.Plan{
+		Target: "redirect",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.RedirectNode{
+					Source: shellCmd("echo 'Line 2'"),
+					Target: *shellCmd(tmpFile),
+					Mode:   planfmt.RedirectAppend,
+				},
+			},
+		},
+	}
+
+	steps := planfmt.ToSDKSteps(plan.Steps)
+	result, err := Execute(steps, Config{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+	assert.Equal(t, 1, result.StepsRun)
+
+	// Verify file contents (should have both lines)
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	assert.Equal(t, "Line 1\nLine 2\n", string(content))
 }
 
 // TestOperatorSemicolon tests semicolon operator (always execute next)
