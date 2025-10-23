@@ -676,3 +676,82 @@ fun log = echo "Log"`)
 		t.Errorf("Contract instability detected!\nAdding 'log' function invalidated 'hello' contract\nhash1: %x\nhash2: %x", hash1, hash2)
 	}
 }
+
+// TestRedirectOperators tests output redirection (> and >>)
+func TestRedirectOperators(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantMode planfmt.RedirectMode
+	}{
+		{
+			name:     "simple redirect overwrite",
+			input:    `echo "hello" > output.txt`,
+			wantMode: planfmt.RedirectOverwrite,
+		},
+		{
+			name:     "simple redirect append",
+			input:    `echo "world" >> output.txt`,
+			wantMode: planfmt.RedirectAppend,
+		},
+		{
+			name:     "redirect with variable",
+			input:    `echo "data" > @var.OUTPUT_FILE`,
+			wantMode: planfmt.RedirectOverwrite,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse
+			tree := parser.Parse([]byte(tt.input))
+
+			if len(tree.Errors) > 0 {
+				t.Fatalf("Parse errors: %v", tree.Errors)
+			}
+
+			// Plan (script mode)
+			result, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
+				Target: "",
+			})
+			if err != nil {
+				t.Fatalf("Plan failed: %v", err)
+			}
+
+			// Verify plan structure
+			if len(result.Steps) != 1 {
+				t.Fatalf("Expected 1 step, got %d", len(result.Steps))
+			}
+
+			step := result.Steps[0]
+			if step.Tree == nil {
+				t.Fatal("Expected tree, got nil")
+			}
+
+			// Tree should be a RedirectNode
+			redirectNode, ok := step.Tree.(*planfmt.RedirectNode)
+			if !ok {
+				t.Fatalf("Expected RedirectNode, got %T", step.Tree)
+			}
+
+			// Check redirect mode
+			if redirectNode.Mode != tt.wantMode {
+				t.Errorf("Expected mode %v, got %v", tt.wantMode, redirectNode.Mode)
+			}
+
+			// Source should be a CommandNode with @shell
+			sourceCmd, ok := redirectNode.Source.(*planfmt.CommandNode)
+			if !ok {
+				t.Fatalf("Expected source to be CommandNode, got %T", redirectNode.Source)
+			}
+			if sourceCmd.Decorator != "@shell" {
+				t.Errorf("Expected source decorator @shell, got %q", sourceCmd.Decorator)
+			}
+
+			// Target should be a CommandNode with @shell
+			if redirectNode.Target.Decorator != "@shell" {
+				t.Errorf("Expected target decorator @shell, got %q", redirectNode.Target.Decorator)
+			}
+		})
+	}
+}

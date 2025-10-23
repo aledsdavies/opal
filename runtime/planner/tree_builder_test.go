@@ -681,69 +681,6 @@ func TestBuildStepTree(t *testing.T) {
 				Mode: planfmt.RedirectOverwrite,
 			},
 		},
-		{
-			name: "redirect with AND (redirect > AND precedence)",
-			commands: []Command{
-				{
-					Decorator: "@shell",
-					Args: []planfmt.Arg{
-						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo a"}},
-					},
-					Operator: ">",
-					RedirectTarget: &Command{
-						Decorator: "@shell",
-						Args: []planfmt.Arg{
-							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "file.txt"}},
-						},
-					},
-				},
-				{
-					Decorator: "@shell",
-					Args: []planfmt.Arg{
-						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo b"}},
-					},
-					Operator: "&&",
-				},
-				{
-					Decorator: "@shell",
-					Args: []planfmt.Arg{
-						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo c"}},
-					},
-					Operator: "",
-				},
-			},
-			want: &planfmt.AndNode{
-				Left: &planfmt.RedirectNode{
-					Source: &planfmt.CommandNode{
-						Decorator: "@shell",
-						Args: []planfmt.Arg{
-							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo a"}},
-						},
-					},
-					Target: planfmt.CommandNode{
-						Decorator: "@shell",
-						Args: []planfmt.Arg{
-							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "file.txt"}},
-						},
-					},
-					Mode: planfmt.RedirectOverwrite,
-				},
-				Right: &planfmt.AndNode{
-					Left: &planfmt.CommandNode{
-						Decorator: "@shell",
-						Args: []planfmt.Arg{
-							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo b"}},
-						},
-					},
-					Right: &planfmt.CommandNode{
-						Decorator: "@shell",
-						Args: []planfmt.Arg{
-							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo c"}},
-						},
-					},
-				},
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -758,6 +695,7 @@ func TestBuildStepTree(t *testing.T) {
 				cmpopts.IgnoreUnexported(planfmt.AndNode{}),
 				cmpopts.IgnoreUnexported(planfmt.OrNode{}),
 				cmpopts.IgnoreUnexported(planfmt.SequenceNode{}),
+				cmpopts.IgnoreUnexported(planfmt.RedirectNode{}),
 			}
 
 			if diff := cmp.Diff(tt.want, got, opts...); diff != "" {

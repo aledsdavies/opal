@@ -38,10 +38,11 @@ import (
 // Commands are collected from parser events and then converted to ExecutionNode tree.
 // This is an intermediate representation - the final Step only contains the Tree.
 type Command struct {
-	Decorator string         // "@shell", "@retry", "@parallel", etc.
-	Args      []planfmt.Arg  // Decorator arguments
-	Block     []planfmt.Step // Nested steps (for decorators with blocks)
-	Operator  string         // "&&", "||", "|", ";" - how to chain to NEXT command (empty for last)
+	Decorator      string         // "@shell", "@retry", "@parallel", etc.
+	Args           []planfmt.Arg  // Decorator arguments
+	Block          []planfmt.Step // Nested steps (for decorators with blocks)
+	Operator       string         // "&&", "||", "|", ";", ">", ">>" - how to chain to NEXT command (empty for last)
+	RedirectTarget *Command       // For redirect operators (> and >>), the target decorator (nil otherwise)
 }
 
 // Config configures the planner
@@ -535,14 +536,97 @@ func (p *planner) planCommand() (Command, error) {
 	// POSTCONDITION: command must not be empty
 	invariant.Postcondition(command != "", "shell command must not be empty")
 
-	// Check for operator after this command (&&, ||, |, ;)
+	// Check for redirect operator after this command (> or >>)
+	var redirectTarget *Command
 	operator := ""
+
 	if p.pos < len(p.events) {
 		evt := p.events[p.pos]
-		if evt.Kind == parser.EventToken {
+
+		// Check for NodeRedirect
+		if evt.Kind == parser.EventOpen && parser.NodeKind(evt.Data) == parser.NodeRedirect {
+			p.pos++ // Move past OPEN NodeRedirect
+
+			// Next should be the redirect operator token (> or >>)
+			if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventToken {
+				tokenIdx := p.events[p.pos].Data
+				tokenType := p.tokens[tokenIdx].Type
+
+				switch tokenType {
+				case lexer.GT:
+					operator = ">"
+				case lexer.APPEND:
+					operator = ">>"
+				}
+				p.pos++ // Consume the operator token
+			}
+
+			// Next should be OPEN NodeRedirectTarget
+			if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventOpen &&
+				parser.NodeKind(p.events[p.pos].Data) == parser.NodeRedirectTarget {
+				p.pos++ // Move past OPEN NodeRedirectTarget
+
+				// Collect tokens for redirect target
+				var targetTokens []uint32
+				targetDepth := 1
+
+				for p.pos < len(p.events) && targetDepth > 0 {
+					evt := p.events[p.pos]
+
+					if evt.Kind == parser.EventOpen {
+						targetDepth++
+					} else if evt.Kind == parser.EventClose {
+						targetDepth--
+						if targetDepth == 0 {
+							p.pos++ // Move past CLOSE NodeRedirectTarget
+							break
+						}
+					} else if evt.Kind == parser.EventToken {
+						targetTokens = append(targetTokens, evt.Data)
+					}
+
+					p.pos++
+				}
+
+				// Build target command string
+				targetCmd := ""
+				for i, tokenIdx := range targetTokens {
+					token := p.tokens[tokenIdx]
+
+					if i > 0 && token.HasSpaceBefore {
+						targetCmd += " "
+					}
+
+					tokenText := getTokenText(token)
+					targetCmd += tokenText
+				}
+
+				// Create redirect target command
+				if targetCmd != "" {
+					redirectTarget = &Command{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{
+								Key: "command",
+								Val: planfmt.Value{
+									Kind: planfmt.ValueString,
+									Str:  targetCmd,
+								},
+							},
+						},
+					}
+				}
+			}
+
+			// Move past CLOSE NodeRedirect
+			if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
+				p.pos++
+			}
+		} else if evt.Kind == parser.EventToken {
+			// Check for other operators (&&, ||, |, ;)
 			tokenIdx := evt.Data
 			tokenType := p.tokens[tokenIdx].Type
-			// Check if it's an operator (use token type, not text)
+
 			switch tokenType {
 			case lexer.AND_AND:
 				operator = "&&"
@@ -571,7 +655,8 @@ func (p *planner) planCommand() (Command, error) {
 				},
 			},
 		},
-		Operator: operator,
+		Operator:       operator,
+		RedirectTarget: redirectTarget,
 	}
 
 	if p.config.Debug >= DebugDetailed {

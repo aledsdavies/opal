@@ -6,7 +6,7 @@ import (
 )
 
 // buildStepTree converts flat command list to operator precedence tree.
-// Precedence (high to low): | > && > || > ;
+// Precedence (high to low): | > redirect > && > || > ;
 //
 // This implements the same logic as executor/execution_tree.go but at plan time.
 // The tree structure captures operator precedence and enables:
@@ -17,9 +17,34 @@ import (
 func buildStepTree(commands []Command) planfmt.ExecutionNode {
 	invariant.Precondition(len(commands) > 0, "commands cannot be empty")
 
-	// Single command - no operators
+	// Single command - check if it has a redirect operator
 	if len(commands) == 1 {
-		return commandToNode(commands[0])
+		cmd := commands[0]
+
+		// Check if this command has a redirect
+		if (cmd.Operator == ">" || cmd.Operator == ">>") && cmd.RedirectTarget != nil {
+			source := &planfmt.CommandNode{
+				Decorator: cmd.Decorator,
+				Args:      cmd.Args,
+				Block:     cmd.Block,
+			}
+
+			target := commandToNode(*cmd.RedirectTarget)
+
+			mode := planfmt.RedirectOverwrite
+			if cmd.Operator == ">>" {
+				mode = planfmt.RedirectAppend
+			}
+
+			return &planfmt.RedirectNode{
+				Source: source,
+				Target: *target,
+				Mode:   mode,
+			}
+		}
+
+		// No redirect - just return the command
+		return commandToNode(cmd)
 	}
 
 	// Parse operators by precedence (lowest to highest)
@@ -40,7 +65,12 @@ func buildStepTree(commands []Command) planfmt.ExecutionNode {
 		return node
 	}
 
-	// 4. Pipe operator (highest precedence) - must be contiguous
+	// 4. Redirect operator (> and >>)
+	if node := parseRedirect(commands); node != nil {
+		return node
+	}
+
+	// 5. Pipe operator (highest precedence) - must be contiguous
 	if node := parsePipe(commands); node != nil {
 		return node
 	}
@@ -140,6 +170,45 @@ func parseAnd(commands []Command) planfmt.ExecutionNode {
 			left := buildStepTree(leftCmds)
 			right := buildStepTree(commands[i+1:])
 			return &planfmt.AndNode{Left: left, Right: right}
+		}
+	}
+	return nil
+}
+
+// parseRedirect splits on redirect operators (> and >> have lower precedence than |, higher than &&)
+func parseRedirect(commands []Command) planfmt.ExecutionNode {
+	// Find rightmost redirect operator (left-to-right associativity)
+	// Operator is on the command BEFORE the split point
+	for i := len(commands) - 1; i >= 0; i-- {
+		if commands[i].Operator == ">" || commands[i].Operator == ">>" {
+			// The command at position i has the redirect operator and target
+			// Build the source (everything up to and including command i, without the redirect)
+			leftCmds := make([]Command, i+1)
+			copy(leftCmds, commands[:i+1])
+			leftCmds[i].Operator = ""        // Clear the redirect operator
+			leftCmds[i].RedirectTarget = nil // Clear the target
+
+			source := buildStepTree(leftCmds)
+
+			// The redirect target is stored in commands[i].RedirectTarget
+			if commands[i].RedirectTarget == nil {
+				// No target - this shouldn't happen if parser is correct, but handle gracefully
+				return source
+			}
+
+			target := commandToNode(*commands[i].RedirectTarget)
+
+			// Determine redirect mode
+			mode := planfmt.RedirectOverwrite
+			if commands[i].Operator == ">>" {
+				mode = planfmt.RedirectAppend
+			}
+
+			return &planfmt.RedirectNode{
+				Source: source,
+				Target: *target,
+				Mode:   mode,
+			}
 		}
 	}
 	return nil
