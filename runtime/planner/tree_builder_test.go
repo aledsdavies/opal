@@ -565,6 +565,185 @@ func TestBuildStepTree(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "redirect operator (overwrite)",
+			commands: []Command{
+				{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo hello"}},
+					},
+					Operator: ">",
+					RedirectTarget: &Command{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "output.txt"}},
+						},
+					},
+				},
+			},
+			want: &planfmt.RedirectNode{
+				Source: &planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo hello"}},
+					},
+				},
+				Target: planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "output.txt"}},
+					},
+				},
+				Mode: planfmt.RedirectOverwrite,
+			},
+		},
+		{
+			name: "redirect operator (append)",
+			commands: []Command{
+				{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo world"}},
+					},
+					Operator: ">>",
+					RedirectTarget: &Command{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "output.txt"}},
+						},
+					},
+				},
+			},
+			want: &planfmt.RedirectNode{
+				Source: &planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo world"}},
+					},
+				},
+				Target: planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "output.txt"}},
+					},
+				},
+				Mode: planfmt.RedirectAppend,
+			},
+		},
+		{
+			name: "redirect with pipe (pipe > redirect precedence)",
+			commands: []Command{
+				{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo test"}},
+					},
+					Operator: "|",
+				},
+				{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "grep test"}},
+					},
+					Operator: ">",
+					RedirectTarget: &Command{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "output.txt"}},
+						},
+					},
+				},
+			},
+			want: &planfmt.RedirectNode{
+				Source: &planfmt.PipelineNode{
+					Commands: []planfmt.CommandNode{
+						{
+							Decorator: "@shell",
+							Args: []planfmt.Arg{
+								{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo test"}},
+							},
+						},
+						{
+							Decorator: "@shell",
+							Args: []planfmt.Arg{
+								{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "grep test"}},
+							},
+						},
+					},
+				},
+				Target: planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "output.txt"}},
+					},
+				},
+				Mode: planfmt.RedirectOverwrite,
+			},
+		},
+		{
+			name: "redirect with AND (redirect > AND precedence)",
+			commands: []Command{
+				{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo a"}},
+					},
+					Operator: ">",
+					RedirectTarget: &Command{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "file.txt"}},
+						},
+					},
+				},
+				{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo b"}},
+					},
+					Operator: "&&",
+				},
+				{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo c"}},
+					},
+					Operator: "",
+				},
+			},
+			want: &planfmt.AndNode{
+				Left: &planfmt.RedirectNode{
+					Source: &planfmt.CommandNode{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo a"}},
+						},
+					},
+					Target: planfmt.CommandNode{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "file.txt"}},
+						},
+					},
+					Mode: planfmt.RedirectOverwrite,
+				},
+				Right: &planfmt.AndNode{
+					Left: &planfmt.CommandNode{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo b"}},
+						},
+					},
+					Right: &planfmt.CommandNode{
+						Decorator: "@shell",
+						Args: []planfmt.Arg{
+							{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo c"}},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
