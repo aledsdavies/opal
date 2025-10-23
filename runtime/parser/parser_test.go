@@ -494,6 +494,79 @@ func TestPipeOperatorValidation(t *testing.T) {
 	}
 }
 
+// TestRedirectOperatorValidation tests that redirect operator validates redirect capabilities
+func TestRedirectOperatorValidation(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		expectedError *ParseError
+	}{
+		{
+			name:  "redirect to decorator without redirect support",
+			input: `echo "test" > @timeout(5s)`,
+			expectedError: &ParseError{
+				Position:   lexer.Position{Line: 1, Column: 15, Offset: 14},
+				Message:    "@timeout does not support redirection",
+				Context:    "redirect operator",
+				Got:        lexer.GT,
+				Suggestion: "Only decorators with redirect support can be used as redirect targets",
+				Example:    "echo \"test\" > output.txt",
+				Note:       "Use @shell(\"output.txt\") or decorators that support redirect",
+			},
+		},
+		{
+			name:  "append to decorator that only supports overwrite",
+			input: `echo "test" >> @file.temp()`,
+			expectedError: &ParseError{
+				Position:   lexer.Position{Line: 1, Column: 15, Offset: 14},
+				Message:    "@file.temp does not support append (>>)",
+				Context:    "redirect operator",
+				Got:        lexer.APPEND,
+				Suggestion: "Use > (overwrite) instead, or use a decorator that supports append",
+				Example:    "echo \"test\" > @file.temp()",
+				Note:       "@file.temp only supports overwrite (>)",
+			},
+		},
+		{
+			name:          "valid redirect to shell (file path)",
+			input:         `echo "test" > output.txt`,
+			expectedError: nil,
+		},
+		{
+			name:          "valid append to shell (file path)",
+			input:         `echo "test" >> output.txt`,
+			expectedError: nil,
+		},
+		{
+			name:          "valid redirect with pipe",
+			input:         `echo "test" | grep "test" > output.txt`,
+			expectedError: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := Parse([]byte(tt.input))
+			tree.ValidateSemantics() // Post-parse validation
+
+			if tt.expectedError != nil {
+				if len(tree.Errors) == 0 {
+					t.Errorf("expected parse error but got none")
+					return
+				}
+
+				if diff := cmp.Diff(*tt.expectedError, tree.Errors[0]); diff != "" {
+					t.Errorf("Error mismatch (-want +got):\n%s", diff)
+				}
+			} else {
+				if len(tree.Errors) > 0 {
+					t.Errorf("unexpected parse errors: %v", tree.Errors)
+				}
+			}
+		})
+	}
+}
+
 // TestNamespacedDecoratorParsing tests that decorators with dots in their names are recognized
 // Note: "file.read" is registered in init(), but "file" is NOT registered
 func TestNamespacedDecoratorParsing(t *testing.T) {

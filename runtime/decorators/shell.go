@@ -17,6 +17,7 @@ func init() {
 		Required().
 		Done().
 		WithIO(types.AcceptsStdin, types.ProducesStdout). // No ScrubByDefault = bash-compatible
+		WithRedirect(types.RedirectBoth).                 // Supports both > and >>
 		Build()
 
 	if err := types.Global().RegisterSDKHandlerWithSchema(schema, shellHandler); err != nil {

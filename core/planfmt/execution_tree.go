@@ -66,36 +66,28 @@ const (
 	RedirectAppend                        // >> (append to file)
 )
 
-// RedirectSinkKind specifies what kind of sink target.
-type RedirectSinkKind int
-
-const (
-	RedirectSinkPath      RedirectSinkKind = iota // Static file path
-	RedirectSinkDecorator                         // Decorator sink (Phase 2)
-)
-
-// RedirectSink specifies where output goes.
-type RedirectSink struct {
-	Kind RedirectSinkKind
-
-	// For Kind == RedirectSinkPath:
-	Path string // File path (may contain variables like @var.OUTPUT_FILE)
-
-	// For Kind == RedirectSinkDecorator (Phase 2):
-	Decorator string // Decorator name (e.g., "@file.temp", "@aws.s3.object")
-	Args      []Arg  // Decorator arguments
-}
-
-// RedirectNode redirects stdout from Source to Sink.
+// RedirectNode redirects stdout from Source to Target decorator.
 // Precedence: higher than &&, lower than |
 //
+// The target is ALWAYS a decorator that provides the sink:
+//   - Static paths: @shell("output.txt") - shell opens the file
+//   - Temp files: @file.temp() - decorator creates temp file
+//   - S3 objects: @aws.s3.object("key") - decorator provides S3 writer
+//   - HTTP: @http.post("url") - decorator provides HTTP writer
+//
 // Examples:
-//   - echo "hello" > output.txt
-//   - cmd1 | cmd2 >> log.txt
-//   - build > @file.temp() (Phase 2)
+//
+//	echo "hello" > output.txt
+//	  → @shell("echo \"hello\"") > @shell("output.txt")
+//
+//	build > @file.temp()
+//	  → @shell("build") > @file.temp()
+//
+//	logs >> @aws.s3.object("logs/app.log")
+//	  → @shell("logs") >> @aws.s3.object("logs/app.log")
 type RedirectNode struct {
 	Source ExecutionNode // Command/pipeline producing output
-	Sink   RedirectSink  // Where output goes
+	Target CommandNode   // Decorator providing the sink
 	Mode   RedirectMode  // Overwrite or Append
 }
 
