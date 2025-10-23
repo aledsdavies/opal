@@ -94,6 +94,10 @@ const (
 
 	// Assignment statements - added at end to preserve existing node numbers
 	NodeAssignment // Assignment: x += 5, total -= cost
+
+	// Output redirection - added at end to preserve existing node numbers
+	NodeRedirect       // Redirect operator: > or >>
+	NodeRedirectTarget // Redirect target (path, variable, or decorator)
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

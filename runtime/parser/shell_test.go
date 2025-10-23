@@ -545,3 +545,79 @@ kubectl apply -f k8s/`
 		t.Errorf("events mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// TestShellRedirect tests parsing of output redirection
+func TestShellRedirect(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		events []Event
+	}{
+		{
+			name:  "redirect to file with >",
+			input: `echo "hello" > output.txt`,
+			events: []Event{
+				{Kind: EventOpen, Data: uint32(NodeSource)},
+				{Kind: EventStepEnter, Data: 0},
+				{Kind: EventOpen, Data: uint32(NodeShellCommand)},
+				{Kind: EventOpen, Data: uint32(NodeShellArg)},
+				{Kind: EventToken, Data: 0}, // echo
+				{Kind: EventClose, Data: uint32(NodeShellArg)},
+				{Kind: EventOpen, Data: uint32(NodeShellArg)},
+				{Kind: EventToken, Data: 1}, // "hello"
+				{Kind: EventClose, Data: uint32(NodeShellArg)},
+				{Kind: EventClose, Data: uint32(NodeShellCommand)},
+				{Kind: EventOpen, Data: uint32(NodeRedirect)},
+				{Kind: EventToken, Data: 2}, // >
+				{Kind: EventOpen, Data: uint32(NodeRedirectTarget)},
+				{Kind: EventOpen, Data: uint32(NodeShellArg)},
+				{Kind: EventToken, Data: 3}, // output.txt
+				{Kind: EventClose, Data: uint32(NodeShellArg)},
+				{Kind: EventClose, Data: uint32(NodeRedirectTarget)},
+				{Kind: EventClose, Data: uint32(NodeRedirect)},
+				{Kind: EventStepExit, Data: 0},
+				{Kind: EventClose, Data: uint32(NodeSource)},
+			},
+		},
+		{
+			name:  "append to file with >>",
+			input: `echo "world" >> output.txt`,
+			events: []Event{
+				{Kind: EventOpen, Data: uint32(NodeSource)},
+				{Kind: EventStepEnter, Data: 0},
+				{Kind: EventOpen, Data: uint32(NodeShellCommand)},
+				{Kind: EventOpen, Data: uint32(NodeShellArg)},
+				{Kind: EventToken, Data: 0}, // echo
+				{Kind: EventClose, Data: uint32(NodeShellArg)},
+				{Kind: EventOpen, Data: uint32(NodeShellArg)},
+				{Kind: EventToken, Data: 1}, // "world"
+				{Kind: EventClose, Data: uint32(NodeShellArg)},
+				{Kind: EventClose, Data: uint32(NodeShellCommand)},
+				{Kind: EventOpen, Data: uint32(NodeRedirect)},
+				{Kind: EventToken, Data: 2}, // >>
+				{Kind: EventOpen, Data: uint32(NodeRedirectTarget)},
+				{Kind: EventOpen, Data: uint32(NodeShellArg)},
+				{Kind: EventToken, Data: 3}, // output.txt
+				{Kind: EventClose, Data: uint32(NodeShellArg)},
+				{Kind: EventClose, Data: uint32(NodeRedirectTarget)},
+				{Kind: EventClose, Data: uint32(NodeRedirect)},
+				{Kind: EventStepExit, Data: 0},
+				{Kind: EventClose, Data: uint32(NodeSource)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := Parse([]byte(tt.input))
+
+			if len(tree.Errors) > 0 {
+				t.Fatalf("unexpected parse errors: %v", tree.Errors)
+			}
+
+			if diff := cmp.Diff(tt.events, tree.Events); diff != "" {
+				t.Errorf("events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

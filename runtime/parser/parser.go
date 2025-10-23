@@ -1264,12 +1264,48 @@ func (p *parser) shellCommand() {
 
 	// If we stopped at a shell operator, validate and consume it
 	if p.isShellOperator() {
-		p.token() // Consume operator (&&, ||, |)
+		// Check if it's a redirect operator
+		if p.at(lexer.GT) || p.at(lexer.APPEND) {
+			p.shellRedirect()
+		} else {
+			p.token() // Consume operator (&&, ||, |, ;)
 
-		// Parse next command after operator
-		if !p.isStatementBoundary() && !p.at(lexer.EOF) {
-			p.shellCommand()
+			// Parse next command after operator
+			if !p.isStatementBoundary() && !p.at(lexer.EOF) {
+				p.shellCommand()
+			}
 		}
+	}
+}
+
+// shellRedirect parses output redirection (> or >>)
+// PRECONDITION: Current token is GT or APPEND
+func (p *parser) shellRedirect() {
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("enter_shell_redirect", "parsing redirect")
+	}
+
+	kind := p.start(NodeRedirect)
+
+	// Consume redirect operator (> or >>)
+	p.token()
+
+	// Parse redirect target
+	targetKind := p.start(NodeRedirectTarget)
+
+	// Target can be:
+	// - A path: output.txt
+	// - A variable: @var.OUTPUT_FILE
+	// - A decorator: @file.temp() (future)
+	if !p.isStatementBoundary() && !p.at(lexer.EOF) {
+		p.shellArg() // Parse target as shell argument
+	}
+
+	p.finish(targetKind)
+	p.finish(kind)
+
+	if p.config.debug >= DebugPaths {
+		p.recordDebugEvent("exit_shell_redirect", "redirect complete")
 	}
 }
 
@@ -1311,9 +1347,9 @@ func (p *parser) shellArg() {
 					p.pos, p.current().Type, p.current().HasSpaceBefore))
 			}
 
-			p.token() // Consume token as part of this argument
+			p.advance() // Consume token without emitting event (part of same argument)
 
-			// INVARIANT: p.token() calls p.advance() which MUST increment p.pos
+			// INVARIANT: p.advance() MUST increment p.pos
 			if p.pos <= prevPos {
 				panic(fmt.Sprintf("parser stuck in shellArg() at pos %d (was %d), token: %v - advance() failed to increment position",
 					p.pos, prevPos, p.current().Type))
@@ -1333,7 +1369,9 @@ func (p *parser) isShellOperator() bool {
 	return p.at(lexer.AND_AND) || // &&
 		p.at(lexer.OR_OR) || // ||
 		p.at(lexer.PIPE) || // |
-		p.at(lexer.SEMICOLON) // ;
+		p.at(lexer.SEMICOLON) || // ;
+		p.at(lexer.GT) || // >
+		p.at(lexer.APPEND) // >>
 }
 
 // isStatementBoundary checks if current token ends a statement
