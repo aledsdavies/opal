@@ -212,10 +212,13 @@ type Sink interface {
 	// meta is reserved for future use (e.g., S3 metadata, HTTP headers)
 	Open(ctx ExecutionContext, mode RedirectMode, meta map[string]any) (io.WriteCloser, error)
 
-	// Identity returns (kind, redacted) for audit logs and plan output.
-	// kind: "fs.path", "s3.object", "http.post", etc.
-	// redacted: safe-to-log representation (e.g., "file.txt", "s3://bucket/key")
-	Identity() (kind, redacted string)
+	// Identity returns (kind, identifier) for error messages and logging.
+	// kind: "fs.file", "s3.object", "http.post", etc.
+	// identifier: human-readable sink identifier (e.g., "output.txt", "s3://bucket/key")
+	//
+	// Used in error messages like:
+	//   "Error: failed to open sink fs.file (output.txt): permission denied"
+	Identity() (kind, identifier string)
 }
 
 // FsPathSink is a sink that writes to a filesystem path.
@@ -257,9 +260,9 @@ func (s FsPathSink) Open(ctx ExecutionContext, mode RedirectMode, _ map[string]a
 	return transportImpl.OpenFileWriter(ctx.Context(), s.Path, mode, s.Perm)
 }
 
-// Identity returns ("fs.path", path) for audit logs.
-func (s FsPathSink) Identity() (kind, redacted string) {
-	return "fs.path", s.Path
+// Identity returns ("fs.file", path) for error messages.
+func (s FsPathSink) Identity() (kind, identifier string) {
+	return "fs.file", s.Path
 }
 
 // RedirectNode redirects stdout from Source to Sink.
