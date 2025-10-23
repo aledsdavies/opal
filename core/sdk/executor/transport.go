@@ -378,32 +378,56 @@ func (t *LocalTransport) Get(ctx context.Context, src string, dst io.Writer) err
 }
 
 // OpenFileWriter opens a local file for writing (for output redirection).
-// Implements POSIX semantics:
-//   - RedirectOverwrite (>): truncate file to zero length (or create if doesn't exist)
+// Implements POSIX semantics with atomic writes:
+//   - RedirectOverwrite (>): atomic write via temp file + rename
 //   - RedirectAppend (>>): append to file (or create if doesn't exist)
 func (t *LocalTransport) OpenFileWriter(ctx context.Context, path string, mode RedirectMode, perm fs.FileMode) (io.WriteCloser, error) {
 	invariant.NotNil(ctx, "context")
 	invariant.Precondition(path != "", "path cannot be empty")
 
-	var file *os.File
-	var err error
-
 	switch mode {
 	case RedirectOverwrite:
-		// Truncate file to zero length (or create if doesn't exist)
-		file, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+		// Atomic write: write to temp file, rename on Close()
+		// This ensures readers never see partial writes
+		tmpPath := path + ".opal.tmp"
+		file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+		if err != nil {
+			return nil, err
+		}
+		return &atomicWriter{f: file, final: path}, nil
+
 	case RedirectAppend:
-		// Append to file (or create if doesn't exist)
-		file, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, perm)
+		// Append mode: direct write (POSIX doesn't guarantee atomic append anyway)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, perm)
+		if err != nil {
+			return nil, err
+		}
+		return file, nil
+
 	default:
 		return nil, errors.New("invalid redirect mode")
 	}
+}
 
-	if err != nil {
-		return nil, err
+// atomicWriter wraps a file and performs atomic rename on Close().
+// Used for RedirectOverwrite mode to ensure readers never see partial writes.
+type atomicWriter struct {
+	f     *os.File
+	final string
+}
+
+func (w *atomicWriter) Write(b []byte) (int, error) {
+	return w.f.Write(b)
+}
+
+func (w *atomicWriter) Close() error {
+	// Close the temp file first
+	if err := w.f.Close(); err != nil {
+		return err
 	}
-
-	return file, nil
+	// Atomically rename temp file to final destination
+	// This is atomic on POSIX systems (rename(2) is atomic)
+	return os.Rename(w.f.Name(), w.final)
 }
 
 // Close is a no-op for LocalTransport (no resources to clean up).

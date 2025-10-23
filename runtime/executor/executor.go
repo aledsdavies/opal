@@ -331,17 +331,108 @@ func (e *executor) executeCommandWithPipes(cmd *sdk.CommandNode, stdin io.Reader
 
 // executeTreeWithStdout executes a tree node with stdout redirected to a custom writer.
 // This is used by redirect and pipe operators to wire stdout between commands.
+// Supports all tree node types: CommandNode, PipelineNode, AndNode, OrNode, SequenceNode.
 func (e *executor) executeTreeWithStdout(tree sdk.TreeNode, stdout io.Writer) int {
-	// For now, only support CommandNode
-	// TODO: Support other node types (PipelineNode, AndNode, etc.)
-	cmd, ok := tree.(*sdk.CommandNode)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "Error: redirect source must be a command (got %T)\n", tree)
+	switch n := tree.(type) {
+	case *sdk.CommandNode:
+		// Simple command - redirect stdout directly
+		return e.executeCommandWithPipes(n, nil, stdout)
+
+	case *sdk.PipelineNode:
+		// Pipeline - redirect final command's stdout
+		return e.executePipelineWithStdout(n, stdout)
+
+	case *sdk.AndNode:
+		// AND operator: execute left, then right only if left succeeded
+		// Both sides have stdout redirected (bash subshell semantics)
+		leftExit := e.executeTreeWithStdout(n.Left, stdout)
+		if leftExit != 0 {
+			return leftExit // Short-circuit on failure
+		}
+		return e.executeTreeWithStdout(n.Right, stdout)
+
+	case *sdk.OrNode:
+		// OR operator: execute left, then right only if left failed
+		// Both sides have stdout redirected (bash subshell semantics)
+		leftExit := e.executeTreeWithStdout(n.Left, stdout)
+		if leftExit == 0 {
+			return leftExit // Short-circuit on success
+		}
+		return e.executeTreeWithStdout(n.Right, stdout)
+
+	case *sdk.SequenceNode:
+		// Sequence operator: execute all nodes with stdout redirected
+		// All commands write to the same sink (bash subshell semantics)
+		var lastExit int
+		for _, node := range n.Nodes {
+			lastExit = e.executeTreeWithStdout(node, stdout)
+		}
+		return lastExit
+
+	case *sdk.RedirectNode:
+		// Nested redirect - not supported (would need to chain sinks)
+		fmt.Fprintf(os.Stderr, "Error: nested redirects not supported\n")
+		return 127
+
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unsupported tree node type for redirect: %T\n", tree)
 		return 127
 	}
+}
 
-	// Execute command with stdout redirected to the writer
-	return e.executeCommandWithPipes(cmd, nil, stdout)
+// executePipelineWithStdout executes a pipeline with the final command's stdout redirected.
+// This is similar to executePipeline but allows overriding the final stdout.
+func (e *executor) executePipelineWithStdout(pipeline *sdk.PipelineNode, finalStdout io.Writer) int {
+	numCommands := len(pipeline.Commands)
+	invariant.Precondition(numCommands > 0, "pipeline must have at least one command")
+
+	// Single command - redirect stdout directly
+	if numCommands == 1 {
+		return e.executeCommandWithPipes(&pipeline.Commands[0], nil, finalStdout)
+	}
+
+	// Create pipes between commands (N-1 pipes for N commands)
+	pipes := make([]*io.PipeReader, numCommands-1)
+	pipeWriters := make([]*io.PipeWriter, numCommands-1)
+	for i := 0; i < numCommands-1; i++ {
+		pipes[i], pipeWriters[i] = io.Pipe()
+	}
+
+	// Track exit codes for all commands
+	exitCodes := make([]int, numCommands)
+
+	// Execute all commands concurrently
+	var wg sync.WaitGroup
+	wg.Add(numCommands)
+
+	// First command: no stdin, stdout to pipe[0]
+	go func() {
+		defer wg.Done()
+		defer pipeWriters[0].Close()
+		exitCodes[0] = e.executeCommandWithPipes(&pipeline.Commands[0], nil, pipeWriters[0])
+	}()
+
+	// Middle commands: stdin from pipe[i-1], stdout to pipe[i]
+	for i := 1; i < numCommands-1; i++ {
+		i := i // Capture loop variable
+		go func() {
+			defer wg.Done()
+			defer pipeWriters[i].Close()
+			exitCodes[i] = e.executeCommandWithPipes(&pipeline.Commands[i], pipes[i-1], pipeWriters[i])
+		}()
+	}
+
+	// Last command: stdin from pipe[N-2], stdout to finalStdout
+	go func() {
+		defer wg.Done()
+		exitCodes[numCommands-1] = e.executeCommandWithPipes(&pipeline.Commands[numCommands-1], pipes[numCommands-2], finalStdout)
+	}()
+
+	// Wait for all commands to complete
+	wg.Wait()
+
+	// Return exit code of last command (bash semantics)
+	return exitCodes[numCommands-1]
 }
 
 // executeRedirect executes a redirect operation (> or >>)

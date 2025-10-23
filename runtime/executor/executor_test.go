@@ -312,6 +312,149 @@ func TestExecuteRedirectAppend(t *testing.T) {
 	assert.Equal(t, "Line 1\nLine 2\n", string(content))
 }
 
+// TestExecuteRedirectWithPipeline tests redirect with pipeline source
+func TestExecuteRedirectWithPipeline(t *testing.T) {
+	tmpFile := t.TempDir() + "/output.txt"
+
+	plan := &planfmt.Plan{
+		Target: "redirect-pipeline",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.RedirectNode{
+					Source: &planfmt.PipelineNode{
+						Commands: []planfmt.CommandNode{
+							{
+								Decorator: "@shell",
+								Args: []planfmt.Arg{
+									{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'hello world'"}},
+								},
+							},
+							{
+								Decorator: "@shell",
+								Args: []planfmt.Arg{
+									{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "grep hello"}},
+								},
+							},
+						},
+					},
+					Target: *shellCmd(tmpFile),
+					Mode:   planfmt.RedirectOverwrite,
+				},
+			},
+		},
+	}
+
+	steps := planfmt.ToSDKSteps(plan.Steps)
+	result, err := Execute(steps, Config{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+
+	// Verify file contains grep output
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	assert.Equal(t, "hello world\n", string(content))
+}
+
+// TestExecuteRedirectWithAndOperator tests redirect with && operator
+func TestExecuteRedirectWithAndOperator(t *testing.T) {
+	tmpFile := t.TempDir() + "/output.txt"
+
+	plan := &planfmt.Plan{
+		Target: "redirect-and",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.RedirectNode{
+					Source: &planfmt.AndNode{
+						Left:  shellCmd("echo 'first'"),
+						Right: shellCmd("echo 'second'"),
+					},
+					Target: *shellCmd(tmpFile),
+					Mode:   planfmt.RedirectOverwrite,
+				},
+			},
+		},
+	}
+
+	steps := planfmt.ToSDKSteps(plan.Steps)
+	result, err := Execute(steps, Config{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+
+	// Verify file contains both commands' output (bash subshell semantics)
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	assert.Equal(t, "first\nsecond\n", string(content))
+}
+
+// TestExecuteRedirectWithOrOperator tests redirect with || operator
+func TestExecuteRedirectWithOrOperator(t *testing.T) {
+	tmpFile := t.TempDir() + "/output.txt"
+
+	plan := &planfmt.Plan{
+		Target: "redirect-or",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.RedirectNode{
+					Source: &planfmt.OrNode{
+						Left:  shellCmd("exit 1"),          // Fails
+						Right: shellCmd("echo 'fallback'"), // Runs
+					},
+					Target: *shellCmd(tmpFile),
+					Mode:   planfmt.RedirectOverwrite,
+				},
+			},
+		},
+	}
+
+	steps := planfmt.ToSDKSteps(plan.Steps)
+	result, err := Execute(steps, Config{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+
+	// Verify file contains fallback output
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	assert.Equal(t, "fallback\n", string(content))
+}
+
+// TestExecuteRedirectWithSequence tests redirect with semicolon operator
+func TestExecuteRedirectWithSequence(t *testing.T) {
+	tmpFile := t.TempDir() + "/output.txt"
+
+	plan := &planfmt.Plan{
+		Target: "redirect-sequence",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.RedirectNode{
+					Source: &planfmt.SequenceNode{
+						Nodes: []planfmt.ExecutionNode{
+							shellCmd("echo 'first'"),
+							shellCmd("echo 'second'"),
+							shellCmd("echo 'third'"),
+						},
+					},
+					Target: *shellCmd(tmpFile),
+					Mode:   planfmt.RedirectOverwrite,
+				},
+			},
+		},
+	}
+
+	steps := planfmt.ToSDKSteps(plan.Steps)
+	result, err := Execute(steps, Config{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+
+	// Verify file contains all commands' output (bash subshell semantics)
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	assert.Equal(t, "first\nsecond\nthird\n", string(content))
+}
+
 // TestOperatorSemicolon tests semicolon operator (always execute next)
 func TestOperatorSemicolon(t *testing.T) {
 	tests := []struct {
