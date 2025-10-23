@@ -42,12 +42,8 @@ func toSDKStepWithRegistry(planStep Step, registry *types.Registry) sdk.Step {
 	}
 }
 
-// toSDKTree converts planfmt.ExecutionNode to sdk.TreeNode.
+// toSDKTreeWithRegistry converts planfmt.ExecutionNode to sdk.TreeNode.
 // This recursively converts the entire tree structure.
-func toSDKTree(node ExecutionNode) sdk.TreeNode {
-	return toSDKTreeWithRegistry(node, types.Global())
-}
-
 func toSDKTreeWithRegistry(node ExecutionNode, registry *types.Registry) sdk.TreeNode {
 	switch n := node.(type) {
 	case *CommandNode:
@@ -158,12 +154,14 @@ func (m *minimalContext) ArgString(key string) string {
 	}
 	return ""
 }
+
 func (m *minimalContext) ArgInt(key string) int64 {
 	if v, ok := m.args[key].(int64); ok {
 		return v
 	}
 	return 0
 }
+
 func (m *minimalContext) ArgBool(key string) bool {
 	if v, ok := m.args[key].(bool); ok {
 		return v
@@ -177,6 +175,7 @@ func (m *minimalContext) Workdir() string                      { return "" }
 func (m *minimalContext) WithContext(ctx context.Context) sdk.ExecutionContext {
 	return m
 }
+
 func (m *minimalContext) WithEnviron(env map[string]string) sdk.ExecutionContext {
 	return m
 }

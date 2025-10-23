@@ -451,7 +451,7 @@ func (w *atomicWriter) Close() error {
 	// Only rename if no errors occurred during write/close
 	if w.hadErr {
 		// Clean up temp file on error
-		os.Remove(w.f.Name())
+		_ = os.Remove(w.f.Name()) // Best effort cleanup
 		return closeErr
 	}
 
@@ -460,7 +460,7 @@ func (w *atomicWriter) Close() error {
 	if runtime.GOOS == "windows" {
 		// Delete existing file (if any) then rename
 		// This isn't perfectly atomic on Windows, but close enough
-		os.Remove(w.final)
+		_ = os.Remove(w.final) // Best effort - file may not exist
 	}
 
 	return os.Rename(w.f.Name(), w.final)

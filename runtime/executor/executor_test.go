@@ -283,7 +283,7 @@ func TestExecuteRedirectOverwrite(t *testing.T) {
 func TestExecuteRedirectAppend(t *testing.T) {
 	// Create temp file with initial content
 	tmpFile := t.TempDir() + "/output.txt"
-	err := os.WriteFile(tmpFile, []byte("Line 1\n"), 0644)
+	err := os.WriteFile(tmpFile, []byte("Line 1\n"), 0o644)
 	require.NoError(t, err)
 
 	plan := &planfmt.Plan{

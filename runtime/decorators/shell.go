@@ -84,6 +84,6 @@ func (s ShellDecorator) AsSink(ctx sdk.ExecutionContext) sdk.Sink {
 	path := ctx.ArgString("command")
 	return sdk.FsPathSink{
 		Path: path,
-		Perm: 0600, // Tight by default (owner read/write only)
+		Perm: 0o600, // Tight by default (owner read/write only)
 	}
 }

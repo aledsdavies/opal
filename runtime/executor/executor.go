@@ -422,7 +422,7 @@ func (e *executor) executePipelineWithStdout(pipeline *sdk.PipelineNode, finalSt
 	// First command: no stdin, stdout to pipe[0]
 	go func() {
 		defer wg.Done()
-		defer pipeWriters[0].Close()
+		defer func() { _ = pipeWriters[0].Close() }()
 		exitCodes[0] = e.executeCommandWithPipes(&pipeline.Commands[0], nil, pipeWriters[0])
 	}()
 
@@ -431,7 +431,7 @@ func (e *executor) executePipelineWithStdout(pipeline *sdk.PipelineNode, finalSt
 		i := i // Capture loop variable
 		go func() {
 			defer wg.Done()
-			defer pipeWriters[i].Close()
+			defer func() { _ = pipeWriters[i].Close() }()
 			exitCodes[i] = e.executeCommandWithPipes(&pipeline.Commands[i], pipes[i-1], pipeWriters[i])
 		}()
 	}
