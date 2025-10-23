@@ -54,6 +54,14 @@ const (
 	ExitNotFound         = 127 // Command not found
 )
 
+// RedirectMode specifies how to open a file for redirection.
+type RedirectMode int
+
+const (
+	RedirectOverwrite RedirectMode = iota // > (truncate file)
+	RedirectAppend                        // >> (append to file)
+)
+
 // Transport abstracts command execution and file transfer for different environments.
 // Implementations: LocalTransport (os/exec), SSHTransport (future), DockerTransport (future)
 //
@@ -101,6 +109,19 @@ type Transport interface {
 	// For SSHTransport: downloads via SFTP
 	// For DockerTransport: uses docker cp
 	Get(ctx context.Context, src string, dst io.Writer) error
+
+	// OpenFileWriter opens a file for writing (for output redirection).
+	// This enables `echo "hello" > file.txt` to work correctly in all contexts:
+	//   - LocalTransport: opens local file
+	//   - SSHTransport: opens remote file via `bash -c "cat > path"`
+	//   - DockerTransport: opens file inside container via `docker exec sh -c "cat > path"`
+	//
+	// mode: RedirectOverwrite (>) or RedirectAppend (>>)
+	// perm: file permissions (e.g., 0644)
+	//
+	// The returned WriteCloser MUST be closed by the caller.
+	// Close() waits for the write operation to complete and returns any errors.
+	OpenFileWriter(ctx context.Context, path string, mode RedirectMode, perm fs.FileMode) (io.WriteCloser, error)
 
 	// Close cleans up transport resources (connections, sessions).
 	// Safe to call multiple times.
@@ -354,6 +375,35 @@ func (t *LocalTransport) Get(ctx context.Context, src string, dst io.Writer) err
 	}
 
 	return nil
+}
+
+// OpenFileWriter opens a local file for writing (for output redirection).
+// Implements POSIX semantics:
+//   - RedirectOverwrite (>): truncate file to zero length (or create if doesn't exist)
+//   - RedirectAppend (>>): append to file (or create if doesn't exist)
+func (t *LocalTransport) OpenFileWriter(ctx context.Context, path string, mode RedirectMode, perm fs.FileMode) (io.WriteCloser, error) {
+	invariant.NotNil(ctx, "context")
+	invariant.Precondition(path != "", "path cannot be empty")
+
+	var file *os.File
+	var err error
+
+	switch mode {
+	case RedirectOverwrite:
+		// Truncate file to zero length (or create if doesn't exist)
+		file, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	case RedirectAppend:
+		// Append to file (or create if doesn't exist)
+		file, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, perm)
+	default:
+		return nil, errors.New("invalid redirect mode")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return file, nil
 }
 
 // Close is a no-op for LocalTransport (no resources to clean up).

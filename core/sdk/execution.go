@@ -88,8 +88,12 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"time"
+
+	"github.com/aledsdavies/opal/core/sdk/executor"
 )
 
 // Step represents a unit of work to execute (runtime execution model).
@@ -168,19 +172,104 @@ type SequenceNode struct {
 
 func (*SequenceNode) isTreeNode() {}
 
-// RedirectMode specifies how to open the redirect target.
-type RedirectMode int
+// RedirectMode is defined in executor package to avoid import cycles.
+// Re-export it here for convenience.
+type RedirectMode = executor.RedirectMode
 
 const (
-	RedirectOverwrite RedirectMode = iota // > (truncate file)
-	RedirectAppend                        // >> (append to file)
+	RedirectOverwrite = executor.RedirectOverwrite // > (truncate file)
+	RedirectAppend    = executor.RedirectAppend    // >> (append to file)
 )
 
-// RedirectNode redirects stdout from Source to Target.
-// The target is always a CommandNode (decorator) that provides the sink.
+// SinkCaps describes what operations a sink supports.
+type SinkCaps struct {
+	Overwrite      bool // Supports > (truncate and write)
+	Append         bool // Supports >> (append to existing)
+	Atomic         bool // Writes are atomic (readers see old-or-new, never partial)
+	ConcurrentSafe bool // Multiple writers can safely write concurrently
+}
+
+// Sink represents a destination for redirected output.
+// Sinks are opened using the current execution context's transport,
+// so files open in the right place (local/SSH/Docker/etc).
+//
+// Examples:
+//   - FsPathSink: File on local or remote filesystem
+//   - S3Sink: S3 object (future)
+//   - HTTPSink: HTTP endpoint (future)
+type Sink interface {
+	// Caps returns what operations this sink supports
+	Caps() SinkCaps
+
+	// Open opens the sink for writing using the current context's transport.
+	// The returned WriteCloser MUST be closed by the caller.
+	//
+	// For FsPathSink, this calls transport.OpenFileWriter() which:
+	//   - LocalTransport: opens local file
+	//   - SSHTransport: opens remote file via SSH
+	//   - DockerTransport: opens file inside container
+	//
+	// meta is reserved for future use (e.g., S3 metadata, HTTP headers)
+	Open(ctx ExecutionContext, mode RedirectMode, meta map[string]any) (io.WriteCloser, error)
+
+	// Identity returns (kind, redacted) for audit logs and plan output.
+	// kind: "fs.path", "s3.object", "http.post", etc.
+	// redacted: safe-to-log representation (e.g., "file.txt", "s3://bucket/key")
+	Identity() (kind, redacted string)
+}
+
+// FsPathSink is a sink that writes to a filesystem path.
+// The path is opened using the current context's transport, so:
+//   - Local execution: opens local file
+//   - SSH execution: opens remote file
+//   - Docker execution: opens file inside container
+type FsPathSink struct {
+	Path string      // File path (may contain resolved variables)
+	Perm fs.FileMode // File permissions (e.g., 0644)
+}
+
+// Caps returns filesystem sink capabilities.
+// Supports both overwrite and append, atomic writes (via temp+rename for >),
+// but NOT concurrent-safe (OS doesn't guarantee linearizable appends).
+func (s FsPathSink) Caps() SinkCaps {
+	return SinkCaps{
+		Overwrite:      true,
+		Append:         true,
+		Atomic:         true,
+		ConcurrentSafe: false,
+	}
+}
+
+// Open opens the file for writing using the current context's transport.
+// This ensures the file opens in the right place (local/remote/container).
+func (s FsPathSink) Open(ctx ExecutionContext, mode RedirectMode, _ map[string]any) (io.WriteCloser, error) {
+	// Get transport from context
+	transport := ctx.Transport()
+
+	// Type assert to executor.Transport
+	// This is safe because all contexts must provide a valid transport
+	transportImpl, ok := transport.(executor.Transport)
+	if !ok {
+		return nil, errors.New("transport does not implement executor.Transport")
+	}
+
+	// Open file using transport (works for local/SSH/Docker/etc)
+	return transportImpl.OpenFileWriter(ctx.Context(), s.Path, mode, s.Perm)
+}
+
+// Identity returns ("fs.path", path) for audit logs.
+func (s FsPathSink) Identity() (kind, redacted string) {
+	return "fs.path", s.Path
+}
+
+// RedirectNode redirects stdout from Source to Sink.
+// The sink is opened using the current context's transport, so files
+// open in the right place (local/SSH/Docker/etc).
+//
+// Precedence: | > redirect > && > || > ;
 type RedirectNode struct {
-	Source TreeNode    // Command/pipeline producing output
-	Target CommandNode // Decorator providing the sink
+	Source TreeNode // Command/pipeline producing output
+	Sink   Sink     // Where output goes (FsPathSink, S3Sink, etc.)
 	Mode   RedirectMode
 }
 
@@ -253,6 +342,20 @@ type ExecutionContext interface {
 	// This is how executor creates contexts for each command in the tree.
 	// Stdin and stdoutPipe may be nil (not piped).
 	Clone(args map[string]interface{}, stdin io.Reader, stdoutPipe io.Writer) ExecutionContext
+
+	// Transport returns the transport for command execution and file operations.
+	// This enables redirect sinks to open files in the right place:
+	//   - Local execution: LocalTransport opens local files
+	//   - SSH execution: SSHTransport opens remote files
+	//   - Docker execution: DockerTransport opens files inside container
+	//
+	// Decorators like @ssh.connect wrap ExecutionContext and return their own transport.
+	// This is how "echo 'hello' > file.txt" works correctly in all contexts.
+	//
+	// Note: This is defined in core/sdk/executor to avoid import cycles.
+	// The actual type is executor.Transport, but we can't import that here.
+	// Callers should type-assert to executor.Transport.
+	Transport() interface{}
 }
 
 // ExecutionHandler is the function signature for execution decorators.

@@ -329,42 +329,61 @@ func (e *executor) executeCommandWithPipes(cmd *sdk.CommandNode, stdin io.Reader
 	return exitCode
 }
 
+// executeTreeWithStdout executes a tree node with stdout redirected to a custom writer.
+// This is used by redirect and pipe operators to wire stdout between commands.
+func (e *executor) executeTreeWithStdout(tree sdk.TreeNode, stdout io.Writer) int {
+	// For now, only support CommandNode
+	// TODO: Support other node types (PipelineNode, AndNode, etc.)
+	cmd, ok := tree.(*sdk.CommandNode)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "Error: redirect source must be a command (got %T)\n", tree)
+		return 127
+	}
+
+	// Execute command with stdout redirected to the writer
+	return e.executeCommandWithPipes(cmd, nil, stdout)
+}
+
 // executeRedirect executes a redirect operation (> or >>)
-// Opens the target file and redirects source's stdout to it
+// Opens the sink and redirects source's stdout to it
 func (e *executor) executeRedirect(redirect *sdk.RedirectNode) int {
-	// Extract file path from target command
-	// The target is @shell("output.txt"), so we get the "command" arg
-	targetPath, ok := redirect.Target.Args["command"].(string)
-	if !ok || targetPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: redirect target must be a file path\n")
-		return 127
-	}
+	invariant.NotNil(redirect, "redirect node")
+	invariant.NotNil(redirect.Sink, "redirect sink")
 
-	// Open file with appropriate mode
-	var file *os.File
-	var err error
+	// Create execution context for opening the sink
+	// This context provides the transport (local/SSH/Docker)
+	ctx := newExecutionContext(make(map[string]interface{}), e, context.Background())
 
-	switch redirect.Mode {
-	case sdk.RedirectOverwrite:
-		// > operator: truncate file (or create if doesn't exist)
-		file, err = os.Create(targetPath)
-	case sdk.RedirectAppend:
-		// >> operator: append to file (or create if doesn't exist)
-		file, err = os.OpenFile(targetPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown redirect mode: %v\n", redirect.Mode)
-		return 127
-	}
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to open redirect target %q: %v\n", targetPath, err)
+	// Check sink capabilities before opening
+	caps := redirect.Sink.Caps()
+	if redirect.Mode == sdk.RedirectOverwrite && !caps.Overwrite {
+		kind, path := redirect.Sink.Identity()
+		fmt.Fprintf(os.Stderr, "Error: sink %s (%s) does not support overwrite (>)\n", kind, path)
 		return 1
 	}
-	defer file.Close()
+	if redirect.Mode == sdk.RedirectAppend && !caps.Append {
+		kind, path := redirect.Sink.Identity()
+		fmt.Fprintf(os.Stderr, "Error: sink %s (%s) does not support append (>>)\n", kind, path)
+		return 1
+	}
 
-	// TODO: Execute source with stdout redirected to file
-	// For now, just execute source normally
-	return e.executeTree(redirect.Source)
+	// Open the sink for writing
+	writer, err := redirect.Sink.Open(ctx, redirect.Mode, nil)
+	if err != nil {
+		kind, path := redirect.Sink.Identity()
+		fmt.Fprintf(os.Stderr, "Error: failed to open sink %s (%s): %v\n", kind, path, err)
+		return 1
+	}
+	defer func() {
+		if closeErr := writer.Close(); closeErr != nil {
+			kind, path := redirect.Sink.Identity()
+			fmt.Fprintf(os.Stderr, "Error: failed to close sink %s (%s): %v\n", kind, path, closeErr)
+		}
+	}()
+
+	// Execute source with stdout redirected to sink
+	// We need to temporarily override stdout for the source execution
+	return e.executeTreeWithStdout(redirect.Source, writer)
 }
 
 // recordDebugEvent records a debug event (only if debug enabled)

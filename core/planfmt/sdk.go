@@ -1,6 +1,7 @@
 package planfmt
 
 import (
+	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/sdk"
 )
 
@@ -64,14 +65,34 @@ func toSDKTree(node ExecutionNode) sdk.TreeNode {
 		}
 		return &sdk.SequenceNode{Nodes: nodes}
 	case *RedirectNode:
+		// Convert Target CommandNode to Sink
+		// For now, we only support @shell("path") which becomes FsPathSink
+		// Future: support decorator sinks like @s3.object(), @http.post(), etc.
+		var sink sdk.Sink
+
+		invariant.Precondition(n.Target.Decorator == "@shell",
+			"redirect target must be @shell for now (decorator sinks not yet implemented)")
+
+		// Extract path from @shell("path") args
+		path := ""
+		for _, arg := range n.Target.Args {
+			if arg.Key == "command" && arg.Val.Kind == ValueString {
+				path = arg.Val.Str
+				break
+			}
+		}
+		invariant.Precondition(path != "", "redirect target @shell missing 'command' argument")
+
+		// Create FsPathSink with default permissions (0644)
+		sink = sdk.FsPathSink{
+			Path: path,
+			Perm: 0644,
+		}
+
 		return &sdk.RedirectNode{
 			Source: toSDKTree(n.Source),
-			Target: sdk.CommandNode{
-				Name:  n.Target.Decorator,
-				Args:  ToSDKArgs(n.Target.Args),
-				Block: ToSDKSteps(n.Target.Block),
-			},
-			Mode: sdk.RedirectMode(n.Mode), // Convert planfmt.RedirectMode to sdk.RedirectMode
+			Sink:   sink,
+			Mode:   sdk.RedirectMode(n.Mode), // Convert planfmt.RedirectMode to sdk.RedirectMode
 		}
 	default:
 		panic("unknown ExecutionNode type")
