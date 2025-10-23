@@ -45,10 +45,13 @@ func TestSimpleShellCommand(t *testing.T) {
 				{Kind: EventToken, Data: 1}, // apply
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventOpen, Data: uint32(NodeShellArg)},
-				{Kind: EventToken, Data: 2}, // -f (combined)
+				{Kind: EventToken, Data: 2}, // -
+				{Kind: EventToken, Data: 3}, // f
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventOpen, Data: uint32(NodeShellArg)},
-				{Kind: EventToken, Data: 4}, // deployment.yaml (combined)
+				{Kind: EventToken, Data: 4}, // deployment
+				{Kind: EventToken, Data: 5}, // .
+				{Kind: EventToken, Data: 6}, // yaml
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventClose, Data: uint32(NodeShellCommand)},
 				{Kind: EventStepExit, Data: 0}, // Step boundary
@@ -168,7 +171,9 @@ func TestShellCommandWithOperators(t *testing.T) {
 				{Kind: EventToken, Data: 0}, // cat
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventOpen, Data: uint32(NodeShellArg)},
-				{Kind: EventToken, Data: 1}, // file.txt (combined)
+				{Kind: EventToken, Data: 1}, // file
+				{Kind: EventToken, Data: 2}, // .
+				{Kind: EventToken, Data: 3}, // txt
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventClose, Data: uint32(NodeShellCommand)},
 				{Kind: EventToken, Data: 4}, // |
@@ -316,10 +321,12 @@ func TestShellCommandInFunctionBody(t *testing.T) {
 		{Kind: EventToken, Data: 5}, // apply
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventOpen, Data: uint32(NodeShellArg)},
-		{Kind: EventToken, Data: 6}, // -f (combined)
+		{Kind: EventToken, Data: 6}, // -
+		{Kind: EventToken, Data: 7}, // f
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventOpen, Data: uint32(NodeShellArg)},
-		{Kind: EventToken, Data: 8}, // k8s/ (combined)
+		{Kind: EventToken, Data: 8}, // k8s
+		{Kind: EventToken, Data: 9}, // /
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventClose, Data: uint32(NodeShellCommand)},
 		{Kind: EventStepExit, Data: 0},
@@ -522,10 +529,12 @@ kubectl apply -f k8s/`
 		{Kind: EventToken, Data: 9}, // apply
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventOpen, Data: uint32(NodeShellArg)},
-		{Kind: EventToken, Data: 10}, // -f (combined)
+		{Kind: EventToken, Data: 10}, // -
+		{Kind: EventToken, Data: 11}, // f
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventOpen, Data: uint32(NodeShellArg)},
-		{Kind: EventToken, Data: 12}, // k8s/ (combined)
+		{Kind: EventToken, Data: 12}, // k8s
+		{Kind: EventToken, Data: 13}, // /
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventClose, Data: uint32(NodeShellCommand)},
 		{Kind: EventStepExit, Data: 0},
@@ -562,7 +571,9 @@ func TestShellRedirect(t *testing.T) {
 				{Kind: EventToken, Data: 2}, // >
 				{Kind: EventOpen, Data: uint32(NodeRedirectTarget)},
 				{Kind: EventOpen, Data: uint32(NodeShellArg)},
-				{Kind: EventToken, Data: 3}, // output.txt
+				{Kind: EventToken, Data: 3}, // output
+				{Kind: EventToken, Data: 4}, // .
+				{Kind: EventToken, Data: 5}, // txt
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventClose, Data: uint32(NodeRedirectTarget)},
 				{Kind: EventClose, Data: uint32(NodeRedirect)},
@@ -588,7 +599,9 @@ func TestShellRedirect(t *testing.T) {
 				{Kind: EventToken, Data: 2}, // >>
 				{Kind: EventOpen, Data: uint32(NodeRedirectTarget)},
 				{Kind: EventOpen, Data: uint32(NodeShellArg)},
-				{Kind: EventToken, Data: 3}, // output.txt
+				{Kind: EventToken, Data: 3}, // output
+				{Kind: EventToken, Data: 4}, // .
+				{Kind: EventToken, Data: 5}, // txt
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventClose, Data: uint32(NodeRedirectTarget)},
 				{Kind: EventClose, Data: uint32(NodeRedirect)},

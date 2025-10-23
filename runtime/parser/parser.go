@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/types"
 	"github.com/aledsdavies/opal/runtime/lexer"
 )
@@ -274,9 +275,7 @@ func (p *parser) file() {
 		}
 
 		// INVARIANT: Parser must make progress in each iteration
-		if p.pos == prevPos && !p.at(lexer.EOF) {
-			panic(fmt.Sprintf("parser stuck in file() at pos %d - no progress made", p.pos))
-		}
+		invariant.Invariant(p.pos > prevPos || p.at(lexer.EOF), "parser stuck in file() at pos %d - no progress made", p.pos)
 	}
 
 	p.finish(kind)
@@ -1251,9 +1250,7 @@ func (p *parser) shellCommand() {
 		p.shellArg()
 
 		// INVARIANT: must make progress
-		if p.pos == prevPos {
-			panic(fmt.Sprintf("parser stuck in shellCommand() at pos %d, token: %v", p.pos, p.current().Type))
-		}
+		invariant.Invariant(p.pos > prevPos, "parser stuck in shellCommand() at pos %d, token: %v", p.pos, p.current().Type)
 	}
 
 	p.finish(kind)
@@ -1297,7 +1294,7 @@ func (p *parser) shellRedirect() {
 	// - A path: output.txt
 	// - A variable: @var.OUTPUT_FILE
 	// - A decorator: @file.temp() (future)
-	if !p.isStatementBoundary() && !p.at(lexer.EOF) {
+	if !p.isStatementBoundary() && !p.isShellOperator() && !p.at(lexer.EOF) {
 		p.shellArg() // Parse target as shell argument
 	}
 
@@ -1319,10 +1316,8 @@ func (p *parser) shellArg() {
 	}
 
 	// PRECONDITION CHECK: shellArg should never be called at operator/boundary
-	if p.isShellOperator() || p.isStatementBoundary() {
-		panic(fmt.Sprintf("BUG: shellArg() called at operator/boundary, pos: %d, token: %v",
-			p.pos, p.current().Type))
-	}
+	invariant.Precondition(!p.isShellOperator() && !p.isStatementBoundary(),
+		"shellArg() called at operator/boundary, pos: %d, token: %v", p.pos, p.current().Type)
 
 	kind := p.start(NodeShellArg)
 
@@ -1347,13 +1342,11 @@ func (p *parser) shellArg() {
 					p.pos, p.current().Type, p.current().HasSpaceBefore))
 			}
 
-			p.advance() // Consume token without emitting event (part of same argument)
+			p.token() // Emit token event (planner will group based on HasSpaceBefore)
 
-			// INVARIANT: p.advance() MUST increment p.pos
-			if p.pos <= prevPos {
-				panic(fmt.Sprintf("parser stuck in shellArg() at pos %d (was %d), token: %v - advance() failed to increment position",
-					p.pos, prevPos, p.current().Type))
-			}
+			// INVARIANT: p.token() MUST increment p.pos
+			invariant.Invariant(p.pos > prevPos, "parser stuck in shellArg() at pos %d (was %d), token: %v - token() failed to increment position",
+				p.pos, prevPos, p.current().Type)
 		}
 	}
 
