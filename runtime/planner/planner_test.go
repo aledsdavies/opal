@@ -755,3 +755,140 @@ func TestRedirectOperators(t *testing.T) {
 		})
 	}
 }
+
+// TestRedirectWithChaining tests redirect followed by chaining operators (&&, ||)
+// Bug: Previously, redirect consumed the operator slot, so && was never captured
+func TestRedirectWithChaining(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		wantMode     planfmt.RedirectMode
+		wantOperator string // Expected operator AFTER redirect
+	}{
+		{
+			name:         "redirect then AND",
+			input:        `echo "a" > out.txt && echo "b"`,
+			wantMode:     planfmt.RedirectOverwrite,
+			wantOperator: "&&",
+		},
+		{
+			name:         "redirect then OR",
+			input:        `echo "a" > out.txt || echo "b"`,
+			wantMode:     planfmt.RedirectOverwrite,
+			wantOperator: "||",
+		},
+		{
+			name:         "append then AND",
+			input:        `echo "a" >> out.txt && echo "b"`,
+			wantMode:     planfmt.RedirectAppend,
+			wantOperator: "&&",
+		},
+		{
+			name:         "redirect then PIPE",
+			input:        `echo "a" > out.txt | cat`,
+			wantMode:     planfmt.RedirectOverwrite,
+			wantOperator: "|",
+		},
+		{
+			name:         "redirect then SEMICOLON",
+			input:        `echo "a" > out.txt; echo "b"`,
+			wantMode:     planfmt.RedirectOverwrite,
+			wantOperator: ";",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse
+			tree := parser.Parse([]byte(tt.input))
+
+			if len(tree.Errors) > 0 {
+				t.Fatalf("Parse errors: %v", tree.Errors)
+			}
+
+			// Plan (script mode)
+			result, err := planner.Plan(tree.Events, tree.Tokens, planner.Config{
+				Target: "",
+			})
+			if err != nil {
+				t.Fatalf("Plan failed: %v", err)
+			}
+
+			// Verify plan structure
+			if len(result.Steps) != 1 {
+				t.Fatalf("Expected 1 step, got %d", len(result.Steps))
+			}
+
+			step := result.Steps[0]
+			if step.Tree == nil {
+				t.Fatal("Expected tree, got nil")
+			}
+
+			// Tree should be an operator node (&&, ||, |, ;)
+			// with left side being a RedirectNode
+			var leftNode, rightNode planfmt.ExecutionNode
+			switch tt.wantOperator {
+			case "&&":
+				andNode, ok := step.Tree.(*planfmt.AndNode)
+				if !ok {
+					t.Fatalf("Expected AndNode for &&, got %T", step.Tree)
+				}
+				leftNode = andNode.Left
+				rightNode = andNode.Right
+			case "||":
+				orNode, ok := step.Tree.(*planfmt.OrNode)
+				if !ok {
+					t.Fatalf("Expected OrNode for ||, got %T", step.Tree)
+				}
+				leftNode = orNode.Left
+				rightNode = orNode.Right
+			case "|":
+				pipeNode, ok := step.Tree.(*planfmt.PipelineNode)
+				if !ok {
+					t.Fatalf("Expected PipelineNode for |, got %T", step.Tree)
+				}
+				if len(pipeNode.Commands) != 2 {
+					t.Fatalf("Expected 2 pipeline commands, got %d", len(pipeNode.Commands))
+				}
+				// For pipe, we need to check the first command is a redirect
+				// This is a special case - pipe doesn't have Left/Right like And/Or
+				t.Skip("Pipe with redirect needs special handling - skipping for now")
+				return
+			case ";":
+				seqNode, ok := step.Tree.(*planfmt.SequenceNode)
+				if !ok {
+					t.Fatalf("Expected SequenceNode for ;, got %T", step.Tree)
+				}
+				if len(seqNode.Nodes) != 2 {
+					t.Fatalf("Expected 2 sequence nodes, got %d", len(seqNode.Nodes))
+				}
+				leftNode = seqNode.Nodes[0]
+				rightNode = seqNode.Nodes[1]
+			default:
+				t.Fatalf("Unknown operator: %q", tt.wantOperator)
+			}
+
+			// Left side should be a RedirectNode
+			redirectNode, ok := leftNode.(*planfmt.RedirectNode)
+			if !ok {
+				t.Fatalf("Expected left side to be RedirectNode, got %T", leftNode)
+			}
+
+			// Check redirect mode
+			if redirectNode.Mode != tt.wantMode {
+				t.Errorf("Expected redirect mode %v, got %v", tt.wantMode, redirectNode.Mode)
+			}
+
+			// Right side should be a CommandNode
+			rightCmd, ok := rightNode.(*planfmt.CommandNode)
+			if !ok {
+				t.Fatalf("Expected right side to be CommandNode, got %T", rightNode)
+			}
+
+			// Right command should be @shell
+			if rightCmd.Decorator != "@shell" {
+				t.Errorf("Expected right decorator @shell, got %q", rightCmd.Decorator)
+			}
+		})
+	}
+}

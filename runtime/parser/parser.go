@@ -1264,6 +1264,17 @@ func (p *parser) shellCommand() {
 		// Check if it's a redirect operator
 		if p.at(lexer.GT) || p.at(lexer.APPEND) {
 			p.shellRedirect()
+
+			// CRITICAL FIX: After redirect, check for chaining operators (&&, ||, |, ;)
+			// This allows: echo a > out && echo b (both redirect AND chaining)
+			if p.isShellOperator() && !p.at(lexer.GT) && !p.at(lexer.APPEND) {
+				p.token() // Consume chaining operator (&&, ||, |, ;)
+
+				// Parse next command after operator
+				if !p.isStatementBoundary() && !p.at(lexer.EOF) {
+					p.shellCommand()
+				}
+			}
 		} else {
 			p.token() // Consume operator (&&, ||, |, ;)
 

@@ -573,7 +573,7 @@ func TestBuildStepTree(t *testing.T) {
 					Args: []planfmt.Arg{
 						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo hello"}},
 					},
-					Operator: ">",
+					RedirectMode: ">",
 					RedirectTarget: &Command{
 						Decorator: "@shell",
 						Args: []planfmt.Arg{
@@ -606,7 +606,7 @@ func TestBuildStepTree(t *testing.T) {
 					Args: []planfmt.Arg{
 						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo world"}},
 					},
-					Operator: ">>",
+					RedirectMode: ">>",
 					RedirectTarget: &Command{
 						Decorator: "@shell",
 						Args: []planfmt.Arg{
@@ -646,7 +646,7 @@ func TestBuildStepTree(t *testing.T) {
 					Args: []planfmt.Arg{
 						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "grep test"}},
 					},
-					Operator: ">",
+					RedirectMode: ">",
 					RedirectTarget: &Command{
 						Decorator: "@shell",
 						Args: []planfmt.Arg{

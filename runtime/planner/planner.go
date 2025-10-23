@@ -41,8 +41,9 @@ type Command struct {
 	Decorator      string         // "@shell", "@retry", "@parallel", etc.
 	Args           []planfmt.Arg  // Decorator arguments
 	Block          []planfmt.Step // Nested steps (for decorators with blocks)
-	Operator       string         // "&&", "||", "|", ";", ">", ">>" - how to chain to NEXT command (empty for last)
-	RedirectTarget *Command       // For redirect operators (> and >>), the target decorator (nil otherwise)
+	Operator       string         // "&&", "||", "|", ";" - how to chain to NEXT command (empty for last)
+	RedirectMode   string         // ">", ">>" - redirect mode (empty if no redirect)
+	RedirectTarget *Command       // For redirect operators, the target decorator (nil otherwise)
 }
 
 // Config configures the planner
@@ -538,7 +539,8 @@ func (p *planner) planCommand() (Command, error) {
 
 	// Check for redirect operator after this command (> or >>)
 	var redirectTarget *Command
-	operator := ""
+	redirectMode := "" // ">" or ">>" - stored separately from chaining operator
+	operator := ""     // Chaining operator: "&&", "||", "|", ";"
 
 	if p.pos < len(p.events) {
 		evt := p.events[p.pos]
@@ -554,9 +556,9 @@ func (p *planner) planCommand() (Command, error) {
 
 				switch tokenType {
 				case lexer.GT:
-					operator = ">"
+					redirectMode = ">"
 				case lexer.APPEND:
-					operator = ">>"
+					redirectMode = ">>"
 				}
 				p.pos++ // Consume the operator token
 			}
@@ -622,8 +624,30 @@ func (p *planner) planCommand() (Command, error) {
 			if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
 				p.pos++
 			}
+
+			// CRITICAL FIX: After processing redirect, continue checking for chaining operators
+			// This allows: echo a > out && echo b (both redirect AND chaining)
+			if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventToken {
+				tokenIdx := p.events[p.pos].Data
+				tokenType := p.tokens[tokenIdx].Type
+
+				switch tokenType {
+				case lexer.AND_AND:
+					operator = "&&"
+					p.pos++ // Consume the operator
+				case lexer.OR_OR:
+					operator = "||"
+					p.pos++ // Consume the operator
+				case lexer.PIPE:
+					operator = "|"
+					p.pos++ // Consume the operator
+				case lexer.SEMICOLON:
+					operator = ";"
+					p.pos++ // Consume the operator
+				}
+			}
 		} else if evt.Kind == parser.EventToken {
-			// Check for other operators (&&, ||, |, ;)
+			// Check for chaining operators (&&, ||, |, ;) when no redirect
 			tokenIdx := evt.Data
 			tokenType := p.tokens[tokenIdx].Type
 
@@ -656,6 +680,7 @@ func (p *planner) planCommand() (Command, error) {
 			},
 		},
 		Operator:       operator,
+		RedirectMode:   redirectMode,
 		RedirectTarget: redirectTarget,
 	}
 
