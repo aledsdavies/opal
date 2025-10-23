@@ -45,13 +45,10 @@ func TestSimpleShellCommand(t *testing.T) {
 				{Kind: EventToken, Data: 1}, // apply
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventOpen, Data: uint32(NodeShellArg)},
-				{Kind: EventToken, Data: 2}, // - (MINUS)
-				{Kind: EventToken, Data: 3}, // f
+				{Kind: EventToken, Data: 2}, // -f (combined)
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventOpen, Data: uint32(NodeShellArg)},
-				{Kind: EventToken, Data: 4}, // deployment
-				{Kind: EventToken, Data: 5}, // . (DOT)
-				{Kind: EventToken, Data: 6}, // yaml
+				{Kind: EventToken, Data: 4}, // deployment.yaml (combined)
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventClose, Data: uint32(NodeShellCommand)},
 				{Kind: EventStepExit, Data: 0}, // Step boundary
@@ -171,9 +168,7 @@ func TestShellCommandWithOperators(t *testing.T) {
 				{Kind: EventToken, Data: 0}, // cat
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventOpen, Data: uint32(NodeShellArg)},
-				{Kind: EventToken, Data: 1}, // file
-				{Kind: EventToken, Data: 2}, // .
-				{Kind: EventToken, Data: 3}, // txt
+				{Kind: EventToken, Data: 1}, // file.txt (combined)
 				{Kind: EventClose, Data: uint32(NodeShellArg)},
 				{Kind: EventClose, Data: uint32(NodeShellCommand)},
 				{Kind: EventToken, Data: 4}, // |
@@ -321,12 +316,10 @@ func TestShellCommandInFunctionBody(t *testing.T) {
 		{Kind: EventToken, Data: 5}, // apply
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventOpen, Data: uint32(NodeShellArg)},
-		{Kind: EventToken, Data: 6}, // -
-		{Kind: EventToken, Data: 7}, // f
+		{Kind: EventToken, Data: 6}, // -f (combined)
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventOpen, Data: uint32(NodeShellArg)},
-		{Kind: EventToken, Data: 8}, // k8s
-		{Kind: EventToken, Data: 9}, // / (DIVIDE)
+		{Kind: EventToken, Data: 8}, // k8s/ (combined)
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventClose, Data: uint32(NodeShellCommand)},
 		{Kind: EventStepExit, Data: 0},
@@ -529,12 +522,10 @@ kubectl apply -f k8s/`
 		{Kind: EventToken, Data: 9}, // apply
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventOpen, Data: uint32(NodeShellArg)},
-		{Kind: EventToken, Data: 10}, // -
-		{Kind: EventToken, Data: 11}, // f
+		{Kind: EventToken, Data: 10}, // -f (combined)
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventOpen, Data: uint32(NodeShellArg)},
-		{Kind: EventToken, Data: 12}, // k8s
-		{Kind: EventToken, Data: 13}, // /
+		{Kind: EventToken, Data: 12}, // k8s/ (combined)
 		{Kind: EventClose, Data: uint32(NodeShellArg)},
 		{Kind: EventClose, Data: uint32(NodeShellCommand)},
 		{Kind: EventStepExit, Data: 0},

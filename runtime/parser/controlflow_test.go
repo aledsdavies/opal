@@ -528,10 +528,7 @@ func TestForLoop(t *testing.T) {
 				{EventToken, 8},     // echo
 				{EventClose, 9},     // ShellArg
 				{EventOpen, 9},      // ShellArg
-				{EventToken, 9},     // @
-				{EventToken, 10},    // var
-				{EventToken, 11},    // .
-				{EventToken, 12},    // item
+				{EventToken, 9},     // @var.item (combined)
 				{EventClose, 9},     // ShellArg
 				{EventClose, 8},     // ShellCommand
 				{EventStepExit, 0},  // Step boundary
