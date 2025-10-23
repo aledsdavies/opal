@@ -1,8 +1,13 @@
 package planfmt
 
 import (
-	"github.com/aledsdavies/opal/core/invariant"
+	"context"
+	"fmt"
+	"io"
+	"time"
+
 	"github.com/aledsdavies/opal/core/sdk"
+	"github.com/aledsdavies/opal/core/types"
 )
 
 // ToSDKSteps converts planfmt.Step slice to sdk.Step slice.
@@ -13,30 +18,43 @@ import (
 // actual values (not placeholders), except for value decorator results which
 // use DisplayID placeholders that get scrubbed during output.
 func ToSDKSteps(planSteps []Step) []sdk.Step {
+	return ToSDKStepsWithRegistry(planSteps, types.Global())
+}
+
+// ToSDKStepsWithRegistry converts planfmt.Step slice to sdk.Step slice using the given registry.
+func ToSDKStepsWithRegistry(planSteps []Step, registry *types.Registry) []sdk.Step {
 	sdkSteps := make([]sdk.Step, len(planSteps))
 	for i, planStep := range planSteps {
-		sdkSteps[i] = ToSDKStep(planStep)
+		sdkSteps[i] = toSDKStepWithRegistry(planStep, registry)
 	}
 	return sdkSteps
 }
 
 // ToSDKStep converts a single planfmt.Step to sdk.Step.
 func ToSDKStep(planStep Step) sdk.Step {
+	return toSDKStepWithRegistry(planStep, types.Global())
+}
+
+func toSDKStepWithRegistry(planStep Step, registry *types.Registry) sdk.Step {
 	return sdk.Step{
 		ID:   planStep.ID,
-		Tree: toSDKTree(planStep.Tree),
+		Tree: toSDKTreeWithRegistry(planStep.Tree, registry),
 	}
 }
 
 // toSDKTree converts planfmt.ExecutionNode to sdk.TreeNode.
 // This recursively converts the entire tree structure.
 func toSDKTree(node ExecutionNode) sdk.TreeNode {
+	return toSDKTreeWithRegistry(node, types.Global())
+}
+
+func toSDKTreeWithRegistry(node ExecutionNode, registry *types.Registry) sdk.TreeNode {
 	switch n := node.(type) {
 	case *CommandNode:
 		return &sdk.CommandNode{
 			Name:  n.Decorator,
 			Args:  ToSDKArgs(n.Args),
-			Block: ToSDKSteps(n.Block), // Recursive for nested steps
+			Block: ToSDKStepsWithRegistry(n.Block, registry), // Recursive for nested steps
 		}
 	case *PipelineNode:
 		commands := make([]sdk.CommandNode, len(n.Commands))
@@ -44,55 +62,34 @@ func toSDKTree(node ExecutionNode) sdk.TreeNode {
 			commands[i] = sdk.CommandNode{
 				Name:  cmd.Decorator,
 				Args:  ToSDKArgs(cmd.Args),
-				Block: ToSDKSteps(cmd.Block),
+				Block: ToSDKStepsWithRegistry(cmd.Block, registry),
 			}
 		}
 		return &sdk.PipelineNode{Commands: commands}
 	case *AndNode:
 		return &sdk.AndNode{
-			Left:  toSDKTree(n.Left),
-			Right: toSDKTree(n.Right),
+			Left:  toSDKTreeWithRegistry(n.Left, registry),
+			Right: toSDKTreeWithRegistry(n.Right, registry),
 		}
 	case *OrNode:
 		return &sdk.OrNode{
-			Left:  toSDKTree(n.Left),
-			Right: toSDKTree(n.Right),
+			Left:  toSDKTreeWithRegistry(n.Left, registry),
+			Right: toSDKTreeWithRegistry(n.Right, registry),
 		}
 	case *SequenceNode:
 		nodes := make([]sdk.TreeNode, len(n.Nodes))
 		for i, child := range n.Nodes {
-			nodes[i] = toSDKTree(child)
+			nodes[i] = toSDKTreeWithRegistry(child, registry)
 		}
 		return &sdk.SequenceNode{Nodes: nodes}
 	case *RedirectNode:
-		// Convert Target CommandNode to Sink
-		// For now, we only support @shell("path") which becomes FsPathSink
-		// Future: support decorator sinks like @s3.object(), @http.post(), etc.
-		var sink sdk.Sink
-
-		invariant.Precondition(n.Target.Decorator == "@shell",
-			"redirect target must be @shell for now (decorator sinks not yet implemented)")
-
-		// Extract path from @shell("path") args
-		path := ""
-		for _, arg := range n.Target.Args {
-			if arg.Key == "command" && arg.Val.Kind == ValueString {
-				path = arg.Val.Str
-				break
-			}
-		}
-		invariant.Precondition(path != "", "redirect target @shell missing 'command' argument")
-
-		// Create FsPathSink with default permissions (0644)
-		sink = sdk.FsPathSink{
-			Path: path,
-			Perm: 0644,
-		}
+		// Convert Target CommandNode to Sink by evaluating the decorator
+		sink := commandNodeToSink(&n.Target, registry)
 
 		return &sdk.RedirectNode{
-			Source: toSDKTree(n.Source),
+			Source: toSDKTreeWithRegistry(n.Source, registry),
 			Sink:   sink,
-			Mode:   sdk.RedirectMode(n.Mode), // Convert planfmt.RedirectMode to sdk.RedirectMode
+			Mode:   sdk.RedirectMode(n.Mode),
 		}
 	default:
 		panic("unknown ExecutionNode type")
@@ -116,3 +113,77 @@ func ToSDKArgs(planArgs []Arg) map[string]interface{} {
 	}
 	return args
 }
+
+// commandNodeToSink converts a CommandNode (redirect target) to a Sink.
+// Looks up the decorator in the registry and calls AsSink() if it implements SinkProvider.
+func commandNodeToSink(target *CommandNode, registry *types.Registry) sdk.Sink {
+	// Strip @ prefix from decorator name for registry lookup
+	decoratorName := target.Decorator
+	if len(decoratorName) > 0 && decoratorName[0] == '@' {
+		decoratorName = decoratorName[1:]
+	}
+
+	// Get decorator handler from registry
+	handler, _, exists := registry.GetSDKHandler(decoratorName)
+	if !exists {
+		panic(fmt.Sprintf("BUG: decorator %s not registered (parser should have rejected this)", target.Decorator))
+	}
+
+	// Check if decorator implements SinkProvider
+	sinkProvider, ok := handler.(sdk.SinkProvider)
+	if !ok {
+		panic(fmt.Sprintf("BUG: decorator %s does not implement SinkProvider (parser should have rejected this)", target.Decorator))
+	}
+
+	// Create minimal execution context with args
+	ctx := &minimalContext{args: ToSDKArgs(target.Args)}
+
+	// Call AsSink() on the decorator instance
+	return sinkProvider.AsSink(ctx)
+}
+
+// minimalContext is a minimal ExecutionContext for evaluating redirect targets.
+// Redirect targets only need args - no stdin/stdout/environ/etc.
+type minimalContext struct {
+	args map[string]interface{}
+}
+
+func (m *minimalContext) ExecuteBlock(steps []sdk.Step) (int, error) {
+	panic("BUG: redirect target tried to execute block")
+}
+func (m *minimalContext) Context() context.Context { return context.Background() }
+func (m *minimalContext) ArgString(key string) string {
+	if v, ok := m.args[key].(string); ok {
+		return v
+	}
+	return ""
+}
+func (m *minimalContext) ArgInt(key string) int64 {
+	if v, ok := m.args[key].(int64); ok {
+		return v
+	}
+	return 0
+}
+func (m *minimalContext) ArgBool(key string) bool {
+	if v, ok := m.args[key].(bool); ok {
+		return v
+	}
+	return false
+}
+func (m *minimalContext) ArgDuration(key string) time.Duration { return 0 }
+func (m *minimalContext) Args() map[string]interface{}         { return m.args }
+func (m *minimalContext) Environ() map[string]string           { return nil }
+func (m *minimalContext) Workdir() string                      { return "" }
+func (m *minimalContext) WithContext(ctx context.Context) sdk.ExecutionContext {
+	return m
+}
+func (m *minimalContext) WithEnviron(env map[string]string) sdk.ExecutionContext {
+	return m
+}
+func (m *minimalContext) WithWorkdir(dir string) sdk.ExecutionContext { return m }
+func (m *minimalContext) Stdin() io.Reader                            { return nil }
+func (m *minimalContext) StdoutPipe() io.Writer                       { return nil }
+func (m *minimalContext) Clone(args map[string]interface{}, stdin io.Reader, stdoutPipe io.Writer) sdk.ExecutionContext {
+	return &minimalContext{args: args}
+}
+func (m *minimalContext) Transport() interface{} { return nil }

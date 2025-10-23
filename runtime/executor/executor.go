@@ -304,9 +304,23 @@ func (e *executor) executeCommandWithPipes(cmd *sdk.CommandNode, stdin io.Reader
 	// Verify it's an execution decorator
 	invariant.Invariant(kind == types.DecoratorKindExecution, "%s is not an execution decorator", cmd.Name)
 
-	// Type assert to SDK handler
-	sdkHandler, ok := handler.(func(sdk.ExecutionContext, []sdk.Step) (int, error))
-	invariant.Invariant(ok, "invalid handler type for %s", cmd.Name)
+	// Type assert to SDK handler (function or struct with Execute method)
+	var sdkHandler func(sdk.ExecutionContext, []sdk.Step) (int, error)
+
+	// Try function first
+	if fn, ok := handler.(func(sdk.ExecutionContext, []sdk.Step) (int, error)); ok {
+		sdkHandler = fn
+	} else {
+		// Try struct with Execute method
+		type ExecutionDecorator interface {
+			Execute(sdk.ExecutionContext, []sdk.Step) (int, error)
+		}
+		if decorator, ok := handler.(ExecutionDecorator); ok {
+			sdkHandler = decorator.Execute
+		} else {
+			invariant.Invariant(false, "invalid handler type for %s", cmd.Name)
+		}
+	}
 
 	// Create base execution context
 	baseCtx := newExecutionContext(cmd.Args, e, context.Background())
