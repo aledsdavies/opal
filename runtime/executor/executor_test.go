@@ -248,35 +248,179 @@ func TestInvariantNilPlan(t *testing.T) {
 	})
 }
 
-// TestExecuteRedirectOverwrite tests output redirection with > operator
-func TestExecuteRedirectOverwrite(t *testing.T) {
-	// Create temp file for testing
-	tmpFile := t.TempDir() + "/output.txt"
-
-	plan := &planfmt.Plan{
-		Target: "redirect",
-		Steps: []planfmt.Step{
-			{
-				ID: 1,
-				Tree: &planfmt.RedirectNode{
-					Source: shellCmd("echo 'Hello, World!'"),
-					Target: *shellCmd(tmpFile),
+// TestExecutorBashParity tests executor behavior matches bash for redirect + operator combinations
+// This mirrors the planner bash_parity_test.go but verifies actual execution (double-entry bookkeeping)
+func TestExecutorBashParity(t *testing.T) {
+	tests := []struct {
+		name         string
+		tree         planfmt.ExecutionNode
+		wantExitCode int
+		checkFile    string // File to check after execution
+		wantFileData string // Expected file contents
+	}{
+		{
+			name: "redirect > then &&",
+			tree: &planfmt.AndNode{
+				Left: &planfmt.RedirectNode{
+					Source: shellCmd("echo 'a'"),
+					Target: *shellCmd("redirect_test_1.txt"),
 					Mode:   planfmt.RedirectOverwrite,
 				},
+				Right: shellCmd("echo 'b'"),
 			},
+			wantExitCode: 0,
+			checkFile:    "redirect_test_1.txt",
+			wantFileData: "a\n",
+		},
+		{
+			name: "redirect > then ||",
+			tree: &planfmt.OrNode{
+				Left: &planfmt.RedirectNode{
+					Source: shellCmd("echo 'a'"),
+					Target: *shellCmd("redirect_test_2.txt"),
+					Mode:   planfmt.RedirectOverwrite,
+				},
+				Right: shellCmd("echo 'b'"),
+			},
+			wantExitCode: 0,
+			checkFile:    "redirect_test_2.txt",
+			wantFileData: "a\n",
+		},
+		{
+			name: "redirect > then |",
+			tree: &planfmt.PipelineNode{
+				Commands: []planfmt.ExecutionNode{
+					&planfmt.RedirectNode{
+						Source: shellCmd("echo 'a'"),
+						Target: *shellCmd("redirect_test_3.txt"),
+						Mode:   planfmt.RedirectOverwrite,
+					},
+					shellCmd("cat"),
+				},
+			},
+			wantExitCode: 0,
+			checkFile:    "redirect_test_3.txt",
+			wantFileData: "a\n",
+		},
+		{
+			name: "first | second >",
+			tree: &planfmt.PipelineNode{
+				Commands: []planfmt.ExecutionNode{
+					shellCmd("echo 'a'"),
+					&planfmt.RedirectNode{
+						Source: shellCmd("cat"),
+						Target: *shellCmd("redirect_test_4.txt"),
+						Mode:   planfmt.RedirectOverwrite,
+					},
+				},
+			},
+			wantExitCode: 0,
+			checkFile:    "redirect_test_4.txt",
+			wantFileData: "a\n",
+		},
+		{
+			name: "first > | second >",
+			tree: &planfmt.PipelineNode{
+				Commands: []planfmt.ExecutionNode{
+					&planfmt.RedirectNode{
+						Source: shellCmd("echo 'a'"),
+						Target: *shellCmd("redirect_test_5a.txt"),
+						Mode:   planfmt.RedirectOverwrite,
+					},
+					&planfmt.RedirectNode{
+						Source: shellCmd("echo 'b'"),
+						Target: *shellCmd("redirect_test_5b.txt"),
+						Mode:   planfmt.RedirectOverwrite,
+					},
+				},
+			},
+			wantExitCode: 0,
+			checkFile:    "redirect_test_5a.txt",
+			wantFileData: "a\n",
+		},
+		{
+			name: "first > && second |",
+			tree: &planfmt.AndNode{
+				Left: &planfmt.RedirectNode{
+					Source: shellCmd("echo 'a'"),
+					Target: *shellCmd("redirect_test_6.txt"),
+					Mode:   planfmt.RedirectOverwrite,
+				},
+				Right: &planfmt.PipelineNode{
+					Commands: []planfmt.ExecutionNode{
+						shellCmd("echo 'b'"),
+						shellCmd("cat"),
+					},
+				},
+			},
+			wantExitCode: 0,
+			checkFile:    "redirect_test_6.txt",
+			wantFileData: "a\n",
+		},
+		{
+			name: "first | second > && third",
+			tree: &planfmt.AndNode{
+				Left: &planfmt.PipelineNode{
+					Commands: []planfmt.ExecutionNode{
+						shellCmd("echo 'a'"),
+						&planfmt.RedirectNode{
+							Source: shellCmd("cat"),
+							Target: *shellCmd("redirect_test_7.txt"),
+							Mode:   planfmt.RedirectOverwrite,
+						},
+					},
+				},
+				Right: shellCmd("echo 'b'"),
+			},
+			wantExitCode: 0,
+			checkFile:    "redirect_test_7.txt",
+			wantFileData: "a\n",
 		},
 	}
 
-	steps := planfmt.ToSDKSteps(plan.Steps)
-	result, err := Execute(steps, Config{})
-	require.NoError(t, err)
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Equal(t, 1, result.StepsRun)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clean up any existing test files
+			if tt.checkFile != "" {
+				_ = os.Remove(tt.checkFile)
+				defer os.Remove(tt.checkFile)
+			}
+			// Also clean up the second file for test 5
+			if tt.name == "first > | second >" {
+				_ = os.Remove("redirect_test_5b.txt")
+				defer os.Remove("redirect_test_5b.txt")
+			}
 
-	// Verify file contents
-	content, err := os.ReadFile(tmpFile)
-	require.NoError(t, err)
-	assert.Equal(t, "Hello, World!\n", string(content))
+			plan := &planfmt.Plan{
+				Target: "test",
+				Steps: []planfmt.Step{
+					{
+						ID:   1,
+						Tree: tt.tree,
+					},
+				},
+			}
+
+			steps := planfmt.ToSDKSteps(plan.Steps)
+			result, err := Execute(steps, Config{})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantExitCode, result.ExitCode, "exit code mismatch")
+
+			// Verify file was created with correct contents
+			if tt.checkFile != "" {
+				data, err := os.ReadFile(tt.checkFile)
+				require.NoError(t, err, "file should exist: %s", tt.checkFile)
+				assert.Equal(t, tt.wantFileData, string(data), "file contents mismatch")
+			}
+
+			// For test 5, also check the second file
+			if tt.name == "first > | second >" {
+				data, err := os.ReadFile("redirect_test_5b.txt")
+				require.NoError(t, err, "second file should exist")
+				assert.Equal(t, "b\n", string(data), "second file contents mismatch")
+			}
+		})
+	}
 }
 
 // TestExecuteRedirectAppend tests output redirection with >> operator
