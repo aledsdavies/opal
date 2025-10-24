@@ -299,7 +299,9 @@ func (e *executor) executeTreeNode(node sdk.TreeNode, stdin io.Reader, stdout io
 			// If there's a piped stdout, we need to close it to signal EOF
 			// But we can't write to it because output goes to redirect sink
 			if closer, ok := stdout.(io.Closer); ok {
-				defer closer.Close()
+				defer func() {
+					_ = closer.Close() // Ignore close error - nothing we can do
+				}()
 			}
 		}
 		// Execute redirect with piped stdin
