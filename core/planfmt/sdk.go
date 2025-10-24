@@ -2,10 +2,10 @@ package planfmt
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"time"
 
+	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/sdk"
 	"github.com/aledsdavies/opal/core/types"
 )
@@ -54,11 +54,29 @@ func toSDKTreeWithRegistry(node ExecutionNode, registry *types.Registry) sdk.Tre
 		}
 	case *PipelineNode:
 		commands := make([]sdk.CommandNode, len(n.Commands))
-		for i, cmd := range n.Commands {
-			commands[i] = sdk.CommandNode{
-				Name:  cmd.Decorator,
-				Args:  ToSDKArgs(cmd.Args),
-				Block: ToSDKStepsWithRegistry(cmd.Block, registry),
+		for i, elem := range n.Commands {
+			// Invariant: Pipeline elements must be CommandNode or RedirectNode
+			// (bash allows: cmd1 | cmd2 > file, but not: cmd1 | (cmd2 && cmd3))
+			switch cmd := elem.(type) {
+			case *CommandNode:
+				commands[i] = sdk.CommandNode{
+					Name:  cmd.Decorator,
+					Args:  ToSDKArgs(cmd.Args),
+					Block: ToSDKStepsWithRegistry(cmd.Block, registry),
+				}
+			case *RedirectNode:
+				// For redirect in pipeline, convert to CommandNode with redirect applied
+				// This matches bash: "cmd | cmd2 > file" means cmd2's output goes to file
+				srcCmd, ok := cmd.Source.(*CommandNode)
+				invariant.Invariant(ok, "redirect in pipeline must have CommandNode source, got %T", cmd.Source)
+				commands[i] = sdk.CommandNode{
+					Name:  srcCmd.Decorator,
+					Args:  ToSDKArgs(srcCmd.Args),
+					Block: ToSDKStepsWithRegistry(srcCmd.Block, registry),
+				}
+				// TODO: Handle redirect target - need to modify SDK to support per-command redirects
+			default:
+				invariant.Invariant(false, "invalid pipeline element type %T (only CommandNode and RedirectNode allowed)", elem)
 			}
 		}
 		return &sdk.PipelineNode{Commands: commands}
@@ -88,7 +106,8 @@ func toSDKTreeWithRegistry(node ExecutionNode, registry *types.Registry) sdk.Tre
 			Mode:   sdk.RedirectMode(n.Mode),
 		}
 	default:
-		panic("unknown ExecutionNode type")
+		invariant.Invariant(false, "unknown ExecutionNode type: %T", node)
+		return nil // unreachable
 	}
 }
 
@@ -121,15 +140,11 @@ func commandNodeToSink(target *CommandNode, registry *types.Registry) sdk.Sink {
 
 	// Get decorator handler from registry
 	handler, _, exists := registry.GetSDKHandler(decoratorName)
-	if !exists {
-		panic(fmt.Sprintf("BUG: decorator %s not registered (parser should have rejected this)", target.Decorator))
-	}
+	invariant.Invariant(exists, "decorator %s not registered (parser should have rejected this)", target.Decorator)
 
 	// Check if decorator implements SinkProvider
 	sinkProvider, ok := handler.(sdk.SinkProvider)
-	if !ok {
-		panic(fmt.Sprintf("BUG: decorator %s does not implement SinkProvider (parser should have rejected this)", target.Decorator))
-	}
+	invariant.Invariant(ok, "decorator %s does not implement SinkProvider (parser should have rejected this)", target.Decorator)
 
 	// Create minimal execution context with args
 	ctx := &minimalContext{args: ToSDKArgs(target.Args)}
@@ -145,7 +160,8 @@ type minimalContext struct {
 }
 
 func (m *minimalContext) ExecuteBlock(steps []sdk.Step) (int, error) {
-	panic("BUG: redirect target tried to execute block")
+	invariant.Invariant(false, "redirect target tried to execute block")
+	return 0, nil // unreachable
 }
 func (m *minimalContext) Context() context.Context { return context.Background() }
 func (m *minimalContext) ArgString(key string) string {

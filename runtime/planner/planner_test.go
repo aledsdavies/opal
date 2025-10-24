@@ -850,10 +850,19 @@ func TestRedirectWithChaining(t *testing.T) {
 				if len(pipeNode.Commands) != 2 {
 					t.Fatalf("Expected 2 pipeline commands, got %d", len(pipeNode.Commands))
 				}
-				// For pipe, we need to check the first command is a redirect
-				// This is a special case - pipe doesn't have Left/Right like And/Or
-				t.Skip("Pipe with redirect needs special handling - skipping for now")
-				return
+				// For pipe, check that first command is a RedirectNode
+				redirectNode, ok := pipeNode.Commands[0].(*planfmt.RedirectNode)
+				if !ok {
+					t.Fatalf("Expected first pipeline command to be RedirectNode, got %T", pipeNode.Commands[0])
+				}
+				// The redirect node is our "left" for validation
+				leftNode = redirectNode
+				// Second command should be CommandNode
+				cmdNode, ok := pipeNode.Commands[1].(*planfmt.CommandNode)
+				if !ok {
+					t.Fatalf("Expected second pipeline command to be CommandNode, got %T", pipeNode.Commands[1])
+				}
+				rightNode = cmdNode
 			case ";":
 				seqNode, ok := step.Tree.(*planfmt.SequenceNode)
 				if !ok {

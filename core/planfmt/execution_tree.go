@@ -25,8 +25,9 @@ func (*CommandNode) isExecutionNode() {}
 
 // PipelineNode executes a chain of piped commands (cmd1 | cmd2 | cmd3).
 // All commands run concurrently with stdout→stdin streaming.
+// Commands can be CommandNode or RedirectNode (with invariants enforcing bash semantics).
 type PipelineNode struct {
-	Commands []CommandNode // All commands in the pipeline
+	Commands []ExecutionNode // All commands in the pipeline (CommandNode or RedirectNode only)
 }
 
 func (*PipelineNode) isExecutionNode() {}

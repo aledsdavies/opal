@@ -323,14 +323,14 @@ func TestExecuteRedirectWithPipeline(t *testing.T) {
 				ID: 1,
 				Tree: &planfmt.RedirectNode{
 					Source: &planfmt.PipelineNode{
-						Commands: []planfmt.CommandNode{
-							{
+						Commands: []planfmt.ExecutionNode{
+							&planfmt.CommandNode{
 								Decorator: "@shell",
 								Args: []planfmt.Arg{
 									{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo 'hello world'"}},
 								},
 							},
-							{
+							&planfmt.CommandNode{
 								Decorator: "@shell",
 								Args: []planfmt.Arg{
 									{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "grep hello"}},

@@ -244,22 +244,34 @@ func parsePipeAndRedirect(commands []Command) planfmt.ExecutionNode {
 				Mode:   mode,
 			}
 
-			// If there's a pipe operator after this redirect, continue processing
+			// If there's a pipe operator after this redirect, create pipeline
 			if savedOperator == "|" && i+1 < len(commands) {
 				// Build right side
 				rightCmds := commands[i+1:]
 				right := buildStepTree(rightCmds)
 
-				// Check if right side is also a command (for pipeline flattening)
-				if rightCmd, ok := right.(*planfmt.CommandNode); ok {
-					// Can't easily flatten redirect into pipeline, so create nested structure
-					// This represents: (redirect) | command
-					// For now, return just the redirect and let the pipe be handled separately
-					_ = rightCmd
+				// Create pipeline with redirect on left
+				switch rightNode := right.(type) {
+				case *planfmt.CommandNode:
+					// redirect | cmd → PipelineNode([redirect, cmd])
+					return &planfmt.PipelineNode{
+						Commands: []planfmt.ExecutionNode{redirectNode, rightNode},
+					}
+				case *planfmt.RedirectNode:
+					// redirect | redirect → PipelineNode([redirect, redirect])
+					return &planfmt.PipelineNode{
+						Commands: []planfmt.ExecutionNode{redirectNode, rightNode},
+					}
+				case *planfmt.PipelineNode:
+					// redirect | pipeline → PipelineNode([redirect, ...pipeline])
+					nodes := make([]planfmt.ExecutionNode, 1+len(rightNode.Commands))
+					nodes[0] = redirectNode
+					copy(nodes[1:], rightNode.Commands)
+					return &planfmt.PipelineNode{Commands: nodes}
+				default:
+					// Complex right side - just return redirect for now
+					return redirectNode
 				}
-
-				// Return redirect node; the pipe will be handled in next call
-				return redirectNode
 			}
 
 			return redirectNode
@@ -278,25 +290,48 @@ func parsePipeAndRedirect(commands []Command) planfmt.ExecutionNode {
 				rightCmds := commands[i+1:]
 				right := buildStepTree(rightCmds)
 
-				// Try to flatten into PipelineNode if both sides are CommandNodes
+				// Try to flatten into PipelineNode
 				leftCmd, leftIsCmd := left.(*planfmt.CommandNode)
 				rightCmd, rightIsCmd := right.(*planfmt.CommandNode)
 				rightPipe, rightIsPipe := right.(*planfmt.PipelineNode)
+				leftRedirect, leftIsRedirect := left.(*planfmt.RedirectNode)
+				rightRedirect, rightIsRedirect := right.(*planfmt.RedirectNode)
 
 				if leftIsCmd && rightIsCmd {
 					// Simple case: cmd | cmd
 					return &planfmt.PipelineNode{
-						Commands: []planfmt.CommandNode{*leftCmd, *rightCmd},
+						Commands: []planfmt.ExecutionNode{leftCmd, rightCmd},
 					}
 				} else if leftIsCmd && rightIsPipe {
 					// Flatten: cmd | (cmd | cmd | ...) → cmd | cmd | cmd | ...
-					nodes := make([]planfmt.CommandNode, 1+len(rightPipe.Commands))
-					nodes[0] = *leftCmd
+					nodes := make([]planfmt.ExecutionNode, 1+len(rightPipe.Commands))
+					nodes[0] = leftCmd
+					copy(nodes[1:], rightPipe.Commands)
+					return &planfmt.PipelineNode{Commands: nodes}
+				} else if leftIsCmd && rightIsRedirect {
+					// cmd | (cmd > file) → pipeline with redirect at end
+					return &planfmt.PipelineNode{
+						Commands: []planfmt.ExecutionNode{leftCmd, rightRedirect},
+					}
+				} else if leftIsRedirect && rightIsCmd {
+					// (cmd > file) | cmd → pipeline with redirect at start
+					return &planfmt.PipelineNode{
+						Commands: []planfmt.ExecutionNode{leftRedirect, rightCmd},
+					}
+				} else if leftIsRedirect && rightIsRedirect {
+					// (cmd > file1) | (cmd > file2) → pipeline with two redirects
+					return &planfmt.PipelineNode{
+						Commands: []planfmt.ExecutionNode{leftRedirect, rightRedirect},
+					}
+				} else if leftIsRedirect && rightIsPipe {
+					// (cmd > file) | (cmd | cmd | ...) → pipeline with redirect at start
+					nodes := make([]planfmt.ExecutionNode, 1+len(rightPipe.Commands))
+					nodes[0] = leftRedirect
 					copy(nodes[1:], rightPipe.Commands)
 					return &planfmt.PipelineNode{Commands: nodes}
 				}
 
-				// Complex case: one side is not a simple command
+				// Complex case: one side is not a simple command/redirect
 				// Can't create a simple pipeline - this shouldn't happen with current grammar
 				// Return left for now
 				return left

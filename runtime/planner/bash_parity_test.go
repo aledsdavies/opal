@@ -104,12 +104,23 @@ func TestBashParity(t *testing.T) {
 			bashFile:    "a",
 			description: "Redirect happens, pipe gets empty stdin",
 			verify: func(t *testing.T, tree planfmt.ExecutionNode) {
-				// This is the KNOWN BUG - should be PipelineNode but currently returns RedirectNode
-				// Once fixed, should be: PipelineNode([echo "a" with redirect, cat])
-				_, ok := tree.(*planfmt.PipelineNode)
+				// Should be: PipelineNode([RedirectNode(echo "a" > out.txt), cat])
+				pipeNode, ok := tree.(*planfmt.PipelineNode)
 				if !ok {
-					t.Logf("KNOWN BUG: Expected PipelineNode, got %T", tree)
-					t.Skip("Skipping until redirect-as-property is implemented")
+					t.Fatalf("Expected PipelineNode, got %T", tree)
+				}
+				if len(pipeNode.Commands) != 2 {
+					t.Fatalf("Expected 2 commands in pipeline, got %d", len(pipeNode.Commands))
+				}
+				// First command should be RedirectNode
+				_, ok = pipeNode.Commands[0].(*planfmt.RedirectNode)
+				if !ok {
+					t.Errorf("Expected first command to be RedirectNode, got %T", pipeNode.Commands[0])
+				}
+				// Second command should be CommandNode (cat)
+				_, ok = pipeNode.Commands[1].(*planfmt.CommandNode)
+				if !ok {
+					t.Errorf("Expected second command to be CommandNode, got %T", pipeNode.Commands[1])
 				}
 			},
 		},
@@ -303,11 +314,22 @@ func TestBashParity(t *testing.T) {
 			bashFile:    "a", // out1.txt
 			description: "Both commands in pipeline have redirects",
 			verify: func(t *testing.T, tree planfmt.ExecutionNode) {
-				// This is complex - should be PipelineNode with both commands having redirects
-				_, ok := tree.(*planfmt.PipelineNode)
+				// Should be PipelineNode with both commands having redirects
+				pipeNode, ok := tree.(*planfmt.PipelineNode)
 				if !ok {
-					t.Logf("KNOWN BUG: Expected PipelineNode, got %T", tree)
-					t.Skip("Skipping until redirect-as-property is implemented")
+					t.Fatalf("Expected PipelineNode, got %T", tree)
+				}
+				if len(pipeNode.Commands) != 2 {
+					t.Fatalf("Expected 2 commands in pipeline, got %d", len(pipeNode.Commands))
+				}
+				// Both commands should be RedirectNode
+				_, ok = pipeNode.Commands[0].(*planfmt.RedirectNode)
+				if !ok {
+					t.Errorf("Expected first command to be RedirectNode, got %T", pipeNode.Commands[0])
+				}
+				_, ok = pipeNode.Commands[1].(*planfmt.RedirectNode)
+				if !ok {
+					t.Errorf("Expected second command to be RedirectNode, got %T", pipeNode.Commands[1])
 				}
 			},
 		},
@@ -606,17 +628,25 @@ func TestBashParity(t *testing.T) {
 			bashFile:    "a",
 			description: "Redirect then pipe then AND",
 			verify: func(t *testing.T, tree planfmt.ExecutionNode) {
-				// This is the KNOWN BUG case
+				// Should be: AndNode(PipelineNode([RedirectNode, cat]), echo "b")
 				andNode, ok := tree.(*planfmt.AndNode)
 				if !ok {
 					t.Fatalf("Expected AndNode, got %T", tree)
 				}
 
-				// Left should be PipelineNode (once fixed)
-				_, ok = andNode.Left.(*planfmt.PipelineNode)
+				// Left should be PipelineNode
+				pipeNode, ok := andNode.Left.(*planfmt.PipelineNode)
 				if !ok {
-					t.Logf("KNOWN BUG: Expected left to be PipelineNode, got %T", andNode.Left)
-					t.Skip("Skipping until redirect-as-property is implemented")
+					t.Fatalf("Expected left to be PipelineNode, got %T", andNode.Left)
+				}
+				if len(pipeNode.Commands) != 2 {
+					t.Fatalf("Expected 2 commands in pipeline, got %d", len(pipeNode.Commands))
+				}
+
+				// Right should be CommandNode
+				_, ok = andNode.Right.(*planfmt.CommandNode)
+				if !ok {
+					t.Errorf("Expected right to be CommandNode, got %T", andNode.Right)
 				}
 			},
 		},
@@ -686,11 +716,28 @@ func TestBashParity(t *testing.T) {
 			bashFile:    "a",
 			description: "Middle command in pipeline has redirect",
 			verify: func(t *testing.T, tree planfmt.ExecutionNode) {
-				// This is complex - middle command redirects, so third gets empty stdin
-				_, ok := tree.(*planfmt.PipelineNode)
+				// Should be PipelineNode([echo "a", RedirectNode(cat > out.txt), cat])
+				pipeNode, ok := tree.(*planfmt.PipelineNode)
 				if !ok {
-					t.Logf("KNOWN BUG: Expected PipelineNode, got %T", tree)
-					t.Skip("Skipping until redirect-as-property is implemented")
+					t.Fatalf("Expected PipelineNode, got %T", tree)
+				}
+				if len(pipeNode.Commands) != 3 {
+					t.Fatalf("Expected 3 commands in pipeline, got %d", len(pipeNode.Commands))
+				}
+				// First should be CommandNode
+				_, ok = pipeNode.Commands[0].(*planfmt.CommandNode)
+				if !ok {
+					t.Errorf("Expected first command to be CommandNode, got %T", pipeNode.Commands[0])
+				}
+				// Second should be RedirectNode
+				_, ok = pipeNode.Commands[1].(*planfmt.RedirectNode)
+				if !ok {
+					t.Errorf("Expected second command to be RedirectNode, got %T", pipeNode.Commands[1])
+				}
+				// Third should be CommandNode
+				_, ok = pipeNode.Commands[2].(*planfmt.CommandNode)
+				if !ok {
+					t.Errorf("Expected third command to be CommandNode, got %T", pipeNode.Commands[2])
 				}
 			},
 		},
@@ -701,10 +748,27 @@ func TestBashParity(t *testing.T) {
 			bashFile:    "a",
 			description: "First in pipeline has redirect",
 			verify: func(t *testing.T, tree planfmt.ExecutionNode) {
-				_, ok := tree.(*planfmt.PipelineNode)
+				// Should be PipelineNode([RedirectNode(echo "a" > out.txt), cat, cat])
+				pipeNode, ok := tree.(*planfmt.PipelineNode)
 				if !ok {
-					t.Logf("KNOWN BUG: Expected PipelineNode, got %T", tree)
-					t.Skip("Skipping until redirect-as-property is implemented")
+					t.Fatalf("Expected PipelineNode, got %T", tree)
+				}
+				if len(pipeNode.Commands) != 3 {
+					t.Fatalf("Expected 3 commands in pipeline, got %d", len(pipeNode.Commands))
+				}
+				// First should be RedirectNode
+				_, ok = pipeNode.Commands[0].(*planfmt.RedirectNode)
+				if !ok {
+					t.Errorf("Expected first command to be RedirectNode, got %T", pipeNode.Commands[0])
+				}
+				// Second and third should be CommandNode
+				_, ok = pipeNode.Commands[1].(*planfmt.CommandNode)
+				if !ok {
+					t.Errorf("Expected second command to be CommandNode, got %T", pipeNode.Commands[1])
+				}
+				_, ok = pipeNode.Commands[2].(*planfmt.CommandNode)
+				if !ok {
+					t.Errorf("Expected third command to be CommandNode, got %T", pipeNode.Commands[2])
 				}
 			},
 		},
