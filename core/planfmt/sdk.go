@@ -53,28 +53,14 @@ func toSDKTreeWithRegistry(node ExecutionNode, registry *types.Registry) sdk.Tre
 			Block: ToSDKStepsWithRegistry(n.Block, registry), // Recursive for nested steps
 		}
 	case *PipelineNode:
-		commands := make([]sdk.CommandNode, len(n.Commands))
+		commands := make([]sdk.TreeNode, len(n.Commands))
 		for i, elem := range n.Commands {
 			// Invariant: Pipeline elements must be CommandNode or RedirectNode
 			// (bash allows: cmd1 | cmd2 > file, but not: cmd1 | (cmd2 && cmd3))
-			switch cmd := elem.(type) {
-			case *CommandNode:
-				commands[i] = sdk.CommandNode{
-					Name:  cmd.Decorator,
-					Args:  ToSDKArgs(cmd.Args),
-					Block: ToSDKStepsWithRegistry(cmd.Block, registry),
-				}
-			case *RedirectNode:
-				// For redirect in pipeline, convert to CommandNode with redirect applied
-				// This matches bash: "cmd | cmd2 > file" means cmd2's output goes to file
-				srcCmd, ok := cmd.Source.(*CommandNode)
-				invariant.Invariant(ok, "redirect in pipeline must have CommandNode source, got %T", cmd.Source)
-				commands[i] = sdk.CommandNode{
-					Name:  srcCmd.Decorator,
-					Args:  ToSDKArgs(srcCmd.Args),
-					Block: ToSDKStepsWithRegistry(srcCmd.Block, registry),
-				}
-				// TODO: Handle redirect target - need to modify SDK to support per-command redirects
+			switch elem.(type) {
+			case *CommandNode, *RedirectNode:
+				// Recursively convert to SDK TreeNode
+				commands[i] = toSDKTreeWithRegistry(elem, registry)
 			default:
 				invariant.Invariant(false, "invalid pipeline element type %T (only CommandNode and RedirectNode allowed)", elem)
 			}

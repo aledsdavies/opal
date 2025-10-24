@@ -139,8 +139,9 @@ func (*CommandNode) isTreeNode() {}
 
 // PipelineNode executes a chain of piped commands (cmd1 | cmd2 | cmd3).
 // All commands run concurrently with stdout→stdin streaming.
+// Commands can be CommandNode or RedirectNode (bash allows: cmd1 | cmd2 > file).
 type PipelineNode struct {
-	Commands []CommandNode // All commands in the pipeline
+	Commands []TreeNode // All commands in the pipeline (CommandNode or RedirectNode)
 }
 
 func (*PipelineNode) isTreeNode() {}

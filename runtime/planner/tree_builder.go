@@ -170,45 +170,6 @@ func parseAnd(commands []Command) planfmt.ExecutionNode {
 	return nil
 }
 
-// parseRedirect splits on redirect operators (> and >> have lower precedence than |, higher than &&)
-func parseRedirect(commands []Command) planfmt.ExecutionNode {
-	// Find rightmost redirect operator (left-to-right associativity)
-	// Operator is on the command BEFORE the split point
-	for i := len(commands) - 1; i >= 0; i-- {
-		if commands[i].RedirectMode != "" {
-			// The command at position i has the redirect operator and target
-			// Build the source (everything up to and including command i, without the redirect)
-			leftCmds := make([]Command, i+1)
-			copy(leftCmds, commands[:i+1])
-			leftCmds[i].RedirectMode = ""    // Clear the redirect mode
-			leftCmds[i].RedirectTarget = nil // Clear the target
-
-			source := buildStepTree(leftCmds)
-
-			// The redirect target is stored in commands[i].RedirectTarget
-			if commands[i].RedirectTarget == nil {
-				// No target - this shouldn't happen if parser is correct, but handle gracefully
-				return source
-			}
-
-			target := commandToNode(*commands[i].RedirectTarget)
-
-			// Determine redirect mode
-			mode := planfmt.RedirectOverwrite
-			if commands[i].RedirectMode == ">>" {
-				mode = planfmt.RedirectAppend
-			}
-
-			return &planfmt.RedirectNode{
-				Source: source,
-				Target: *target,
-				Mode:   mode,
-			}
-		}
-	}
-	return nil
-}
-
 // parsePipeAndRedirect handles pipe (|) and redirect (>, >>) with equal precedence.
 // Scans left-to-right to match bash behavior.
 // Examples:
