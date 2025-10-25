@@ -1,0 +1,363 @@
+===============================================================================
+OPAL VALUE DECORATORS AND STRING INTERPOLATION - EXPLORATION COMPLETE
+===============================================================================
+
+I've completed a very thorough exploration of the OPAL codebase. Here's what I found:
+
+KEY FINDING: PARSING IS COMPLETE, RESOLUTION IS MISSING
+========================================================
+
+OPAL has excellent infrastructure for parsing and recognizing value decorators,
+but the actual resolution (converting @var.NAME to actual values) is NOT 
+implemented. This is the critical gap between specification and implementation.
+
+===============================================================================
+SPECIFICATION (What Should Work)
+===============================================================================
+
+Value Decorator Syntax:
+  - Dot notation: @var.REPLICAS, @env.HOME, @aws.secret.api_token
+  - With parameters: @env.PORT(default=3000), @aws.secret.api_key(region="us-west-2")
+  - In arguments: kubectl scale --replicas=@var.REPLICAS deployment/app
+  - In strings: echo "Environment: @env.NODE_ENV"
+  - Resolve at PLAN-TIME (deterministic)
+
+String Interpolation:
+  - Double/backtick quotes support decorators
+  - Single quotes do NOT interpolate
+  - Multiple decorators per string allowed
+  - Unregistered decorators stay literal (e.g., email addresses)
+
+Execution Decorators (separate):
+  - Always function syntax: @retry(attempts=3) { ... }
+  - Different from value decorators (which use dot syntax)
+
+===============================================================================
+PARSING LAYER (100% COMPLETE ✅)
+===============================================================================
+
+Lexer ✅
+  - File: runtime/lexer/
+  - Fully tokenizes @, identifiers, dots, parentheses, parameters
+  - Test: decorators_test.go ✅
+
+String Tokenization ✅
+  - File: runtime/parser/string_tokenizer.go
+  - Zero-allocation parsing of string interpolations
+  - Returns StringPart structs with byte offsets
+  - Smart: Only marks registered value decorators as decorators
+  - Test: string_tokenizer_test.go ✅ (13 tests)
+
+Parser ✅
+  - File: runtime/parser/parser.go (lines 2009-2116)
+  - Functions: stringNeedsInterpolation(), stringLiteral()
+  - AST Nodes:
+    * NodeDecorator - represents @var.name, @env.HOME, etc.
+    * NodeInterpolatedString - "Hello @var.name"
+    * NodeStringPart - individual parts (literal or decorator)
+  - Type validation: Parameter type checking works
+  - Test: decorator_test.go ✅ (40+ tests)
+
+Decorator Schemas ✅
+  - Files: runtime/decorators/env.go, runtime/decorators/var.go
+  - Both @env and @var are fully registered with schemas
+  - Registry infrastructure: core/types/registry.go ✅
+  - Schema builder API: core/types/schema.go ✅
+
+Example Parse Result:
+  Input: echo "Hello @var.name"
+  Parsed Tree:
+    NodeShellCommand
+      NodeLiteral("echo")
+      NodeInterpolatedString
+        NodeStringPart (literal: "Hello ")
+        NodeStringPart (decorator: @var, property: name)
+
+===============================================================================
+PLANNING LAYER (0% COMPLETE ❌)
+===============================================================================
+
+Current Planner Behavior:
+  File: runtime/planner/planner.go
+  
+  1. Collects all tokens in a command
+  2. Concatenates them into a RAW STRING
+  3. Creates @shell decorator with raw string as argument
+  4. NEVER resolves @var, @env, or any decorators
+  5. Plan contains literal @var.NAME, @env.HOME, etc.
+
+Example:
+  Input: kubectl scale --replicas=@var.REPLICAS deployment/app
+  Plan Generated: @shell("kubectl scale --replicas=@var.REPLICAS deployment/app")
+  Expected: @shell("kubectl scale --replicas=3 deployment/app")  <-- NOT DONE
+
+Missing from Planner:
+  ❌ No access to variable bindings/scope
+  ❌ No access to environment variables
+  ❌ No decorator resolution/handler invocation
+  ❌ No string interpolation processing
+  ❌ No tracking of resolved values
+
+String Interpolation Not Implemented:
+  Parser creates NodeInterpolatedString AST nodes
+  Planner IGNORES these nodes
+  Result: Raw strings with @decorators pass through unchanged
+
+Redirect with Variables Test Case:
+  File: runtime/planner/planner_test.go (line 699)
+  Test: "redirect with variable" 
+  Input: echo "data" > @var.OUTPUT_FILE
+  Current: Plan contains literal @var.OUTPUT_FILE
+  Expected: Plan should contain resolved value (NOT TESTED)
+
+===============================================================================
+PLAN REPRESENTATION (50% COMPLETE ⚠️)
+===============================================================================
+
+What Works:
+  ✅ CommandNode structure with Decorator + Args
+  ✅ Operator precedence tree (PipelineNode, AndNode, OrNode, etc.)
+  ✅ Arg struct with Key and Value
+  ✅ Value types: ValueString, ValueInt, ValueBool, ValuePlaceholder
+
+What's Missing:
+  ❌ No tracking of which args contain resolved decorators
+  ❌ Plan.Secrets exists but is never populated
+  ❌ No support for opal:s:ID placeholders in plans
+  ❌ No explicit marker for "this value came from @env or @var"
+  ❌ No secret scrubbing metadata
+
+Current Plan Structure:
+  Step {
+    ID: 1,
+    Tree: CommandNode {
+      Decorator: "@shell",
+      Args: [{
+        Key: "command",
+        Val: Value{
+          Kind: ValueString,
+          Str: "kubectl scale --replicas=@var.REPLICAS deployment/app"  ← RAW!
+        }
+      }]
+    }
+  }
+
+===============================================================================
+KEY FILES ANALYSIS
+===============================================================================
+
+Parsing Infrastructure (All Complete):
+  ✅ runtime/lexer/                    - Decorator tokenization
+  ✅ runtime/parser/string_tokenizer.go - String parsing with byte offsets
+  ✅ runtime/parser/parser.go          - AST construction (lines 2009-2116)
+  ✅ runtime/parser/tree.go            - AST node definitions
+  ✅ runtime/decorators/env.go         - @env decorator implementation
+  ✅ runtime/decorators/var.go         - @var decorator implementation
+  ✅ core/types/registry.go            - Decorator registration
+  ✅ core/types/schema.go              - Schema definition API
+
+Planning Infrastructure (Incomplete):
+  ⚠️ runtime/planner/planner.go        - Builds commands but no resolution
+  ❌ Value decorator resolution         - MISSING
+  ❌ String interpolation processing    - MISSING
+  ❌ Scope/binding access              - MISSING
+
+Plan Representation (Incomplete):
+  ✅ core/planfmt/execution_tree.go    - Operator tree structures
+  ⚠️ core/planfmt/plan.go              - Plan struct exists but incomplete
+
+Testing (30% coverage):
+  ✅ runtime/parser/string_tokenizer_test.go (13 tests)
+  ✅ runtime/parser/decorator_test.go (40+ tests)
+  ⚠️ runtime/planner/planner_test.go (basic commands only)
+  ❌ No integration tests for resolution
+  ❌ No contract verification tests
+  ❌ No secret scrubbing tests
+
+===============================================================================
+CRITICAL GAPS
+===============================================================================
+
+1. DECORATOR RESOLUTION BLOCKED
+   - Planner needs access to variable bindings
+   - Planner needs to call decorator handlers
+   - Planner needs execution context with environment
+   - Currently: planConfig has no such fields
+
+2. STRING INTERPOLATION NOT PROCESSED
+   - Parser creates NodeInterpolatedString AST nodes
+   - Planner ignores these nodes
+   - No logic to walk StringPart offsets
+   - No logic to reconstruct interpolated strings
+
+3. SCOPE/BINDING ACCESS
+   - How do variable assignments flow to planner?
+   - How do nested scopes (loops, conditionals) work?
+   - How do function parameters get bound?
+   - Currently: No scope threading in planner
+
+4. EXECUTION CONTEXT MISSING
+   - Decorators need environment, bindings, etc.
+   - No way to invoke value decorator handlers
+   - No secret handle generation
+   - No scrubbing integration
+
+5. SECRET TRACKING INCOMPLETE
+   - Plan.Secrets exists but never populated
+   - DisplayID placeholders not generated
+   - Output scrubbing not integrated
+   - Audit trail not maintained
+
+===============================================================================
+EXAMPLES FROM SPECIFICATION
+===============================================================================
+
+Example 1: Basic Interpolation (SPEC line 338)
+  Specified: kubectl scale --replicas=@var.REPLICAS deployment/app
+  Parser ✅: Recognizes @var.REPLICAS
+  Planner ❌: Does NOT resolve it
+  Plan: Contains raw "@var.REPLICAS"
+
+Example 2: String Interpolation (SPEC line 389)
+  Specified: echo "Deploying @var.service with @var.replicas replicas"
+  Parser ✅: Tokenizes string into parts
+  Planner ❌: Does NOT process NodeInterpolatedString
+  Plan: Contains raw string with @var decorators
+
+Example 3: Nested Properties (SPEC line 339)
+  Specified: psql @var.CONFIG.database.url
+  Parser ✅: Captures property path in StringPart
+  Planner ❌: Does NOT traverse properties
+  Plan: Contains raw "@var.CONFIG.database.url"
+
+Example 4: Parameters with Defaults (SPEC line 351)
+  Specified: @env.MANIFEST_PATH(default="k8s/")
+  Parser ✅: Recognizes parameters
+  Planner ❌: Does NOT evaluate parameters or apply defaults
+  Plan: Parameters ignored
+
+===============================================================================
+WHAT CAN AND CANNOT WORK TODAY
+===============================================================================
+
+CAN Work (with Parser Foundation):
+  ✅ Parse @var, @env syntax
+  ✅ Detect decorators in strings
+  ✅ Type-check decorator parameters
+  ✅ Generate AST with decorator nodes
+
+CANNOT Work (Missing Planner):
+  ❌ @var.X resolution
+  ❌ @env.X resolution
+  ❌ String interpolation
+  ❌ Contract verification
+  ❌ Secret scrubbing
+  ❌ Any value decorator in actual execution
+
+===============================================================================
+IMPLEMENTATION ROADMAP
+===============================================================================
+
+Phase 1: Planner Scope Access (8-12 hours)
+  - Extend planner.Config with Bindings and Environment
+  - Create ResolutionContext struct
+  - Thread scope through planner
+
+Phase 2: Decorator Resolution (8-12 hours)
+  - Implement decorator handler invocation
+  - Handle string interpolation in planner
+  - Track resolved values in plan
+
+Phase 3: Plan Representation (2-3 hours)
+  - Populate Plan.Secrets during planning
+  - Generate DisplayID placeholders
+  - Update plan structure if needed
+
+Phase 4: Execution and Scrubbing (10-14 hours)
+  - Implement value decorator executor
+  - Secret output scrubbing
+  - Contract verification with resolved values
+
+Phase 5: Testing (15-20 hours)
+  - Planner resolution tests
+  - String interpolation tests
+  - Integration tests
+  - Plan verification tests
+
+Total Estimated: 41-58 hours of development
+
+===============================================================================
+DELIVERABLES
+===============================================================================
+
+I've created two detailed documents in /home/user/opal/docs/:
+
+1. VALUE_DECORATOR_ANALYSIS.md (10 sections, 1000+ lines)
+   - Complete specification compliance analysis
+   - Current implementation status by layer
+   - Plan representation analysis
+   - Interpolation patterns analysis
+   - All key files with status
+   - Critical gaps with blockers
+   - Examples from spec with current vs expected
+   - Roadmap for implementation
+   - Test coverage analysis
+
+2. DECORATOR_IMPLEMENTATION_CHECKLIST.md (detailed checklist)
+   - Status of each component
+   - Concrete implementation steps with time estimates
+   - Files that need changes
+   - What works today vs what doesn't
+   - Risk areas
+
+===============================================================================
+KEY INSIGHTS
+===============================================================================
+
+1. EXCELLENT FOUNDATION
+   The parsing infrastructure is complete and well-designed:
+   - Zero-allocation string tokenization
+   - Smart decorator detection (only processes registered decorators)
+   - Full AST support with decorator nodes
+   - Type validation of parameters
+   - Multiple decorators per string
+
+2. CLEAR SEPARATION OF CONCERNS
+   Parsing and planning are cleanly separated:
+   - Parser doesn't need to know about execution
+   - Planner can be extended without changing parser
+   - Clear AST interface for planning to use
+
+3. WELL-TESTED PARSING
+   Parser has comprehensive test coverage:
+   - String tokenization: 13 tests
+   - Decorator detection: 40+ tests
+   - Type validation: 10+ tests
+
+4. MISSING EXECUTION LAYER
+   The planner is the critical gap:
+   - No scope/binding access
+   - No decorator invocation
+   - No string interpolation
+   - Just concatenates raw strings
+
+5. NO SECRET TRACKING
+   Plan.Secrets exists but is never populated:
+   - Scrubbing infrastructure missing
+   - DisplayID generation missing
+   - Audit trail not maintained
+
+===============================================================================
+NEXT STEPS RECOMMENDATION
+===============================================================================
+
+1. Review VALUE_DECORATOR_ANALYSIS.md (section 6: Critical Gaps)
+2. Review DECORATOR_IMPLEMENTATION_CHECKLIST.md
+3. Decide on scope management strategy:
+   - How should variable bindings flow to planner?
+   - How should environment be passed?
+4. Design ResolutionContext struct
+5. Implement Phase 1 (planner scope access)
+6. Add tests incrementally
+
+===============================================================================
