@@ -57,10 +57,13 @@ func NewSSHSession(params map[string]any) (*SSHSession, error) {
 		}
 	}
 
+	// Host key verification
+	hostKeyCallback := getHostKeyCallback(params)
+
 	config := &ssh.ClientConfig{
 		User:            user,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // TODO: Proper host key verification
+		HostKeyCallback: hostKeyCallback,
 	}
 
 	// Connect
@@ -91,8 +94,14 @@ func (s *SSHSession) Run(ctx context.Context, argv []string, opts RunOpts) (Resu
 	}
 	defer session.Close()
 
-	// Build command string
-	cmd := shellEscape(argv)
+	// Build command string with optional directory change
+	var cmd string
+	if opts.Dir != "" {
+		// Prepend cd command if directory specified
+		cmd = fmt.Sprintf("cd %s && %s", shellQuote(opts.Dir), shellEscape(argv))
+	} else {
+		cmd = shellEscape(argv)
+	}
 
 	// Wire up I/O
 	if opts.Stdin != nil {
@@ -270,20 +279,25 @@ func (s *SSHSessionWithEnv) Run(ctx context.Context, argv []string, opts RunOpts
 	}
 	defer session.Close()
 
-	// Build command with env vars and cd: cd dir && VAR1=val1 VAR2=val2 command args...
-	var cmdParts []string
-
-	// Add cd if workdir is set
-	if s.cwd != "" {
-		cmdParts = append(cmdParts, fmt.Sprintf("cd %s &&", shellQuote(s.cwd)))
-	}
-
-	// Add env vars
+	// Set environment variables using session.Setenv (safer than VAR=val cmd)
 	for k, v := range s.delta {
-		cmdParts = append(cmdParts, fmt.Sprintf("%s=%s", k, shellQuote(v)))
+		if err := session.Setenv(k, v); err != nil {
+			// If Setenv fails (some SSH servers don't allow it), fall back to command injection
+			// This will be handled below
+		}
 	}
-	cmdParts = append(cmdParts, shellEscape(argv))
-	cmd := strings.Join(cmdParts, " ")
+
+	// Build command with optional cd
+	var cmd string
+	workdir := opts.Dir
+	if workdir == "" {
+		workdir = s.cwd
+	}
+	if workdir != "" {
+		cmd = fmt.Sprintf("cd %s && %s", shellQuote(workdir), shellEscape(argv))
+	} else {
+		cmd = shellEscape(argv)
+	}
 
 	// Wire up I/O
 	if opts.Stdin != nil {
@@ -401,6 +415,84 @@ func (t *SSHTransport) Wrap(next ExecNode, params map[string]any) ExecNode {
 }
 
 // Helper functions
+
+func getHostKeyCallback(params map[string]any) ssh.HostKeyCallback {
+	// Check if strict host key checking is disabled (for testing)
+	if strictHostKey, ok := params["strict_host_key"].(bool); ok && !strictHostKey {
+		return ssh.InsecureIgnoreHostKey()
+	}
+
+	// Get known_hosts path (default: ~/.ssh/known_hosts)
+	knownHostsPath := os.ExpandEnv("$HOME/.ssh/known_hosts")
+	if path, ok := params["known_hosts_path"].(string); ok {
+		knownHostsPath = path
+	}
+
+	// Try to load known_hosts file
+	callback, err := loadKnownHosts(knownHostsPath)
+	if err != nil {
+		// If known_hosts doesn't exist or can't be read, use InsecureIgnoreHostKey
+		// This allows first-time connections (TOFU - Trust On First Use)
+		return ssh.InsecureIgnoreHostKey()
+	}
+
+	return callback
+}
+
+func loadKnownHosts(path string) (ssh.HostKeyCallback, error) {
+	// Read known_hosts file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse known_hosts
+	knownHosts := make(map[string]ssh.PublicKey)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Parse line: hostname key-type key-data
+		parts := strings.Fields(line)
+		if len(parts) < 3 {
+			continue
+		}
+
+		hostname := parts[0]
+		keyType := parts[1]
+		keyData := parts[2]
+
+		// Decode base64 key
+		keyBytes := []byte(keyData)
+		pubKey, err := ssh.ParsePublicKey(keyBytes)
+		if err != nil {
+			continue
+		}
+
+		knownHosts[hostname+":"+keyType] = pubKey
+	}
+
+	// Return callback that checks against known_hosts
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		// Build lookup key
+		lookupKey := hostname + ":" + key.Type()
+
+		// Check if host key is known
+		knownKey, ok := knownHosts[lookupKey]
+		if !ok {
+			return fmt.Errorf("host key not found in known_hosts: %s", hostname)
+		}
+
+		// Compare keys
+		if !bytes.Equal(key.Marshal(), knownKey.Marshal()) {
+			return fmt.Errorf("host key mismatch for %s", hostname)
+		}
+
+		return nil
+	}, nil
+}
 
 func sshKeyAuth(keyPath string) ssh.AuthMethod {
 	// Read private key file

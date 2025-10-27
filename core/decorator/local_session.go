@@ -169,8 +169,14 @@ func (s *LocalSession) WithWorkdir(dir string) Session {
 		dir = filepath.Join(s.cwd, dir)
 	}
 
+	// Defensive copy of env map to prevent future foot-guns
+	newEnv := make(map[string]string, len(s.env))
+	for k, v := range s.env {
+		newEnv[k] = v
+	}
+
 	return &LocalSession{
-		env: s.env, // Inherit env (shallow copy is safe - map is immutable)
+		env: newEnv,
 		cwd: dir,
 	}
 }

@@ -53,7 +53,7 @@ func TestSSHSessionRun(t *testing.T) {
 		"host": "127.0.0.1",
 		"port": server.Port,
 		"user": os.Getenv("USER"),
-		"key":  server.ClientKey, // Pass Signer directly
+		"key":  server.ClientKey, "strict_host_key": false, // Pass Signer directly
 	})
 	if err != nil {
 		t.Fatalf("Failed to create SSH session: %v", err)
@@ -91,7 +91,7 @@ func TestSSHSessionEnv(t *testing.T) {
 		"host": "127.0.0.1",
 		"port": server.Port,
 		"user": os.Getenv("USER"),
-		"key":  server.ClientKey,
+		"key":  server.ClientKey, "strict_host_key": false,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create SSH session: %v", err)
@@ -139,7 +139,7 @@ func TestSSHSessionIsolation(t *testing.T) {
 		"host": "127.0.0.1",
 		"port": server.Port,
 		"user": os.Getenv("USER"),
-		"key":  server.ClientKey,
+		"key":  server.ClientKey, "strict_host_key": false,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create SSH session: %v", err)
@@ -179,7 +179,7 @@ func TestSSHSessionPooling(t *testing.T) {
 		"host": "127.0.0.1",
 		"port": server.Port,
 		"user": os.Getenv("USER"),
-		"key":  server.ClientKey,
+		"key":  server.ClientKey, "strict_host_key": false,
 	}
 
 	// First call creates session
@@ -225,7 +225,7 @@ func TestSSHSessionEnvironmentDifferentFromLocal(t *testing.T) {
 		"host": "127.0.0.1",
 		"port": server.Port,
 		"user": os.Getenv("USER"),
-		"key":  server.ClientKey,
+		"key":  server.ClientKey, "strict_host_key": false,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create SSH session: %v", err)
@@ -280,7 +280,7 @@ func TestSSHSessionCommandExecutionDifferentFromLocal(t *testing.T) {
 		"host": "127.0.0.1",
 		"port": server.Port,
 		"user": os.Getenv("USER"),
-		"key":  server.ClientKey,
+		"key":  server.ClientKey, "strict_host_key": false,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create SSH session: %v", err)
@@ -326,7 +326,7 @@ func TestSSHSessionWithEnvModifiesRemoteEnvironment(t *testing.T) {
 		"host": "127.0.0.1",
 		"port": server.Port,
 		"user": os.Getenv("USER"),
-		"key":  server.ClientKey,
+		"key":  server.ClientKey, "strict_host_key": false,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create SSH session: %v", err)
