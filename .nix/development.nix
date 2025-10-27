@@ -13,6 +13,7 @@ pkgs.mkShell {
     zsh
     nixpkgs-fmt
     gofumpt
+    openssh  # For SSH session testing
   ] ++ (if self != null then [
     self.packages.${system}.opal # Include the opal binary itself
   ] else []);
@@ -34,8 +35,13 @@ pkgs.mkShell {
       echo "  go fmt ./...                    - Format Go code"
       echo "  gofumpt -w .                   - Format with gofumpt"
       echo "  golangci-lint run              - Run linter"
-      echo "  go test -v ./...               - Run tests"
+      echo "  go test -v ./...               - Run all tests"
+      echo "  go test -v -short ./...        - Run tests (skip SSH integration)"
       echo "  cd cli && go build -o opal .   - Build CLI"
+      echo ""
+      echo "SSH Testing (requires SSH server on localhost):"
+      echo "  SSH tests skip gracefully if localhost SSH unavailable"
+      echo "  To enable: ensure SSH server running and key-based auth configured"
       echo ""
       echo "Opal usage:"
       echo "  opal deploy --dry-run          - Show execution plan"
