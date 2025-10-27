@@ -1,6 +1,7 @@
 package decorator
 
 import (
+	"io"
 	"io/fs"
 )
 
@@ -32,8 +33,8 @@ type Session interface {
 // RunOpts configures command execution.
 type RunOpts struct {
 	Stdin  []byte
-	Stdout any // io.Writer or similar
-	Stderr any // io.Writer or similar
+	Stdout io.Writer // Optional: if nil, captured in Result.Stdout
+	Stderr io.Writer // Optional: if nil, captured in Result.Stderr
 }
 
 // Result is the outcome of command execution.
