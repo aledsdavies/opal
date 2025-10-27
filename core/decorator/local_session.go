@@ -29,15 +29,18 @@ func NewLocalSession() *LocalSession {
 }
 
 // Run executes a command locally using os/exec.
-func (s *LocalSession) Run(argv []string, opts RunOpts) (Result, error) {
+// Context controls cancellation and timeouts.
+func (s *LocalSession) Run(ctx context.Context, argv []string, opts RunOpts) (Result, error) {
 	invariant.Precondition(len(argv) > 0, "argv cannot be empty")
+	invariant.NotNil(ctx, "ctx")
 
-	// Create command
-	ctx := context.Background() // TODO: Accept context from caller
+	// Create command with context for cancellation
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 
-	// Set working directory
-	if s.cwd != "" {
+	// Set working directory (opts.Dir overrides session cwd)
+	if opts.Dir != "" {
+		cmd.Dir = opts.Dir
+	} else if s.cwd != "" {
 		cmd.Dir = s.cwd
 	}
 
@@ -65,6 +68,11 @@ func (s *LocalSession) Run(argv []string, opts RunOpts) (Result, error) {
 	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
+		// Check if context was canceled
+		if ctx.Err() != nil {
+			return Result{ExitCode: -1}, ctx.Err()
+		}
+
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
@@ -81,8 +89,15 @@ func (s *LocalSession) Run(argv []string, opts RunOpts) (Result, error) {
 }
 
 // Put writes data to a file on the local filesystem.
-func (s *LocalSession) Put(data []byte, path string, mode fs.FileMode) error {
+// Context controls cancellation (though file writes are typically fast).
+func (s *LocalSession) Put(ctx context.Context, data []byte, path string, mode fs.FileMode) error {
 	invariant.Precondition(path != "", "path cannot be empty")
+	invariant.NotNil(ctx, "ctx")
+
+	// Check if context is already canceled
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	// Resolve relative paths against cwd
 	if !filepath.IsAbs(path) {
@@ -100,8 +115,15 @@ func (s *LocalSession) Put(data []byte, path string, mode fs.FileMode) error {
 }
 
 // Get reads data from a file on the local filesystem.
-func (s *LocalSession) Get(path string) ([]byte, error) {
+// Context controls cancellation (though file reads are typically fast).
+func (s *LocalSession) Get(ctx context.Context, path string) ([]byte, error) {
 	invariant.Precondition(path != "", "path cannot be empty")
+	invariant.NotNil(ctx, "ctx")
+
+	// Check if context is already canceled
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 
 	// Resolve relative paths against cwd
 	if !filepath.IsAbs(path) {
@@ -135,6 +157,21 @@ func (s *LocalSession) WithEnv(delta map[string]string) Session {
 	return &LocalSession{
 		env: newEnv,
 		cwd: s.cwd, // Inherit cwd
+	}
+}
+
+// WithWorkdir returns a new Session with working directory set (copy-on-write).
+func (s *LocalSession) WithWorkdir(dir string) Session {
+	invariant.Precondition(dir != "", "dir cannot be empty")
+
+	// Resolve relative paths against current cwd
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(s.cwd, dir)
+	}
+
+	return &LocalSession{
+		env: s.env, // Inherit env (shallow copy is safe - map is immutable)
+		cwd: dir,
 	}
 }
 

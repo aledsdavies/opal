@@ -1,4 +1,5 @@
 package decorator
+import "context"
 
 import (
 	"testing"
@@ -12,7 +13,7 @@ func TestMonitoredSessionTracksMethodCalls(t *testing.T) {
 	// Call various methods
 	monitored.Env()
 	monitored.Cwd()
-	monitored.Run([]string{"echo", "test"}, RunOpts{})
+	monitored.Run(context.Background(), []string{"echo", "test"}, RunOpts{})
 
 	stats := monitored.Stats()
 

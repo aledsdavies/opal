@@ -2,12 +2,14 @@ package decorator
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
 	"net"
 	"os"
 	"strings"
 
+	"github.com/aledsdavies/opal/core/invariant"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
@@ -36,11 +38,28 @@ func NewSSHSession(params map[string]any) (*SSHSession, error) {
 	}
 
 	// Create SSH client config
+	var authMethods []ssh.AuthMethod
+
+	// Try direct signer first (for testing)
+	if signer, ok := params["key"].(ssh.Signer); ok {
+		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	} else if keyPath, ok := params["key"].(string); ok {
+		// Try keyfile auth if string path provided
+		if keyAuth := sshKeyAuth(keyPath); keyAuth != nil {
+			authMethods = append(authMethods, keyAuth)
+		}
+	}
+
+	// Fall back to SSH agent
+	if len(authMethods) == 0 {
+		if agentAuth := sshAgentAuth(); agentAuth != nil {
+			authMethods = append(authMethods, agentAuth)
+		}
+	}
+
 	config := &ssh.ClientConfig{
-		User: user,
-		Auth: []ssh.AuthMethod{
-			sshAgentAuth(),
-		},
+		User:            user,
+		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // TODO: Proper host key verification
 	}
 
@@ -58,7 +77,14 @@ func NewSSHSession(params map[string]any) (*SSHSession, error) {
 }
 
 // Run executes a command on the remote host.
-func (s *SSHSession) Run(argv []string, opts RunOpts) (Result, error) {
+func (s *SSHSession) Run(ctx context.Context, argv []string, opts RunOpts) (Result, error) {
+	invariant.NotNil(ctx, "ctx")
+	invariant.Precondition(len(argv) > 0, "argv cannot be empty")
+
+	if ctx.Err() != nil {
+		return Result{ExitCode: -1}, ctx.Err()
+	}
+
 	session, err := s.client.NewSession()
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to create session: %w", err)
@@ -85,26 +111,42 @@ func (s *SSHSession) Run(argv []string, opts RunOpts) (Result, error) {
 		session.Stderr = &stderr
 	}
 
-	// Execute
-	err = session.Run(cmd)
-	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*ssh.ExitError); ok {
-			exitCode = exitErr.ExitStatus()
-		} else {
-			exitCode = 1
-		}
-	}
+	// Execute with context cancellation
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Run(cmd)
+	}()
 
-	return Result{
-		ExitCode: exitCode,
-		Stdout:   stdout.Bytes(),
-		Stderr:   stderr.Bytes(),
-	}, nil
+	select {
+	case <-ctx.Done():
+		session.Signal(ssh.SIGKILL)
+		return Result{ExitCode: -1}, ctx.Err()
+	case err := <-done:
+		exitCode := 0
+		if err != nil {
+			if exitErr, ok := err.(*ssh.ExitError); ok {
+				exitCode = exitErr.ExitStatus()
+			} else {
+				exitCode = 1
+			}
+		}
+		return Result{
+			ExitCode: exitCode,
+			Stdout:   stdout.Bytes(),
+			Stderr:   stderr.Bytes(),
+		}, nil
+	}
 }
 
 // Put writes data to a file on the remote host.
-func (s *SSHSession) Put(data []byte, path string, mode fs.FileMode) error {
+func (s *SSHSession) Put(ctx context.Context, data []byte, path string, mode fs.FileMode) error {
+	invariant.NotNil(ctx, "ctx")
+	invariant.Precondition(path != "", "path cannot be empty")
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	session, err := s.client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
@@ -119,7 +161,14 @@ func (s *SSHSession) Put(data []byte, path string, mode fs.FileMode) error {
 }
 
 // Get reads data from a file on the remote host.
-func (s *SSHSession) Get(path string) ([]byte, error) {
+func (s *SSHSession) Get(ctx context.Context, path string) ([]byte, error) {
+	invariant.NotNil(ctx, "ctx")
+	invariant.Precondition(path != "", "path cannot be empty")
+
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	session, err := s.client.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
@@ -163,6 +212,17 @@ func (s *SSHSession) WithEnv(delta map[string]string) Session {
 	return &SSHSessionWithEnv{
 		base:  s,
 		delta: delta,
+		cwd:   "",
+	}
+}
+
+// WithWorkdir returns a new Session with working directory set.
+func (s *SSHSession) WithWorkdir(dir string) Session {
+	invariant.Precondition(dir != "", "dir cannot be empty")
+	return &SSHSessionWithEnv{
+		base:  s,
+		delta: make(map[string]string),
+		cwd:   dir,
 	}
 }
 
@@ -189,30 +249,92 @@ func (s *SSHSession) Close() error {
 	return s.client.Close()
 }
 
-// SSHSessionWithEnv wraps SSHSession to inject environment variables.
+// SSHSessionWithEnv wraps SSHSession to inject environment variables and working directory.
 type SSHSessionWithEnv struct {
 	base  *SSHSession
 	delta map[string]string
+	cwd   string
 }
 
-func (s *SSHSessionWithEnv) Run(argv []string, opts RunOpts) (Result, error) {
-	// Prepend env vars to command
-	var envPrefix []string
-	for k, v := range s.delta {
-		envPrefix = append(envPrefix, fmt.Sprintf("%s=%s", k, shellQuote(v)))
+func (s *SSHSessionWithEnv) Run(ctx context.Context, argv []string, opts RunOpts) (Result, error) {
+	invariant.NotNil(ctx, "ctx")
+	invariant.Precondition(len(argv) > 0, "argv cannot be empty")
+
+	if ctx.Err() != nil {
+		return Result{ExitCode: -1}, ctx.Err()
 	}
 
-	// Build command: VAR1=val1 VAR2=val2 original_command
-	cmd := append(envPrefix, argv...)
-	return s.base.Run(cmd, opts)
+	session, err := s.base.client.NewSession()
+	if err != nil {
+		return Result{}, fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	// Build command with env vars and cd: cd dir && VAR1=val1 VAR2=val2 command args...
+	var cmdParts []string
+
+	// Add cd if workdir is set
+	if s.cwd != "" {
+		cmdParts = append(cmdParts, fmt.Sprintf("cd %s &&", shellQuote(s.cwd)))
+	}
+
+	// Add env vars
+	for k, v := range s.delta {
+		cmdParts = append(cmdParts, fmt.Sprintf("%s=%s", k, shellQuote(v)))
+	}
+	cmdParts = append(cmdParts, shellEscape(argv))
+	cmd := strings.Join(cmdParts, " ")
+
+	// Wire up I/O
+	if opts.Stdin != nil {
+		session.Stdin = bytes.NewReader(opts.Stdin)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if opts.Stdout != nil {
+		session.Stdout = opts.Stdout
+	} else {
+		session.Stdout = &stdout
+	}
+	if opts.Stderr != nil {
+		session.Stderr = opts.Stderr
+	} else {
+		session.Stderr = &stderr
+	}
+
+	// Execute with context cancellation
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Run(cmd)
+	}()
+
+	select {
+	case <-ctx.Done():
+		session.Signal(ssh.SIGKILL)
+		return Result{ExitCode: -1}, ctx.Err()
+	case err := <-done:
+		exitCode := 0
+		if err != nil {
+			if exitErr, ok := err.(*ssh.ExitError); ok {
+				exitCode = exitErr.ExitStatus()
+			} else {
+				exitCode = 1
+			}
+		}
+		return Result{
+			ExitCode: exitCode,
+			Stdout:   stdout.Bytes(),
+			Stderr:   stderr.Bytes(),
+		}, nil
+	}
 }
 
-func (s *SSHSessionWithEnv) Put(data []byte, path string, mode fs.FileMode) error {
-	return s.base.Put(data, path, mode)
+func (s *SSHSessionWithEnv) Put(ctx context.Context, data []byte, path string, mode fs.FileMode) error {
+	return s.base.Put(ctx, data, path, mode)
 }
 
-func (s *SSHSessionWithEnv) Get(path string) ([]byte, error) {
-	return s.base.Get(path)
+func (s *SSHSessionWithEnv) Get(ctx context.Context, path string) ([]byte, error) {
+	return s.base.Get(ctx, path)
 }
 
 func (s *SSHSessionWithEnv) Env() map[string]string {
@@ -236,10 +358,23 @@ func (s *SSHSessionWithEnv) WithEnv(delta map[string]string) Session {
 	return &SSHSessionWithEnv{
 		base:  s.base,
 		delta: merged,
+		cwd:   s.cwd,
+	}
+}
+
+func (s *SSHSessionWithEnv) WithWorkdir(dir string) Session {
+	invariant.Precondition(dir != "", "dir cannot be empty")
+	return &SSHSessionWithEnv{
+		base:  s.base,
+		delta: s.delta,
+		cwd:   dir,
 	}
 }
 
 func (s *SSHSessionWithEnv) Cwd() string {
+	if s.cwd != "" {
+		return s.cwd
+	}
 	return s.base.Cwd()
 }
 
@@ -266,6 +401,22 @@ func (t *SSHTransport) Wrap(next ExecNode, params map[string]any) ExecNode {
 }
 
 // Helper functions
+
+func sshKeyAuth(keyPath string) ssh.AuthMethod {
+	// Read private key file
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil
+	}
+
+	// Parse private key
+	signer, err := ssh.ParsePrivateKey(keyData)
+	if err != nil {
+		return nil
+	}
+
+	return ssh.PublicKeys(signer)
+}
 
 func sshAgentAuth() ssh.AuthMethod {
 	// Connect to SSH agent

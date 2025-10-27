@@ -1,6 +1,8 @@
 package decorator
 
+
 import (
+	"context"
 	"io/fs"
 	"testing"
 )
@@ -219,15 +221,15 @@ type mockSession struct {
 	closed bool
 }
 
-func (m *mockSession) Run(argv []string, opts RunOpts) (Result, error) {
+func (m *mockSession) Run(ctx context.Context, argv []string, opts RunOpts) (Result, error) {
 	return Result{}, nil
 }
 
-func (m *mockSession) Put(data []byte, path string, mode fs.FileMode) error {
+func (m *mockSession) Put(ctx context.Context, data []byte, path string, mode fs.FileMode) error {
 	return nil
 }
 
-func (m *mockSession) Get(path string) ([]byte, error) {
+func (m *mockSession) Get(ctx context.Context, path string) ([]byte, error) {
 	return nil, nil
 }
 
@@ -236,6 +238,10 @@ func (m *mockSession) Env() map[string]string {
 }
 
 func (m *mockSession) WithEnv(delta map[string]string) Session {
+	return m
+}
+
+func (m *mockSession) WithWorkdir(dir string) Session {
 	return m
 }
 

@@ -1,6 +1,8 @@
 package decorator
+import "context"
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +14,7 @@ func TestLocalSessionRun(t *testing.T) {
 	session := NewLocalSession()
 
 	// Run simple echo command
-	result, err := session.Run([]string{"echo", "hello world"}, RunOpts{})
+	result, err := session.Run(context.Background(), []string{"echo", "hello world"}, RunOpts{})
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -32,7 +34,7 @@ func TestLocalSessionRunWithStdin(t *testing.T) {
 	session := NewLocalSession()
 
 	// Run cat command with stdin
-	result, err := session.Run([]string{"cat"}, RunOpts{
+	result, err := session.Run(context.Background(), []string{"cat"}, RunOpts{
 		Stdin: []byte("test input"),
 	})
 	if err != nil {
@@ -54,7 +56,7 @@ func TestLocalSessionRunFailure(t *testing.T) {
 	session := NewLocalSession()
 
 	// Run command that fails
-	result, err := session.Run([]string{"sh", "-c", "exit 42"}, RunOpts{})
+	result, err := session.Run(context.Background(), []string{"sh", "-c", "exit 42"}, RunOpts{})
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -120,7 +122,7 @@ func TestLocalSessionWithEnvInCommand(t *testing.T) {
 	})
 
 	// Run command that reads the env var
-	result, err := session2.Run([]string{"sh", "-c", "echo $TEST_VAR"}, RunOpts{})
+	result, err := session2.Run(context.Background(), []string{"sh", "-c", "echo $TEST_VAR"}, RunOpts{})
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -140,7 +142,7 @@ func TestLocalSessionPut(t *testing.T) {
 
 	// Write file
 	path := filepath.Join(tmpDir, "test.txt")
-	err := session.Put([]byte("hello world"), path, 0644)
+	err := session.Put(context.Background(), []byte("hello world"), path, 0644)
 	if err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
@@ -175,7 +177,7 @@ func TestLocalSessionPutCreatesDirectories(t *testing.T) {
 
 	// Write file in nested directory
 	path := filepath.Join(tmpDir, "a", "b", "c", "test.txt")
-	err := session.Put([]byte("nested"), path, 0644)
+	err := session.Put(context.Background(), []byte("nested"), path, 0644)
 	if err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
@@ -204,7 +206,7 @@ func TestLocalSessionGet(t *testing.T) {
 	}
 
 	// Read file via session
-	content, err := session.Get(path)
+	content, err := session.Get(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -256,13 +258,13 @@ func TestLocalSessionRelativePaths(t *testing.T) {
 	// This test demonstrates the intended behavior
 
 	// Write file with relative path
-	err := session.Put([]byte("test"), filepath.Join(tmpDir, "relative.txt"), 0644)
+	err := session.Put(context.Background(), []byte("test"), filepath.Join(tmpDir, "relative.txt"), 0644)
 	if err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
 
 	// Read file with relative path
-	content, err := session.Get(filepath.Join(tmpDir, "relative.txt"))
+	content, err := session.Get(context.Background(), filepath.Join(tmpDir, "relative.txt"))
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -277,13 +279,13 @@ func ExampleLocalSession_Run() {
 	session := NewLocalSession()
 
 	// Run echo command
-	result, err := session.Run([]string{"echo", "Hello, World!"}, RunOpts{})
+	result, err := session.Run(context.Background(), []string{"echo", "Hello, World!"}, RunOpts{})
 	if err != nil {
 		panic(err)
 	}
 
-	println("Exit code:", result.ExitCode)
-	println("Output:", string(result.Stdout))
+	fmt.Println("Exit code:", result.ExitCode)
+	fmt.Println("Output:", strings.TrimSpace(string(result.Stdout)))
 	// Output:
 	// Exit code: 0
 	// Output: Hello, World!
@@ -299,9 +301,10 @@ func ExampleLocalSession_WithEnv() {
 	})
 
 	// Run command that uses the env var
-	result, _ := session2.Run([]string{"sh", "-c", "echo $MY_VAR"}, RunOpts{})
-	println(string(result.Stdout))
-	// Output: my_value
+	result, _ := session2.Run(context.Background(), []string{"sh", "-c", "echo $MY_VAR"}, RunOpts{})
+	fmt.Println(strings.TrimSpace(string(result.Stdout)))
+	// Output:
+	// my_value
 }
 
 // Example: Using LocalSession to write and read files
@@ -309,9 +312,9 @@ func ExampleLocalSession_Put() {
 	session := NewLocalSession()
 
 	// Write file
-	_ = session.Put([]byte("Hello, File!"), "/tmp/test.txt", 0644)
+	_ = session.Put(context.Background(), []byte("Hello, File!"), "/tmp/test.txt", 0644)
 
 	// Read file back
-	content, _ := session.Get("/tmp/test.txt")
+	content, _ := session.Get(context.Background(), "/tmp/test.txt")
 	_ = content
 }

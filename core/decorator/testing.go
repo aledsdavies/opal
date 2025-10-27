@@ -1,6 +1,7 @@
 package decorator
 
 import (
+	"context"
 	"io/fs"
 	"sync"
 )
@@ -43,25 +44,25 @@ func (m *MonitoredSession) Stats() *SessionStats {
 
 // Session interface implementation (delegates to wrapped session)
 
-func (m *MonitoredSession) Run(argv []string, opts RunOpts) (Result, error) {
+func (m *MonitoredSession) Run(ctx context.Context, argv []string, opts RunOpts) (Result, error) {
 	m.stats.mu.Lock()
 	m.stats.RunCalls++
 	m.stats.mu.Unlock()
-	return m.wrapped.Run(argv, opts)
+	return m.wrapped.Run(ctx, argv, opts)
 }
 
-func (m *MonitoredSession) Put(data []byte, path string, mode fs.FileMode) error {
+func (m *MonitoredSession) Put(ctx context.Context, data []byte, path string, mode fs.FileMode) error {
 	m.stats.mu.Lock()
 	m.stats.PutCalls++
 	m.stats.mu.Unlock()
-	return m.wrapped.Put(data, path, mode)
+	return m.wrapped.Put(ctx, data, path, mode)
 }
 
-func (m *MonitoredSession) Get(path string) ([]byte, error) {
+func (m *MonitoredSession) Get(ctx context.Context, path string) ([]byte, error) {
 	m.stats.mu.Lock()
 	m.stats.GetCalls++
 	m.stats.mu.Unlock()
-	return m.wrapped.Get(path)
+	return m.wrapped.Get(ctx, path)
 }
 
 func (m *MonitoredSession) Env() map[string]string {
@@ -84,6 +85,15 @@ func (m *MonitoredSession) WithEnv(delta map[string]string) Session {
 
 	// Wrap the returned session too
 	newSession := m.wrapped.WithEnv(delta)
+	return &MonitoredSession{
+		wrapped: newSession,
+		stats:   m.stats, // Share stats with parent
+	}
+}
+
+func (m *MonitoredSession) WithWorkdir(dir string) Session {
+	// Don't track WithWorkdir calls for now
+	newSession := m.wrapped.WithWorkdir(dir)
 	return &MonitoredSession{
 		wrapped: newSession,
 		stats:   m.stats, // Share stats with parent

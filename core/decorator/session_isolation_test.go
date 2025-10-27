@@ -1,4 +1,5 @@
 package decorator
+import "context"
 
 import (
 	"strings"
@@ -22,13 +23,13 @@ func TestSessionIsolationEnvironment(t *testing.T) {
 	})
 
 	// Run command in session1
-	result1, err := session1Modified.Run([]string{"sh", "-c", "echo $TEST_VAR"}, RunOpts{})
+	result1, err := session1Modified.Run(context.Background(), []string{"sh", "-c", "echo $TEST_VAR"}, RunOpts{})
 	if err != nil {
 		t.Fatalf("Session1 run failed: %v", err)
 	}
 
 	// Run command in session2
-	result2, err := session2Modified.Run([]string{"sh", "-c", "echo $TEST_VAR"}, RunOpts{})
+	result2, err := session2Modified.Run(context.Background(), []string{"sh", "-c", "echo $TEST_VAR"}, RunOpts{})
 	if err != nil {
 		t.Fatalf("Session2 run failed: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestSessionIsolationEnvSnapshotImmutable(t *testing.T) {
 	}
 
 	// Verify session commands don't see the injected var
-	result, err := session.Run([]string{"sh", "-c", "echo $INJECTED_VAR"}, RunOpts{})
+	result, err := session.Run(context.Background(), []string{"sh", "-c", "echo $INJECTED_VAR"}, RunOpts{})
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
