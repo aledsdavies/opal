@@ -335,7 +335,14 @@ func (e *executor) executeCommandWithPipes(ctx context.Context, cmd *sdk.Command
 	// Strip @ prefix from decorator name for registry lookup
 	decoratorName := strings.TrimPrefix(cmd.Name, "@")
 
-	// Look up handler from registry
+	// Try new decorator registry first
+	if entry, exists := decorator.Global().Lookup(decoratorName); exists {
+		// TODO: Execute using new Exec interface
+		// For now, fall through to old SDK registry
+		_ = entry
+	}
+
+	// Fall back to old SDK registry
 	handler, kind, exists := types.Global().GetSDKHandler(decoratorName)
 	invariant.Invariant(exists, "unknown decorator: %s", cmd.Name)
 

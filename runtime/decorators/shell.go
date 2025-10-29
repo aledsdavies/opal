@@ -1,89 +1,75 @@
 package decorators
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/aledsdavies/opal/core/sdk"
-	"github.com/aledsdavies/opal/core/sdk/executor"
+	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/core/types"
 )
 
-// ShellDecorator implements the @shell decorator.
-// It implements both ExecutionHandler (for executing commands) and
-// SinkProvider (for redirect targets).
+// ShellDecorator implements the @shell decorator using the new decorator architecture.
+// It executes shell commands via Session.Run() with bash -c wrapper.
 type ShellDecorator struct{}
 
-func init() {
-	// Register the @shell decorator with schema
-	schema := types.NewSchema("shell", types.KindExecution).
-		Description("Execute shell commands").
-		Param("command", types.TypeString).
-		Description("Shell command to execute").
-		Required().
-		Done().
-		WithIO(types.AcceptsStdin, types.ProducesStdout). // No ScrubByDefault = bash-compatible
-		WithRedirect(types.RedirectBoth).                 // Supports both > and >>
+// Descriptor returns the decorator metadata.
+func (d *ShellDecorator) Descriptor() decorator.Descriptor {
+	return decorator.NewDescriptor("shell").
+		Summary("Execute shell commands").
+		Param("command", types.TypeString, "Shell command to execute", "echo hello", "npm run build", "kubectl get pods").
+		Block(decorator.BlockForbidden).             // Leaf decorator - no blocks
+		TransportScope(decorator.TransportScopeAny). // Works in any session
+		Roles(decorator.RoleWrapper).                // Executes work
 		Build()
+}
 
-	// Register decorator instance (not just the Execute method)
-	// This allows SDK converter to check if instance implements SinkProvider
-	instance := ShellDecorator{}
-	if err := types.Global().RegisterSDKHandlerWithSchema(schema, instance); err != nil {
+// Wrap implements the Exec interface.
+// @shell is a leaf decorator - it ignores the 'next' parameter and executes directly.
+func (d *ShellDecorator) Wrap(next decorator.ExecNode, params map[string]any) decorator.ExecNode {
+	return &shellNode{params: params}
+}
+
+// shellNode wraps shell command execution.
+type shellNode struct {
+	params map[string]any
+}
+
+// Execute implements the ExecNode interface.
+// Executes the shell command via Session.Run() with bash -c wrapper.
+func (n *shellNode) Execute(ctx decorator.ExecContext) (decorator.Result, error) {
+	// Extract command from params
+	command, ok := n.params["command"].(string)
+	if !ok || command == "" {
+		return decorator.Result{ExitCode: 127}, fmt.Errorf("@shell requires command parameter")
+	}
+
+	// Create context for execution
+	execCtx := context.Background()
+
+	// Apply deadline if set
+	if !ctx.Deadline.IsZero() {
+		var cancel context.CancelFunc
+		execCtx, cancel = context.WithDeadline(execCtx, ctx.Deadline)
+		defer cancel()
+	}
+
+	// Execute command through session with bash -c wrapper
+	argv := []string{"bash", "-c", command}
+
+	// Configure I/O from ExecContext
+	opts := decorator.RunOpts{
+		Stdin:  ctx.Stdin,  // Piped input (nil if not piped)
+		Stdout: ctx.Stdout, // Piped output (nil if not piped)
+	}
+
+	result, err := ctx.Session.Run(execCtx, argv, opts)
+
+	return result, err
+}
+
+// Register @shell decorator with the global registry
+func init() {
+	if err := decorator.Register("shell", &ShellDecorator{}); err != nil {
 		panic(fmt.Sprintf("failed to register @shell decorator: %v", err))
-	}
-}
-
-// Execute implements the @shell decorator using SDK types.
-// This is a leaf decorator - it doesn't use the block parameter.
-//
-// CRITICAL: Uses context workdir and environ, NOT os globals.
-// This ensures isolation for @parallel, @ssh, @docker, etc.
-func (s ShellDecorator) Execute(ctx sdk.ExecutionContext, block []sdk.Step) (int, error) {
-	// Leaf decorator - block should be empty
-	if len(block) > 0 {
-		return 127, fmt.Errorf("@shell does not accept a block")
-	}
-
-	// Get command string from context args
-	cmdStr := ctx.ArgString("command")
-	if cmdStr == "" {
-		return 127, fmt.Errorf("@shell requires command argument")
-	}
-
-	// Create command using SDK (automatically routes through scrubber)
-	cmd := executor.BashContext(ctx.Context(), cmdStr)
-
-	// CRITICAL: Use context state, not os state
-	// This ensures isolation for @parallel, @ssh, @docker, etc.
-	cmd.SetDir(ctx.Workdir())
-
-	// For environment, we need to convert map to slice
-	// Use AppendEnv for now (adds to existing env)
-	// TODO: Consider if we need full replacement instead
-	cmd.AppendEnv(ctx.Environ())
-
-	// Handle piped stdin (from pipe operator)
-	if stdin := ctx.Stdin(); stdin != nil {
-		cmd.SetStdin(stdin)
-	}
-
-	// Handle piped stdout (to pipe operator)
-	if stdoutPipe := ctx.StdoutPipe(); stdoutPipe != nil {
-		cmd.SetStdout(stdoutPipe)
-	}
-	// Note: stderr is never piped - always goes to terminal
-
-	// Execute and return exit code
-	return cmd.Run()
-}
-
-// AsSink implements SinkProvider for redirect targets.
-// When @shell is used as redirect target (echo "data" > @shell("file.txt")),
-// this method is called to create the appropriate sink.
-func (s ShellDecorator) AsSink(ctx sdk.ExecutionContext) sdk.Sink {
-	path := ctx.ArgString("command")
-	return sdk.FsPathSink{
-		Path: path,
-		Perm: 0o600, // Tight by default (owner read/write only)
 	}
 }

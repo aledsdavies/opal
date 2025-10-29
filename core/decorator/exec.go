@@ -2,6 +2,7 @@ package decorator
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -28,6 +29,14 @@ type ExecContext struct {
 
 	// Cancel cancels the execution
 	Cancel context.CancelFunc
+
+	// Stdin provides input data for piped commands (nil if not piped)
+	// Used for pipe operators: cmd1 | cmd2
+	Stdin []byte
+
+	// Stdout captures output for piped commands (nil if not piped)
+	// Used for pipe operators: cmd1 | cmd2
+	Stdout io.Writer
 
 	// Trace is the telemetry span for observability
 	// Opal runtime creates parent span automatically
