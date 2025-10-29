@@ -3,7 +3,6 @@ package decorator
 import (
 	"context"
 	"io"
-	"time"
 )
 
 // Exec is the interface for decorators that wrap execution.
@@ -21,14 +20,12 @@ type ExecNode interface {
 
 // ExecContext provides the execution context for command execution.
 type ExecContext struct {
+	// Context is the parent context for cancellation and deadlines
+	// Decorators should pass this to Session.Run() and other operations
+	Context context.Context
+
 	// Session is the ambient execution context (env, cwd, transport)
 	Session Session
-
-	// Deadline is the absolute time when execution must complete
-	Deadline time.Time
-
-	// Cancel cancels the execution
-	Cancel context.CancelFunc
 
 	// Stdin provides input data for piped commands (nil if not piped)
 	// Used for pipe operators: cmd1 | cmd2

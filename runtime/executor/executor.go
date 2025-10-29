@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/sdk"
 	"github.com/aledsdavies/opal/core/types"
@@ -162,7 +163,10 @@ func Execute(ctx context.Context, steps []sdk.Step, config Config) (*ExecutionRe
 	}
 
 	// OUTPUT CONTRACT (postconditions)
-	invariant.InRange(e.exitCode, 0, 255, "exit code")
+	// Exit code must be valid: -1 (canceled), 0 (success), or 1-255 (failure)
+	invariant.Postcondition(
+		e.exitCode == decorator.ExitCanceled || (e.exitCode >= 0 && e.exitCode <= 255),
+		"exit code must be -1 (canceled) or in range [0, 255], got %d", e.exitCode)
 	invariant.Postcondition(e.stepsRun >= 0, "steps run must be non-negative")
 	invariant.Postcondition(e.stepsRun <= len(steps), "steps run cannot exceed total steps")
 
@@ -337,12 +341,13 @@ func (e *executor) executeCommandWithPipes(ctx context.Context, cmd *sdk.Command
 
 	// Try new decorator registry first
 	if entry, exists := decorator.Global().Lookup(decoratorName); exists {
-		// TODO: Execute using new Exec interface
-		// For now, fall through to old SDK registry
-		_ = entry
+		// Check if it's an Exec decorator
+		if execDec, ok := entry.Impl.(decorator.Exec); ok {
+			return e.executeNewDecorator(ctx, cmd, execDec, stdin, stdout)
+		}
 	}
 
-	// Fall back to old SDK registry
+	// Fall back to old SDK registry for decorators not yet migrated
 	handler, kind, exists := types.Global().GetSDKHandler(decoratorName)
 	invariant.Invariant(exists, "unknown decorator: %s", cmd.Name)
 
@@ -386,6 +391,77 @@ func (e *executor) executeCommandWithPipes(ctx context.Context, cmd *sdk.Command
 	}
 
 	return exitCode
+}
+
+// executeNewDecorator executes a decorator from the new registry.
+// Converts SDK context to new decorator ExecContext and executes via Exec interface.
+func (e *executor) executeNewDecorator(
+	ctx context.Context,
+	cmd *sdk.CommandNode,
+	execDec decorator.Exec,
+	stdin io.Reader,
+	stdout io.Writer,
+) int {
+	// Convert SDK command args to decorator params
+	params := make(map[string]any)
+	for k, v := range cmd.Args {
+		params[k] = v
+	}
+
+	// Create execution node
+	node := execDec.Wrap(nil, params)
+
+	// Create session with current working directory and environment
+	// Capture fresh like SDK context does
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting working directory: %v\n", err)
+		return 1
+	}
+
+	// Capture environment as map
+	environ := make(map[string]string)
+	for _, e := range os.Environ() {
+		if idx := strings.IndexByte(e, '='); idx > 0 {
+			environ[e[:idx]] = e[idx+1:]
+		}
+	}
+
+	session := decorator.NewLocalSession().
+		WithWorkdir(wd).
+		WithEnv(environ)
+	defer func() {
+		_ = session.Close() // Ignore close errors in defer
+	}()
+
+	// Convert stdin to bytes if provided
+	var stdinBytes []byte
+	if stdin != nil {
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+			return 1
+		}
+		stdinBytes = data
+	}
+
+	// Create ExecContext with parent context for cancellation
+	execCtx := decorator.ExecContext{
+		Context: ctx, // Pass parent context for cancellation/deadlines
+		Session: session,
+		Stdin:   stdinBytes,
+		Stdout:  stdout,
+		Trace:   nil,
+	}
+
+	// Execute - the shellNode will pass ctx to Session.Run() for cancellation
+	result, err := node.Execute(execCtx)
+	if err != nil {
+		// Log error but return exit code (matches SDK behavior)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	}
+
+	return result.ExitCode
 }
 
 // executeTreeWithStdout executes a tree node with stdout redirected to a custom writer.

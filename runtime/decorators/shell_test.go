@@ -1,12 +1,15 @@
 package decorators
+
 import (
 	"bytes"
-	
+	"context"
+	"io"
+	"os"
+	"time"
 )
 
 import (
 	"testing"
-	"time"
 
 	"github.com/aledsdavies/opal/core/decorator"
 )
@@ -33,10 +36,10 @@ func TestShellDecorator_NewArch_SimpleCommand(t *testing.T) {
 	defer session.Close()
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{}, // No deadline
-		Cancel:   nil,
-		Trace:    nil, // No tracing for tests
+		Session: session,
+		Context: context.Background(), // No deadline
+
+		Trace: nil, // No tracing for tests
 	}
 
 	// Execute
@@ -62,10 +65,10 @@ func TestShellDecorator_NewArch_FailingCommand(t *testing.T) {
 	defer session.Close()
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{},
-		Cancel:   nil,
-		Trace:    nil, // No tracing for tests
+		Session: session,
+		Context: context.Background(),
+
+		Trace: nil, // No tracing for tests
 	}
 
 	result, err := node.Execute(ctx)
@@ -89,10 +92,10 @@ func TestShellDecorator_NewArch_MissingCommandArg(t *testing.T) {
 	defer session.Close()
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{},
-		Cancel:   nil,
-		Trace:    nil, // No tracing for tests
+		Session: session,
+		Context: context.Background(),
+
+		Trace: nil, // No tracing for tests
 	}
 
 	result, err := node.Execute(ctx)
@@ -122,10 +125,10 @@ func TestShellDecorator_NewArch_UsesSessionWorkdir(t *testing.T) {
 	defer session.Close()
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{},
-		Cancel:   nil,
-		Trace:    nil, // No tracing for tests
+		Session: session,
+		Context: context.Background(),
+
+		Trace: nil, // No tracing for tests
 	}
 
 	result, err := node.Execute(ctx)
@@ -159,10 +162,10 @@ func TestShellDecorator_NewArch_UsesSessionEnviron(t *testing.T) {
 	defer session.Close()
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{},
-		Cancel:   nil,
-		Trace:    nil, // No tracing for tests
+		Session: session,
+		Context: context.Background(),
+
+		Trace: nil, // No tracing for tests
 	}
 
 	result, err := node.Execute(ctx)
@@ -213,14 +216,14 @@ func TestShellDecorator_NewArch_Timeout(t *testing.T) {
 	session := decorator.NewLocalSession()
 	defer session.Close()
 
-	// Create context with very short deadline
-	deadline := time.Now().Add(100 * time.Millisecond)
+	// Create context with very short deadline (100ms)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 
 	shellCtx := decorator.ExecContext{
-		Session:  session,
-		Deadline: deadline,
-		Cancel:   nil,
-		Trace:    nil,
+		Session: session,
+		Context: ctx,
+		Trace:   nil,
 	}
 
 	// Execute should fail due to timeout
@@ -233,6 +236,7 @@ func TestShellDecorator_NewArch_Timeout(t *testing.T) {
 		t.Errorf("expected exit code %d (canceled), got: %d", decorator.ExitCanceled, result.ExitCode)
 	}
 }
+
 // TestShellDecorator_NewArch_WithPipedStdin verifies @shell reads from piped stdin
 func TestShellDecorator_NewArch_WithPipedStdin(t *testing.T) {
 	shell := &ShellDecorator{}
@@ -249,12 +253,12 @@ func TestShellDecorator_NewArch_WithPipedStdin(t *testing.T) {
 	stdinData := []byte("hello world")
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{},
-		Cancel:   nil,
-		Stdin:    stdinData, // Piped input
-		Stdout:   nil,
-		Trace:    nil,
+		Session: session,
+		Context: context.Background(),
+
+		Stdin:  stdinData, // Piped input
+		Stdout: nil,
+		Trace:  nil,
 	}
 
 	result, err := node.Execute(ctx)
@@ -282,12 +286,12 @@ func TestShellDecorator_NewArch_WithPipedStdout(t *testing.T) {
 	var stdout bytes.Buffer
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{},
-		Cancel:   nil,
-		Stdin:    nil,
-		Stdout:   &stdout, // Piped output
-		Trace:    nil,
+		Session: session,
+		Context: context.Background(),
+
+		Stdin:  nil,
+		Stdout: &stdout, // Piped output
+		Trace:  nil,
 	}
 
 	result, err := node.Execute(ctx)
@@ -319,12 +323,12 @@ func TestShellDecorator_NewArch_WithBothPipes(t *testing.T) {
 	var stdout bytes.Buffer
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{},
-		Cancel:   nil,
-		Stdin:    stdinData, // Piped input
-		Stdout:   &stdout,   // Piped output
-		Trace:    nil,
+		Session: session,
+		Context: context.Background(),
+
+		Stdin:  stdinData, // Piped input
+		Stdout: &stdout,   // Piped output
+		Trace:  nil,
 	}
 
 	result, err := node.Execute(ctx)
@@ -355,12 +359,12 @@ func TestShellDecorator_NewArch_PipedStdinNoMatch(t *testing.T) {
 	stdinData := []byte("hello world")
 
 	ctx := decorator.ExecContext{
-		Session:  session,
-		Deadline: time.Time{},
-		Cancel:   nil,
-		Stdin:    stdinData,
-		Stdout:   nil,
-		Trace:    nil,
+		Session: session,
+		Context: context.Background(),
+
+		Stdin:  stdinData,
+		Stdout: nil,
+		Trace:  nil,
 	}
 
 	result, err := node.Execute(ctx)
@@ -369,5 +373,136 @@ func TestShellDecorator_NewArch_PipedStdinNoMatch(t *testing.T) {
 	}
 	if result.ExitCode != 1 {
 		t.Errorf("expected exit code 1 (grep no match), got: %d", result.ExitCode)
+	}
+}
+
+// TestShellDecorator_NewArch_EndpointWrite tests @shell as file write endpoint
+func TestShellDecorator_NewArch_EndpointWrite(t *testing.T) {
+	// Create temp file path
+	tmpFile := t.TempDir() + "/test_output.txt"
+
+	// Create decorator instance with params
+	shell := &ShellDecorator{
+		params: map[string]any{
+			"command": tmpFile,
+		},
+	}
+
+	session := decorator.NewLocalSession()
+	defer session.Close()
+
+	ctx := decorator.ExecContext{
+		Session: session,
+		Context: context.Background(),
+		Trace:   nil,
+	}
+
+	// Open as write endpoint
+	writer, err := shell.Open(ctx, decorator.IOWrite)
+	if err != nil {
+		t.Fatalf("expected no error opening endpoint, got: %v", err)
+	}
+	defer writer.Close()
+
+	// Write data
+	data := []byte("test data\n")
+	n, err := writer.Write(data)
+	if err != nil {
+		t.Errorf("expected no error writing, got: %v", err)
+	}
+	if n != len(data) {
+		t.Errorf("expected to write %d bytes, wrote %d", len(data), n)
+	}
+
+	// Close to flush
+	if err := writer.Close(); err != nil {
+		t.Errorf("expected no error closing, got: %v", err)
+	}
+
+	// Verify file contents
+	content, err := os.ReadFile(tmpFile)
+	if err != nil {
+		t.Fatalf("expected file to exist: %v", err)
+	}
+	if string(content) != "test data\n" {
+		t.Errorf("expected file content 'test data\\n', got %q", string(content))
+	}
+}
+
+// TestShellDecorator_NewArch_EndpointRead tests @shell as file read endpoint
+func TestShellDecorator_NewArch_EndpointRead(t *testing.T) {
+	// Create temp file with content
+	tmpFile := t.TempDir() + "/test_input.txt"
+	if err := os.WriteFile(tmpFile, []byte("input data\n"), 0o644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	// Create decorator instance with params
+	shell := &ShellDecorator{
+		params: map[string]any{
+			"command": tmpFile,
+		},
+	}
+
+	session := decorator.NewLocalSession()
+	defer session.Close()
+
+	ctx := decorator.ExecContext{
+		Session: session,
+		Context: context.Background(),
+		Trace:   nil,
+	}
+
+	// Open as read endpoint
+	reader, err := shell.Open(ctx, decorator.IORead)
+	if err != nil {
+		t.Fatalf("expected no error opening endpoint, got: %v", err)
+	}
+	defer reader.Close()
+
+	// Read data
+	data := make([]byte, 100)
+	n, err := reader.Read(data)
+	if err != nil && err != io.EOF {
+		t.Errorf("expected no error reading, got: %v", err)
+	}
+	if string(data[:n]) != "input data\n" {
+		t.Errorf("expected to read 'input data\\n', got %q", string(data[:n]))
+	}
+}
+
+// TestShellDecorator_NewArch_MultiRole tests that @shell implements both Exec and Endpoint
+func TestShellDecorator_NewArch_MultiRole(t *testing.T) {
+	shell := &ShellDecorator{}
+
+	// Verify it implements Exec
+	_, ok := interface{}(shell).(decorator.Exec)
+	if !ok {
+		t.Error("@shell should implement Exec interface")
+	}
+
+	// Verify it implements Endpoint
+	_, ok = interface{}(shell).(decorator.Endpoint)
+	if !ok {
+		t.Error("@shell should implement Endpoint interface")
+	}
+
+	// Verify descriptor shows both roles
+	desc := shell.Descriptor()
+	hasExec := false
+	hasEndpoint := false
+	for _, role := range desc.Roles {
+		if role == decorator.RoleWrapper {
+			hasExec = true
+		}
+		if role == decorator.RoleEndpoint {
+			hasEndpoint = true
+		}
+	}
+	if !hasExec {
+		t.Error("@shell descriptor should include RoleWrapper")
+	}
+	if !hasEndpoint {
+		t.Error("@shell descriptor should include RoleEndpoint")
 	}
 }
