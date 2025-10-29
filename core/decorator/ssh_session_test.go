@@ -8,9 +8,7 @@ import (
 	"testing"
 )
 
-var (
-	sshServer *SSHTestServer
-)
+var sshServer *SSHTestServer
 
 // TestMain sets up and tears down the SSH test server for all tests.
 func TestMain(m *testing.M) {

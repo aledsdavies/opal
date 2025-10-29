@@ -3,6 +3,7 @@ package decorator
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io/fs"
 	"net"
@@ -462,7 +463,11 @@ func loadKnownHosts(path string) (ssh.HostKeyCallback, error) {
 		keyData := parts[2]
 
 		// Decode base64 key
-		keyBytes := []byte(keyData)
+		keyBytes, err := base64.StdEncoding.DecodeString(keyData)
+		if err != nil {
+			continue
+		}
+
 		pubKey, err := ssh.ParsePublicKey(keyBytes)
 		if err != nil {
 			continue
