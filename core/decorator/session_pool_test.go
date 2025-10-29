@@ -1,6 +1,5 @@
 package decorator
 
-
 import (
 	"context"
 	"io/fs"

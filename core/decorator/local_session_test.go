@@ -1,4 +1,5 @@
 package decorator
+
 import "context"
 
 import (
@@ -142,7 +143,7 @@ func TestLocalSessionPut(t *testing.T) {
 
 	// Write file
 	path := filepath.Join(tmpDir, "test.txt")
-	err := session.Put(context.Background(), []byte("hello world"), path, 0644)
+	err := session.Put(context.Background(), []byte("hello world"), path, 0o644)
 	if err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
@@ -163,8 +164,8 @@ func TestLocalSessionPut(t *testing.T) {
 		t.Fatalf("Stat failed: %v", err)
 	}
 
-	if info.Mode().Perm() != 0644 {
-		t.Errorf("Permissions: got %o, want %o", info.Mode().Perm(), 0644)
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("Permissions: got %o, want %o", info.Mode().Perm(), 0o644)
 	}
 }
 
@@ -177,7 +178,7 @@ func TestLocalSessionPutCreatesDirectories(t *testing.T) {
 
 	// Write file in nested directory
 	path := filepath.Join(tmpDir, "a", "b", "c", "test.txt")
-	err := session.Put(context.Background(), []byte("nested"), path, 0644)
+	err := session.Put(context.Background(), []byte("nested"), path, 0o644)
 	if err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
@@ -200,7 +201,7 @@ func TestLocalSessionGet(t *testing.T) {
 	// Create temp file
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
-	err := os.WriteFile(path, []byte("file content"), 0644)
+	err := os.WriteFile(path, []byte("file content"), 0o644)
 	if err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
@@ -258,7 +259,7 @@ func TestLocalSessionRelativePaths(t *testing.T) {
 	// This test demonstrates the intended behavior
 
 	// Write file with relative path
-	err := session.Put(context.Background(), []byte("test"), filepath.Join(tmpDir, "relative.txt"), 0644)
+	err := session.Put(context.Background(), []byte("test"), filepath.Join(tmpDir, "relative.txt"), 0o644)
 	if err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
@@ -312,7 +313,7 @@ func ExampleLocalSession_Put() {
 	session := NewLocalSession()
 
 	// Write file
-	_ = session.Put(context.Background(), []byte("Hello, File!"), "/tmp/test.txt", 0644)
+	_ = session.Put(context.Background(), []byte("Hello, File!"), "/tmp/test.txt", 0o644)
 
 	// Read file back
 	content, _ := session.Get(context.Background(), "/tmp/test.txt")

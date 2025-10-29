@@ -92,7 +92,7 @@ func (s *SSHSession) Run(ctx context.Context, argv []string, opts RunOpts) (Resu
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to create session: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	// Build command string with optional directory change
 	var cmd string
@@ -128,7 +128,7 @@ func (s *SSHSession) Run(ctx context.Context, argv []string, opts RunOpts) (Resu
 
 	select {
 	case <-ctx.Done():
-		session.Signal(ssh.SIGKILL)
+		_ = session.Signal(ssh.SIGKILL) // Best effort kill
 		return Result{ExitCode: -1}, ctx.Err()
 	case err := <-done:
 		exitCode := 0
@@ -160,7 +160,7 @@ func (s *SSHSession) Put(ctx context.Context, data []byte, path string, mode fs.
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	// Use cat to write file
 	cmd := fmt.Sprintf("cat > %s && chmod %o %s", shellQuote(path), mode, shellQuote(path))
@@ -182,7 +182,7 @@ func (s *SSHSession) Get(ctx context.Context, path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	var stdout bytes.Buffer
 	session.Stdout = &stdout
@@ -201,7 +201,7 @@ func (s *SSHSession) Env() map[string]string {
 	if err != nil {
 		return make(map[string]string)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	var stdout bytes.Buffer
 	session.Stdout = &stdout
@@ -241,7 +241,7 @@ func (s *SSHSession) Cwd() string {
 	if err != nil {
 		return ""
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	var stdout bytes.Buffer
 	session.Stdout = &stdout
@@ -277,14 +277,11 @@ func (s *SSHSessionWithEnv) Run(ctx context.Context, argv []string, opts RunOpts
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to create session: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	// Set environment variables using session.Setenv (safer than VAR=val cmd)
 	for k, v := range s.delta {
-		if err := session.Setenv(k, v); err != nil {
-			// If Setenv fails (some SSH servers don't allow it), fall back to command injection
-			// This will be handled below
-		}
+		_ = session.Setenv(k, v) // Best effort - some SSH servers don't allow Setenv
 	}
 
 	// Build command with optional cd
@@ -324,7 +321,7 @@ func (s *SSHSessionWithEnv) Run(ctx context.Context, argv []string, opts RunOpts
 
 	select {
 	case <-ctx.Done():
-		session.Signal(ssh.SIGKILL)
+		_ = session.Signal(ssh.SIGKILL) // Best effort kill
 		return Result{ExitCode: -1}, ctx.Err()
 	case err := <-done:
 		exitCode := 0

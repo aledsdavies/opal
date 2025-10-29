@@ -64,7 +64,7 @@ func (p *SessionPool) CloseAll() {
 	defer p.mu.Unlock()
 
 	for _, session := range p.sessions {
-		session.Close()
+		_ = session.Close() // Best effort cleanup
 	}
 
 	// Clear the pool

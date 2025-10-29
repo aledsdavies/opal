@@ -1,16 +1,15 @@
 package decorator
+
 import "context"
 
 import (
 	"os"
 	"strings"
-	"sync"
 	"testing"
 )
 
 var (
-	sshServer     *SSHTestServer
-	sshServerOnce sync.Once
+	sshServer *SSHTestServer
 )
 
 // TestMain sets up and tears down the SSH test server for all tests.

@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -128,14 +127,14 @@ func (s *SSHTestServer) acceptLoop(config *ssh.ServerConfig) {
 
 func (s *SSHTestServer) handleConn(netConn net.Conn, config *ssh.ServerConfig) {
 	defer s.wg.Done()
-	defer netConn.Close()
+	defer func() { _ = netConn.Close() }()
 
 	// SSH handshake
 	sshConn, chans, reqs, err := ssh.NewServerConn(netConn, config)
 	if err != nil {
 		return
 	}
-	defer sshConn.Close()
+	defer func() { _ = sshConn.Close() }()
 
 	// Discard global requests
 	go ssh.DiscardRequests(reqs)
@@ -151,7 +150,7 @@ func (s *SSHTestServer) handleChannel(newChannel ssh.NewChannel) {
 	defer s.wg.Done()
 
 	if newChannel.ChannelType() != "session" {
-		newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
+		_ = newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
 		return
 	}
 
@@ -159,7 +158,7 @@ func (s *SSHTestServer) handleChannel(newChannel ssh.NewChannel) {
 	if err != nil {
 		return
 	}
-	defer channel.Close()
+	defer func() { _ = channel.Close() }()
 
 	// Handle session requests (exec, env, etc.)
 	sessionEnv := make(map[string]string)
@@ -175,7 +174,7 @@ func (s *SSHTestServer) handleChannel(newChannel ssh.NewChannel) {
 			s.handleEnv(req, sessionEnv)
 		default:
 			if req.WantReply {
-				req.Reply(false, nil)
+				_ = req.Reply(false, nil)
 			}
 		}
 	}
@@ -191,7 +190,7 @@ func (s *SSHTestServer) handleEnv(req *ssh.Request, sessionEnv map[string]string
 		sessionEnv[envReq.Name] = envReq.Value
 	}
 	if req.WantReply {
-		req.Reply(true, nil)
+		_ = req.Reply(true, nil)
 	}
 }
 
@@ -202,14 +201,14 @@ func (s *SSHTestServer) handleExec(channel ssh.Channel, req *ssh.Request, sessio
 	}
 	if err := ssh.Unmarshal(req.Payload, &execReq); err != nil {
 		if req.WantReply {
-			req.Reply(false, nil)
+			_ = req.Reply(false, nil)
 		}
-		channel.Close()
+		_ = channel.Close()
 		return
 	}
 
 	if req.WantReply {
-		req.Reply(true, nil)
+		_ = req.Reply(true, nil)
 	}
 
 	// Execute command locally (for testing)
@@ -238,16 +237,16 @@ func (s *SSHTestServer) handleExec(channel ssh.Channel, req *ssh.Request, sessio
 
 	// Send exit status
 	exitStatus := struct{ Status uint32 }{uint32(exitCode)}
-	channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatus))
+	_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(&exitStatus))
 
 	// Close the channel to signal completion
-	channel.Close()
+	_ = channel.Close()
 }
 
 // Stop stops the SSH server and waits for all connections to close.
 func (s *SSHTestServer) Stop() {
 	if s.listener != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 	}
 	s.wg.Wait()
 }
@@ -280,13 +279,13 @@ func (s *SSHTestServer) RunCommand(user, command string) (stdout, stderr string,
 	if err != nil {
 		return "", "", 1, err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	session, err := client.NewSession()
 	if err != nil {
 		return "", "", 1, err
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	var outBuf, errBuf bytes.Buffer
 	session.Stdout = &outBuf
@@ -319,13 +318,13 @@ func (s *SSHTestServer) WriteFile(user, path, content string) error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	session, err := client.NewSession()
 	if err != nil {
 		return err
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	session.Stdin = strings.NewReader(content)
 	return session.Run(fmt.Sprintf("cat > %s", path))
@@ -335,10 +334,4 @@ func (s *SSHTestServer) WriteFile(user, path, content string) error {
 func (s *SSHTestServer) ReadFile(user, path string) (string, error) {
 	stdout, _, _, err := s.RunCommand(user, fmt.Sprintf("cat %s", path))
 	return stdout, err
-}
-
-// CopyReader copies from reader to writer with proper error handling.
-func copyReader(dst io.Writer, src io.Reader) error {
-	_, err := io.Copy(dst, src)
-	return err
 }
