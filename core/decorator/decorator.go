@@ -156,3 +156,96 @@ type IOSemantics struct {
 	// RedirectOut indicates decorator can write to file (supports: cmd > @decorator)
 	RedirectOut bool
 }
+
+// DescriptorBuilder provides a fluent API for building Descriptor without duplication.
+// Only requires parameters and returns - Path, Summary, Roles are set directly.
+type DescriptorBuilder struct {
+	desc Descriptor
+}
+
+// NewDescriptor creates a new descriptor builder.
+func NewDescriptor(path string) *DescriptorBuilder {
+	return &DescriptorBuilder{
+		desc: Descriptor{
+			Path:   path,
+			Schema: types.DecoratorSchema{Parameters: make(map[string]types.ParamSchema)},
+		},
+	}
+}
+
+// Summary sets the one-line description.
+func (b *DescriptorBuilder) Summary(summary string) *DescriptorBuilder {
+	b.desc.Summary = summary
+	return b
+}
+
+// PrimaryParam defines the primary parameter (enables dot syntax like @var.name).
+func (b *DescriptorBuilder) PrimaryParam(name string, typ types.ParamType, description string, examples ...string) *DescriptorBuilder {
+	b.desc.Schema.PrimaryParameter = name
+	b.desc.Schema.Parameters[name] = types.ParamSchema{
+		Name:        name,
+		Type:        typ,
+		Description: description,
+		Required:    true,
+		Examples:    examples,
+	}
+	b.desc.Schema.ParameterOrder = append([]string{name}, b.desc.Schema.ParameterOrder...)
+	return b
+}
+
+// Param adds an optional parameter.
+func (b *DescriptorBuilder) Param(name string, typ types.ParamType, description string, examples ...string) *DescriptorBuilder {
+	b.desc.Schema.Parameters[name] = types.ParamSchema{
+		Name:        name,
+		Type:        typ,
+		Description: description,
+		Required:    false,
+		Examples:    examples,
+	}
+	b.desc.Schema.ParameterOrder = append(b.desc.Schema.ParameterOrder, name)
+	return b
+}
+
+// Returns sets the return type (for value decorators).
+func (b *DescriptorBuilder) Returns(typ types.ParamType, description string) *DescriptorBuilder {
+	b.desc.Schema.Returns = &types.ReturnSchema{
+		Type:        typ,
+		Description: description,
+	}
+	return b
+}
+
+// TransportScope sets where the decorator can be used.
+func (b *DescriptorBuilder) TransportScope(scope TransportScope) *DescriptorBuilder {
+	b.desc.Capabilities.TransportScope = scope
+	return b
+}
+
+// Pure marks the decorator as deterministic (can be cached/constant-folded).
+func (b *DescriptorBuilder) Pure() *DescriptorBuilder {
+	b.desc.Capabilities.Purity = true
+	return b
+}
+
+// Idempotent marks the decorator as safe to retry.
+func (b *DescriptorBuilder) Idempotent() *DescriptorBuilder {
+	b.desc.Capabilities.Idempotent = true
+	return b
+}
+
+// Block sets the block requirement.
+func (b *DescriptorBuilder) Block(req BlockRequirement) *DescriptorBuilder {
+	b.desc.Capabilities.Block = req
+	return b
+}
+
+// Roles sets the decorator roles (auto-inferred by registry, but can be set explicitly).
+func (b *DescriptorBuilder) Roles(roles ...Role) *DescriptorBuilder {
+	b.desc.Roles = roles
+	return b
+}
+
+// Build returns the final Descriptor.
+func (b *DescriptorBuilder) Build() Descriptor {
+	return b.desc
+}

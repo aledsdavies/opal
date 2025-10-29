@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/core/types"
 	"github.com/aledsdavies/opal/runtime/lexer"
 	"github.com/google/go-cmp/cmp"
@@ -52,30 +51,8 @@ func init() {
 		panic(err)
 	}
 
-	// Register @retry as an execution decorator in the NEW registry for role validation tests
-	retryDec := &mockExecDecorator{path: "retry"}
-	if err := decorator.Register("retry", retryDec); err != nil {
-		panic(err)
-	}
-}
-
-// Mock execution decorator for testing
-type mockExecDecorator struct {
-	path string
-}
-
-func (m *mockExecDecorator) Descriptor() decorator.Descriptor {
-	return decorator.Descriptor{
-		Path:  m.path,
-		Roles: []decorator.Role{decorator.RoleWrapper},
-		Capabilities: decorator.Capabilities{
-			Block: decorator.BlockOptional, // Execution decorators can optionally have blocks
-		},
-	}
-}
-
-func (m *mockExecDecorator) Wrap(next decorator.ExecNode, params map[string]any) decorator.ExecNode {
-	return nil // Stub for testing
+	// Note: @retry, @parallel, @timeout are now registered in runtime/decorators/
+	// No need for mocks - real decorators with stub implementations are used
 }
 
 // TestParseEventStructure uses table-driven tests to verify parse tree events
@@ -714,7 +691,6 @@ func TestEnumParameterValidation(t *testing.T) {
 	}
 }
 
-
 // TestValueDecoratorRejectsBlock verifies value decorators cannot take blocks
 func TestValueDecoratorRejectsBlock(t *testing.T) {
 	// @var is a value decorator - should NOT take a block
@@ -726,16 +702,16 @@ func TestValueDecoratorRejectsBlock(t *testing.T) {
 	}
 
 	err := tree.Errors[0]
-	
+
 	// Verify error message follows established format
 	if !strings.Contains(err.Message, "@var") {
 		t.Errorf("Error should mention decorator name, got: %q", err.Message)
 	}
-	
+
 	if !strings.Contains(err.Message, "cannot have a block") {
 		t.Errorf("Error should mention block restriction, got: %q", err.Message)
 	}
-	
+
 	if err.Context != "decorator block" {
 		t.Errorf("Context: got %q, want %q", err.Context, "decorator block")
 	}

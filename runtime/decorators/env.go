@@ -5,6 +5,7 @@ import (
 
 	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/core/invariant"
+	"github.com/aledsdavies/opal/core/types"
 )
 
 // EnvDecorator implements the @env value decorator.
@@ -13,16 +14,16 @@ type EnvDecorator struct{}
 
 // Descriptor returns the decorator metadata.
 func (d *EnvDecorator) Descriptor() decorator.Descriptor {
-	return decorator.Descriptor{
-		Path:  "env",
-		Roles: []decorator.Role{decorator.RoleProvider},
-		Capabilities: decorator.Capabilities{
-			TransportScope: decorator.TransportScopeAny, // Works in any transport (reads from session)
-			Purity:         false,                       // Not pure (reads external state)
-			Idempotent:     true,                        // Same input → same output (within same session)
-			Block:          decorator.BlockForbidden,    // Value decorators cannot have blocks
-		},
-	}
+	return decorator.NewDescriptor("env").
+		Summary("Access environment variables from the current session").
+		Roles(decorator.RoleProvider).
+		PrimaryParam("property", types.TypeString, "Environment variable name", "HOME", "PATH", "USER").
+		Param("default", types.TypeString, "Default value if environment variable is not set", "", "/home/user", "us-east-1").
+		Returns(types.TypeString, "Value of the environment variable").
+		TransportScope(decorator.TransportScopeAny).
+		Idempotent().
+		Block(decorator.BlockForbidden).
+		Build()
 }
 
 // Resolve implements the Value interface.

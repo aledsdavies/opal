@@ -5,6 +5,7 @@ import (
 
 	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/core/invariant"
+	"github.com/aledsdavies/opal/core/types"
 )
 
 // VarDecorator implements the @var value decorator.
@@ -13,16 +14,16 @@ type VarDecorator struct{}
 
 // Descriptor returns the decorator metadata.
 func (d *VarDecorator) Descriptor() decorator.Descriptor {
-	return decorator.Descriptor{
-		Path:  "var",
-		Roles: []decorator.Role{decorator.RoleProvider},
-		Capabilities: decorator.Capabilities{
-			TransportScope: decorator.TransportScopeAny, // Works in any transport
-			Purity:         true,                        // Pure function (no side effects)
-			Idempotent:     true,                        // Same input → same output
-			Block:          decorator.BlockForbidden,    // Value decorators cannot have blocks
-		},
-	}
+	return decorator.NewDescriptor("var").
+		Summary("Access plan-time variables").
+		Roles(decorator.RoleProvider).
+		PrimaryParam("name", types.TypeString, "Variable name to retrieve", "deployEnv", "version", "region").
+		Returns(types.TypeString, "Value of the variable").
+		TransportScope(decorator.TransportScopeAny).
+		Pure().
+		Idempotent().
+		Block(decorator.BlockForbidden).
+		Build()
 }
 
 // Resolve implements the Value interface.

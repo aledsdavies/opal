@@ -1606,11 +1606,21 @@ func (p *parser) decorator() {
 		}
 	}
 
-	// Get the schema for validation (old registry for backward compatibility)
-	schema, hasSchema := types.Global().GetSchema(decoratorName)
+	// Get the schema for validation
+	// Try new registry first, fall back to old registry for backward compatibility
+	var schema types.DecoratorSchema
+	var hasSchema bool
 
-	// Check new decorator registry for role-based validation
 	entry, hasNewEntry := decorator.Global().Lookup(decoratorName)
+	if hasNewEntry {
+		// Extract schema from new registry
+		desc := entry.Impl.Descriptor()
+		schema = desc.Schema
+		hasSchema = true
+	} else {
+		// Fall back to old registry
+		schema, hasSchema = types.Global().GetSchema(decoratorName)
+	}
 
 	// It's a registered decorator, parse it
 	// Reset position to @ and start the node
