@@ -118,6 +118,56 @@ func inferRoles(decorator Decorator) []Role {
 // Global registry instance (database/sql pattern)
 var global = NewRegistry()
 
+// ResolveValue resolves a value decorator with scope enforcement and parameter validation.
+// This is the high-level method that should be used by the planner.
+func (r *Registry) ResolveValue(
+	ctx ValueEvalContext,
+	call ValueCall,
+	currentScope TransportScope,
+) (ResolvedValue, error) {
+	// Step 1: Lookup decorator
+	entry, ok := r.Lookup(call.Path)
+	if !ok {
+		return ResolvedValue{}, fmt.Errorf("decorator %q not found", call.Path)
+	}
+
+	// Step 2: Type assert to Value interface
+	valueDecorator, ok := entry.Impl.(Value)
+	if !ok {
+		return ResolvedValue{}, fmt.Errorf("decorator %q does not implement Value interface", call.Path)
+	}
+
+	// Step 3: Check transport scope compatibility
+	desc := entry.Impl.Descriptor()
+	if !desc.Capabilities.TransportScope.Allows(currentScope) {
+		return ResolvedValue{}, fmt.Errorf(
+			"decorator %q cannot be used in current transport scope (requires %s, current: %s)",
+			call.Path,
+			desc.Capabilities.TransportScope,
+			currentScope,
+		)
+	}
+
+	// Step 4: TODO - Validate parameters (enum, range, pattern from schema)
+	// This will be implemented when we have proper schema validation
+
+	// Step 5: Call decorator's Resolve method
+	value, err := valueDecorator.Resolve(ctx, call)
+	if err != nil {
+		return ResolvedValue{}, err
+	}
+
+	// Step 6: TODO - Wrap secrets in ResolvedValue
+	// This will be implemented in Phase 4 when we add secret handling
+	resolved := ResolvedValue{
+		Value:     value,
+		Handle:    nil, // TODO: Secret wrapping
+		DisplayID: "",  // TODO: Secret ID generation
+	}
+
+	return resolved, nil
+}
+
 // Global returns the global decorator registry.
 func Global() *Registry {
 	return global

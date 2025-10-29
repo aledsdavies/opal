@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/types"
 	"github.com/aledsdavies/opal/runtime/lexer"
@@ -1605,8 +1606,11 @@ func (p *parser) decorator() {
 		}
 	}
 
-	// Get the schema for validation
+	// Get the schema for validation (old registry for backward compatibility)
 	schema, hasSchema := types.Global().GetSchema(decoratorName)
+
+	// Check new decorator registry for role-based validation
+	entry, hasNewEntry := decorator.Global().Lookup(decoratorName)
 
 	// It's a registered decorator, parse it
 	// Reset position to @ and start the node
@@ -1665,8 +1669,45 @@ func (p *parser) decorator() {
 		p.validateRequiredParameters(decoratorName, schema, providedParams)
 	}
 
-	// Parse optional block (based on schema BlockRequirement)
-	if hasSchema {
+	// Parse optional block (use new registry's Block capability)
+	if hasNewEntry {
+		desc := entry.Impl.Descriptor()
+		blockReq := desc.Capabilities.Block
+
+		// Default to BlockForbidden if not specified (safe default for value decorators)
+		if blockReq == "" {
+			blockReq = decorator.BlockForbidden
+		}
+
+		switch blockReq {
+		case decorator.BlockRequired:
+			// Block is required
+			if !p.at(lexer.LBRACE) {
+				p.errorWithDetails(
+					fmt.Sprintf("@%s requires a block", decoratorName),
+					"decorator block",
+					fmt.Sprintf("Add a block: @%s(...) { ... }", decoratorName),
+				)
+			} else {
+				p.block()
+			}
+		case decorator.BlockOptional:
+			// Block is optional
+			if p.at(lexer.LBRACE) {
+				p.block()
+			}
+		case decorator.BlockForbidden:
+			// Block is not allowed
+			if p.at(lexer.LBRACE) {
+				p.errorWithDetails(
+					fmt.Sprintf("@%s cannot have a block", decoratorName),
+					"decorator block",
+					fmt.Sprintf("@%s is a value decorator and does not accept blocks", decoratorName),
+				)
+			}
+		}
+	} else if hasSchema {
+		// Fall back to old schema-based validation for decorators not in new registry
 		switch schema.BlockRequirement {
 		case types.BlockRequired:
 			// Block is required

@@ -400,3 +400,225 @@ func (m *mockMultiRoleDecorator) Resolve(ctx ValueEvalContext, call ValueCall) (
 func (m *mockMultiRoleDecorator) Open(ctx ExecContext, mode IOType) (io.ReadWriteCloser, error) {
 	return nil, nil // Stub
 }
+
+// Mock decorator with transport scope for testing
+type mockScopedValueDecorator struct {
+	path  string
+	scope TransportScope
+}
+
+func (m *mockScopedValueDecorator) Descriptor() Descriptor {
+	return Descriptor{
+		Path: m.path,
+		Capabilities: Capabilities{
+			TransportScope: m.scope,
+		},
+	}
+}
+
+func (m *mockScopedValueDecorator) Resolve(ctx ValueEvalContext, call ValueCall) (any, error) {
+	return "scoped-value", nil
+}
+
+// TestTransportScopeAllows verifies TransportScope.Allows() logic
+func TestTransportScopeAllows(t *testing.T) {
+	tests := []struct {
+		name     string
+		scope    TransportScope
+		current  TransportScope
+		expected bool
+	}{
+		// TransportScopeAny allows everything
+		{"Any allows Local", TransportScopeAny, TransportScopeLocal, true},
+		{"Any allows SSH", TransportScopeAny, TransportScopeSSH, true},
+		{"Any allows Remote", TransportScopeAny, TransportScopeRemote, true},
+		{"Any allows Any", TransportScopeAny, TransportScopeAny, true},
+
+		// TransportScopeLocal only allows Local
+		{"Local allows Local", TransportScopeLocal, TransportScopeLocal, true},
+		{"Local denies SSH", TransportScopeLocal, TransportScopeSSH, false},
+		{"Local denies Remote", TransportScopeLocal, TransportScopeRemote, false},
+
+		// TransportScopeSSH only allows SSH
+		{"SSH allows SSH", TransportScopeSSH, TransportScopeSSH, true},
+		{"SSH denies Local", TransportScopeSSH, TransportScopeLocal, false},
+
+		// TransportScopeRemote allows any remote (SSH, Docker, etc.)
+		{"Remote allows SSH", TransportScopeRemote, TransportScopeSSH, true},
+		{"Remote denies Local", TransportScopeRemote, TransportScopeLocal, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.scope.Allows(tt.current)
+			if result != tt.expected {
+				t.Errorf("TransportScope(%v).Allows(%v) = %v, want %v",
+					tt.scope, tt.current, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestResolveValueSuccess verifies successful value resolution
+func TestResolveValueSuccess(t *testing.T) {
+	r := NewRegistry()
+
+	// Register a value decorator
+	dec := &mockValueDecorator{path: "var"}
+	r.register("var", dec)
+
+	// Create context
+	session := NewLocalSession()
+	ctx := ValueEvalContext{
+		Session: session,
+		Vars:    map[string]any{"name": "test"},
+	}
+
+	// Create call
+	varName := "name"
+	call := ValueCall{
+		Path:    "var",
+		Primary: &varName,
+		Params:  map[string]any{},
+	}
+
+	// Resolve value
+	resolved, err := r.ResolveValue(ctx, call, TransportScopeLocal)
+	if err != nil {
+		t.Fatalf("ResolveValue failed: %v", err)
+	}
+
+	// Verify result
+	if resolved.Value != "mock-value" {
+		t.Errorf("Value: got %v, want %q", resolved.Value, "mock-value")
+	}
+}
+
+// TestResolveValueNotFound verifies error when decorator doesn't exist
+func TestResolveValueNotFound(t *testing.T) {
+	r := NewRegistry()
+
+	session := NewLocalSession()
+	ctx := ValueEvalContext{
+		Session: session,
+		Vars:    map[string]any{},
+	}
+
+	call := ValueCall{
+		Path:    "nonexistent",
+		Primary: nil,
+		Params:  map[string]any{},
+	}
+
+	_, err := r.ResolveValue(ctx, call, TransportScopeLocal)
+	if err == nil {
+		t.Fatal("Expected error for nonexistent decorator")
+	}
+
+	expectedMsg := `decorator "nonexistent" not found`
+	if err.Error() != expectedMsg {
+		t.Errorf("Error message: got %q, want %q", err.Error(), expectedMsg)
+	}
+}
+
+// TestResolveValueNotValueDecorator verifies error when decorator doesn't implement Value
+func TestResolveValueNotValueDecorator(t *testing.T) {
+	r := NewRegistry()
+
+	// Register an Exec decorator (not Value)
+	dec := &mockExecDecorator{path: "retry"}
+	r.register("retry", dec)
+
+	session := NewLocalSession()
+	ctx := ValueEvalContext{
+		Session: session,
+		Vars:    map[string]any{},
+	}
+
+	call := ValueCall{
+		Path:    "retry",
+		Primary: nil,
+		Params:  map[string]any{},
+	}
+
+	_, err := r.ResolveValue(ctx, call, TransportScopeLocal)
+	if err == nil {
+		t.Fatal("Expected error for non-value decorator")
+	}
+
+	expectedMsg := `decorator "retry" does not implement Value interface`
+	if err.Error() != expectedMsg {
+		t.Errorf("Error message: got %q, want %q", err.Error(), expectedMsg)
+	}
+}
+
+// TestResolveValueScopeViolation verifies transport scope enforcement
+func TestResolveValueScopeViolation(t *testing.T) {
+	r := NewRegistry()
+
+	// Register a Local-only decorator
+	dec := &mockScopedValueDecorator{
+		path:  "local.file",
+		scope: TransportScopeLocal,
+	}
+	r.register("local.file", dec)
+
+	session := NewLocalSession()
+	ctx := ValueEvalContext{
+		Session: session,
+		Vars:    map[string]any{},
+	}
+
+	call := ValueCall{
+		Path:    "local.file",
+		Primary: nil,
+		Params:  map[string]any{},
+	}
+
+	// Try to resolve in SSH context (should fail)
+	_, err := r.ResolveValue(ctx, call, TransportScopeSSH)
+	if err == nil {
+		t.Fatal("Expected error for scope violation")
+	}
+
+	expectedMsg := `decorator "local.file" cannot be used in current transport scope (requires Local, current: SSH)`
+	if err.Error() != expectedMsg {
+		t.Errorf("Error message: got %q, want %q", err.Error(), expectedMsg)
+	}
+}
+
+// TestResolveValueScopeAllowed verifies scope enforcement allows valid scopes
+func TestResolveValueScopeAllowed(t *testing.T) {
+	r := NewRegistry()
+
+	// Register an Any-scope decorator
+	dec := &mockScopedValueDecorator{
+		path:  "env",
+		scope: TransportScopeAny,
+	}
+	r.register("env", dec)
+
+	session := NewLocalSession()
+	ctx := ValueEvalContext{
+		Session: session,
+		Vars:    map[string]any{},
+	}
+
+	call := ValueCall{
+		Path:    "env",
+		Primary: nil,
+		Params:  map[string]any{},
+	}
+
+	// Should work in Local context
+	_, err := r.ResolveValue(ctx, call, TransportScopeLocal)
+	if err != nil {
+		t.Errorf("ResolveValue in Local failed: %v", err)
+	}
+
+	// Should work in SSH context
+	_, err = r.ResolveValue(ctx, call, TransportScopeSSH)
+	if err != nil {
+		t.Errorf("ResolveValue in SSH failed: %v", err)
+	}
+}

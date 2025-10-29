@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/core/types"
 	"github.com/aledsdavies/opal/runtime/lexer"
 	"github.com/google/go-cmp/cmp"
@@ -50,6 +51,31 @@ func init() {
 	if err := types.Global().RegisterSDKHandlerWithSchema(fileTempSchema, nil); err != nil {
 		panic(err)
 	}
+
+	// Register @retry as an execution decorator in the NEW registry for role validation tests
+	retryDec := &mockExecDecorator{path: "retry"}
+	if err := decorator.Register("retry", retryDec); err != nil {
+		panic(err)
+	}
+}
+
+// Mock execution decorator for testing
+type mockExecDecorator struct {
+	path string
+}
+
+func (m *mockExecDecorator) Descriptor() decorator.Descriptor {
+	return decorator.Descriptor{
+		Path:  m.path,
+		Roles: []decorator.Role{decorator.RoleWrapper},
+		Capabilities: decorator.Capabilities{
+			Block: decorator.BlockOptional, // Execution decorators can optionally have blocks
+		},
+	}
+}
+
+func (m *mockExecDecorator) Wrap(next decorator.ExecNode, params map[string]any) decorator.ExecNode {
+	return nil // Stub for testing
 }
 
 // TestParseEventStructure uses table-driven tests to verify parse tree events
@@ -685,5 +711,59 @@ func TestEnumParameterValidation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+
+// TestValueDecoratorRejectsBlock verifies value decorators cannot take blocks
+func TestValueDecoratorRejectsBlock(t *testing.T) {
+	// @var is a value decorator - should NOT take a block
+	input := `@var.name { echo "test" }`
+	tree := ParseString(input)
+
+	if len(tree.Errors) == 0 {
+		t.Fatal("Expected error for value decorator with block")
+	}
+
+	err := tree.Errors[0]
+	
+	// Verify error message follows established format
+	if !strings.Contains(err.Message, "@var") {
+		t.Errorf("Error should mention decorator name, got: %q", err.Message)
+	}
+	
+	if !strings.Contains(err.Message, "cannot have a block") {
+		t.Errorf("Error should mention block restriction, got: %q", err.Message)
+	}
+	
+	if err.Context != "decorator block" {
+		t.Errorf("Context: got %q, want %q", err.Context, "decorator block")
+	}
+}
+
+// TestExecDecoratorAllowsBlock verifies execution decorators can take blocks
+func TestExecDecoratorAllowsBlock(t *testing.T) {
+	// @retry is an execution decorator - should work with blocks
+	input := `@retry(times=3) { echo "test" }`
+	tree := ParseString(input)
+
+	if len(tree.Errors) != 0 {
+		t.Errorf("@retry should work with blocks, got errors: %v", tree.Errors)
+	}
+}
+
+// TestEnvDecoratorRejectsBlock verifies @env cannot take blocks
+func TestEnvDecoratorRejectsBlock(t *testing.T) {
+	// @env is a value decorator - should NOT take a block
+	input := `@env.HOME { echo "test" }`
+	tree := ParseString(input)
+
+	if len(tree.Errors) == 0 {
+		t.Fatal("Expected error for @env with block")
+	}
+
+	err := tree.Errors[0]
+	if !strings.Contains(err.Message, "@env") {
+		t.Errorf("Error should mention @env, got: %q", err.Message)
 	}
 }
