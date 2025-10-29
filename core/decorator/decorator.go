@@ -1,5 +1,7 @@
 package decorator
 
+import "github.com/aledsdavies/opal/core/types"
+
 // Role represents behavioral capabilities of a decorator.
 // Decorators can have multiple roles (e.g., @aws.s3.object is both Provider and Endpoint).
 // Roles are auto-inferred from implemented interfaces.
@@ -47,9 +49,8 @@ type Descriptor struct {
 	// DocURL links to full documentation
 	DocURL string
 
-	// Schema describes parameters and return type
-	// Uses types.DecoratorSchema from core/types for now (will migrate in Phase 3)
-	Schema any // TODO: Define clean Schema type in this package
+	// Schema describes parameters and return type (single source of truth)
+	Schema types.DecoratorSchema
 
 	// Capabilities define execution constraints and properties
 	Capabilities Capabilities

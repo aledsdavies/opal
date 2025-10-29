@@ -1565,8 +1565,8 @@ func (p *parser) decorator() {
 	decoratorName := string(p.current().Text)
 	tempPos := p.pos
 
-	// Try the first identifier
-	if types.Global().IsRegistered(decoratorName) {
+	// Try the first identifier (check both registries)
+	if types.Global().IsRegistered(decoratorName) || decorator.Global().IsRegistered(decoratorName) {
 		// Found it - use this name
 		p.pos = tempPos
 	} else {
@@ -1579,7 +1579,7 @@ func (p *parser) decorator() {
 				if p.at(lexer.IDENTIFIER) {
 					// Try adding this part to the name
 					testName := decoratorName + "." + string(p.current().Text)
-					if types.Global().IsRegistered(testName) {
+					if types.Global().IsRegistered(testName) || decorator.Global().IsRegistered(testName) {
 						// Found it!
 						decoratorName = testName
 						foundRegistered = true
