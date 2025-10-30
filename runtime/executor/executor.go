@@ -277,25 +277,11 @@ func (e *executor) executePipeline(ctx context.Context, pipeline *sdk.PipelineNo
 	var wg sync.WaitGroup
 	wg.Add(numCommands)
 
-	// Context cancellation handler
-	// CRITICAL: Close all pipes on cancel to unblock readers/writers
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	go func() {
-		<-ctx.Done()
-		// Close all pipes to unblock any blocked reads/writes
-		// Use sync.Once to prevent double-close errors
-		for i := 0; i < numCommands-1; i++ {
-			i := i // Capture loop variable
-			pipeReaderCloseOnce[i].Do(func() {
-				_ = pipeReaders[i].Close()
-			})
-			pipeWriterCloseOnce[i].Do(func() {
-				_ = pipeWriters[i].Close()
-			})
-		}
-	}()
+	// CRITICAL: Context cancellation flows through to LocalSession.Run
+	// which kills the entire process group. We don't need to close pipes
+	// in a separate goroutine - the defer statements below handle cleanup
+	// after processes exit. Closing pipes early creates a race condition
+	// where pipes are closed while processes are still starting.
 
 	for i := 0; i < numCommands; i++ {
 		cmdIndex := i
