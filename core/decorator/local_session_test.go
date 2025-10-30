@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestLocalSessionRun verifies command execution
@@ -318,4 +320,67 @@ func ExampleLocalSession_Put() {
 	// Read file back
 	content, _ := session.Get(context.Background(), "/tmp/test.txt")
 	_ = content
+}
+
+// TestLocalSessionStreamsStdin verifies that stdin streams data (not buffered)
+func TestLocalSessionStreamsStdin(t *testing.T) {
+	session := NewLocalSession()
+
+	// Create pipe for streaming
+	pr, pw := io.Pipe()
+
+	var stdout bytes.Buffer
+	opts := RunOpts{
+		Stdin:  pr,
+		Stdout: &stdout,
+	}
+
+	// Write data in goroutine (simulates streaming)
+	go func() {
+		pw.Write([]byte("line1\n"))
+		time.Sleep(10 * time.Millisecond)
+		pw.Write([]byte("line2\n"))
+		pw.Close()
+	}()
+
+	// Run cat (reads stdin, writes to stdout)
+	result, err := session.Run(context.Background(), []string{"cat"}, opts)
+
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode: got %d, want 0", result.ExitCode)
+	}
+	if stdout.String() != "line1\nline2\n" {
+		t.Errorf("Stdout: got %q, want %q", stdout.String(), "line1\nline2\n")
+	}
+}
+
+// TestLocalSessionForwardsStderr verifies stderr forwarding
+func TestLocalSessionForwardsStderr(t *testing.T) {
+	session := NewLocalSession()
+
+	var stdout, stderr bytes.Buffer
+	opts := RunOpts{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	}
+
+	// Run command that writes to stderr
+	result, err := session.Run(context.Background(),
+		[]string{"sh", "-c", "echo out; echo err >&2"}, opts)
+
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode: got %d, want 0", result.ExitCode)
+	}
+	if stdout.String() != "out\n" {
+		t.Errorf("Stdout: got %q, want %q", stdout.String(), "out\n")
+	}
+	if stderr.String() != "err\n" {
+		t.Errorf("Stderr: got %q, want %q", stderr.String(), "err\n")
+	}
 }
