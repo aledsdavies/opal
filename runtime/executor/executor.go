@@ -601,42 +601,74 @@ func (e *executor) executePipelineWithStdout(execCtx sdk.ExecutionContext, pipel
 		return e.executeTreeNode(execCtx, pipeline.Commands[0], nil, finalStdout)
 	}
 
-	// Create pipes between commands (N-1 pipes for N commands)
-	pipes := make([]*io.PipeReader, numCommands-1)
-	pipeWriters := make([]*io.PipeWriter, numCommands-1)
+	// CRITICAL: Use os.Pipe() instead of io.Pipe() for proper SIGPIPE semantics
+	// This ensures (yes | head -n1) > out.txt completes quickly instead of hanging
+	// The kernel sends SIGPIPE to writers when readers close, unlike io.Pipe()
+	pipeReaders := make([]*os.File, numCommands-1)
+	pipeWriters := make([]*os.File, numCommands-1)
 	for i := 0; i < numCommands-1; i++ {
-		pipes[i], pipeWriters[i] = io.Pipe()
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating pipe: %v\n", err)
+			return 1
+		}
+		pipeReaders[i] = pr
+		pipeWriters[i] = pw
 	}
 
 	// Track exit codes for all commands
 	exitCodes := make([]int, numCommands)
 
+	// Track pipe close operations to ensure each pipe is closed only once
+	// Using sync.Once prevents "Bad file descriptor" errors from double-close
+	pipeReaderCloseOnce := make([]sync.Once, numCommands-1)
+	pipeWriterCloseOnce := make([]sync.Once, numCommands-1)
+
 	// Execute all commands concurrently
 	var wg sync.WaitGroup
 	wg.Add(numCommands)
 
-	// First command: no stdin, stdout to pipe[0]
-	go func() {
-		defer wg.Done()
-		defer func() { _ = pipeWriters[0].Close() }()
-		exitCodes[0] = e.executeTreeNode(execCtx, pipeline.Commands[0], nil, pipeWriters[0])
-	}()
+	for i := 0; i < numCommands; i++ {
+		cmdIndex := i
+		node := pipeline.Commands[i]
 
-	// Middle commands: stdin from pipe[i-1], stdout to pipe[i]
-	for i := 1; i < numCommands-1; i++ {
-		i := i // Capture loop variable
 		go func() {
 			defer wg.Done()
-			defer func() { _ = pipeWriters[i].Close() }()
-			exitCodes[i] = e.executeTreeNode(execCtx, pipeline.Commands[i], pipes[i-1], pipeWriters[i])
+
+			// Determine stdin for this command
+			var stdin io.Reader
+			if cmdIndex > 0 {
+				stdin = pipeReaders[cmdIndex-1]
+				// Close the read end after this command completes
+				defer func() {
+					idx := cmdIndex - 1
+					pipeReaderCloseOnce[idx].Do(func() {
+						_ = pipeReaders[idx].Close()
+					})
+				}()
+			}
+
+			// Determine stdout for this command
+			var stdout io.Writer
+			if cmdIndex < numCommands-1 {
+				stdout = pipeWriters[cmdIndex]
+				// CRITICAL: Close write end immediately after command completes
+				// This sends EOF to downstream command and SIGPIPE to upstream
+				defer func() {
+					idx := cmdIndex
+					pipeWriterCloseOnce[idx].Do(func() {
+						_ = pipeWriters[idx].Close()
+					})
+				}()
+			} else {
+				// Last command writes to finalStdout (the redirect sink)
+				stdout = finalStdout
+			}
+
+			// Execute tree node (CommandNode or RedirectNode) with pipes
+			exitCodes[cmdIndex] = e.executeTreeNode(execCtx, node, stdin, stdout)
 		}()
 	}
-
-	// Last command: stdin from pipe[N-2], stdout to finalStdout
-	go func() {
-		defer wg.Done()
-		exitCodes[numCommands-1] = e.executeTreeNode(execCtx, pipeline.Commands[numCommands-1], pipes[numCommands-2], finalStdout)
-	}()
 
 	// Wait for all commands to complete
 	wg.Wait()
