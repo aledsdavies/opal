@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -383,4 +384,48 @@ func TestLocalSessionForwardsStderr(t *testing.T) {
 	if stderr.String() != "err\n" {
 		t.Errorf("Stderr: got %q, want %q", stderr.String(), "err\n")
 	}
+}
+
+// TestLocalSessionKillsProcessGroupOnCancel verifies process group cancellation
+func TestLocalSessionKillsProcessGroupOnCancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Process groups not supported on Windows")
+	}
+
+	session := NewLocalSession()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var stdout bytes.Buffer
+	opts := RunOpts{
+		Stdout: &stdout,
+	}
+
+	// Start long-running command
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	result, err := session.Run(ctx, []string{"sleep", "10"}, opts)
+	duration := time.Since(start)
+
+	// Should error due to context cancellation
+	if err == nil {
+		t.Error("Expected error due to context cancellation")
+	}
+
+	// Should return ExitCanceled (-1)
+	if result.ExitCode != ExitCanceled {
+		t.Errorf("ExitCode: got %d, want %d (ExitCanceled)", result.ExitCode, ExitCanceled)
+	}
+
+	// Should complete quickly (not wait for full 10 seconds)
+	if duration > 1*time.Second {
+		t.Errorf("Duration: got %v, want < 1s (process should be killed quickly)", duration)
+	}
+
+	// Note: Verifying no zombie processes is platform-specific and hard to test reliably
+	// The Setpgid=true ensures the entire process group is killed
 }

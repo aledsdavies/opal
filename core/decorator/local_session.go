@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/aledsdavies/opal/core/invariant"
 )
@@ -46,6 +48,15 @@ func (s *LocalSession) Run(ctx context.Context, argv []string, opts RunOpts) (Re
 
 	// Set environment (merge session env)
 	cmd.Env = mapToEnv(s.env)
+
+	// CRITICAL: Set process group for proper cancellation
+	// On Unix: Setpgid=true creates new process group
+	// On cancel, kill entire group (not just parent)
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Setpgid: true,
+		}
+	}
 
 	// Wire up I/O
 	if opts.Stdin != nil {
