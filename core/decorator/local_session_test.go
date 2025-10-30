@@ -1,8 +1,8 @@
 package decorator
 
-import "context"
-
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,7 +36,7 @@ func TestLocalSessionRunWithStdin(t *testing.T) {
 
 	// Run cat command with stdin
 	result, err := session.Run(context.Background(), []string{"cat"}, RunOpts{
-		Stdin: []byte("test input"),
+		Stdin: bytes.NewReader([]byte("test input")), // Wrap in bytes.NewReader
 	})
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)

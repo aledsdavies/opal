@@ -256,7 +256,7 @@ func TestShellDecorator_NewArch_WithPipedStdin(t *testing.T) {
 		Session: session,
 		Context: context.Background(),
 
-		Stdin:  stdinData, // Piped input
+		Stdin:  bytes.NewReader(stdinData), // Piped input
 		Stdout: nil,
 		Trace:  nil,
 	}
@@ -326,7 +326,7 @@ func TestShellDecorator_NewArch_WithBothPipes(t *testing.T) {
 		Session: session,
 		Context: context.Background(),
 
-		Stdin:  stdinData, // Piped input
+		Stdin:  bytes.NewReader(stdinData), // Piped input
 		Stdout: &stdout,   // Piped output
 		Trace:  nil,
 	}
@@ -362,7 +362,7 @@ func TestShellDecorator_NewArch_PipedStdinNoMatch(t *testing.T) {
 		Session: session,
 		Context: context.Background(),
 
-		Stdin:  stdinData,
+		Stdin:  bytes.NewReader(stdinData),
 		Stdout: nil,
 		Trace:  nil,
 	}
@@ -504,5 +504,72 @@ func TestShellDecorator_NewArch_MultiRole(t *testing.T) {
 	}
 	if !hasEndpoint {
 		t.Error("@shell descriptor should include RoleEndpoint")
+	}
+}
+
+// TestShellDecorator_NewArch_StreamingPipe tests that stdin streams without buffering
+// This reproduces the issue: yes | head -n1 should complete quickly, not hang
+func TestShellDecorator_NewArch_StreamingPipe(t *testing.T) {
+	shell := &ShellDecorator{}
+
+	params := map[string]any{
+		"command": "head -n1", // Read only 1 line from stdin
+	}
+	node := shell.Wrap(nil, params)
+
+	session := decorator.NewLocalSession()
+	defer session.Close()
+
+	// Create a pipe that produces infinite output (simulates "yes")
+	pr, pw := io.Pipe()
+	defer pr.Close()
+
+	// Producer goroutine: write infinite "y\n" lines
+	go func() {
+		defer pw.Close()
+		for i := 0; i < 1000000; i++ { // Large but not truly infinite for test safety
+			if _, err := pw.Write([]byte("y\n")); err != nil {
+				return // Pipe closed, stop producing
+			}
+		}
+	}()
+
+	// Convert pipe reader to bytes for current interface
+	// This is where the bug is - we read ALL data before execution
+	stdinData, err := io.ReadAll(pr)
+	if err != nil {
+		t.Fatalf("failed to read stdin: %v", err)
+	}
+
+	ctx := decorator.ExecContext{
+		Session: session,
+		Context: context.Background(),
+		Stdin:   bytes.NewReader(stdinData), // This will hang trying to read all 1M lines
+		Trace:   nil,
+	}
+
+	// Set a timeout to detect the hang
+	done := make(chan bool)
+	go func() {
+		result, err := node.Execute(ctx)
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+		}
+		if result.ExitCode != 0 {
+			t.Errorf("expected exit code 0, got: %d", result.ExitCode)
+		}
+		// Should only read 1 line
+		if string(result.Stdout) != "y\n" {
+			t.Errorf("expected output 'y\\n', got %q", string(result.Stdout))
+		}
+		done <- true
+	}()
+
+	// Should complete in <100ms with streaming, but will hang with buffering
+	select {
+	case <-done:
+		// Success - streaming worked
+	case <-time.After(2 * time.Second):
+		t.Fatal("Test timed out - stdin is being buffered instead of streamed")
 	}
 }

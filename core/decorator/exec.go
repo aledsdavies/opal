@@ -29,11 +29,16 @@ type ExecContext struct {
 
 	// Stdin provides input data for piped commands (nil if not piped)
 	// Used for pipe operators: cmd1 | cmd2
-	Stdin []byte
+	// Changed from []byte to io.Reader to enable streaming
+	Stdin io.Reader
 
 	// Stdout captures output for piped commands (nil if not piped)
 	// Used for pipe operators: cmd1 | cmd2
 	Stdout io.Writer
+
+	// Stderr captures error output (nil defaults to os.Stderr)
+	// Stderr NEVER pipes in POSIX - always goes to terminal
+	Stderr io.Writer
 
 	// Trace is the telemetry span for observability
 	// Opal runtime creates parent span automatically

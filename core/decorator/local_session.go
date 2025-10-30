@@ -49,7 +49,7 @@ func (s *LocalSession) Run(ctx context.Context, argv []string, opts RunOpts) (Re
 
 	// Wire up I/O
 	if opts.Stdin != nil {
-		cmd.Stdin = bytes.NewReader(opts.Stdin)
+		cmd.Stdin = opts.Stdin // Pass io.Reader directly (was: bytes.NewReader)
 	}
 
 	var stdout, stderr bytes.Buffer

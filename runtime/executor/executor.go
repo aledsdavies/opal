@@ -434,23 +434,13 @@ func (e *executor) executeNewDecorator(
 		_ = session.Close() // Ignore close errors in defer
 	}()
 
-	// Convert stdin to bytes if provided
-	var stdinBytes []byte
-	if stdin != nil {
-		data, err := io.ReadAll(stdin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
-			return 1
-		}
-		stdinBytes = data
-	}
-
 	// Create ExecContext with parent context for cancellation
 	execCtx := decorator.ExecContext{
 		Context: ctx, // Pass parent context for cancellation/deadlines
 		Session: session,
-		Stdin:   stdinBytes,
+		Stdin:   stdin, // Pass io.Reader directly (was: io.ReadAll + []byte)
 		Stdout:  stdout,
+		Stderr:  os.Stderr, // NEW: Forward stderr to terminal
 		Trace:   nil,
 	}
 
