@@ -245,20 +245,57 @@ func (e *executor) executePipeline(ctx context.Context, pipeline *sdk.PipelineNo
 		return e.executeTreeNode(ctx, pipeline.Commands[0], nil, nil)
 	}
 
-	// Create pipes between commands
+	// Create OS pipes between commands (kernel handles SIGPIPE)
 	// For N commands, we need N-1 pipes
-	pipes := make([]*io.PipeReader, numCommands-1)
-	pipeWriters := make([]*io.PipeWriter, numCommands-1)
+	// Using os.Pipe() instead of io.Pipe() allows direct process-to-process pipes
+	// without copy goroutines, ensuring proper EPIPE/SIGPIPE semantics
+	pipeReaders := make([]*os.File, numCommands-1)
+	pipeWriters := make([]*os.File, numCommands-1)
 	for i := 0; i < numCommands-1; i++ {
-		pipes[i], pipeWriters[i] = io.Pipe()
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			// Clean up any pipes created so far
+			for j := 0; j < i; j++ {
+				_ = pipeReaders[j].Close()
+				_ = pipeWriters[j].Close()
+			}
+			return 1 // Pipe creation failed
+		}
+		pipeReaders[i] = pr
+		pipeWriters[i] = pw
 	}
 
 	// Track exit codes for all commands (PIPESTATUS)
 	exitCodes := make([]int, numCommands)
 
+	// Track pipe close operations to ensure each pipe is closed only once
+	// Using sync.Once prevents "Bad file descriptor" errors from double-close
+	pipeReaderCloseOnce := make([]sync.Once, numCommands-1)
+	pipeWriterCloseOnce := make([]sync.Once, numCommands-1)
+
 	// Execute all commands concurrently (bash behavior)
 	var wg sync.WaitGroup
 	wg.Add(numCommands)
+
+	// Context cancellation handler
+	// CRITICAL: Close all pipes on cancel to unblock readers/writers
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		<-ctx.Done()
+		// Close all pipes to unblock any blocked reads/writes
+		// Use sync.Once to prevent double-close errors
+		for i := 0; i < numCommands-1; i++ {
+			i := i // Capture loop variable
+			pipeReaderCloseOnce[i].Do(func() {
+				_ = pipeReaders[i].Close()
+			})
+			pipeWriterCloseOnce[i].Do(func() {
+				_ = pipeWriters[i].Close()
+			})
+		}
+	}()
 
 	for i := 0; i < numCommands; i++ {
 		cmdIndex := i
@@ -270,16 +307,35 @@ func (e *executor) executePipeline(ctx context.Context, pipeline *sdk.PipelineNo
 			// Determine stdin for this command
 			var stdin io.Reader
 			if cmdIndex > 0 {
-				stdin = pipes[cmdIndex-1]
+				stdin = pipeReaders[cmdIndex-1]
+				// Close the read end after this command completes
+				// This ensures the pipe is fully closed when both ends are done
+				// Use sync.Once to prevent double-close errors
+				defer func() {
+					idx := cmdIndex - 1
+					pipeReaderCloseOnce[idx].Do(func() {
+						_ = pipeReaders[idx].Close()
+					})
+				}()
 			}
 
 			// Determine stdout for this command
 			var stdout io.Writer
 			if cmdIndex < numCommands-1 {
 				stdout = pipeWriters[cmdIndex]
+				// CRITICAL: Close write end immediately after command completes
+				// This sends EOF to downstream command, allowing it to exit
+				// and triggering EPIPE for upstream if it's still writing
+				// Use sync.Once to prevent double-close errors
 				defer func() {
-					_ = pipeWriters[cmdIndex].Close() // Signal EOF to next command
+					idx := cmdIndex
+					pipeWriterCloseOnce[idx].Do(func() {
+						_ = pipeWriters[idx].Close()
+					})
 				}()
+			} else {
+				// Last command writes to terminal (scrubbed by CLI)
+				stdout = os.Stdout
 			}
 
 			// Execute tree node (CommandNode or RedirectNode) with pipes
@@ -307,15 +363,10 @@ func (e *executor) executeTreeNode(ctx context.Context, node sdk.TreeNode, stdin
 		// For redirect in pipeline, we need to handle it specially
 		// The redirect's source gets the piped stdin, and its output goes to the sink
 		// The piped stdout (if any) is ignored because redirect captures output
-		if stdout != nil {
-			// If there's a piped stdout, we need to close it to signal EOF
-			// But we can't write to it because output goes to redirect sink
-			if closer, ok := stdout.(io.Closer); ok {
-				defer func() {
-					_ = closer.Close() // Ignore close error - nothing we can do
-				}()
-			}
-		}
+		// NOTE: We don't close the stdout pipe here - it will be closed by the
+		// defer in the goroutine that created it. Closing it here would cause
+		// "Bad file descriptor" errors if the upstream command is still writing.
+
 		// Execute redirect with piped stdin
 		return e.executeRedirectWithStdin(ctx, n, stdin)
 	default:
@@ -433,6 +484,12 @@ func (e *executor) executeNewDecorator(
 	defer func() {
 		_ = session.Close() // Ignore close errors in defer
 	}()
+
+	// Default stdout to terminal if not provided
+	// This ensures output is visible for non-piped commands
+	if stdout == nil {
+		stdout = os.Stdout
+	}
 
 	// Create ExecContext with parent context for cancellation
 	execCtx := decorator.ExecContext{

@@ -63,6 +63,7 @@ func (n *shellNode) Execute(ctx decorator.ExecContext) (decorator.Result, error)
 	opts := decorator.RunOpts{
 		Stdin:  ctx.Stdin,  // Piped input (nil if not piped)
 		Stdout: ctx.Stdout, // Piped output (nil if not piped)
+		Stderr: ctx.Stderr, // NEW: Forward stderr
 	}
 
 	result, err := ctx.Session.Run(execCtx, argv, opts)
