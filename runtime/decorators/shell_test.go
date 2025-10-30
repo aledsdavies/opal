@@ -327,7 +327,7 @@ func TestShellDecorator_NewArch_WithBothPipes(t *testing.T) {
 		Context: context.Background(),
 
 		Stdin:  bytes.NewReader(stdinData), // Piped input
-		Stdout: &stdout,   // Piped output
+		Stdout: &stdout,                    // Piped output
 		Trace:  nil,
 	}
 

@@ -346,7 +346,6 @@ func TestLocalSessionStreamsStdin(t *testing.T) {
 
 	// Run cat (reads stdin, writes to stdout)
 	result, err := session.Run(context.Background(), []string{"cat"}, opts)
-
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -371,7 +370,6 @@ func TestLocalSessionForwardsStderr(t *testing.T) {
 	// Run command that writes to stderr
 	result, err := session.Run(context.Background(),
 		[]string{"sh", "-c", "echo out; echo err >&2"}, opts)
-
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
