@@ -1304,16 +1304,38 @@ deploy:
 
 ### Security and Hash Format
 
-**All resolved values** use the security placeholder format `opal:s:ID`:
+**Security by default**: Opal prevents secrets from leaking into plans, logs, and terminal output through automatic scrubbing. ALL value decorator results are treated as secrets - no exceptions.
+
+**DisplayID format**: All resolved values appear as `🔒 opal:s:3J98t56A` (opaque context-aware ID):
 - `🔒 opal:s:3J98t56A` - single character value (e.g., "3")
 - `🔒 opal:s:3J98t56A` - 32 character value (e.g., secret token)
 - `🔒 opal:s:3J98t56A` - 8 character value (e.g., hostname)
 
-This format ensures:
+**Why all values are secrets**: Even seemingly innocuous values could leak sensitive information:
+- `@env.HOME` - Could leak system paths
+- `@var.username` - Could leak user information
+- `@git.commit_hash` - Could leak repository state
+- `@aws.secret.key` - Obviously sensitive
+
+**Where scrubbing applies**:
+- ✅ **Plans**: All values replaced with DisplayIDs
+- ✅ **Terminal output**: Stdout/stderr scrubbed before display
+- ✅ **Logs**: All logging output scrubbed
+- ❌ **Pipes**: Raw values flow between operators (needed for work)
+- ❌ **Redirects**: Raw values written to files (user controls destination)
+
+**Explicit scrubbing**: Use the `scrub()` PipeOp to scrub output before redirects:
+```opal
+// Scrub secrets from kubectl output before writing to file
+kubectl get secret db-password -o json |> scrub() > backup.json
+```
+
+**Security properties**:
 - **No value leakage** in plans or logs
 - **Contract verification** via hash comparison
-- **Debugging support** via length hints
+- **Debugging support** via length hints (no correlation)
 - **Algorithm agility** for future hash upgrades
+- **Audit-friendly**: Compliance teams can review plans safely
 
 ## Planning Mode Summary
 
