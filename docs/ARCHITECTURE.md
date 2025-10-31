@@ -160,14 +160,9 @@ type ExecutionContext interface {
     ArgInt(key string) int64
     ArgBool(key string) bool
     ArgDuration(key string) time.Duration
-    Args() map[string]Value  // Snapshot for logging
+    Args() map[string]interface{}  // Snapshot for logging
     
-    // Controlled I/O (executor scrubs secrets automatically)
-    // Decorators CANNOT write directly to streams
-    LogOutput(message string)  // Scrubbed before output
-    LogError(message string)   // Scrubbed before output
-    
-    // Environment and working directory
+    // Environment and working directory (immutable snapshots)
     Environ() map[string]string
     Workdir() string
     
@@ -175,17 +170,34 @@ type ExecutionContext interface {
     WithContext(ctx context.Context) ExecutionContext
     WithEnviron(env map[string]string) ExecutionContext
     WithWorkdir(dir string) ExecutionContext
+    
+    // I/O streams (for pipeline execution)
+    Stdin() io.Reader      // Piped input (nil if not piped)
+    StdoutPipe() io.Writer // Piped output (nil if not piped)
+    
+    // Context cloning (for child commands in pipelines)
+    Clone(args map[string]interface{}, stdin io.Reader, stdout io.Writer) ExecutionContext
+    
+    // Transport (for remote execution - implementation detail)
+    Transport() interface{}  // Returns executor.Transport implementation
 }
 ```
 
+**Key properties:**
+
+- **Immutable:** All fields are immutable snapshots. Modifications create new contexts.
+- **Copy-on-write:** `WithEnv()` and `WithWorkdir()` return new contexts without mutating original.
+- **Pipeline support:** `Stdin()` and `StdoutPipe()` enable streaming between commands.
+- **Context threading:** Environment and workdir propagate through decorator hierarchy.
+
 **Security model:**
 
-Decorators have **no direct access to I/O streams**. All output flows through the executor which:
+All I/O flows through the Session interface, not directly through ExecutionContext. The executor:
 1. Maintains a registry of secret values from value decorator resolutions
 2. Automatically replaces secret values with opaque DisplayIDs: `opal:s:3J98t56A`
 3. Ensures audit trail shows which secrets were used without exposing values
 
-This prevents decorators from accidentally (or maliciously) leaking secrets.
+Decorators execute commands via `Session.Run()`, which handles I/O routing and secret scrubbing.
 
 ### Recursive Execution: Nested Decorators
 
@@ -260,7 +272,9 @@ This allows decorators to:
 
 ## Transport Abstraction: Remote Execution
 
-The Transport abstraction enables decorators to execute commands in different environments (local, SSH, Docker, AWS SSM) while preserving Opal's security model and execution semantics.
+The Transport abstraction enables decorators to execute commands in different environments (local machine, remote servers, containers, cloud instances) while preserving Opal's security model and execution semantics.
+
+**Current Status:** LocalTransport is implemented. Remote transports (SSH, Docker, cloud) follow the same interface pattern and can be added without breaking changes.
 
 ### The Two-Environment Model
 
@@ -356,73 +370,74 @@ type ExecOpts struct {
 }
 ```
 
-### Transport Implementations
+### Transport Implementation Pattern
 
-**LocalTransport** (current):
+All transports follow the same interface pattern, enabling consistent behavior across execution environments:
+
+**LocalTransport** (implemented):
 - Executes commands using `os/exec`
 - Base environment: `os.Environ()`
-- Merges decorator-added vars with base environment
+- File operations: Local filesystem
+- Process groups: `Setpgid=true` for clean cancellation
 
-**SSHTransport** (future):
-- Executes commands on remote server via SSH
-- Base environment: Remote server's environment (automatic)
-- Decorator vars added via `session.Setenv()`
+**Remote Transports** (general pattern):
+- Execute commands in remote/isolated environments
+- Base environment: Target environment's native environment
+- File operations: Transport-specific (SFTP, docker cp, S3, etc.)
+- Cancellation: Transport-specific cleanup (close SSH, stop container, etc.)
 
-**DockerTransport** (future):
-- Executes commands inside Docker container
-- Base environment: Container's environment
-- File transfer via `docker cp`
-
-**SSMTransport** (future):
-- Executes commands on EC2 instance via AWS SSM
-- Base environment: EC2 instance's environment
-- File transfer via S3 staging (SSM limitation)
+**Key properties:**
+- Same interface for all transports
+- Decorators don't need transport-specific code
+- I/O flows through same scrubbing pipeline
+- Context cancellation propagates correctly
 
 ### How Decorators Use Transport
 
-**Pattern**: Decorators wrap ExecutionContext and intercept `@shell` calls to redirect through custom transport.
+**Pattern**: Decorators wrap ExecutionContext and intercept command execution to redirect through custom transport.
+
+**Example pattern (remote execution decorator):**
 
 ```go
-// @ssh.connect decorator wraps execution context
-func sshConnectHandler(ctx sdk.ExecutionContext, block []sdk.Step) (int, error) {
+// Remote execution decorator wraps execution context
+func remoteConnectHandler(ctx sdk.ExecutionContext, block []sdk.Step) (int, error) {
     host := ctx.ArgString("host")
-    user := ctx.ArgString("user")
     
-    // Establish SSH connection
-    transport, err := executor.NewSSHTransport(host, user)
+    // Establish connection to remote environment
+    transport, err := executor.NewRemoteTransport(host)
     if err != nil {
         return 127, err
     }
     defer transport.Close()
     
-    // Wrap context to use SSH transport
-    sshCtx := &sshExecutionContext{
+    // Wrap context to use remote transport
+    remoteCtx := &remoteExecutionContext{
         parent:    ctx,
         transport: transport,
     }
     
-    // Execute block with SSH context
-    return sshCtx.ExecuteBlock(block)
+    // Execute block with remote context
+    return remoteCtx.ExecuteBlock(block)
 }
 
-// sshExecutionContext wraps ExecutionContext to use SSH transport
-type sshExecutionContext struct {
+// remoteExecutionContext wraps ExecutionContext to use remote transport
+type remoteExecutionContext struct {
     parent    sdk.ExecutionContext
     transport executor.Transport
 }
 
-// ExecuteBlock intercepts @shell calls and redirects to SSH
-func (s *sshExecutionContext) ExecuteBlock(steps []sdk.Step) (int, error) {
+// ExecuteBlock intercepts command execution and redirects through transport
+func (r *remoteExecutionContext) ExecuteBlock(steps []sdk.Step) (int, error) {
     for _, step := range steps {
         if isShellCommand(step) {
-            // Use SSH transport instead of local
-            exitCode, err := s.executeShellViaSSH(step)
+            // Use remote transport instead of local
+            exitCode, err := r.executeShellViaTransport(step)
             if exitCode != 0 || err != nil {
                 return exitCode, err
             }
         } else {
             // Other decorators delegate to parent
-            exitCode, err := s.parent.ExecuteBlock([]sdk.Step{step})
+            exitCode, err := r.parent.ExecuteBlock([]sdk.Step{step})
             if exitCode != 0 || err != nil {
                 return exitCode, err
             }
@@ -436,100 +451,248 @@ func (s *sshExecutionContext) ExecuteBlock(steps []sdk.Step) (int, error) {
 
 1. **I/O Scrubbing Preserved**: Transport receives `io.Writer` for stdout/stderr - scrubber sits above
 2. **No Bypass**: Decorators can't bypass scrubber by using transport directly
-3. **Connection Security**: SSH keys, Docker sockets, AWS credentials managed by transport
+3. **Connection Security**: Credentials and connection details managed by transport implementation
 4. **File Transfer Safety**: Put/Get respect file permissions and ownership
 
-### Environment Resolution Rules
+### Environment Capture and Propagation
 
-**Plan-Time Resolution** (`@env.X` value decorators):
-- Always resolves using **local** `os.Environ()`
-- Happens during plan generation (before any transport connection)
-- Used for contract verification and plan hashing
-- Example: `var replicas = @env.REPLICAS` → resolves to `"3"` at plan time
+**Key principle:** Environments are captured once per session and modified through copy-on-write.
 
-**Execution-Time Resolution** (shell variables `$X`):
-- Resolved by shell using **transport's** environment
-- Happens during command execution
-- Local transport: uses local environment
-- SSH transport: uses remote server's environment
-- Example: `echo $HOME` → local: `/home/user`, remote: `/home/deploy`
+#### Session Environment Capture
 
-**Decorator-Added Variables** (`ctx.Environ()`):
-- Decorators can add environment variables via `ctx.WithEnviron()`
-- Merged with transport's base environment
-- Example: `@env(DB=prod) { ./deploy.sh }` → adds `DB=prod` to environment
+**Local session:**
+```go
+session := decorator.NewLocalSession()
+// Captures os.Environ() ONCE at creation time
+// This snapshot is immutable - won't see future os.Setenv() calls
+```
 
-### Validation: @env in Remote Transports
-
-To prevent confusing behavior, Opal validates that `@env` value decorators are not used inside transport-switching decorators:
-
+**Remote session (idempotent transports):**
 ```opal
-# ❌ Forbidden: @env resolves to local environment
-@ssh.connect(host="remote") {
-    var home = @env.HOME  # ERROR: resolves to local home!
-}
-
-# ✅ Correct: Use shell variables for transport environment
-@ssh.connect(host="remote") {
-    echo $HOME  # Uses remote environment
-}
-
-# ✅ Correct: Use @env for plan-time values
-var local_user = @env.USER  # Plan-time: local user
-
-@ssh.connect(host="remote") {
-    echo "Deployed by: @var.local_user"  # Local user (from plan)
-    echo "Running as: $USER"              # Remote user (from shell)
+@ssh.connect(host="remote", env={"VERSION": "3.0"}) {
+    # 1. SSH connects to remote server
+    # 2. Captures remote environment (one-time snapshot)
+    # 3. Merges with env={} overrides: {"VERSION": "3.0"}
+    # 4. Creates SSH session with merged environment
+    # 5. Session environment is immutable from this point
 }
 ```
 
-**How validation works**:
-- Value decorators implement `ValueScopeProvider` interface to declare their scope
-- `@env` declares `ScopeRootOnly` (can only resolve at root, plan-time)
-- Parser tracks `transportDepth` and validates scope vs depth
-- Error message guides users to use shell variables or hoist values
+**Environment precedence (highest to lowest):**
+1. Decorator `env={}` overrides (e.g., `@ssh.connect(env={...})`)
+2. Transport's native environment (remote server, container, etc.)
+3. No defaults - if not set, variable doesn't exist
+
+#### How `@env` Resolves
+
+**`@env.X` reads from the current session's environment:**
+
+```opal
+# Root context (local session)
+var user = @env.USER  # Reads from os.Environ() snapshot → "alice"
+
+@ssh.connect(host="remote", env={"VERSION": "3.0"}) {
+    # SSH session context (remote session)
+    var remote_user = @env.USER     # Reads from remote environment → "deploy"
+    var version = @env.VERSION      # Reads from env={} override → "3.0"
+}
+```
+
+**Both `@env.X` and `$X` read from the same session environment:**
+
+```opal
+@ssh.connect(host="remote", env={"VERSION": "3.0"}) {
+    var v1 = @env.VERSION  # Plan-time: reads from session → "3.0"
+    echo $VERSION          # Execution-time: reads from session → "3.0"
+}
+```
+
+#### Decorator Environment Modification (Copy-on-Write)
+
+Decorators modify environment through context wrapping:
+
+```opal
+# Root context: USER=alice, DB=<not set>
+
+@env(DB="prod") {
+    var db1 = @env.DB      # "prod" (decorator override)
+    var user1 = @env.USER  # "alice" (inherited from parent)
+    
+    @env(DB="staging") {
+        var db2 = @env.DB  # "staging" (inner override)
+    }
+    
+    var db3 = @env.DB  # "prod" (outer context unchanged)
+}
+
+var db4 = @env.DB  # <not set> (root context unchanged)
+```
+
+**How it works:**
+1. `@env(DB="prod")` calls `ctx.WithEnviron({"DB": "prod"})`
+2. Creates new context with `session.WithEnv({"DB": "prod"})`
+3. New session = parent environment + {"DB": "prod"}
+4. Original context/session unchanged (immutable)
+
+#### Environment Isolation Between Transports
+
+**Critical constraint:** Environments do NOT automatically pass between transport boundaries.
+
+```opal
+# Local environment: USER=alice, HOME=/home/alice
+# Remote environment: USER=deploy, HOME=/home/deploy
+
+var local_user = @env.USER  # "alice" from local session
+
+@ssh.connect(host="remote") {
+    var remote_user = @env.USER  # "deploy" from remote session (NOT "alice")
+    
+    # ❌ Local environment NOT inherited
+    # Remote session has no knowledge of local USER=alice
+}
+```
+
+**To pass values between transports, use explicit `env={}` argument:**
+
+```opal
+var local_user = @env.USER  # "alice" from local session
+
+@ssh.connect(host="remote", env={"DEPLOYER": @var.local_user}) {
+    var deployer = @env.DEPLOYER  # "alice" (explicitly passed)
+    var remote_user = @env.USER   # "deploy" (remote native)
+}
+```
+
+**Why this design:**
+- **Security:** Prevents accidental leakage of local credentials to remote
+- **Clarity:** Explicit about what crosses transport boundaries
+- **Correctness:** Remote environment reflects actual remote state
+- **Predictability:** No magic environment merging or inheritance
+
+#### Idempotent vs Non-Idempotent Decorators
+
+**Idempotent transports** (connect at plan-time):
+- Connect to **existing** resources (servers, containers)
+- Safe to connect during planning (read-only, no side effects)
+- `@env` can be used in blocks (reads from connected session)
+- Examples: `@ssh.connect`, `@docker.exec`
+
+```opal
+@ssh.connect(host="existing-server", env={"VERSION": "3.0"}) {
+    var v = @env.VERSION  # ✅ OK: SSH connects at plan-time
+                          # Reads from SSH session environment
+}
+```
+
+**Non-idempotent decorators** (no plan-time connection):
+- **Create** new resources (instances, databases)
+- Unsafe to connect during planning (resource doesn't exist yet)
+- `@env` FORBIDDEN in blocks (can't connect to non-existent resource)
+- Examples: `@aws.instance.deploy`, `@aws.rds.deploy`
+
+```opal
+@aws.instance.deploy(name="web") {
+    var home = @env.HOME  # ❌ ERROR: Instance doesn't exist yet
+                          # Can't connect at plan-time
+    
+    echo $HOME  # ✅ OK: Shell variable resolves at execution-time
+}
+```
+
+**Error message:**
+```
+ERROR: @env cannot be used inside @aws.instance.deploy
+Reason: Instance might not exist during planning (non-idempotent)
+Solution: Use shell variables ($HOME, $USER) which resolve at execution-time
+```
+
+**Why this distinction:**
+- Plan-time must be idempotent (read-only, no side effects)
+- Creating resources violates plan-verify-execute model
+- Only execution-time shell variables are safe in provisioning blocks
+
+#### Resolution Timing Summary
+
+| Context | `@env.X` | `$X` (shell variable) |
+|---------|----------|----------------------|
+| **Local** | Reads from `os.Environ()` snapshot | Reads from local shell environment |
+| **Idempotent transport** | Reads from transport session (plan-time) | Reads from transport session (execution-time) |
+| **Non-idempotent decorator** | ❌ Forbidden (can't connect) | ✅ Reads from transport session (execution-time) |
+
+**Key insight:** Both `@env.X` and `$X` read from the same session environment, just at different times (plan vs execution).
 
 ### Example Usage Patterns
 
-**Local execution** (current):
+**Local execution:**
 ```opal
-var replicas = @env.REPLICAS  # Plan-time: "3"
+var replicas = @env.REPLICAS  # Reads from os.Environ() snapshot
 kubectl scale --replicas=@var.replicas deployment/app
 ```
 
-**SSH execution** (future):
+**Remote execution with @env in transport block:**
 ```opal
-@ssh.connect(host="prod-server", user="deploy") {
-    # Send deployment script
-    @file.put(src="./deploy.sh", dst="/tmp/deploy.sh", mode=0755)
+var local_user = @env.USER  # "alice" from local session
+
+@ssh.connect(host="prod-server", user="deploy", env={"DATABASE_URL": "postgres://prod"}) {
+    # @env reads from SSH session environment
+    var remote_user = @env.USER         # "deploy" (remote native)
+    var db_url = @env.DATABASE_URL      # "postgres://prod" (env={} override)
     
-    # Execute remotely
-    /tmp/deploy.sh
+    # @var uses plan-time resolved value
+    echo "Deployed by: @var.local_user"  # "alice"
     
-    # Shell variables use remote environment
-    echo "Remote home: $HOME"
-    echo "Remote user: $USER"
+    # Shell variables read from same SSH session
+    echo "Running as: $USER"             # "deploy"
+    echo "Connecting to: $DATABASE_URL"  # "postgres://prod"
 }
 ```
 
-**Docker execution** (future):
+**Container execution with isolated environment:**
 ```opal
-@docker.exec(container="app-prod") {
-    # Send config file
-    @file.put(src="./app.conf", dst="/etc/app/app.conf", mode=0644)
+@docker.exec(container="app-prod", env={"NODE_ENV": "production"}) {
+    # @env reads from container session
+    var env = @env.NODE_ENV  # "production" (env={} override)
+    var user = @env.USER     # Container's USER (not local)
     
-    # Execute inside container
-    npm install
-    npm run build
+    # Shell variables read from same container session
+    echo "Environment: $NODE_ENV"  # "production"
+    echo "Container user: $USER"   # Container's USER
 }
 ```
 
-**Parallel deployment** (future):
+**Parallel deployment to multiple targets:**
 ```opal
+var version = @env.APP_VERSION  # "3.0" from local session
+
 @parallel {
-    @ssh.connect(host="web-1") { ./deploy.sh }
-    @ssh.connect(host="web-2") { ./deploy.sh }
-    @ssh.connect(host="web-3") { ./deploy.sh }
+    @ssh.connect(host="web-1", env={"VERSION": @var.version}) {
+        # @env.VERSION reads "3.0" from SSH session
+        var v = @env.VERSION
+        ./deploy.sh $VERSION  # Shell variable also "3.0"
+    }
+    @ssh.connect(host="web-2", env={"VERSION": @var.version}) {
+        var v = @env.VERSION  # "3.0"
+        ./deploy.sh $VERSION
+    }
+    @ssh.connect(host="web-3", env={"VERSION": @var.version}) {
+        var v = @env.VERSION  # "3.0"
+        ./deploy.sh $VERSION
+    }
+}
+```
+
+**Provisioning with non-idempotent decorator:**
+```opal
+var db_password = @env.DB_PASSWORD  # Resolve at root (local session)
+
+@aws.rds.deploy(name="app-db", engine="postgres") {
+    # ❌ @env.DB_PASSWORD forbidden here (RDS doesn't exist yet)
+    
+    # ✅ Use @var for plan-time values
+    psql -c "ALTER USER postgres PASSWORD '@var.db_password';"
+    
+    # ✅ Shell variables OK (resolve at execution-time when RDS exists)
+    echo "Database host: $RDS_ENDPOINT"
 }
 ```
 
@@ -591,7 +754,7 @@ When this executes:
 **Operator semantics** (Opal-controlled, bash-compatible):
 - `&&` - Execute next command only if previous succeeded (exit 0)
 - `||` - Execute next command only if previous failed (exit non-zero)
-- `|` - Pipe stdout of previous command to stdin of next (not yet implemented)
+- `|` - Pipe stdout of previous command to stdin of next (concurrent execution with streaming)
 - `;` - Execute commands sequentially regardless of exit codes
 
 ### Newlines: Inter-Step Boundaries
@@ -695,6 +858,274 @@ Opal controls whether step 2 runs based on step 1's exit code (newline = fail-fa
 - Operators work with all decorators (`@retry`, `@timeout`, etc.)
 
 By implementing bash-compatible operator semantics in Go, Opal provides the familiarity of bash with the reliability of cross-platform execution.
+
+## TreeNode Execution Model
+
+Opal represents operator precedence and execution flow using a tree structure. This separates parsing from execution and enables recursive evaluation of complex command chains.
+
+### TreeNode Hierarchy
+
+```go
+type TreeNode interface { isTreeNode() }
+
+// Leaf node - single decorator invocation
+type CommandNode struct {
+    Name  string                 // Decorator name: "shell", "retry", "parallel"
+    Args  map[string]interface{} // Decorator arguments (typed values)
+    Block []Step                 // Nested steps (for decorators with blocks)
+}
+
+// Operator nodes - combine multiple commands
+type PipelineNode struct {
+    Commands []TreeNode  // cmd1 | cmd2 | cmd3 (concurrent execution)
+}
+
+type AndNode struct {
+    Left, Right TreeNode  // cmd1 && cmd2 (short-circuit on failure)
+}
+
+type OrNode struct {
+    Left, Right TreeNode  // cmd1 || cmd2 (short-circuit on success)
+}
+
+type SequenceNode struct {
+    Nodes []TreeNode  // cmd1; cmd2; cmd3 (execute all, return last exit)
+}
+
+type RedirectNode struct {
+    Source TreeNode  // Command producing output
+    Target string    // File path or sink decorator
+    Append bool      // true for >>, false for >
+}
+```
+
+### Operator Precedence
+
+Operators are parsed into tree structure following precedence (high to low):
+
+1. **Pipe (`|`)** - Highest precedence, creates PipelineNode
+2. **Redirect (`>`, `>>`)** - Creates RedirectNode wrapping source
+3. **And (`&&`)** - Creates AndNode
+4. **Or (`||`)** - Creates OrNode
+5. **Sequence (`;`)** - Lowest precedence, creates SequenceNode
+
+**Example:**
+```opal
+echo "a" | grep "a" && echo "b" || echo "c" > out.txt
+```
+
+**Parsed as:**
+```
+RedirectNode {
+  Source: OrNode {
+    Left: AndNode {
+      Left: PipelineNode {
+        Commands: [
+          CommandNode{Name: "shell", Args: {"command": "echo \"a\""}},
+          CommandNode{Name: "shell", Args: {"command": "grep \"a\""}}
+        ]
+      },
+      Right: CommandNode{Name: "shell", Args: {"command": "echo \"b\""}}
+    },
+    Right: CommandNode{Name: "shell", Args: {"command": "echo \"c\""}}
+  },
+  Target: "out.txt",
+  Append: false
+}
+```
+
+### Execution Semantics
+
+**PipelineNode:**
+- All commands run concurrently (bash behavior)
+- Stdout→stdin streaming via `os.Pipe()` (kernel SIGPIPE semantics)
+- Returns exit code of last command
+- EPIPE normalized to success for intermediate writers
+
+**AndNode:**
+- Execute left first
+- If left succeeds (exit 0), execute right
+- If left fails, short-circuit (skip right)
+- Returns exit code of last executed command
+
+**OrNode:**
+- Execute left first
+- If left succeeds (exit 0), short-circuit (skip right)
+- If left fails, execute right
+- Returns exit code of last executed command
+
+**SequenceNode:**
+- Execute all nodes in order
+- Never short-circuit (always run all)
+- Returns exit code of last node
+
+**RedirectNode:**
+- Execute source command
+- Redirect stdout to target (file or sink)
+- Stderr always goes to terminal (POSIX compliance)
+- Returns source's exit code
+
+### Streaming I/O Implementation
+
+**Design Choice:** `os.Pipe()` instead of `io.Pipe()`
+
+Opal uses `os.Pipe()` for process-to-process pipes to enable proper SIGPIPE semantics:
+
+**Why os.Pipe():**
+- Kernel sends SIGPIPE to writers when readers close
+- Enables proper `yes | head -n1` termination (writer gets EPIPE)
+- Direct process-to-process pipes (no Go buffering layer)
+- Concurrent execution (bash-compatible)
+- Natural backpressure via kernel pipe buffers
+
+**Why not io.Pipe():**
+- Go-level pipes don't propagate SIGPIPE
+- Writers block indefinitely when readers close early
+- Requires manual pipe cleanup on cancellation
+- Adds unnecessary copy goroutines
+
+**Implementation:** See `runtime/executor/executor.go` lines 239-342
+
+**Example:**
+```opal
+yes | head -n1  // Completes in ~5ms (not timeout)
+```
+
+Without `os.Pipe()`, `yes` would run forever because it never receives SIGPIPE when `head` exits.
+
+### How Operators Work with Decorators
+
+**Key insight:** Decorators wrap entire steps, including their operator trees. This means decorators automatically support all operators without special handling.
+
+**Example:**
+```opal
+@retry(attempts=3) {
+    npm run build && npm test
+}
+```
+
+**Execution flow:**
+1. Retry decorator receives step with AndNode tree
+2. Retry executes the tree (build && test)
+3. If tree fails (either command fails), retry executes again
+4. Retry doesn't need to know about `&&` - it just executes the tree
+
+**Another example:**
+```opal
+@timeout(5m) {
+    kubectl logs api | grep ERROR > errors.txt
+}
+```
+
+**Execution flow:**
+1. Timeout decorator receives step with RedirectNode(PipelineNode(...))
+2. Timeout starts timer and executes the tree
+3. Pipeline runs concurrently, redirect captures output
+4. If timeout expires, context cancellation kills all processes
+5. Timeout doesn't need to know about `|` or `>` - it just manages context
+
+**This design enables:**
+- Composability: Any decorator works with any operator
+- Simplicity: Decorators don't need operator-specific code
+- Extensibility: New operators work with existing decorators
+- Correctness: Operator semantics are consistent everywhere
+
+## Session Abstraction and Execution Contexts
+
+### Session: Ambient Execution Environment
+
+The Session interface represents where and how commands execute (local machine, SSH remote, Docker container, etc.):
+
+```go
+type Session interface {
+    // Execute command with arguments
+    Run(ctx context.Context, argv []string, opts RunOpts) (Result, error)
+    
+    // File operations
+    Put(ctx context.Context, data []byte, path string, mode fs.FileMode) error
+    Get(ctx context.Context, path string) ([]byte, error)
+    
+    // Environment management (copy-on-write)
+    Env() map[string]string
+    WithEnv(delta map[string]string) Session
+    
+    // Working directory management (copy-on-write)
+    Cwd() string
+    WithWorkdir(dir string) Session
+    
+    // Cleanup
+    Close() error
+}
+```
+
+**Key properties:**
+- **Copy-on-write:** `WithEnv()` and `WithWorkdir()` return new sessions
+- **Immutable:** Original session unchanged by modifications
+- **Context-aware:** All operations accept `context.Context` for cancellation
+- **Transport-agnostic:** Same interface for local, SSH, Docker, etc.
+
+**Example - LocalSession:**
+```go
+session := decorator.NewLocalSession()
+
+// Modify environment (returns new session)
+prodSession := session.WithEnv(map[string]string{
+    "ENV": "production",
+    "REPLICAS": "3",
+})
+
+// Modify working directory (returns new session)
+buildSession := prodSession.WithWorkdir("/tmp/build")
+
+// Original session unchanged
+fmt.Println(session.Env()["ENV"])  // "" (not set)
+fmt.Println(prodSession.Env()["ENV"])  // "production"
+```
+
+### RunOpts: Per-Execution Configuration
+
+```go
+type RunOpts struct {
+    Stdin  io.Reader // Streaming input (nil if not piped)
+    Stdout io.Writer // Output destination (nil = capture in Result)
+    Stderr io.Writer // Error output (nil = capture in Result)
+    Dir    string    // Override session's working directory (optional)
+}
+```
+
+**Stdin streaming:**
+- Changed from `[]byte` to `io.Reader` for true streaming
+- Enables pipelines: `cmd1 | cmd2` streams data without buffering
+- Supports large inputs without memory exhaustion
+
+**Stdout/Stderr routing:**
+- `nil` = capture in `Result.Stdout`/`Result.Stderr` (default)
+- Non-nil = write directly to provided writer (pipelines, redirects)
+
+### Process Group Cancellation
+
+LocalSession creates process groups to ensure clean cancellation:
+
+```go
+// Create new process group (Unix only)
+if runtime.GOOS != "windows" {
+    cmd.SysProcAttr = &syscall.SysProcAttr{
+        Setpgid: true,  // Create new process group
+    }
+}
+
+// On cancellation, kill entire process group
+if runtime.GOOS != "windows" && cmd.Process != nil {
+    // Negative PID kills entire process group
+    syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+}
+```
+
+**Why process groups:**
+- Kills entire process tree (parent + all children)
+- Prevents zombie processes
+- Critical for pipelines (kills all commands in pipeline)
+- Example: `yes | head -n1` - both processes killed on cancel
 
 ## Two-Layer Architecture
 

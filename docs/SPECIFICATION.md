@@ -423,6 +423,11 @@ echo "Deploying to: @var.ENV"
 Pull values from real sources:
 
 ```opal
+// Required variables (error if not set)
+var DATABASE_URL = @env.DATABASE_URL
+var API_KEY = @env.API_KEY
+
+// Optional variables (use default if not set)
 var ENV = @env.ENVIRONMENT(default="development")
 var PORT = @env.PORT(default=3000)
 var DEBUG = @env.DEBUG(default=false)
@@ -431,8 +436,8 @@ var TIMEOUT = @env.DEPLOY_TIMEOUT(default=30s)
 // Arrays and maps
 var SERVICES = ["api", "worker", "ui"]
 var CONFIG = {
-    "database": @env.DATABASE_URL,
-    "redis": @env.REDIS_URL(default="redis://localhost:6379")
+    "database": @env.DATABASE_URL,  // Required
+    "redis": @env.REDIS_URL(default="redis://localhost:6379")  // Optional
 }
 
 // Go-style grouped declarations
@@ -442,6 +447,11 @@ var (
     SERVICES = ["api", "worker"]
 )
 ```
+
+**Environment variable behavior:**
+- `@env.VAR` without `default` → Error if not set (required)
+- `@env.VAR(default="value")` → Use default if not set (optional)
+- Defaults can be typed: `default=3000` (int), `default=false` (bool), `default=30s` (duration)
 
 **Types**: `String | Bool | Int | Float | Duration | Array | Map`. 
 
@@ -947,109 +957,116 @@ deploy: @cmd.build && @cmd.test && @cmd.apply
 
 ### Value Decorators and Remote Execution
 
-**IMPORTANT**: Value decorators like `@env.HOME` resolve at **plan-time** using the **local** environment. They are NOT transport-aware.
+**IMPORTANT**: `@env` reads from the **current session's environment**, which changes based on context (local, remote, container).
 
-#### The Two-Environment Model
+#### How @env Works
 
-| What | When | Syntax | Example |
-|------|------|--------|---------|
-| **Local environment** (plan-time) | Planning | `@env.HOME` | `var local_home = @env.HOME` |
-| **Transport environment** (execution-time) | Execution | `$HOME` | `echo $HOME` |
+**`@env` is session-aware:**
+- In local context: reads from `os.Environ()` snapshot
+- In transport context: reads from transport's environment (native + `env={}` overrides)
+- Both `@env.X` and `$X` read from the same session environment (different timing)
 
-#### ❌ Don't Do This
+#### Environment in Different Contexts
 
+**Local execution:**
 ```opal
-@ssh.connect(host="remote-server") {
-    var home = @env.HOME  # ERROR: Resolves to LOCAL home!
-    echo $home            # Prints local home on remote server
-}
+var user = @env.USER  # Reads from local os.Environ()
+echo $USER            # Also reads from local environment
 ```
 
-**Why this fails**: `@env.HOME` resolves at plan-time using your local environment, so it captures `/home/localuser` even though the command runs on the remote server.
-
-#### ✅ Do This Instead
-
-**For transport-specific environment** (remote, container, etc.):
+**Remote execution (idempotent transport):**
 ```opal
-@ssh.connect(host="remote-server") {
-    echo $HOME  # Shell variable uses REMOTE environment
-    echo $USER  # Remote user
-    cd $HOME/app
-    ./deploy.sh
-}
-```
-
-**For plan-time values** (local environment):
-```opal
-var local_user = @env.USER  # Plan-time: local user
-var replicas = @env.REPLICAS  # Plan-time: "3"
-
-kubectl scale --replicas=@var.replicas deployment/app
-echo "Deployed by @var.local_user"
-```
-
-**Mixing both patterns**:
-```opal
-var local_user = @env.USER  # Plan-time: local user
-
-@ssh.connect(host="remote-server") {
-    # Local user (from plan time)
-    echo "Deployed by: @var.local_user"
+@ssh.connect(host="remote-server", env={"DEPLOY_ENV": "prod"}) {
+    # @env reads from SSH session (remote environment + env={} overrides)
+    var remote_user = @env.USER        # Remote USER (e.g., "deploy")
+    var deploy_env = @env.DEPLOY_ENV   # "prod" (from env={} override)
     
-    # Remote user (from shell expansion)
-    echo "Running as: $USER"
-    
-    # Output:
-    # Deployed by: alice
-    # Running as: deploy
+    # Shell variables read from same SSH session
+    echo $USER        # Remote USER (e.g., "deploy")
+    echo $DEPLOY_ENV  # "prod"
 }
 ```
 
-#### Why This Design?
+**Passing local values to remote:**
+```opal
+var local_user = @env.USER  # "alice" from local session
 
-**Plan-time resolution** enables:
-1. **Contract verification**: Plan hash includes environment values
-2. **Deterministic plans**: Same environment → same plan
-3. **Fast planning**: No need to establish remote connections during planning
+@ssh.connect(host="remote-server", env={"DEPLOYER": @var.local_user}) {
+    var deployer = @env.DEPLOYER      # "alice" (explicitly passed)
+    var remote_user = @env.USER       # "deploy" (remote native)
+    
+    echo "Deployed by: @var.deployer"  # "alice"
+    echo "Running as: $USER"           # "deploy"
+}
+```
 
-**Execution-time resolution** enables:
-4. **Transport-specific environment**: Shell variables use the correct environment
-5. **Standard shell behavior**: `$HOME`, `$USER`, `$PATH` work as expected
-6. **No surprises**: What you see in the shell is what you get
+#### Environment Isolation
 
-#### Validation
-
-Opal prevents confusing usage at plan-time:
+**Critical:** Environments do NOT automatically pass between transports.
 
 ```opal
-@ssh.connect(host="remote") {
-    var home = @env.HOME  # ERROR at plan-time
+# Local: USER=alice
+# Remote: USER=deploy
+
+@ssh.connect(host="remote-server") {
+    var user = @env.USER  # "deploy" (NOT "alice")
+    # Remote session has no knowledge of local USER
 }
 ```
 
-**Error message**:
-```
-ERROR: @env is root-only and cannot be used inside @ssh.connect
-use shell variables ($HOME, $USER, etc.) to access transport environment, 
-or hoist: var X = @env at root then use @var.X
+**To pass values, use `env={}` explicitly:**
+```opal
+var local_user = @env.USER  # "alice"
+
+@ssh.connect(host="remote-server", env={"DEPLOYER": @var.local_user}) {
+    var deployer = @env.DEPLOYER  # "alice" (explicitly passed)
+}
 ```
 
-This validation applies to all transport-switching decorators:
-- `@ssh.connect` - SSH remote execution
-- `@docker.exec` - Docker container execution  
-- `@aws.ssm.connect` - AWS SSM execution
-- `@kubernetes.exec` - Kubernetes pod execution
+#### Idempotent vs Non-Idempotent Decorators
+
+**Idempotent transports** (connect to existing resources):
+- Connect at plan-time (safe, read-only)
+- `@env` works in blocks (reads from connected session)
+- Examples: `@ssh.connect`, `@docker.exec`
+
+```opal
+@ssh.connect(host="existing-server") {
+    var home = @env.HOME  # ✅ OK: SSH connects at plan-time
+}
+```
+
+**Non-idempotent decorators** (create new resources):
+- Can't connect at plan-time (resource doesn't exist yet)
+- `@env` FORBIDDEN in blocks
+- Examples: `@aws.instance.deploy`, `@aws.rds.deploy`
+
+```opal
+@aws.instance.deploy(name="web") {
+    var home = @env.HOME  # ❌ ERROR: Instance doesn't exist yet
+    echo $HOME            # ✅ OK: Shell variable resolves at execution-time
+}
+```
+
+**Error message:**
+```
+ERROR: @env cannot be used inside @aws.instance.deploy
+Reason: Instance might not exist during planning (non-idempotent)
+Solution: Use shell variables ($HOME, $USER) which resolve at execution-time,
+          or hoist: var x = @env.X at root, then use @var.x
+```
 
 #### Summary
 
-- **`@env.X`** = Plan-time resolution (local environment)
-- **`$X`** = Execution-time expansion (transport's environment)
+- **`@env.X`** = Reads from current session's environment (context-aware)
+- **`$X`** = Shell variable (reads from same session, execution-time)
 - **`@var.X`** = Plan-time variable (can be used anywhere)
 
-Use the right tool for the job:
-- Need local environment for planning? → `@env.X`
-- Need transport environment for execution? → `$X`
-- Need to pass plan-time value to remote? → `var x = @env.X` then use `@var.x`
+**When to use each:**
+- Local environment values? → `@env.X` at root
+- Remote environment values? → `@env.X` in transport block OR `$X` in commands
+- Pass local to remote? → `var x = @env.X` then `env={"KEY": @var.x}`
+- Optional values? → `@env.X(default="fallback")`
 
 ## Plans: Three Execution Modes
 
