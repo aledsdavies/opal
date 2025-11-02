@@ -398,42 +398,6 @@ func TestGuardrails_DuplicatePrimaryParam(t *testing.T) {
 		Build()
 }
 
-// TestBackwardCompatibility_OldParamMethod tests that old Param() method still works
-func TestBackwardCompatibility_OldParamMethod(t *testing.T) {
-	desc := NewDescriptor("test").
-		Summary("Test decorator").
-		Param("name", types.TypeString, "Name", "example1", "example2").
-		Build()
-
-	param := desc.Schema.Parameters["name"]
-	if param.Type != types.TypeString {
-		t.Errorf("expected type string, got %v", param.Type)
-	}
-	if param.Description != "Name" {
-		t.Errorf("expected description 'Name', got %q", param.Description)
-	}
-	if len(param.Examples) != 2 {
-		t.Errorf("expected 2 examples, got %d", len(param.Examples))
-	}
-}
-
-// TestBackwardCompatibility_OldPrimaryParamMethod tests that old PrimaryParam() method still works
-func TestBackwardCompatibility_OldPrimaryParamMethod(t *testing.T) {
-	desc := NewDescriptor("test").
-		Summary("Test decorator").
-		PrimaryParam("name", types.TypeString, "Name", "example").
-		Build()
-
-	if desc.Schema.PrimaryParameter != "name" {
-		t.Errorf("expected primary parameter 'name', got %q", desc.Schema.PrimaryParameter)
-	}
-
-	param := desc.Schema.Parameters["name"]
-	if !param.Required {
-		t.Error("primary parameter should be required")
-	}
-}
-
 // TestParamEnum_Basic tests basic enum parameter creation
 func TestParamEnum_Basic(t *testing.T) {
 	desc := NewDescriptor("test").

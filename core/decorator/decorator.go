@@ -179,33 +179,6 @@ func (b *DescriptorBuilder) Summary(summary string) *DescriptorBuilder {
 	return b
 }
 
-// PrimaryParam defines the primary parameter (enables dot syntax like @var.name).
-func (b *DescriptorBuilder) PrimaryParam(name string, typ types.ParamType, description string, examples ...string) *DescriptorBuilder {
-	b.desc.Schema.PrimaryParameter = name
-	b.desc.Schema.Parameters[name] = types.ParamSchema{
-		Name:        name,
-		Type:        typ,
-		Description: description,
-		Required:    true,
-		Examples:    examples,
-	}
-	b.desc.Schema.ParameterOrder = append([]string{name}, b.desc.Schema.ParameterOrder...)
-	return b
-}
-
-// Param adds an optional parameter.
-func (b *DescriptorBuilder) Param(name string, typ types.ParamType, description string, examples ...string) *DescriptorBuilder {
-	b.desc.Schema.Parameters[name] = types.ParamSchema{
-		Name:        name,
-		Type:        typ,
-		Description: description,
-		Required:    false,
-		Examples:    examples,
-	}
-	b.desc.Schema.ParameterOrder = append(b.desc.Schema.ParameterOrder, name)
-	return b
-}
-
 // Returns sets the return type (for value decorators).
 func (b *DescriptorBuilder) Returns(typ types.ParamType, description string) *DescriptorBuilder {
 	b.desc.Schema.Returns = &types.ReturnSchema{
