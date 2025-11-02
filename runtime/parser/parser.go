@@ -90,6 +90,7 @@ func Parse(source []byte, opts ...ParserOpt) *ParseTree {
 		Tokens:      tokens,
 		Events:      p.events,
 		Errors:      p.errors,
+		Warnings:    p.warnings,
 		Telemetry:   telemetry,
 		DebugEvents: p.debugEvents,
 	}
@@ -162,6 +163,7 @@ func ParseTokens(source []byte, tokens []lexer.Token, opts ...ParserOpt) *ParseT
 		Tokens:      tokens,
 		Events:      p.events,
 		Errors:      p.errors,
+		Warnings:    p.warnings,
 		Telemetry:   telemetry,
 		DebugEvents: p.debugEvents,
 	}
@@ -173,6 +175,7 @@ type parser struct {
 	pos         int
 	events      []Event
 	errors      []ParseError
+	warnings    []ParseWarning
 	config      *ParserConfig
 	debugEvents []DebugEvent
 }
@@ -1922,6 +1925,8 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 	// The enum type (e.g., TypeScrubMode) is just a string with restricted values
 	// Support both old (paramSchema.Enum) and new (paramSchema.EnumSchema) formats
 	var enumValues []any
+	var deprecatedValues map[string]string
+
 	if len(paramSchema.Enum) > 0 {
 		enumValues = paramSchema.Enum
 	} else if paramSchema.EnumSchema != nil && len(paramSchema.EnumSchema.Values) > 0 {
@@ -1930,6 +1935,8 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 		for i, v := range paramSchema.EnumSchema.Values {
 			enumValues[i] = v
 		}
+		// Track deprecated values for warning messages
+		deprecatedValues = paramSchema.EnumSchema.DeprecatedValues
 	}
 
 	if len(enumValues) > 0 && valueToken.Type == lexer.STRING {
@@ -1940,11 +1947,25 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 			value = value[1 : len(value)-1]
 		}
 
+		// Check if value is in current allowed values
 		validValue := false
 		for _, allowed := range enumValues {
 			if value == allowed {
 				validValue = true
 				break
+			}
+		}
+
+		// If not in current values, check if it's a deprecated value
+		if !validValue && deprecatedValues != nil {
+			if replacement, isDeprecated := deprecatedValues[value]; isDeprecated {
+				// Accept deprecated value but emit a warning
+				p.warningWithDetails(
+					fmt.Sprintf("parameter '%s' uses deprecated value %q", paramName, value),
+					"decorator parameter",
+					fmt.Sprintf("Use %q instead", replacement),
+				)
+				validValue = true // Accept it, just warn
 			}
 		}
 
@@ -2065,6 +2086,17 @@ func (p *parser) errorWithDetails(message, context, suggestion string) {
 		Message:    message,
 		Context:    context,
 		Got:        tok.Type,
+		Suggestion: suggestion,
+	})
+}
+
+// warningWithDetails adds a warning (non-fatal) to the parse tree
+func (p *parser) warningWithDetails(message, context, suggestion string) {
+	tok := p.current()
+	p.warnings = append(p.warnings, ParseWarning{
+		Position:   tok.Position,
+		Message:    message,
+		Context:    context,
 		Suggestion: suggestion,
 	})
 }
