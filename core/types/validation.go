@@ -100,8 +100,12 @@ func (v *Validator) compileSchema(schema JSONSchema) (*jsonschema.Schema, error)
 	compiler.AssertFormat = v.config.AssertFormat
 	compiler.AssertContent = v.config.AssertContent
 
-	// Register our custom formats
-	compiler.Formats = make(map[string]func(interface{}) bool)
+	// Extend (not replace) format validators with our custom ones
+	// The compiler already has standard validators (email, uri, ipv4, etc.)
+	// We add Opal-specific formats on top
+	if compiler.Formats == nil {
+		compiler.Formats = make(map[string]func(interface{}) bool)
+	}
 	for name, validator := range getFormatValidators() {
 		compiler.Formats[name] = validator
 	}

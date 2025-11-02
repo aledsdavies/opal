@@ -291,6 +291,43 @@ func TestValidator_NoCache(t *testing.T) {
 	}
 }
 
+// TestValidator_StandardFormats verifies that standard JSON Schema formats still work
+// (regression test: we extend compiler.Formats, not replace it)
+func TestValidator_StandardFormats(t *testing.T) {
+	validator := NewValidator(nil)
+
+	tests := []struct {
+		name    string
+		format  Format
+		value   interface{}
+		wantErr bool
+	}{
+		{"valid email", FormatEmail, "user@example.com", false},
+		{"invalid email", FormatEmail, "not-an-email", true},
+		{"valid URI", FormatURI, "https://example.com/path", false},
+		{"invalid URI", FormatURI, "not a uri", true},
+		{"valid IPv4", FormatIPv4, "192.168.1.1", false},
+		{"invalid IPv4", FormatIPv4, "999.999.999.999", true},
+		{"valid hostname", FormatHostname, "example.com", false},
+		{"invalid hostname", FormatHostname, "invalid_hostname!", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := &ParamSchema{
+				Name:   "test",
+				Type:   TypeString,
+				Format: &tt.format,
+			}
+
+			err := validator.ValidateParams(schema, tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateParams() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestDefaultValidationConfig(t *testing.T) {
 	config := DefaultValidationConfig()
 
