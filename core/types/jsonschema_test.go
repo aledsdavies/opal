@@ -223,6 +223,9 @@ func TestToJSONSchema_Format(t *testing.T) {
 	}{
 		{"standard URI", FormatURI, "format", "uri"},
 		{"standard hostname", FormatHostname, "format", "hostname"},
+		{"standard IPv4", FormatIPv4, "format", "ipv4"},
+		{"standard IPv6", FormatIPv6, "format", "ipv6"},
+		{"standard email", FormatEmail, "format", "email"},
 		{"opal CIDR", FormatCIDR, "x-opal-format", "cidr"},
 		{"opal semver", FormatSemver, "x-opal-format", "semver"},
 		{"opal duration", FormatDuration, "x-opal-format", "duration"},
@@ -398,5 +401,36 @@ func TestDecoratorSchemaToJSONSchema(t *testing.T) {
 	}
 	if returns["type"] != "string" {
 		t.Errorf("expected returns type 'string', got %v", returns["type"])
+	}
+}
+
+// TestToJSONSchema_CustomTypes tests that custom ParamTypes map to correct JSON Schema types
+func TestToJSONSchema_CustomTypes(t *testing.T) {
+	tests := []struct {
+		name         string
+		paramType    ParamType
+		expectedType string
+	}{
+		{"AuthHandle", TypeAuthHandle, "string"},
+		{"SecretHandle", TypeSecretHandle, "string"},
+		{"ScrubMode", TypeScrubMode, "string"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			param := ParamSchema{
+				Name: "test",
+				Type: tt.paramType,
+			}
+
+			schema, err := param.ToJSONSchema()
+			if err != nil {
+				t.Fatalf("ToJSONSchema() error: %v", err)
+			}
+
+			if schema["type"] != tt.expectedType {
+				t.Errorf("expected type %q, got %v", tt.expectedType, schema["type"])
+			}
+		})
 	}
 }

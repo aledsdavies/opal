@@ -85,6 +85,9 @@ const (
 	Year        int64 = 365 * Day
 )
 
+// MaxDuration is the maximum supported duration (2^63-1 nanoseconds ≈ 292.47 years)
+const MaxDuration = int64(^uint64(0) >> 1) // 9223372036854775807
+
 // unitOrder defines the canonical order of units (descending)
 var unitOrder = []struct {
 	name       string
@@ -137,11 +140,10 @@ func (d Duration) Nanoseconds() int64 {
 
 // Add adds two durations, clamping to maximum duration on overflow
 func (d Duration) Add(other Duration) Duration {
-	const maxInt64 = int64(^uint64(0) >> 1) // 9223372036854775807
 	// Check for overflow before addition
-	if d.nanos > maxInt64-other.nanos {
+	if d.nanos > MaxDuration-other.nanos {
 		// Clamp to maximum duration (~292.47 years)
-		return Duration{nanos: maxInt64}
+		return Duration{nanos: MaxDuration}
 	}
 	return Duration{nanos: d.nanos + other.nanos}
 }
@@ -185,18 +187,16 @@ func parseDurationToNanos(s string) (int64, error) {
 		ch := s[i]
 		if ch >= '0' && ch <= '9' {
 			// Check for overflow before accumulating the digit
-			// Maximum duration: 2^63-1 nanoseconds = 9,223,372,036,854,775,807ns
-			const maxInt64 = int64(^uint64(0) >> 1)
 			digit := int64(ch - '0')
 
 			// Check if num*10 would overflow
-			if num > maxInt64/10 {
+			if num > MaxDuration/10 {
 				return 0, fmt.Errorf("invalid duration %q: number too large (overflow)", s)
 			}
 			num = num * 10
 
 			// Check if adding digit would overflow
-			if num > maxInt64-digit {
+			if num > MaxDuration-digit {
 				return 0, fmt.Errorf("invalid duration %q: number too large (overflow)", s)
 			}
 			num += digit
@@ -233,17 +233,15 @@ func parseDurationToNanos(s string) (int64, error) {
 				lastUnitIndex = matchedUnitIdx
 
 				// Check for overflow before multiplication
-				// Maximum duration: 2^63-1 nanoseconds = 9,223,372,036,854,775,807ns ≈ 292 years
-				// If num > MaxInt64 / multiplier, then num * multiplier will overflow
-				const maxInt64 = int64(^uint64(0) >> 1) // 9223372036854775807
-				if num > maxInt64/unit.multiplier {
+				// If num > MaxDuration / multiplier, then num * multiplier will overflow
+				if num > MaxDuration/unit.multiplier {
 					return 0, fmt.Errorf("invalid duration %q: overflow (duration too large)", s)
 				}
 				product := num * unit.multiplier
 
 				// Check for overflow before addition
-				// Ensure total + product doesn't exceed MaxInt64
-				if total > maxInt64-product {
+				// Ensure total + product doesn't exceed MaxDuration
+				if total > MaxDuration-product {
 					return 0, fmt.Errorf("invalid duration %q: overflow (duration too large)", s)
 				}
 				total += product
