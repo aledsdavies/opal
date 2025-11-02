@@ -63,7 +63,8 @@ import "fmt"
 //
 // Precision:
 //   - Internal representation uses nanoseconds (int64)
-//   - Maximum duration: ~292 years (2^63 nanoseconds)
+//   - Maximum duration: 2^63-1 nanoseconds = 9,223,372,036,854,775,807ns ≈ 292.47 years
+//   - Overflow detection: inputs exceeding this limit return an error
 //   - Sub-nanosecond precision is not supported
 
 // Duration represents a parsed Opal duration
@@ -209,7 +210,22 @@ func parseDurationToNanos(s string) (int64, error) {
 				}
 				lastUnitIndex = matchedUnitIdx
 
-				total += num * unit.multiplier
+				// Check for overflow before multiplication
+				// Maximum duration: 2^63-1 nanoseconds = 9,223,372,036,854,775,807ns ≈ 292 years
+				// If num > MaxInt64 / multiplier, then num * multiplier will overflow
+				const maxInt64 = int64(^uint64(0) >> 1) // 9223372036854775807
+				if num > maxInt64/unit.multiplier {
+					return 0, fmt.Errorf("invalid duration %q: overflow (duration too large)", s)
+				}
+				product := num * unit.multiplier
+
+				// Check for overflow before addition
+				// Ensure total + product doesn't exceed MaxInt64
+				if total > maxInt64-product {
+					return 0, fmt.Errorf("invalid duration %q: overflow (duration too large)", s)
+				}
+				total += product
+
 				num = 0
 				hasDigit = false
 				i += matchedUnitLen
@@ -223,10 +239,6 @@ func parseDurationToNanos(s string) (int64, error) {
 
 	if hasDigit {
 		return 0, fmt.Errorf("invalid duration %q: missing unit after number", s)
-	}
-
-	if total < 0 {
-		return 0, fmt.Errorf("invalid duration %q: overflow (duration too large)", s)
 	}
 
 	return total, nil

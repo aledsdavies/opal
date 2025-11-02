@@ -444,6 +444,9 @@ func TestDuration_InvalidEdgeCases(t *testing.T) {
 		{"abc", "non-numeric"},
 		{"1sabc", "garbage after valid duration"},
 		{"1h30x", "invalid unit in middle"},
+		{"1000000000000000000m", "overflow (huge minutes)"},
+		{"1000000000000000000s", "overflow (huge seconds)"},
+		{"999999999999999999y", "overflow (huge years)"},
 	}
 
 	for _, tt := range tests {
