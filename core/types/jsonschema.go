@@ -50,13 +50,20 @@ func (p *ParamSchema) ToJSONSchema() (JSONSchema, error) {
 	}
 
 	// Format
-	if p.Format != nil {
-		if IsOpalFormat(*p.Format) {
+	// Automatically set format for TypeDuration if not explicitly set
+	format := p.Format
+	if format == nil && p.Type == TypeDuration {
+		f := FormatDuration
+		format = &f
+	}
+
+	if format != nil {
+		if IsOpalFormat(*format) {
 			// Opal-specific formats use x-opal-format extension
-			schema["x-opal-format"] = string(*p.Format)
+			schema["x-opal-format"] = string(*format)
 		} else {
 			// Standard JSON Schema format
-			schema["format"] = string(*p.Format)
+			schema["format"] = string(*format)
 		}
 	}
 

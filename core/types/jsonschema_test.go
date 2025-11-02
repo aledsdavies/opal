@@ -258,6 +258,54 @@ func TestToJSONSchema_Format(t *testing.T) {
 	}
 }
 
+// TestToJSONSchema_Duration_AutoFormat tests that TypeDuration automatically gets format
+func TestToJSONSchema_Duration_AutoFormat(t *testing.T) {
+	t.Run("without explicit format", func(t *testing.T) {
+		// User creates TypeDuration without calling .Format()
+		param := ParamSchema{
+			Name:        "timeout",
+			Type:        TypeDuration,
+			Description: "Request timeout",
+		}
+
+		schema, err := param.ToJSONSchema()
+		if err != nil {
+			t.Fatalf("ToJSONSchema() error: %v", err)
+		}
+
+		// Should automatically have x-opal-format: duration
+		if schema["x-opal-format"] != "duration" {
+			t.Errorf("expected x-opal-format='duration', got %v", schema["x-opal-format"])
+		}
+
+		// Should be type string
+		if schema["type"] != "string" {
+			t.Errorf("expected type 'string', got %v", schema["type"])
+		}
+	})
+
+	t.Run("with explicit format", func(t *testing.T) {
+		// User explicitly sets format (should respect it)
+		format := FormatDuration
+		param := ParamSchema{
+			Name:        "timeout",
+			Type:        TypeDuration,
+			Description: "Request timeout",
+			Format:      &format,
+		}
+
+		schema, err := param.ToJSONSchema()
+		if err != nil {
+			t.Fatalf("ToJSONSchema() error: %v", err)
+		}
+
+		// Should have x-opal-format: duration
+		if schema["x-opal-format"] != "duration" {
+			t.Errorf("expected x-opal-format='duration', got %v", schema["x-opal-format"])
+		}
+	})
+}
+
 // TestToJSON tests JSON serialization
 func TestToJSON(t *testing.T) {
 	schema := JSONSchema{
