@@ -447,6 +447,9 @@ func TestDuration_InvalidEdgeCases(t *testing.T) {
 		{"1000000000000000000m", "overflow (huge minutes)"},
 		{"1000000000000000000s", "overflow (huge seconds)"},
 		{"999999999999999999y", "overflow (huge years)"},
+		{"9223372036854775808ns", "overflow (number exceeds int64)"},
+		{"99999999999999999999ns", "overflow (very large number)"},
+		{"18446744073709551616ns", "overflow (exceeds uint64)"},
 	}
 
 	for _, tt := range tests {
@@ -576,6 +579,32 @@ func TestDuration_Arithmetic_EdgeCases(t *testing.T) {
 		d2 := Duration{nanos: 0}
 		if d1.Compare(d2) != 0 {
 			t.Errorf("0s.Compare(0) = %d, want 0 (equal)", d1.Compare(d2))
+		}
+	})
+
+	t.Run("add overflow clamping", func(t *testing.T) {
+		// Create two durations that would overflow when added
+		const maxInt64 = int64(^uint64(0) >> 1)
+		d1 := Duration{nanos: maxInt64 - 1000}
+		d2 := Duration{nanos: 2000}
+		result := d1.Add(d2)
+		// Should clamp to maxInt64, not wrap around
+		if result.Nanoseconds() != maxInt64 {
+			t.Errorf("Add overflow should clamp to maxInt64, got %d", result.Nanoseconds())
+		}
+		if result.Nanoseconds() < 0 {
+			t.Error("Add overflow should not produce negative duration")
+		}
+	})
+
+	t.Run("add large durations", func(t *testing.T) {
+		d1, _ := ParseDuration("200y")
+		d2, _ := ParseDuration("200y")
+		result := d1.Add(d2)
+		// 400 years exceeds max (~292 years), should clamp
+		const maxInt64 = int64(^uint64(0) >> 1)
+		if result.Nanoseconds() != maxInt64 {
+			t.Errorf("200y + 200y should clamp to maxInt64, got %d", result.Nanoseconds())
 		}
 	})
 }

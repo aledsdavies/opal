@@ -135,8 +135,14 @@ func (d Duration) Nanoseconds() int64 {
 	return d.nanos
 }
 
-// Add adds two durations
+// Add adds two durations, clamping to maximum duration on overflow
 func (d Duration) Add(other Duration) Duration {
+	const maxInt64 = int64(^uint64(0) >> 1) // 9223372036854775807
+	// Check for overflow before addition
+	if d.nanos > maxInt64-other.nanos {
+		// Clamp to maximum duration (~292.47 years)
+		return Duration{nanos: maxInt64}
+	}
 	return Duration{nanos: d.nanos + other.nanos}
 }
 
@@ -178,7 +184,23 @@ func parseDurationToNanos(s string) (int64, error) {
 	for i < len(s) {
 		ch := s[i]
 		if ch >= '0' && ch <= '9' {
-			num = num*10 + int64(ch-'0')
+			// Check for overflow before accumulating the digit
+			// Maximum duration: 2^63-1 nanoseconds = 9,223,372,036,854,775,807ns
+			const maxInt64 = int64(^uint64(0) >> 1)
+			digit := int64(ch - '0')
+
+			// Check if num*10 would overflow
+			if num > maxInt64/10 {
+				return 0, fmt.Errorf("invalid duration %q: number too large (overflow)", s)
+			}
+			num = num * 10
+
+			// Check if adding digit would overflow
+			if num > maxInt64-digit {
+				return 0, fmt.Errorf("invalid duration %q: number too large (overflow)", s)
+			}
+			num += digit
+
 			hasDigit = true
 			i++
 		} else {
