@@ -433,3 +433,449 @@ func TestBackwardCompatibility_OldPrimaryParamMethod(t *testing.T) {
 		t.Error("primary parameter should be required")
 	}
 }
+
+// TestParamEnum_Basic tests basic enum parameter creation
+func TestParamEnum_Basic(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("level", "Log level").
+		Values("debug", "info", "warn", "error").
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["level"]
+	if param.Type != types.TypeEnum {
+		t.Errorf("expected type enum, got %v", param.Type)
+	}
+	if param.Description != "Log level" {
+		t.Errorf("expected description 'Log level', got %q", param.Description)
+	}
+	if param.EnumSchema == nil {
+		t.Fatal("expected EnumSchema to be set")
+	}
+
+	expected := []string{"debug", "info", "warn", "error"}
+	if diff := cmp.Diff(expected, param.EnumSchema.Values); diff != "" {
+		t.Errorf("enum values mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestParamEnum_WithDefault tests enum with default value
+func TestParamEnum_WithDefault(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("level", "Log level").
+		Values("debug", "info", "warn", "error").
+		Default("info").
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["level"]
+	if param.EnumSchema.Default == nil {
+		t.Fatal("expected default to be set")
+	}
+	if *param.EnumSchema.Default != "info" {
+		t.Errorf("expected default 'info', got %q", *param.EnumSchema.Default)
+	}
+	if param.Required {
+		t.Error("parameter with default should be optional")
+	}
+}
+
+// TestParamEnum_Required tests required enum parameter
+func TestParamEnum_Required(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("level", "Log level").
+		Values("debug", "info", "warn", "error").
+		Required().
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["level"]
+	if !param.Required {
+		t.Error("expected parameter to be required")
+	}
+}
+
+// TestParamEnum_WithDeprecated tests enum with deprecated values
+func TestParamEnum_WithDeprecated(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("level", "Log level").
+		Values("debug", "info", "warn", "error").
+		Deprecated("verbose", "debug").
+		Deprecated("warning", "warn").
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["level"]
+	if param.EnumSchema.DeprecatedValues == nil {
+		t.Fatal("expected DeprecatedValues to be set")
+	}
+
+	expected := map[string]string{
+		"verbose": "debug",
+		"warning": "warn",
+	}
+	if diff := cmp.Diff(expected, param.EnumSchema.DeprecatedValues); diff != "" {
+		t.Errorf("deprecated values mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestParamEnum_Chaining tests method chaining
+func TestParamEnum_Chaining(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("level", "Log level").
+		Values("debug", "info", "warn", "error").
+		Default("info").
+		Deprecated("verbose", "debug").
+		Examples("info", "warn").
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["level"]
+	if param.EnumSchema == nil {
+		t.Fatal("expected EnumSchema to be set")
+	}
+	if param.EnumSchema.Default == nil || *param.EnumSchema.Default != "info" {
+		t.Error("expected default 'info'")
+	}
+	if len(param.EnumSchema.DeprecatedValues) != 1 {
+		t.Error("expected 1 deprecated value")
+	}
+	if len(param.Examples) != 2 {
+		t.Error("expected 2 examples")
+	}
+}
+
+// TestParamEnum_GuardrailDefaultNotInValues tests that default must be in values
+func TestParamEnum_GuardrailDefaultNotInValues(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for default value not in enum values")
+		}
+	}()
+
+	NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("level", "Log level").
+		Values("debug", "info", "warn", "error").
+		Default("invalid"). // Not in values
+		Done().
+		Build()
+}
+
+// TestParamEnum_GuardrailDeprecatedNotInValues tests that deprecated values must not be in values
+func TestParamEnum_GuardrailDeprecatedNotInValues(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for deprecated value in enum values")
+		}
+	}()
+
+	NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("level", "Log level").
+		Values("debug", "info", "warn", "error").
+		Deprecated("debug", "info"). // "debug" is in values - should error
+		Done().
+		Build()
+}
+
+// TestParamEnum_GuardrailEmptyValues tests that values cannot be empty
+func TestParamEnum_GuardrailEmptyValues(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty enum values")
+		}
+	}()
+
+	NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("level", "Log level").
+		Done(). // No values set
+		Build()
+}
+
+// TestParamObject_Basic tests basic object parameter creation
+func TestParamObject_Basic(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamObject("config", "Configuration object").
+		Field("host", types.TypeString, "Hostname").
+		Field("port", types.TypeInt, "Port number").
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["config"]
+	if param.Type != types.TypeObject {
+		t.Errorf("expected type object, got %v", param.Type)
+	}
+	if param.ObjectSchema == nil {
+		t.Fatal("expected ObjectSchema to be set")
+	}
+	if len(param.ObjectSchema.Fields) != 2 {
+		t.Errorf("expected 2 fields, got %d", len(param.ObjectSchema.Fields))
+	}
+
+	// Check fields
+	hostField, exists := param.ObjectSchema.Fields["host"]
+	if !exists {
+		t.Fatal("expected 'host' field to exist")
+	}
+	if hostField.Type != types.TypeString {
+		t.Errorf("expected host type string, got %v", hostField.Type)
+	}
+
+	portField, exists := param.ObjectSchema.Fields["port"]
+	if !exists {
+		t.Fatal("expected 'port' field to exist")
+	}
+	if portField.Type != types.TypeInt {
+		t.Errorf("expected port type int, got %v", portField.Type)
+	}
+}
+
+// TestParamObject_RequiredFields tests object with required fields
+func TestParamObject_RequiredFields(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamObject("config", "Configuration object").
+		Field("host", types.TypeString, "Hostname").
+		Field("port", types.TypeInt, "Port number").
+		RequiredFields("host").
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["config"]
+	expected := []string{"host"}
+	if diff := cmp.Diff(expected, param.ObjectSchema.Required); diff != "" {
+		t.Errorf("required fields mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestParamObject_AdditionalProperties tests object with additional properties allowed
+func TestParamObject_AdditionalProperties(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamObject("config", "Configuration object").
+		Field("host", types.TypeString, "Hostname").
+		AllowAdditionalProperties().
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["config"]
+	if !param.ObjectSchema.AdditionalProperties {
+		t.Error("expected AdditionalProperties to be true")
+	}
+}
+
+// TestParamObject_ClosedByDefault tests that objects are closed by default
+func TestParamObject_ClosedByDefault(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamObject("config", "Configuration object").
+		Field("host", types.TypeString, "Hostname").
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["config"]
+	if param.ObjectSchema.AdditionalProperties {
+		t.Error("expected AdditionalProperties to be false by default (closed objects)")
+	}
+}
+
+// TestParamObject_NestedObject tests nested object fields
+func TestParamObject_NestedObject(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamObject("config", "Configuration object").
+		FieldObject("database", "Database configuration").
+		Field("host", types.TypeString, "DB hostname").
+		Field("port", types.TypeInt, "DB port").
+		DoneField().
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["config"]
+	dbField, exists := param.ObjectSchema.Fields["database"]
+	if !exists {
+		t.Fatal("expected 'database' field to exist")
+	}
+	if dbField.Type != types.TypeObject {
+		t.Errorf("expected database type object, got %v", dbField.Type)
+	}
+	if dbField.ObjectSchema == nil {
+		t.Fatal("expected nested ObjectSchema to be set")
+	}
+	if len(dbField.ObjectSchema.Fields) != 2 {
+		t.Errorf("expected 2 nested fields, got %d", len(dbField.ObjectSchema.Fields))
+	}
+}
+
+// TestParamObject_Chaining tests method chaining
+func TestParamObject_Chaining(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamObject("config", "Configuration object").
+		Field("host", types.TypeString, "Hostname").
+		Field("port", types.TypeInt, "Port number").
+		RequiredFields("host", "port").
+		Examples(`{"host": "localhost", "port": 8080}`).
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["config"]
+	if len(param.ObjectSchema.Required) != 2 {
+		t.Errorf("expected 2 required fields, got %d", len(param.ObjectSchema.Required))
+	}
+	if len(param.Examples) != 1 {
+		t.Errorf("expected 1 example, got %d", len(param.Examples))
+	}
+}
+
+// TestParamObject_GuardrailRequiredFieldNotExists tests that required field must exist
+func TestParamObject_GuardrailRequiredFieldNotExists(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for required field that doesn't exist")
+		}
+	}()
+
+	NewDescriptor("test").
+		Summary("Test decorator").
+		ParamObject("config", "Configuration object").
+		Field("host", types.TypeString, "Hostname").
+		RequiredFields("port"). // "port" doesn't exist
+		Done().
+		Build()
+}
+
+// TestParamArray_Basic tests basic array parameter creation
+func TestParamArray_Basic(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamArray("tags", "List of tags").
+		ElementType(types.TypeString).
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["tags"]
+	if param.Type != types.TypeArray {
+		t.Errorf("expected type array, got %v", param.Type)
+	}
+	if param.ArraySchema == nil {
+		t.Fatal("expected ArraySchema to be set")
+	}
+	if param.ArraySchema.ElementType != types.TypeString {
+		t.Errorf("expected element type string, got %v", param.ArraySchema.ElementType)
+	}
+}
+
+// TestParamArray_MinMaxLength tests array length constraints
+func TestParamArray_MinMaxLength(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamArray("tags", "List of tags").
+		ElementType(types.TypeString).
+		MinLength(1).
+		MaxLength(10).
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["tags"]
+	if param.ArraySchema.MinLength == nil || *param.ArraySchema.MinLength != 1 {
+		t.Errorf("expected MinLength=1, got %v", param.ArraySchema.MinLength)
+	}
+	if param.ArraySchema.MaxLength == nil || *param.ArraySchema.MaxLength != 10 {
+		t.Errorf("expected MaxLength=10, got %v", param.ArraySchema.MaxLength)
+	}
+}
+
+// TestParamArray_UniqueItems tests unique items constraint
+func TestParamArray_UniqueItems(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamArray("tags", "List of tags").
+		ElementType(types.TypeString).
+		UniqueItems().
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["tags"]
+	if !param.ArraySchema.UniqueItems {
+		t.Error("expected UniqueItems to be true")
+	}
+}
+
+// TestParamArray_ObjectElements tests array of objects
+func TestParamArray_ObjectElements(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamArray("servers", "List of servers").
+		ElementObject().
+		Field("host", types.TypeString, "Hostname").
+		Field("port", types.TypeInt, "Port").
+		DoneElement().
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["servers"]
+	if param.ArraySchema.ElementType != types.TypeObject {
+		t.Errorf("expected element type object, got %v", param.ArraySchema.ElementType)
+	}
+	if param.ArraySchema.ElementSchema == nil {
+		t.Fatal("expected ElementSchema to be set")
+	}
+	if param.ArraySchema.ElementSchema.ObjectSchema == nil {
+		t.Fatal("expected element ObjectSchema to be set")
+	}
+	if len(param.ArraySchema.ElementSchema.ObjectSchema.Fields) != 2 {
+		t.Errorf("expected 2 fields in element object, got %d", len(param.ArraySchema.ElementSchema.ObjectSchema.Fields))
+	}
+}
+
+// TestParamArray_Chaining tests method chaining
+func TestParamArray_Chaining(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamArray("tags", "List of tags").
+		ElementType(types.TypeString).
+		MinLength(1).
+		MaxLength(10).
+		UniqueItems().
+		Examples(`["tag1", "tag2"]`).
+		Done().
+		Build()
+
+	param := desc.Schema.Parameters["tags"]
+	if param.ArraySchema.MinLength == nil || *param.ArraySchema.MinLength != 1 {
+		t.Error("expected MinLength=1")
+	}
+	if param.ArraySchema.MaxLength == nil || *param.ArraySchema.MaxLength != 10 {
+		t.Error("expected MaxLength=10")
+	}
+	if !param.ArraySchema.UniqueItems {
+		t.Error("expected UniqueItems=true")
+	}
+	if len(param.Examples) != 1 {
+		t.Error("expected 1 example")
+	}
+}
+
+// TestParamArray_GuardrailNoElementType tests that element type must be set
+func TestParamArray_GuardrailNoElementType(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for array without element type")
+		}
+	}()
+
+	NewDescriptor("test").
+		Summary("Test decorator").
+		ParamArray("tags", "List of tags").
+		Done(). // No element type set
+		Build()
+}
