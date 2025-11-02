@@ -843,3 +843,125 @@ func TestParamArray_GuardrailNoElementType(t *testing.T) {
 		Done(). // No element type set
 		Build()
 }
+
+// TestDeprecatedParam_MultipleDeprecations tests multiple deprecated parameters using fluent API
+func TestDeprecatedParam_MultipleDeprecations(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamInt("maxConcurrency", "Old parameter name").
+		Deprecation(DeprecationInfo{ReplacedBy: "max_workers"}).
+		Done().
+		ParamInt("max_workers", "Maximum workers").Done().
+		ParamDuration("retryDelay", "Old parameter name").
+		Deprecation(DeprecationInfo{ReplacedBy: "retry_delay"}).
+		Done().
+		ParamDuration("retry_delay", "Retry delay").Done().
+		Build()
+
+	if len(desc.Schema.DeprecatedParameters) != 2 {
+		t.Errorf("expected 2 deprecated parameters, got %d", len(desc.Schema.DeprecatedParameters))
+	}
+
+	// Verify both mappings
+	if newName, exists := desc.Schema.DeprecatedParameters["maxConcurrency"]; !exists {
+		t.Error("expected 'maxConcurrency' to be in DeprecatedParameters")
+	} else if newName != "max_workers" {
+		t.Errorf("expected 'maxConcurrency' to map to 'max_workers', got %q", newName)
+	}
+
+	if newName, exists := desc.Schema.DeprecatedParameters["retryDelay"]; !exists {
+		t.Error("expected 'retryDelay' to be in DeprecatedParameters")
+	} else if newName != "retry_delay" {
+		t.Errorf("expected 'retryDelay' to map to 'retry_delay', got %q", newName)
+	}
+}
+
+// TestParamBuilder_Deprecation tests the fluent .Deprecation() API
+func TestParamBuilder_Deprecation(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamInt("maxConcurrency", "Old parameter name").
+		Deprecation(DeprecationInfo{ReplacedBy: "max_workers"}).
+		Done().
+		ParamInt("max_workers", "New parameter name").Done().
+		Build()
+
+	// Check that deprecated parameter mapping exists
+	if desc.Schema.DeprecatedParameters == nil {
+		t.Fatal("expected DeprecatedParameters to be set")
+	}
+
+	if newName, exists := desc.Schema.DeprecatedParameters["maxConcurrency"]; !exists {
+		t.Error("expected 'maxConcurrency' to be in DeprecatedParameters")
+	} else if newName != "max_workers" {
+		t.Errorf("expected 'maxConcurrency' to map to 'max_workers', got %q", newName)
+	}
+
+	// Check that both parameters exist
+	if _, exists := desc.Schema.Parameters["maxConcurrency"]; !exists {
+		t.Error("expected 'maxConcurrency' parameter to exist (deprecated params are still defined)")
+	}
+	if _, exists := desc.Schema.Parameters["max_workers"]; !exists {
+		t.Error("expected 'max_workers' parameter to exist")
+	}
+}
+
+// TestEnumParamBuilder_Deprecation tests enum parameter deprecation
+func TestEnumParamBuilder_Deprecation(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamEnum("logLevel", "Old parameter name").
+		Values("info", "warn", "error").
+		Deprecation(DeprecationInfo{ReplacedBy: "log_level"}).
+		Done().
+		ParamEnum("log_level", "New parameter name").
+		Values("info", "warn", "error").
+		Done().
+		Build()
+
+	if newName, exists := desc.Schema.DeprecatedParameters["logLevel"]; !exists {
+		t.Error("expected 'logLevel' to be in DeprecatedParameters")
+	} else if newName != "log_level" {
+		t.Errorf("expected 'logLevel' to map to 'log_level', got %q", newName)
+	}
+}
+
+// TestObjectParamBuilder_Deprecation tests object parameter deprecation
+func TestObjectParamBuilder_Deprecation(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamObject("httpConfig", "Old parameter name").
+		Field("url", types.TypeString, "URL").
+		Deprecation(DeprecationInfo{ReplacedBy: "http_config"}).
+		Done().
+		ParamObject("http_config", "New parameter name").
+		Field("url", types.TypeString, "URL").
+		Done().
+		Build()
+
+	if newName, exists := desc.Schema.DeprecatedParameters["httpConfig"]; !exists {
+		t.Error("expected 'httpConfig' to be in DeprecatedParameters")
+	} else if newName != "http_config" {
+		t.Errorf("expected 'httpConfig' to map to 'http_config', got %q", newName)
+	}
+}
+
+// TestArrayParamBuilder_Deprecation tests array parameter deprecation
+func TestArrayParamBuilder_Deprecation(t *testing.T) {
+	desc := NewDescriptor("test").
+		Summary("Test decorator").
+		ParamArray("allowedHosts", "Old parameter name").
+		ElementType(types.TypeString).
+		Deprecation(DeprecationInfo{ReplacedBy: "allowed_hosts"}).
+		Done().
+		ParamArray("allowed_hosts", "New parameter name").
+		ElementType(types.TypeString).
+		Done().
+		Build()
+
+	if newName, exists := desc.Schema.DeprecatedParameters["allowedHosts"]; !exists {
+		t.Error("expected 'allowedHosts' to be in DeprecatedParameters")
+	} else if newName != "allowed_hosts" {
+		t.Errorf("expected 'allowedHosts' to map to 'allowed_hosts', got %q", newName)
+	}
+}

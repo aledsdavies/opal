@@ -1820,12 +1820,32 @@ func (p *parser) decoratorParamsWithValidation(decoratorName string, schema type
 				// Check if parameter exists in schema
 				paramSchema, paramExists = schema.Parameters[paramName]
 				if !paramExists {
-					// Unknown parameter
-					p.errorWithDetails(
-						fmt.Sprintf("unknown parameter '%s' for @%s", paramName, decoratorName),
-						"decorator parameter",
-						p.validParametersSuggestion(schema),
-					)
+					// Check if it's a deprecated parameter name
+					if schema.DeprecatedParameters != nil {
+						if newName, isDeprecated := schema.DeprecatedParameters[paramName]; isDeprecated {
+							// Emit warning about deprecated parameter name
+							p.warningWithDetails(
+								fmt.Sprintf("parameter '%s' is deprecated for @%s", paramName, decoratorName),
+								"decorator parameter",
+								fmt.Sprintf("Use '%s' instead", newName),
+							)
+							// Map to new parameter name
+							paramName = newName
+							paramSchema, paramExists = schema.Parameters[paramName]
+							// Update providedParams to use new name
+							delete(providedParams, paramName) // Remove old name
+							providedParams[newName] = true    // Add new name
+						}
+					}
+
+					if !paramExists {
+						// Unknown parameter
+						p.errorWithDetails(
+							fmt.Sprintf("unknown parameter '%s' for @%s", paramName, decoratorName),
+							"decorator parameter",
+							p.validParametersSuggestion(schema),
+						)
+					}
 				}
 			}
 		}

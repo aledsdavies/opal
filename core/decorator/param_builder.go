@@ -7,12 +7,23 @@ import (
 	"github.com/aledsdavies/opal/core/types"
 )
 
+// DeprecationInfo holds information about a deprecated parameter.
+type DeprecationInfo struct {
+	// ReplacedBy is the new parameter name that replaces this deprecated one
+	ReplacedBy string
+
+	// Message is an optional custom deprecation message
+	// If empty, a default message will be generated: "parameter 'old' is deprecated, use 'new' instead"
+	Message string
+}
+
 // ParamBuilder provides a fluent API for building parameters with type-specific constraints.
 // It returns to the parent DescriptorBuilder when Done() is called.
 type ParamBuilder struct {
 	parent           *DescriptorBuilder
 	schema           types.ParamSchema
 	requiredExplicit bool // Track if Required() was explicitly called
+	deprecation      *DeprecationInfo
 }
 
 // Required marks the parameter as required.
@@ -74,12 +85,29 @@ func (pb *ParamBuilder) Max(max float64) *ParamBuilder {
 	return pb
 }
 
+// Deprecation marks this parameter as deprecated and replaced by another parameter.
+// This parameter will still be accepted but will emit a warning.
+// Example: ParamInt("maxConcurrency", "...").Deprecation(DeprecationInfo{ReplacedBy: "max_workers"})
+func (pb *ParamBuilder) Deprecation(info DeprecationInfo) *ParamBuilder {
+	pb.deprecation = &info
+	return pb
+}
+
 // Done finishes building this parameter and returns to the parent DescriptorBuilder.
 // Validates the parameter schema before adding it.
 func (pb *ParamBuilder) Done() *DescriptorBuilder {
 	// Validate parameter schema
 	if err := pb.validate(); err != nil {
 		panic(fmt.Sprintf("invalid parameter %q: %v", pb.schema.Name, err))
+	}
+
+	// Register deprecated parameter name if specified
+	if pb.deprecation != nil {
+		if pb.parent.desc.Schema.DeprecatedParameters == nil {
+			pb.parent.desc.Schema.DeprecatedParameters = make(map[string]string)
+		}
+		// Map: old name (this param) -> new name (replacement)
+		pb.parent.desc.Schema.DeprecatedParameters[pb.schema.Name] = pb.deprecation.ReplacedBy
 	}
 
 	// Add parameter to parent descriptor
@@ -181,8 +209,9 @@ func (b *DescriptorBuilder) ParamDuration(name, description string) *ParamBuilde
 
 // EnumParamBuilder provides a fluent API for building enum parameters.
 type EnumParamBuilder struct {
-	parent *DescriptorBuilder
-	schema types.ParamSchema
+	parent      *DescriptorBuilder
+	schema      types.ParamSchema
+	deprecation *DeprecationInfo
 }
 
 // Values sets the allowed enum values.
@@ -232,12 +261,28 @@ func (eb *EnumParamBuilder) Examples(examples ...string) *EnumParamBuilder {
 	return eb
 }
 
+// Deprecation marks this parameter as deprecated and replaced by another parameter.
+// This parameter will still be accepted but will emit a warning.
+func (eb *EnumParamBuilder) Deprecation(info DeprecationInfo) *EnumParamBuilder {
+	eb.deprecation = &info
+	return eb
+}
+
 // Done finishes building this enum parameter and returns to the parent DescriptorBuilder.
 // Validates the enum schema before adding it.
 func (eb *EnumParamBuilder) Done() *DescriptorBuilder {
 	// Validate enum schema
 	if err := eb.validate(); err != nil {
 		panic(fmt.Sprintf("invalid enum parameter %q: %v", eb.schema.Name, err))
+	}
+
+	// Register deprecated parameter name if specified
+	if eb.deprecation != nil {
+		if eb.parent.desc.Schema.DeprecatedParameters == nil {
+			eb.parent.desc.Schema.DeprecatedParameters = make(map[string]string)
+		}
+		// Map: old name (this param) -> new name (replacement)
+		eb.parent.desc.Schema.DeprecatedParameters[eb.schema.Name] = eb.deprecation.ReplacedBy
 	}
 
 	// Add parameter to parent descriptor
@@ -313,8 +358,9 @@ func (b *DescriptorBuilder) ParamEnum(name, description string) *EnumParamBuilde
 
 // ObjectParamBuilder provides a fluent API for building object parameters.
 type ObjectParamBuilder struct {
-	parent *DescriptorBuilder
-	schema types.ParamSchema
+	parent      *DescriptorBuilder
+	schema      types.ParamSchema
+	deprecation *DeprecationInfo
 }
 
 // Field adds a field to the object schema.
@@ -386,12 +432,28 @@ func (ob *ObjectParamBuilder) Examples(examples ...string) *ObjectParamBuilder {
 	return ob
 }
 
+// Deprecation marks this parameter as deprecated and replaced by another parameter.
+// This parameter will still be accepted but will emit a warning.
+func (ob *ObjectParamBuilder) Deprecation(info DeprecationInfo) *ObjectParamBuilder {
+	ob.deprecation = &info
+	return ob
+}
+
 // Done finishes building this object parameter and returns to the parent DescriptorBuilder.
 // Validates the object schema before adding it.
 func (ob *ObjectParamBuilder) Done() *DescriptorBuilder {
 	// Validate object schema
 	if err := ob.validate(); err != nil {
 		panic(fmt.Sprintf("invalid object parameter %q: %v", ob.schema.Name, err))
+	}
+
+	// Register deprecated parameter name if specified
+	if ob.deprecation != nil {
+		if ob.parent.desc.Schema.DeprecatedParameters == nil {
+			ob.parent.desc.Schema.DeprecatedParameters = make(map[string]string)
+		}
+		// Map: old name (this param) -> new name (replacement)
+		ob.parent.desc.Schema.DeprecatedParameters[ob.schema.Name] = ob.deprecation.ReplacedBy
 	}
 
 	// Add parameter to parent descriptor
@@ -463,8 +525,9 @@ func (b *DescriptorBuilder) ParamObject(name, description string) *ObjectParamBu
 
 // ArrayParamBuilder provides a fluent API for building array parameters.
 type ArrayParamBuilder struct {
-	parent *DescriptorBuilder
-	schema types.ParamSchema
+	parent      *DescriptorBuilder
+	schema      types.ParamSchema
+	deprecation *DeprecationInfo
 }
 
 // ElementType sets the type of array elements.
@@ -531,12 +594,28 @@ func (ab *ArrayParamBuilder) Examples(examples ...string) *ArrayParamBuilder {
 	return ab
 }
 
+// Deprecation marks this parameter as deprecated and replaced by another parameter.
+// This parameter will still be accepted but will emit a warning.
+func (ab *ArrayParamBuilder) Deprecation(info DeprecationInfo) *ArrayParamBuilder {
+	ab.deprecation = &info
+	return ab
+}
+
 // Done finishes building this array parameter and returns to the parent DescriptorBuilder.
 // Validates the array schema before adding it.
 func (ab *ArrayParamBuilder) Done() *DescriptorBuilder {
 	// Validate array schema
 	if err := ab.validate(); err != nil {
 		panic(fmt.Sprintf("invalid array parameter %q: %v", ab.schema.Name, err))
+	}
+
+	// Register deprecated parameter name if specified
+	if ab.deprecation != nil {
+		if ab.parent.desc.Schema.DeprecatedParameters == nil {
+			ab.parent.desc.Schema.DeprecatedParameters = make(map[string]string)
+		}
+		// Map: old name (this param) -> new name (replacement)
+		ab.parent.desc.Schema.DeprecatedParameters[ab.schema.Name] = ab.deprecation.ReplacedBy
 	}
 
 	// Add parameter to parent descriptor
