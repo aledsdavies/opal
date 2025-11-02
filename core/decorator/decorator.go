@@ -245,7 +245,20 @@ func (b *DescriptorBuilder) Roles(roles ...Role) *DescriptorBuilder {
 	return b
 }
 
-// Build returns the final Descriptor.
+// Build validates the descriptor and returns it.
 func (b *DescriptorBuilder) Build() Descriptor {
+	// Ensure primary parameter is first in order if set
+	if b.desc.Schema.PrimaryParameter != "" {
+		// Remove primary parameter from order if it exists
+		newOrder := make([]string, 0, len(b.desc.Schema.ParameterOrder))
+		for _, name := range b.desc.Schema.ParameterOrder {
+			if name != b.desc.Schema.PrimaryParameter {
+				newOrder = append(newOrder, name)
+			}
+		}
+		// Prepend primary parameter
+		b.desc.Schema.ParameterOrder = append([]string{b.desc.Schema.PrimaryParameter}, newOrder...)
+	}
+
 	return b.desc
 }
