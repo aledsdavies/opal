@@ -242,6 +242,67 @@ func TestValidator_Security_SchemaSize(t *testing.T) {
 	}
 }
 
+func TestValidator_Security_SchemaDepth(t *testing.T) {
+	config := DefaultValidationConfig()
+	config.MaxSchemaDepth = 2 // Shallow limit for testing
+	validator := NewValidator(config)
+
+	// Create a schema with depth 3 (exceeds limit of 2)
+	// Depth 0: root
+	// Depth 1: properties -> field1
+	// Depth 2: properties -> field2
+	// Depth 3: properties -> field3 (exceeds limit)
+	schema := &ParamSchema{
+		Name: "root",
+		Type: TypeObject,
+		ObjectSchema: &ObjectSchema{
+			Fields: map[string]ParamSchema{
+				"field1": {
+					Name: "field1",
+					Type: TypeObject,
+					ObjectSchema: &ObjectSchema{
+						Fields: map[string]ParamSchema{
+							"field2": {
+								Name: "field2",
+								Type: TypeObject,
+								ObjectSchema: &ObjectSchema{
+									Fields: map[string]ParamSchema{
+										"field3": {
+											Name: "field3",
+											Type: TypeString,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := validator.ValidateParams(schema, map[string]interface{}{
+		"field1": map[string]interface{}{
+			"field2": map[string]interface{}{
+				"field3": "value",
+			},
+		},
+	})
+
+	if err == nil {
+		t.Fatal("Expected error for schema too deep")
+	}
+	if !strings.Contains(err.Error(), "schema too deep") {
+		t.Errorf("Expected 'schema too deep' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "3 levels") {
+		t.Errorf("Expected error to mention '3 levels', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "max: 2") {
+		t.Errorf("Expected error to mention 'max: 2', got: %v", err)
+	}
+}
+
 func TestValidator_Cache(t *testing.T) {
 	config := DefaultValidationConfig()
 	config.EnableCache = true
@@ -381,8 +442,8 @@ func TestDefaultValidationConfig(t *testing.T) {
 	if config.MaxSchemaSize != 1024*1024 {
 		t.Errorf("Expected MaxSchemaSize 1MB, got %d", config.MaxSchemaSize)
 	}
-	if config.MaxSchemaDepth != 100 {
-		t.Errorf("Expected MaxSchemaDepth 100, got %d", config.MaxSchemaDepth)
+	if config.MaxSchemaDepth != 10 {
+		t.Errorf("Expected MaxSchemaDepth 10, got %d", config.MaxSchemaDepth)
 	}
 	if config.AllowRemoteRef {
 		t.Error("Expected AllowRemoteRef to be false")

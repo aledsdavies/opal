@@ -52,6 +52,13 @@ func (v *Validator) ValidateParams(schema *ParamSchema, value interface{}) error
 			len(schemaBytes), v.config.MaxSchemaSize)
 	}
 
+	// Check schema depth (security)
+	depth := measureSchemaDepth(jsonSchema)
+	if depth > v.config.MaxSchemaDepth {
+		return fmt.Errorf("schema too deep: %d levels (max: %d)",
+			depth, v.config.MaxSchemaDepth)
+	}
+
 	// Get or compile validator
 	validator, err := v.getValidator(jsonSchema)
 	if err != nil {
@@ -201,4 +208,71 @@ func convertValidationError(err error) error {
 	// For now, return the error as-is
 	// In Phase 5, we'll convert to our custom error format
 	return ve
+}
+
+// measureSchemaDepth measures the maximum nesting depth of a JSON Schema
+// to prevent resource exhaustion from deeply nested schemas.
+// Depth is counted by the number of times we encounter nesting keywords
+// like "properties", "items", "allOf", "anyOf", "oneOf".
+func measureSchemaDepth(schema JSONSchema) int {
+	return measureDepth(schema, 0)
+}
+
+// measureDepth recursively measures schema depth
+func measureDepth(obj any, currentDepth int) int {
+	// Try to convert to map[string]any (handles both JSONSchema and plain maps)
+	var m map[string]any
+	switch v := obj.(type) {
+	case JSONSchema:
+		m = map[string]any(v)
+	case map[string]any:
+		m = v
+	default:
+		return currentDepth
+	}
+
+	maxDepth := currentDepth
+
+	// Properties: each field schema is one level deeper
+	if propsVal, hasProps := m["properties"]; hasProps {
+		// Handle both map[string]any and map[string]JSONSchema
+		switch props := propsVal.(type) {
+		case map[string]any:
+			for _, fieldSchema := range props {
+				depth := measureDepth(fieldSchema, currentDepth+1)
+				if depth > maxDepth {
+					maxDepth = depth
+				}
+			}
+		case map[string]JSONSchema:
+			for _, fieldSchema := range props {
+				depth := measureDepth(fieldSchema, currentDepth+1)
+				if depth > maxDepth {
+					maxDepth = depth
+				}
+			}
+		}
+	}
+
+	// Items: array element schema is one level deeper
+	if items, ok := m["items"]; ok {
+		depth := measureDepth(items, currentDepth+1)
+		if depth > maxDepth {
+			maxDepth = depth
+		}
+	}
+
+	// Combinators: each schema in array is one level deeper
+	for _, key := range []string{"allOf", "anyOf", "oneOf"} {
+		if arr, ok := m[key].([]any); ok {
+			for _, schema := range arr {
+				depth := measureDepth(schema, currentDepth+1)
+				if depth > maxDepth {
+					maxDepth = depth
+				}
+			}
+		}
+	}
+
+	return maxDepth
 }

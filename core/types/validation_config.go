@@ -4,7 +4,7 @@ package types
 type ValidationConfig struct {
 	// Security: Schema size/depth limits
 	MaxSchemaSize  int // Max schema size in bytes (default: 1MB)
-	MaxSchemaDepth int // Max schema nesting depth (default: 100)
+	MaxSchemaDepth int // Max schema nesting depth (default: 10)
 
 	// Security: $ref resolution
 	AllowRemoteRef bool     // Allow remote $ref (default: false)
@@ -23,7 +23,7 @@ type ValidationConfig struct {
 func DefaultValidationConfig() *ValidationConfig {
 	return &ValidationConfig{
 		MaxSchemaSize:  1024 * 1024, // 1MB
-		MaxSchemaDepth: 100,
+		MaxSchemaDepth: 10,          // Reasonable nesting limit (industry standard)
 		AllowRemoteRef: false,
 		AllowedSchemes: []string{"file"},
 		EnableCache:    true,
