@@ -1920,7 +1920,19 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 
 	// Special case: Enum parameters accept STRING tokens
 	// The enum type (e.g., TypeScrubMode) is just a string with restricted values
-	if len(paramSchema.Enum) > 0 && valueToken.Type == lexer.STRING {
+	// Support both old (paramSchema.Enum) and new (paramSchema.EnumSchema) formats
+	var enumValues []any
+	if len(paramSchema.Enum) > 0 {
+		enumValues = paramSchema.Enum
+	} else if paramSchema.EnumSchema != nil && len(paramSchema.EnumSchema.Values) > 0 {
+		// Convert []string to []any for compatibility
+		enumValues = make([]any, len(paramSchema.EnumSchema.Values))
+		for i, v := range paramSchema.EnumSchema.Values {
+			enumValues[i] = v
+		}
+	}
+
+	if len(enumValues) > 0 && valueToken.Type == lexer.STRING {
 		// Validate the string value is in the allowed enum values
 		value := string(valueToken.Text)
 		// Remove quotes from string literal
@@ -1929,7 +1941,7 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 		}
 
 		validValue := false
-		for _, allowed := range paramSchema.Enum {
+		for _, allowed := range enumValues {
 			if value == allowed {
 				validValue = true
 				break
@@ -1940,7 +1952,7 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 			p.errorWithDetails(
 				fmt.Sprintf("parameter '%s' has invalid value %q", paramName, value),
 				"decorator parameter",
-				fmt.Sprintf("Allowed values: %v", paramSchema.Enum),
+				fmt.Sprintf("Allowed values: %v", enumValues),
 			)
 		}
 		return // Enum validation complete
