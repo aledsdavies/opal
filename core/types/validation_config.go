@@ -3,7 +3,7 @@ package types
 // ValidationConfig controls validation behavior and security
 type ValidationConfig struct {
 	// Security: Schema size/depth limits
-	MaxSchemaSize int // Max schema size in bytes (default: 1MB)
+	MaxSchemaSize  int // Max schema size in bytes (default: 1MB)
 	MaxSchemaDepth int // Max schema nesting depth (default: 100)
 
 	// Security: $ref resolution
