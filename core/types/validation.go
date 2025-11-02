@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
+	"golang.org/x/mod/semver"
 )
 
 // Validator validates parameter values against schemas
@@ -166,8 +168,26 @@ func getFormatValidators() map[string]func(interface{}) bool {
 			_, err := ParseDuration(s)
 			return err == nil
 		},
-		// Add more custom formats as needed
-		// "cidr", "semver", etc.
+		"cidr": func(v interface{}) bool {
+			s, ok := v.(string)
+			if !ok {
+				return true // Type validation happens separately
+			}
+			_, err := netip.ParsePrefix(s)
+			return err == nil
+		},
+		"semver": func(v interface{}) bool {
+			s, ok := v.(string)
+			if !ok {
+				return true // Type validation happens separately
+			}
+			// semver.IsValid requires "v" prefix (e.g., "v1.2.3")
+			// Accept both with and without prefix
+			if !strings.HasPrefix(s, "v") {
+				s = "v" + s
+			}
+			return semver.IsValid(s)
+		},
 	}
 }
 

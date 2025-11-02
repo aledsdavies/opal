@@ -328,6 +328,53 @@ func TestValidator_StandardFormats(t *testing.T) {
 	}
 }
 
+// TestValidator_OpalFormats verifies that Opal-specific formats work
+func TestValidator_OpalFormats(t *testing.T) {
+	validator := NewValidator(nil)
+
+	tests := []struct {
+		name    string
+		format  Format
+		value   interface{}
+		wantErr bool
+	}{
+		// CIDR format
+		{"valid CIDR IPv4", FormatCIDR, "10.0.0.0/8", false},
+		{"valid CIDR IPv6", FormatCIDR, "2001:db8::/32", false},
+		{"invalid CIDR", FormatCIDR, "not-a-cidr", true},
+		{"invalid CIDR no prefix", FormatCIDR, "10.0.0.0", true},
+
+		// Semver format (follows Go module semver rules, accepts with/without v prefix)
+		{"valid semver with v", FormatSemver, "v1.2.3", false},
+		{"valid semver without v", FormatSemver, "1.2.3", false},
+		{"valid semver short with v", FormatSemver, "v1.2", false},   // Go semver allows this
+		{"valid semver short without v", FormatSemver, "1.2", false}, // We add v prefix
+		{"valid semver prerelease", FormatSemver, "v1.2.3-alpha", false},
+		{"valid semver build", FormatSemver, "v1.2.3+build", false},
+		{"invalid semver", FormatSemver, "not-semver", true},
+		{"invalid semver empty", FormatSemver, "", true},
+
+		// Duration format (already tested elsewhere, but include for completeness)
+		{"valid duration", FormatDuration, "1h30m", false},
+		{"invalid duration", FormatDuration, "invalid", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := &ParamSchema{
+				Name:   "test",
+				Type:   TypeString,
+				Format: &tt.format,
+			}
+
+			err := validator.ValidateParams(schema, tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateParams() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestDefaultValidationConfig(t *testing.T) {
 	config := DefaultValidationConfig()
 
