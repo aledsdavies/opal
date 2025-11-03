@@ -2114,12 +2114,15 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 	}
 
 	if actualType != expectedType {
+		// Build detailed expected type description
+		expectedDesc := p.expectedTypeFromSchema(paramSchema)
+
 		p.errorSchema(
 			ErrorCodeSchemaTypeMismatch,
 			paramName,
-			fmt.Sprintf("parameter '%s' expects %s, got %s", paramName, expectedType, actualType),
-			fmt.Sprintf("Use a %s value like %s", expectedType, p.exampleForType(expectedType)),
-			string(expectedType),
+			fmt.Sprintf("parameter '%s' expects %s, got %s", paramName, expectedDesc, actualType),
+			p.generateConcreteSuggestion(paramName, paramSchema, ""),
+			expectedDesc,
 			string(actualType),
 		)
 	}
@@ -2568,6 +2571,110 @@ func (p *parser) expectedTypeFromSchema(schema types.ParamSchema) string {
 	default:
 		return string(schema.Type)
 	}
+}
+
+// generateConcreteSuggestion generates a realistic example based on schema constraints
+func (p *parser) generateConcreteSuggestion(paramName string, schema types.ParamSchema, decoratorName string) string {
+	var exampleValue string
+
+	switch schema.Type {
+	case types.TypeInt:
+		// Use midpoint of range if available, not arbitrary "42"
+		if schema.Minimum != nil && schema.Maximum != nil {
+			midpoint := (*schema.Minimum + *schema.Maximum) / 2
+			exampleValue = fmt.Sprintf("%d", int(midpoint))
+		} else if schema.Minimum != nil {
+			// Use minimum + 1 for a realistic example
+			exampleValue = fmt.Sprintf("%d", int(*schema.Minimum)+1)
+		} else if schema.Maximum != nil {
+			// Use maximum - 1 for a realistic example
+			exampleValue = fmt.Sprintf("%d", int(*schema.Maximum)-1)
+		} else {
+			exampleValue = "1"
+		}
+
+	case types.TypeFloat:
+		if schema.Minimum != nil && schema.Maximum != nil {
+			midpoint := (*schema.Minimum + *schema.Maximum) / 2
+			exampleValue = fmt.Sprintf("%.1f", midpoint)
+		} else {
+			exampleValue = "1.0"
+		}
+
+	case types.TypeString:
+		if schema.Format != nil {
+			// Use format-specific examples
+			switch *schema.Format {
+			case "uri":
+				exampleValue = "\"https://example.com\""
+			case "hostname":
+				exampleValue = "\"example.com\""
+			case "ipv4":
+				exampleValue = "\"192.0.2.1\""
+			case "cidr":
+				exampleValue = "\"10.0.0.0/8\""
+			case "semver":
+				exampleValue = "\"1.0.0\""
+			case "duration":
+				exampleValue = "\"5m\""
+			default:
+				exampleValue = "\"value\""
+			}
+		} else if len(schema.Examples) > 0 && schema.Examples[0] != "" {
+			// Use first non-empty example
+			exampleValue = fmt.Sprintf("%q", schema.Examples[0])
+		} else {
+			exampleValue = "\"value\""
+		}
+
+	case types.TypeBool:
+		exampleValue = "true"
+
+	case types.TypeDuration:
+		exampleValue = "\"5m\""
+
+	case types.TypeEnum:
+		// Use first valid enum value
+		if schema.EnumSchema != nil && len(schema.EnumSchema.Values) > 0 {
+			exampleValue = fmt.Sprintf("%q", schema.EnumSchema.Values[0])
+		} else {
+			exampleValue = "\"value\""
+		}
+
+	case types.TypeObject:
+		exampleValue = "{...}"
+
+	case types.TypeArray:
+		exampleValue = "[...]"
+
+	default:
+		exampleValue = "value"
+	}
+
+	// Format suggestion based on context
+	if decoratorName != "" {
+		// Full decorator syntax for complete examples
+		return fmt.Sprintf("Use @%s(%s=%s) { ... }", decoratorName, paramName, exampleValue)
+	}
+
+	// Simple format for type mismatch errors (matches existing test expectations)
+	typeDesc := string(schema.Type)
+	if schema.Type == types.TypeEnum && schema.EnumSchema != nil && len(schema.EnumSchema.Values) > 0 {
+		return fmt.Sprintf("Use one of: %s", strings.Join(func() []string {
+			quoted := make([]string, len(schema.EnumSchema.Values))
+			for i, v := range schema.EnumSchema.Values {
+				quoted[i] = fmt.Sprintf("%q", v)
+			}
+			return quoted
+		}(), ", "))
+	}
+
+	// Use correct article (a/an) based on type
+	article := "a"
+	if typeDesc == "integer" || typeDesc == "array" || typeDesc == "object" {
+		article = "an"
+	}
+	return fmt.Sprintf("Use %s %s value like %s", article, typeDesc, exampleValue)
 }
 
 // exampleForType returns an example value for a given type

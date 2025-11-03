@@ -1138,10 +1138,16 @@ func TestDecoratorPositionalParameters(t *testing.T) {
 // TestPositionalParameters tests positional parameter support
 func TestPositionalParameters(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		wantError bool
-		errorMsg  string
+		name           string
+		input          string
+		wantError      bool
+		wantMessage    string
+		wantContext    string
+		wantSuggestion string
+		wantCode       ErrorCode
+		wantPath       string
+		wantExpected   string
+		wantGot        string
 	}{
 		// === Basic Positional ===
 		{
@@ -1191,36 +1197,54 @@ func TestPositionalParameters(t *testing.T) {
 
 		// === Edge Cases ===
 		{
-			name:      "too many positional arguments",
-			input:     `@retry(3, 2s, "linear", "extra") { echo "test" }`,
-			wantError: true,
-			errorMsg:  "too many positional arguments",
+			name:        "too many positional arguments",
+			input:       `@retry(3, 2s, "linear", "extra") { echo "test" }`,
+			wantError:   true,
+			wantMessage: "too many positional arguments",
 		},
 		{
-			name:      "duplicate parameter - positional and named",
-			input:     `@retry(3, times=5) { echo "test" }`,
-			wantError: true,
-			errorMsg:  "duplicate parameter",
+			name:        "duplicate parameter - positional and named",
+			input:       `@retry(3, times=5) { echo "test" }`,
+			wantError:   true,
+			wantMessage: "duplicate parameter 'times'",
 		},
 		{
-			name:      "named then positional fills next slot",
-			input:     `@retry(times=3, 5) { echo "test" }`,
-			wantError: true,
-			errorMsg:  "expects duration, got integer", // 5 goes to position 1 (delay), not position 0
+			name:           "named then positional fills next slot",
+			input:          `@retry(times=3, 5) { echo "test" }`,
+			wantError:      true,
+			wantMessage:    "parameter 'delay' expects duration (e.g., \"5m\", \"1h\"), got integer",
+			wantContext:    "decorator parameter",
+			wantSuggestion: "Use a duration value like \"5m\"",
+			wantCode:       ErrorCodeSchemaTypeMismatch,
+			wantPath:       "delay",
+			wantExpected:   "duration (e.g., \"5m\", \"1h\")",
+			wantGot:        "integer",
 		},
 
 		// === Type Validation ===
 		{
-			name:      "wrong type - string where int expected",
-			input:     `@retry("not-a-number", 2s) { echo "test" }`,
-			wantError: true,
-			errorMsg:  "expects integer, got string",
+			name:           "wrong type - string where int expected",
+			input:          `@retry("not-a-number", 2s) { echo "test" }`,
+			wantError:      true,
+			wantMessage:    "parameter 'times' expects integer between 1 and 100, got string",
+			wantContext:    "decorator parameter",
+			wantSuggestion: "Use an integer value like 50",
+			wantCode:       ErrorCodeSchemaTypeMismatch,
+			wantPath:       "times",
+			wantExpected:   "integer between 1 and 100",
+			wantGot:        "string",
 		},
 		{
-			name:      "wrong type - int where duration expected",
-			input:     `@retry(3, 123) { echo "test" }`,
-			wantError: true,
-			errorMsg:  "expects duration, got integer",
+			name:           "wrong type - int where duration expected",
+			input:          `@retry(3, 123) { echo "test" }`,
+			wantError:      true,
+			wantMessage:    "parameter 'delay' expects duration (e.g., \"5m\", \"1h\"), got integer",
+			wantContext:    "decorator parameter",
+			wantSuggestion: "Use a duration value like \"5m\"",
+			wantCode:       ErrorCodeSchemaTypeMismatch,
+			wantPath:       "delay",
+			wantExpected:   "duration (e.g., \"5m\", \"1h\")",
+			wantGot:        "integer",
 		},
 	}
 
@@ -1230,18 +1254,38 @@ func TestPositionalParameters(t *testing.T) {
 
 			if tt.wantError {
 				if len(tree.Errors) == 0 {
-					t.Fatalf("Expected error containing %q but got none", tt.errorMsg)
+					t.Fatal("Expected error but got none")
 				}
-				// Check error message contains expected text
-				found := false
-				for _, err := range tree.Errors {
-					if tt.errorMsg != "" && containsIgnoreCase(err.Message, tt.errorMsg) {
-						found = true
-						break
-					}
+
+				err := tree.Errors[0]
+
+				// Test complete error structure (not lazy partial tests)
+				if tt.wantMessage != "" && err.Message != tt.wantMessage {
+					t.Errorf("Message mismatch:\ngot:  %q\nwant: %q", err.Message, tt.wantMessage)
 				}
-				if !found && tt.errorMsg != "" {
-					t.Errorf("Expected error containing %q, got: %v", tt.errorMsg, tree.Errors)
+
+				if tt.wantContext != "" && err.Context != tt.wantContext {
+					t.Errorf("Context mismatch:\ngot:  %q\nwant: %q", err.Context, tt.wantContext)
+				}
+
+				if tt.wantSuggestion != "" && err.Suggestion != tt.wantSuggestion {
+					t.Errorf("Suggestion mismatch:\ngot:  %q\nwant: %q", err.Suggestion, tt.wantSuggestion)
+				}
+
+				if tt.wantCode != "" && err.Code != tt.wantCode {
+					t.Errorf("Code mismatch:\ngot:  %q\nwant: %q", err.Code, tt.wantCode)
+				}
+
+				if tt.wantPath != "" && err.Path != tt.wantPath {
+					t.Errorf("Path mismatch:\ngot:  %q\nwant: %q", err.Path, tt.wantPath)
+				}
+
+				if tt.wantExpected != "" && err.ExpectedType != tt.wantExpected {
+					t.Errorf("ExpectedType mismatch:\ngot:  %q\nwant: %q", err.ExpectedType, tt.wantExpected)
+				}
+
+				if tt.wantGot != "" && err.GotValue != tt.wantGot {
+					t.Errorf("GotValue mismatch:\ngot:  %q\nwant: %q", err.GotValue, tt.wantGot)
 				}
 			} else {
 				if len(tree.Errors) > 0 {

@@ -336,6 +336,311 @@ Error: object field 'timeout' expects duration, got integer 300
 = try: @parallel(workers=4) { ... }  // 4 is common for CPU cores
 ```
 
+## Error Code Reference
+
+**All parser schema validation error codes with examples.**
+
+Error codes are stored in `ParseError.Code` for programmatic handling (LSP, tooling, `--explain` flag). They are **not** shown in default error output to keep messages clean for humans.
+
+### SCHEMA_TYPE_MISMATCH
+
+**When**: Parameter type doesn't match schema expectation
+
+**Example**:
+```
+Error: parameter 'times' expects integer between 1 and 100, got string
+  --> test.opl:3:15
+   |
+ 3 | @retry(times="not_a_number") {
+   |               ^^^^^^^^^^^^^^
+   |
+   = try: @retry(times=50) { ... }
+```
+
+**Fields**:
+- `Code`: `SCHEMA_TYPE_MISMATCH`
+- `Path`: `times`
+- `ExpectedType`: `"integer between 1 and 100"`
+- `GotValue`: `"string"`
+
+---
+
+### SCHEMA_REQUIRED_MISSING
+
+**When**: Required parameter not provided
+
+**Example**:
+```
+Error: missing required parameter 'times'
+  --> test.opl:3:1
+   |
+ 3 | @retry {
+   | ^^^^^^
+   |
+   = try: @retry(times=3) { ... }
+```
+
+**Fields**:
+- `Code`: `SCHEMA_REQUIRED_MISSING`
+- `Path`: `times`
+- `ExpectedType`: `"integer between 1 and 100"`
+- `GotValue`: `""` (empty)
+
+---
+
+### SCHEMA_ENUM_INVALID
+
+**When**: Value not in enum list
+
+**Example**:
+```
+Error: parameter 'backoff' has invalid value "invalid"
+  --> test.opl:3:18
+   |
+ 3 | @retry(backoff="invalid") {
+   |                ^^^^^^^^^
+   |
+   = try: Use one of: "linear", "exponential", "constant"
+```
+
+**Fields**:
+- `Code`: `SCHEMA_ENUM_INVALID`
+- `Path`: `backoff`
+- `ExpectedType`: `"one of [linear exponential constant]"`
+- `GotValue`: `"\"invalid\""`
+
+---
+
+### SCHEMA_ENUM_DEPRECATED
+
+**When**: Using deprecated enum value (warning, not error)
+
+**Example**:
+```
+Warning: parameter 'strategy' value "old_name" is deprecated
+  --> test.opl:3:20
+   |
+ 3 | @config(strategy="old_name") {
+   |                  ^^^^^^^^^^
+   |
+   = help: Use "new_name" instead
+```
+
+**Fields**:
+- `Code`: `SCHEMA_ENUM_DEPRECATED`
+- `Path`: `strategy`
+- `ExpectedType`: `"one of [new_name other_value]"`
+- `GotValue`: `"\"old_name\""`
+
+---
+
+### SCHEMA_RANGE_VIOLATION
+
+**When**: Number outside min/max range
+
+**Example**:
+```
+Error: invalid value for parameter 'times'
+  --> test.opl:3:15
+   |
+ 3 | @retry(times=200) {
+   |               ^^^
+   |
+   = help: Value must be between 1 and 100
+```
+
+**Fields**:
+- `Code`: `SCHEMA_RANGE_VIOLATION`
+- `Path`: `times`
+- `ExpectedType`: `"integer between 1 and 100"`
+- `GotValue`: `"200"`
+
+---
+
+### SCHEMA_PATTERN_MISMATCH
+
+**When**: String doesn't match regex pattern
+
+**Example**:
+```
+Error: invalid value for parameter 'name'
+  --> test.opl:3:14
+   |
+ 3 | @config(name="123-invalid") {
+   |              ^^^^^^^^^^^^^
+   |
+   = help: Must match pattern /^[a-z][a-z0-9-]*$/
+```
+
+**Fields**:
+- `Code`: `SCHEMA_PATTERN_MISMATCH`
+- `Path`: `name`
+- `ExpectedType`: `"string matching /^[a-z][a-z0-9-]*$/"`
+- `GotValue`: `"\"123-invalid\""`
+
+---
+
+### SCHEMA_FORMAT_INVALID
+
+**When**: String doesn't match typed format (URI, CIDR, semver, etc.)
+
+**Example**:
+```
+Error: invalid value for parameter 'endpoint'
+  --> test.opl:3:19
+   |
+ 3 | @api(endpoint="not-a-uri") {
+   |               ^^^^^^^^^^^^
+   |
+   = help: Must be valid URI format
+   = try: @api(endpoint="https://example.com")
+```
+
+**Fields**:
+- `Code`: `SCHEMA_FORMAT_INVALID`
+- `Path`: `endpoint`
+- `ExpectedType`: `"uri format"`
+- `GotValue`: `"\"not-a-uri\""`
+
+**Supported formats**: `uri`, `hostname`, `ipv4`, `cidr`, `semver`, `duration`
+
+---
+
+### SCHEMA_INT_REQUIRED
+
+**When**: Integer required but got float
+
+**Example**:
+```
+Error: invalid value for parameter 'times'
+  --> test.opl:3:15
+   |
+ 3 | @retry(times=3.5) {
+   |               ^^^
+   |
+   = help: Must be an integer (no decimal point)
+   = try: @retry(times=3)
+```
+
+**Fields**:
+- `Code`: `SCHEMA_INT_REQUIRED`
+- `Path`: `times`
+- `ExpectedType`: `"integer"`
+- `GotValue`: `"3.5"`
+
+---
+
+### SCHEMA_LENGTH_VIOLATION
+
+**When**: String or array length outside min/max
+
+**Example**:
+```
+Error: invalid value for parameter 'name'
+  --> test.opl:3:14
+   |
+ 3 | @config(name="ab") {
+   |              ^^^^
+   |
+   = help: Length must be between 3 and 50 characters
+```
+
+**Fields**:
+- `Code`: `SCHEMA_LENGTH_VIOLATION`
+- `Path`: `name`
+- `ExpectedType`: `"string (length 3-50)"`
+- `GotValue`: `"\"ab\""`
+
+---
+
+### SCHEMA_ADDITIONAL_PROP
+
+**When**: Object has unexpected field (closed objects by default)
+
+**Example**:
+```
+Error: invalid value for parameter 'config'
+  --> test.opl:3:16
+   |
+ 3 | @deploy(config={timeout: "5m", unknown: "value"}) {
+   |                                ^^^^^^^^^^^^^^^^
+   |
+   = help: Object does not allow additional properties
+   = note: Valid fields: timeout, retries, backoff
+```
+
+**Fields**:
+- `Code`: `SCHEMA_ADDITIONAL_PROP`
+- `Path`: `config.unknown`
+- `ExpectedType`: `"object"`
+- `GotValue`: `"{timeout: \"5m\", unknown: \"value\"}"`
+
+---
+
+### SCHEMA_ARRAY_ELEMENT_TYPE
+
+**When**: Array element has wrong type
+
+**Example**:
+```
+Error: invalid value for parameter 'ports'
+  --> test.opl:3:15
+   |
+ 3 | @expose(ports=[80, "443", 8080]) {
+   |                    ^^^^^
+   |
+   = help: Array elements must be integers
+```
+
+**Fields**:
+- `Code`: `SCHEMA_ARRAY_ELEMENT_TYPE`
+- `Path`: `ports[1]`
+- `ExpectedType`: `"integer"`
+- `GotValue`: `"\"443\""`
+
+---
+
+### SCHEMA_OBJECT_FIELD_TYPE
+
+**When**: Object field has wrong type
+
+**Example**:
+```
+Error: object field 'timeout' expects duration, got integer
+  --> test.opl:3:16
+   |
+ 3 | @config(settings={timeout: 300}) {
+   |                            ^^^
+   |
+   = try: @config(settings={timeout: "5m"})
+```
+
+**Fields**:
+- `Code`: `SCHEMA_OBJECT_FIELD_TYPE`
+- `Path`: `settings.timeout`
+- `ExpectedType`: `"duration"`
+- `GotValue`: `"300"`
+
+---
+
+### Error Code Usage
+
+**For humans (default output)**:
+- ❌ Don't show error codes in default output
+- ✅ Show clear, actionable messages with examples
+
+**For machines (LSP, tooling)**:
+- ✅ Use `ParseError.Code` for programmatic handling
+- ✅ Use `ParseError.Path` for navigation
+- ✅ Use `ParseError.ExpectedType` and `ParseError.GotValue` for IDE hints
+
+**For debugging (`--explain` flag, Phase 9)**:
+- ✅ Show full error structure including code
+- ✅ Show detailed explanation of error code
+- ✅ Show links to documentation
+
+---
+
 ## References
 
 - [Rust API Guidelines - Error Messages](https://rust-lang.github.io/api-guidelines/interoperability.html#error-types-are-meaningful-and-well-behaved-c-good-err)
