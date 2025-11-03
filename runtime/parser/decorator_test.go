@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/aledsdavies/opal/core/decorator"
@@ -1351,11 +1350,6 @@ func TestPositionalParametersNesting(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Helper function for case-insensitive substring check
-func containsIgnoreCase(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // TestDecoratorObjectParameter tests parsing object literals as parameter values

@@ -2677,22 +2677,6 @@ func (p *parser) generateConcreteSuggestion(paramName string, schema types.Param
 	return fmt.Sprintf("Use %s %s value like %s", article, typeDesc, exampleValue)
 }
 
-// exampleForType returns an example value for a given type
-func (p *parser) exampleForType(typ types.ParamType) string {
-	switch typ {
-	case types.TypeString:
-		return "\"value\""
-	case types.TypeInt:
-		return "42"
-	case types.TypeFloat:
-		return "3.14"
-	case types.TypeBool:
-		return "true"
-	default:
-		return "value"
-	}
-}
-
 // validateRequiredParameters checks that all required parameters were provided
 func (p *parser) validateRequiredParameters(decoratorName string, schema types.DecoratorSchema, providedParams map[string]bool) {
 	for paramName, paramSchema := range schema.Parameters {
