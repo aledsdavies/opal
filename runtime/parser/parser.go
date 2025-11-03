@@ -1901,6 +1901,8 @@ func (p *parser) decoratorParamsWithValidation(decoratorName string, schema type
 			// Validate type if parameter exists in schema
 			if paramExists {
 				p.validateParameterType(paramName, paramSchema, valueToken)
+				// Validate constraints (min/max, pattern, format) for literal values
+				p.validateParameterConstraints(paramName, paramSchema, valueToken)
 			}
 
 			p.token() // Consume value
@@ -2026,6 +2028,103 @@ func (p *parser) tokenToParamType(tokType lexer.TokenType) types.ParamType {
 		return types.TypeString
 	default:
 		return types.TypeString
+	}
+}
+
+// validateParameterConstraints validates parameter constraints (min/max, pattern, format)
+// for literal values. Skips validation for variables and expressions.
+func (p *parser) validateParameterConstraints(paramName string, paramSchema types.ParamSchema, valueToken lexer.Token) {
+	// Only validate literal values (skip variables, expressions)
+	if valueToken.Type == lexer.IDENTIFIER || valueToken.Type == lexer.AT {
+		return // Skip validation for variables/expressions
+	}
+
+	// Extract literal value from token
+	value, ok := p.extractLiteralValue(valueToken)
+	if !ok {
+		return // Not a literal, skip validation
+	}
+
+	// Use core/types validator for constraint validation
+	validator := types.NewValidator(types.DefaultValidationConfig())
+
+	if err := validator.ValidateParams(&paramSchema, value); err != nil {
+		// Convert validation error to parser error with rich context
+		p.errorWithDetails(
+			fmt.Sprintf("invalid value for parameter '%s'", paramName),
+			"decorator parameter",
+			p.suggestionFromSchema(paramSchema, err),
+		)
+	}
+}
+
+// extractLiteralValue extracts a Go value from a literal token
+// Returns (value, true) for literals, (nil, false) for non-literals
+func (p *parser) extractLiteralValue(tok lexer.Token) (any, bool) {
+	switch tok.Type {
+	case lexer.STRING:
+		// Remove quotes from string literal
+		value := string(tok.Text)
+		if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+			value = value[1 : len(value)-1]
+		}
+		return value, true
+	case lexer.INTEGER:
+		// Parse integer
+		var val int64
+		fmt.Sscanf(string(tok.Text), "%d", &val)
+		return int(val), true
+	case lexer.FLOAT:
+		// Parse float
+		var val float64
+		fmt.Sscanf(string(tok.Text), "%f", &val)
+		return val, true
+	case lexer.BOOLEAN:
+		// Parse boolean
+		value := string(tok.Text)
+		return value == "true", true
+	case lexer.DURATION:
+		// Duration is validated as a string by the validator
+		return string(tok.Text), true
+	default:
+		return nil, false
+	}
+}
+
+// suggestionFromSchema generates a helpful suggestion based on schema constraints
+func (p *parser) suggestionFromSchema(schema types.ParamSchema, err error) string {
+	switch schema.Type {
+	case types.TypeInt:
+		if schema.Minimum != nil && schema.Maximum != nil {
+			return fmt.Sprintf("Use an integer between %v and %v", *schema.Minimum, *schema.Maximum)
+		} else if schema.Minimum != nil {
+			return fmt.Sprintf("Use an integer >= %v", *schema.Minimum)
+		} else if schema.Maximum != nil {
+			return fmt.Sprintf("Use an integer <= %v", *schema.Maximum)
+		}
+		return "Use a valid integer"
+	case types.TypeFloat:
+		if schema.Minimum != nil && schema.Maximum != nil {
+			return fmt.Sprintf("Use a number between %v and %v", *schema.Minimum, *schema.Maximum)
+		}
+		return "Use a valid number"
+	case types.TypeString:
+		if schema.Pattern != nil {
+			return fmt.Sprintf("Use a string matching pattern: %s", *schema.Pattern)
+		}
+		if schema.Format != nil {
+			return fmt.Sprintf("Use a valid %s", *schema.Format)
+		}
+		return "Use a valid string"
+	case types.TypeDuration:
+		return "Use a duration like \"5m\", \"1h\", or \"30s\""
+	case types.TypeEnum:
+		if schema.EnumSchema != nil && len(schema.EnumSchema.Values) > 0 {
+			return fmt.Sprintf("Use one of: %v", schema.EnumSchema.Values)
+		}
+		return "Use a valid enum value"
+	default:
+		return err.Error()
 	}
 }
 

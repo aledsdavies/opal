@@ -463,7 +463,13 @@ func (tree *ParseTree) getSchema(decoratorName string) (schema types.DecoratorSc
 
 // validateDecoratorParameters validates literal parameter values against decorator schemas
 func (v *semanticValidator) validateDecoratorParameters() {
-	// TODO: Implement parameter validation
+	// Walk through events to find decorator calls with parameters
+	// For now, this is a placeholder - full implementation coming in next commit
 	// Phase 5: Validate literal values (int, string, bool, duration, enum)
 	// Skip variables and expressions (validated at runtime)
+
+	// TODO: Extract decorator calls from events
+	// TODO: Extract literal parameter values
+	// TODO: Validate against schemas using core/types validator
+	// TODO: Generate rich error messages
 }
