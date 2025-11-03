@@ -416,7 +416,7 @@ func TestDecoratorRequiredParameters(t *testing.T) {
 			input:          `@env`,
 			wantError:      true,
 			wantMessage:    "missing required parameter 'property'",
-			wantContext:    "decorator parameters",
+			wantContext:    "decorator parameter",
 			wantSuggestion: "Use dot syntax like @env.HOME or provide property=\"HOME\"",
 		},
 		{
@@ -424,7 +424,7 @@ func TestDecoratorRequiredParameters(t *testing.T) {
 			input:          `@env()`,
 			wantError:      true,
 			wantMessage:    "missing required parameter 'property'",
-			wantContext:    "decorator parameters",
+			wantContext:    "decorator parameter",
 			wantSuggestion: "Use dot syntax like @env.HOME or provide property=\"HOME\"",
 		},
 	}

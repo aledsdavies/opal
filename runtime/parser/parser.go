@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aledsdavies/opal/core/decorator"
@@ -2084,9 +2085,10 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 		if !validValue && deprecatedValues != nil {
 			if replacement, isDeprecated := deprecatedValues[value]; isDeprecated {
 				// Accept deprecated value but emit a warning
-				p.warningWithDetails(
+				p.warningSchema(
+					ErrorCodeSchemaEnumDeprecated,
+					paramName,
 					fmt.Sprintf("parameter '%s' uses deprecated value %q", paramName, value),
-					"decorator parameter",
 					fmt.Sprintf("Use %q instead", replacement),
 				)
 				validValue = true // Accept it, just warn
@@ -2094,20 +2096,31 @@ func (p *parser) validateParameterType(paramName string, paramSchema types.Param
 		}
 
 		if !validValue {
-			p.errorWithDetails(
+			// Format enum values for display
+			enumStrs := make([]string, len(enumValues))
+			for i, v := range enumValues {
+				enumStrs[i] = fmt.Sprintf("%q", v)
+			}
+			p.errorSchema(
+				ErrorCodeSchemaEnumInvalid,
+				paramName,
 				fmt.Sprintf("parameter '%s' has invalid value %q", paramName, value),
-				"decorator parameter",
-				fmt.Sprintf("Allowed values: %v", enumValues),
+				fmt.Sprintf("Use one of: %s", strings.Join(enumStrs, ", ")),
+				fmt.Sprintf("one of %v", enumValues),
+				fmt.Sprintf("%q", value),
 			)
 		}
 		return // Enum validation complete
 	}
 
 	if actualType != expectedType {
-		p.errorWithDetails(
+		p.errorSchema(
+			ErrorCodeSchemaTypeMismatch,
+			paramName,
 			fmt.Sprintf("parameter '%s' expects %s, got %s", paramName, expectedType, actualType),
-			"decorator parameter",
 			fmt.Sprintf("Use a %s value like %s", expectedType, p.exampleForType(expectedType)),
+			string(expectedType),
+			string(actualType),
 		)
 	}
 }
@@ -2152,10 +2165,14 @@ func (p *parser) validateParameterConstraints(paramName string, paramSchema type
 
 	if err := validator.ValidateParams(&paramSchema, value); err != nil {
 		// Convert validation error to parser error with rich context
-		p.errorWithDetails(
+		code := p.errorCodeFromValidationError(err, paramSchema)
+		p.errorSchema(
+			code,
+			paramName,
 			fmt.Sprintf("invalid value for parameter '%s'", paramName),
-			"decorator parameter",
 			p.suggestionFromSchema(paramSchema, err),
+			p.expectedTypeFromSchema(paramSchema),
+			fmt.Sprintf("%v", value),
 		)
 	}
 }
@@ -2180,10 +2197,14 @@ func (p *parser) validateComplexLiteral(paramName string, paramSchema types.Para
 
 	// Validate the value against the schema
 	if err := validator.ValidateParams(&paramSchema, value); err != nil {
-		p.errorWithDetails(
+		code := p.errorCodeFromValidationError(err, paramSchema)
+		p.errorSchema(
+			code,
+			paramName,
 			fmt.Sprintf("invalid value for parameter '%s'", paramName),
-			"decorator parameter",
 			p.suggestionFromSchema(paramSchema, err),
+			p.expectedTypeFromSchema(paramSchema),
+			fmt.Sprintf("%v", value),
 		)
 	}
 }
@@ -2465,6 +2486,90 @@ func (p *parser) suggestionFromSchema(schema types.ParamSchema, err error) strin
 	}
 }
 
+// errorCodeFromValidationError determines the appropriate error code from a validation error
+func (p *parser) errorCodeFromValidationError(err error, schema types.ParamSchema) ErrorCode {
+	errMsg := err.Error()
+
+	// Check error message patterns to determine error code
+	if strings.Contains(errMsg, "minimum") || strings.Contains(errMsg, "maximum") {
+		return ErrorCodeSchemaRangeViolation
+	}
+	if strings.Contains(errMsg, "pattern") {
+		return ErrorCodeSchemaPatternMismatch
+	}
+	if strings.Contains(errMsg, "format") {
+		return ErrorCodeSchemaFormatInvalid
+	}
+	if strings.Contains(errMsg, "minLength") || strings.Contains(errMsg, "maxLength") {
+		return ErrorCodeSchemaLengthViolation
+	}
+	if strings.Contains(errMsg, "additionalProperties") {
+		return ErrorCodeSchemaAdditionalProp
+	}
+	if strings.Contains(errMsg, "type") {
+		if schema.Type == types.TypeObject {
+			return ErrorCodeSchemaObjectFieldType
+		}
+		if schema.Type == types.TypeArray {
+			return ErrorCodeSchemaArrayElementType
+		}
+		return ErrorCodeSchemaTypeMismatch
+	}
+
+	// Default to range violation for numeric constraints
+	if schema.Type == types.TypeInt || schema.Type == types.TypeFloat {
+		return ErrorCodeSchemaRangeViolation
+	}
+
+	return ErrorCodeSchemaTypeMismatch
+}
+
+// expectedTypeFromSchema generates a human-readable expected type description
+func (p *parser) expectedTypeFromSchema(schema types.ParamSchema) string {
+	switch schema.Type {
+	case types.TypeInt:
+		if schema.Minimum != nil && schema.Maximum != nil {
+			return fmt.Sprintf("integer between %v and %v", *schema.Minimum, *schema.Maximum)
+		} else if schema.Minimum != nil {
+			return fmt.Sprintf("integer >= %v", *schema.Minimum)
+		} else if schema.Maximum != nil {
+			return fmt.Sprintf("integer <= %v", *schema.Maximum)
+		}
+		return "integer"
+	case types.TypeFloat:
+		if schema.Minimum != nil && schema.Maximum != nil {
+			return fmt.Sprintf("number between %v and %v", *schema.Minimum, *schema.Maximum)
+		}
+		return "number"
+	case types.TypeString:
+		if schema.Pattern != nil {
+			return fmt.Sprintf("string matching /%s/", *schema.Pattern)
+		}
+		if schema.Format != nil {
+			return fmt.Sprintf("%s format", *schema.Format)
+		}
+		if schema.MinLength != nil && schema.MaxLength != nil {
+			return fmt.Sprintf("string (length %d-%d)", *schema.MinLength, *schema.MaxLength)
+		}
+		return "string"
+	case types.TypeBool:
+		return "boolean"
+	case types.TypeDuration:
+		return "duration (e.g., \"5m\", \"1h\")"
+	case types.TypeEnum:
+		if schema.EnumSchema != nil && len(schema.EnumSchema.Values) > 0 {
+			return fmt.Sprintf("one of %v", schema.EnumSchema.Values)
+		}
+		return "enum value"
+	case types.TypeObject:
+		return "object"
+	case types.TypeArray:
+		return "array"
+	default:
+		return string(schema.Type)
+	}
+}
+
 // exampleForType returns an example value for a given type
 func (p *parser) exampleForType(typ types.ParamType) string {
 	switch typ {
@@ -2495,10 +2600,13 @@ func (p *parser) validateRequiredParameters(decoratorName string, schema types.D
 				suggestion = fmt.Sprintf("Use dot syntax like @%s.%s or provide %s=\"%s\"", decoratorName, exampleValue, paramName, exampleValue)
 			}
 
-			p.errorWithDetails(
+			p.errorSchema(
+				ErrorCodeSchemaRequiredMissing,
+				paramName,
 				fmt.Sprintf("missing required parameter '%s'", paramName),
-				"decorator parameters",
 				suggestion,
+				p.expectedTypeFromSchema(paramSchema),
+				"(not provided)",
 			)
 		}
 	}
@@ -2554,6 +2662,33 @@ func (p *parser) warningWithDetails(message, context, suggestion string) {
 		Message:    message,
 		Context:    context,
 		Suggestion: suggestion,
+	})
+}
+
+// errorSchema adds a schema validation error with structured error code
+func (p *parser) errorSchema(code ErrorCode, paramName string, message, suggestion string, expectedType, gotValue string) {
+	tok := p.current()
+	p.errors = append(p.errors, ParseError{
+		Position:     tok.Position,
+		Message:      message,
+		Context:      "decorator parameter",
+		Suggestion:   suggestion,
+		Code:         code,
+		Path:         paramName,
+		ExpectedType: expectedType,
+		GotValue:     gotValue,
+	})
+}
+
+// warningSchema adds a schema validation warning with structured error code
+func (p *parser) warningSchema(code ErrorCode, paramName string, message, suggestion string) {
+	tok := p.current()
+	p.warnings = append(p.warnings, ParseWarning{
+		Position:   tok.Position,
+		Message:    message,
+		Context:    "decorator parameter",
+		Suggestion: suggestion,
+		Note:       fmt.Sprintf("Code: %s, Parameter: %s", code, paramName),
 	})
 }
 

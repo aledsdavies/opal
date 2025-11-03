@@ -107,6 +107,25 @@ const (
 	NodeArrayLiteral  // Array literal: [expr, expr, ...]
 )
 
+// ErrorCode represents a structured error code for schema validation errors
+type ErrorCode string
+
+const (
+	// Schema validation error codes
+	ErrorCodeSchemaTypeMismatch     ErrorCode = "SCHEMA_TYPE_MISMATCH"      // Parameter type doesn't match schema
+	ErrorCodeSchemaRequiredMissing  ErrorCode = "SCHEMA_REQUIRED_MISSING"   // Required parameter not provided
+	ErrorCodeSchemaEnumInvalid      ErrorCode = "SCHEMA_ENUM_INVALID"       // Value not in enum list
+	ErrorCodeSchemaEnumDeprecated   ErrorCode = "SCHEMA_ENUM_DEPRECATED"    // Using deprecated enum value
+	ErrorCodeSchemaPatternMismatch  ErrorCode = "SCHEMA_PATTERN_MISMATCH"   // String doesn't match regex pattern
+	ErrorCodeSchemaAdditionalProp   ErrorCode = "SCHEMA_ADDITIONAL_PROP"    // Object has unexpected field
+	ErrorCodeSchemaRangeViolation   ErrorCode = "SCHEMA_RANGE_VIOLATION"    // Number outside min/max range
+	ErrorCodeSchemaIntRequired      ErrorCode = "SCHEMA_INT_REQUIRED"       // Integer required but got float
+	ErrorCodeSchemaFormatInvalid    ErrorCode = "SCHEMA_FORMAT_INVALID"     // String doesn't match format (URI, CIDR, etc.)
+	ErrorCodeSchemaLengthViolation  ErrorCode = "SCHEMA_LENGTH_VIOLATION"   // String/array length outside min/max
+	ErrorCodeSchemaArrayElementType ErrorCode = "SCHEMA_ARRAY_ELEMENT_TYPE" // Array element has wrong type
+	ErrorCodeSchemaObjectFieldType  ErrorCode = "SCHEMA_OBJECT_FIELD_TYPE"  // Object field has wrong type
+)
+
 // ParseError represents a parse error with rich context for user-friendly messages
 type ParseError struct {
 	// Location
@@ -125,6 +144,12 @@ type ParseError struct {
 	Suggestion string // Actionable fix: "Add ')' after the last parameter"
 	Example    string // Valid syntax: "fun greet(name) {}"
 	Note       string // Optional explanation for learning
+
+	// Schema validation (optional, only for schema errors)
+	Code         ErrorCode // Structured error code (e.g., SCHEMA_TYPE_MISMATCH)
+	Path         string    // JSON path to invalid value (e.g., "settings.timeout")
+	ExpectedType string    // Expected type/value (e.g., "integer between 1 and 100")
+	GotValue     string    // Actual value received (e.g., "200")
 }
 
 // ParseWarning represents a non-fatal parse warning with helpful context
