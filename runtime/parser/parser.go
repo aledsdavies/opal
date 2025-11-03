@@ -1989,7 +1989,14 @@ func (p *parser) decoratorParamsWithValidation(decoratorName string, schema type
 		// Check if this is a simple literal or a complex expression (object/array)
 		if p.at(lexer.LBRACE) || p.at(lexer.LSQUARE) {
 			// Complex expression (object or array literal)
+			// Track event position before parsing
+			eventStartPos := len(p.events)
 			p.expression()
+
+			// Validate complex literal if parameter exists in schema
+			if paramExists {
+				p.validateComplexLiteral(paramName, paramSchema, eventStartPos)
+			}
 		} else if p.at(lexer.STRING) || p.at(lexer.INTEGER) || p.at(lexer.FLOAT) ||
 			p.at(lexer.BOOLEAN) || p.at(lexer.DURATION) || p.at(lexer.IDENTIFIER) {
 
@@ -2151,6 +2158,241 @@ func (p *parser) validateParameterConstraints(paramName string, paramSchema type
 			p.suggestionFromSchema(paramSchema, err),
 		)
 	}
+}
+
+// validateComplexLiteral validates object and array literals against schema
+func (p *parser) validateComplexLiteral(paramName string, paramSchema types.ParamSchema, eventStartPos int) {
+	// Extract value from events
+	value, ok := p.extractComplexValue(eventStartPos)
+	if !ok {
+		// Not a literal (contains variables/expressions), skip validation
+		return
+	}
+
+	// Validate using core/types validator
+	validator := types.NewValidator(&types.ValidationConfig{
+		MaxSchemaSize:  1024 * 1024, // 1MB
+		MaxSchemaDepth: 10,
+		AllowRemoteRef: false,
+		EnableCache:    true,
+		MaxCacheSize:   100,
+	})
+
+	// Validate the value against the schema
+	if err := validator.ValidateParams(&paramSchema, value); err != nil {
+		p.errorWithDetails(
+			fmt.Sprintf("invalid value for parameter '%s'", paramName),
+			"decorator parameter",
+			p.suggestionFromSchema(paramSchema, err),
+		)
+	}
+}
+
+// extractComplexValue extracts a Go value from object/array literal events
+// Returns (value, true) for pure literals, (nil, false) if it contains variables/expressions
+func (p *parser) extractComplexValue(eventStartPos int) (any, bool) {
+	if eventStartPos >= len(p.events) {
+		return nil, false
+	}
+
+	// Start from the first event after eventStartPos
+	evt := p.events[eventStartPos]
+	if evt.Kind != EventOpen {
+		return nil, false
+	}
+
+	nodeKind := NodeKind(evt.Data)
+	switch nodeKind {
+	case NodeObjectLiteral:
+		return p.extractObjectLiteral(eventStartPos)
+	case NodeArrayLiteral:
+		return p.extractArrayLiteral(eventStartPos)
+	default:
+		return nil, false
+	}
+}
+
+// extractObjectLiteral extracts a map[string]any from object literal events
+func (p *parser) extractObjectLiteral(startPos int) (any, bool) {
+	result := make(map[string]any)
+	pos := startPos + 1 // Skip NodeObjectLiteral open event
+	depth := 1
+
+	for pos < len(p.events) && depth > 0 {
+		evt := p.events[pos]
+
+		if evt.Kind == EventOpen {
+			nodeKind := NodeKind(evt.Data)
+
+			if nodeKind == NodeObjectField {
+				// Extract field name and value
+				fieldName, fieldValue, fieldOk, newPos := p.extractObjectField(pos)
+				if !fieldOk {
+					return nil, false // Contains non-literal
+				}
+				result[fieldName] = fieldValue
+				pos = newPos
+				continue
+			} else if nodeKind == NodeObjectLiteral {
+				depth++
+			}
+		} else if evt.Kind == EventClose {
+			nodeKind := NodeKind(evt.Data)
+			if nodeKind == NodeObjectLiteral {
+				depth--
+				if depth == 0 {
+					return result, true
+				}
+			}
+		}
+
+		pos++
+	}
+
+	return result, true
+}
+
+// extractObjectField extracts a single object field (name and value)
+// Returns (name, value, ok, nextPos)
+func (p *parser) extractObjectField(startPos int) (string, any, bool, int) {
+	pos := startPos + 1 // Skip NodeObjectField open event
+
+	// Next should be the field name token
+	if pos >= len(p.events) {
+		return "", nil, false, pos
+	}
+
+	nameEvt := p.events[pos]
+	if nameEvt.Kind != EventToken {
+		return "", nil, false, pos
+	}
+
+	nameToken := p.tokens[nameEvt.Data]
+	fieldName := string(nameToken.Text)
+	pos++
+
+	// Skip colon token
+	if pos < len(p.events) && p.events[pos].Kind == EventToken {
+		pos++
+	}
+
+	// Extract value
+	if pos >= len(p.events) {
+		return "", nil, false, pos
+	}
+
+	valueEvt := p.events[pos]
+	var fieldValue any
+	var ok bool
+
+	if valueEvt.Kind == EventToken {
+		// Simple literal value
+		valueToken := p.tokens[valueEvt.Data]
+		fieldValue, ok = p.extractLiteralValue(valueToken)
+		if !ok {
+			return "", nil, false, pos
+		}
+		pos++
+	} else if valueEvt.Kind == EventOpen {
+		// Nested object or array
+		nodeKind := NodeKind(valueEvt.Data)
+		if nodeKind == NodeObjectLiteral {
+			fieldValue, ok = p.extractObjectLiteral(pos)
+		} else if nodeKind == NodeArrayLiteral {
+			fieldValue, ok = p.extractArrayLiteral(pos)
+		} else {
+			return "", nil, false, pos
+		}
+
+		if !ok {
+			return "", nil, false, pos
+		}
+
+		// Skip to close event
+		depth := 1
+		pos++
+		for pos < len(p.events) && depth > 0 {
+			evt := p.events[pos]
+			if evt.Kind == EventOpen {
+				depth++
+			} else if evt.Kind == EventClose {
+				depth--
+			}
+			pos++
+		}
+	}
+
+	// Skip to NodeObjectField close event
+	for pos < len(p.events) {
+		evt := p.events[pos]
+		if evt.Kind == EventClose && NodeKind(evt.Data) == NodeObjectField {
+			pos++
+			break
+		}
+		pos++
+	}
+
+	return fieldName, fieldValue, true, pos
+}
+
+// extractArrayLiteral extracts a []any from array literal events
+func (p *parser) extractArrayLiteral(startPos int) (any, bool) {
+	result := make([]any, 0)
+	pos := startPos + 1 // Skip NodeArrayLiteral open event
+	depth := 1
+
+	for pos < len(p.events) && depth > 0 {
+		evt := p.events[pos]
+
+		if evt.Kind == EventOpen {
+			nodeKind := NodeKind(evt.Data)
+
+			if nodeKind == NodeArrayLiteral {
+				depth++
+			} else if nodeKind == NodeObjectLiteral {
+				// Nested object
+				objValue, ok := p.extractObjectLiteral(pos)
+				if !ok {
+					return nil, false
+				}
+				result = append(result, objValue)
+
+				// Skip to close event
+				nestedDepth := 1
+				pos++
+				for pos < len(p.events) && nestedDepth > 0 {
+					e := p.events[pos]
+					if e.Kind == EventOpen {
+						nestedDepth++
+					} else if e.Kind == EventClose {
+						nestedDepth--
+					}
+					pos++
+				}
+				continue
+			}
+		} else if evt.Kind == EventClose {
+			nodeKind := NodeKind(evt.Data)
+			if nodeKind == NodeArrayLiteral {
+				depth--
+				if depth == 0 {
+					return result, true
+				}
+			}
+		} else if evt.Kind == EventToken && depth == 1 {
+			// Element token (not inside nested structure)
+			token := p.tokens[evt.Data]
+			value, ok := p.extractLiteralValue(token)
+			if !ok {
+				return nil, false
+			}
+			result = append(result, value)
+		}
+
+		pos++
+	}
+
+	return result, true
 }
 
 // extractLiteralValue extracts a Go value from a literal token

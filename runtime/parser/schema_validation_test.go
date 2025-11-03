@@ -81,3 +81,109 @@ func TestSchemaValidation_EnumValues(t *testing.T) {
 		})
 	}
 }
+
+// TestSchemaValidation_ObjectLiteral tests object literal validation
+func TestSchemaValidation_ObjectLiteral(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		wantError bool
+		errorMsg  string
+	}{
+		{
+			name:      "valid_object",
+			source:    `@config.myconfig(settings={timeout: "5m"})`,
+			wantError: false,
+		},
+		{
+			name:      "object_with_multiple_fields",
+			source:    `@config.myconfig(settings={timeout: "5m", retries: 3})`,
+			wantError: false,
+		},
+		{
+			name:      "empty_object",
+			source:    `@config.myconfig(settings={})`,
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := Parse([]byte(tt.source))
+			hasError := len(tree.Errors) > 0
+
+			if hasError != tt.wantError {
+				t.Errorf("wantError=%v, got errors=%v", tt.wantError, tree.Errors)
+				for _, err := range tree.Errors {
+					t.Logf("  Error: %s", err.Message)
+				}
+			}
+
+			if tt.wantError && len(tree.Errors) > 0 {
+				found := false
+				for _, err := range tree.Errors {
+					if strings.Contains(err.Message, tt.errorMsg) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected error containing %q, got: %v", tt.errorMsg, tree.Errors)
+				}
+			}
+		})
+	}
+}
+
+// TestSchemaValidation_ArrayLiteral tests array literal validation
+func TestSchemaValidation_ArrayLiteral(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		wantError bool
+		errorMsg  string
+	}{
+		{
+			name:      "valid_array",
+			source:    `@deploy.production(hosts=["web1", "web2"])`,
+			wantError: false,
+		},
+		{
+			name:      "array_of_integers",
+			source:    `@deploy.staging(hosts=[8080, 8081])`,
+			wantError: false,
+		},
+		{
+			name:      "empty_array",
+			source:    `@deploy.test(hosts=[])`,
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := Parse([]byte(tt.source))
+			hasError := len(tree.Errors) > 0
+
+			if hasError != tt.wantError {
+				t.Errorf("wantError=%v, got errors=%v", tt.wantError, tree.Errors)
+				for _, err := range tree.Errors {
+					t.Logf("  Error: %s", err.Message)
+				}
+			}
+
+			if tt.wantError && len(tree.Errors) > 0 {
+				found := false
+				for _, err := range tree.Errors {
+					if strings.Contains(err.Message, tt.errorMsg) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected error containing %q, got: %v", tt.errorMsg, tree.Errors)
+				}
+			}
+		})
+	}
+}
