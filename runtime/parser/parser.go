@@ -2309,7 +2309,8 @@ func (p *parser) extractObjectField(startPos int) (string, any, bool, int) {
 	var fieldValue any
 	var ok bool
 
-	if valueEvt.Kind == EventToken {
+	switch valueEvt.Kind {
+	case EventToken:
 		// Simple literal value
 		valueToken := p.tokens[valueEvt.Data]
 		fieldValue, ok = p.extractLiteralValue(valueToken)
@@ -2317,14 +2318,15 @@ func (p *parser) extractObjectField(startPos int) (string, any, bool, int) {
 			return "", nil, false, pos
 		}
 		pos++
-	} else if valueEvt.Kind == EventOpen {
+	case EventOpen:
 		// Nested object or array
 		nodeKind := NodeKind(valueEvt.Data)
-		if nodeKind == NodeObjectLiteral {
+		switch nodeKind {
+		case NodeObjectLiteral:
 			fieldValue, ok = p.extractObjectLiteral(pos)
-		} else if nodeKind == NodeArrayLiteral {
+		case NodeArrayLiteral:
 			fieldValue, ok = p.extractArrayLiteral(pos)
-		} else {
+		default:
 			return "", nil, false, pos
 		}
 
@@ -2337,9 +2339,10 @@ func (p *parser) extractObjectField(startPos int) (string, any, bool, int) {
 		pos++
 		for pos < len(p.events) && depth > 0 {
 			evt := p.events[pos]
-			if evt.Kind == EventOpen {
+			switch evt.Kind {
+			case EventOpen:
 				depth++
-			} else if evt.Kind == EventClose {
+			case EventClose:
 				depth--
 			}
 			pos++
@@ -2386,9 +2389,10 @@ func (p *parser) extractArrayLiteral(startPos int) (any, bool) {
 				pos++
 				for pos < len(p.events) && nestedDepth > 0 {
 					e := p.events[pos]
-					if e.Kind == EventOpen {
+					switch e.Kind {
+					case EventOpen:
 						nestedDepth++
-					} else if e.Kind == EventClose {
+					case EventClose:
 						nestedDepth--
 					}
 					pos++
@@ -2433,12 +2437,12 @@ func (p *parser) extractLiteralValue(tok lexer.Token) (any, bool) {
 	case lexer.INTEGER:
 		// Parse integer
 		var val int64
-		fmt.Sscanf(string(tok.Text), "%d", &val)
+		_, _ = fmt.Sscanf(string(tok.Text), "%d", &val)
 		return int(val), true
 	case lexer.FLOAT:
 		// Parse float
 		var val float64
-		fmt.Sscanf(string(tok.Text), "%f", &val)
+		_, _ = fmt.Sscanf(string(tok.Text), "%f", &val)
 		return val, true
 	case lexer.BOOLEAN:
 		// Parse boolean
