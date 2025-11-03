@@ -100,6 +100,11 @@ const (
 	// Output redirection - added at end to preserve existing node numbers
 	NodeRedirect       // Redirect operator: > or >>
 	NodeRedirectTarget // Redirect target (path, variable, or decorator)
+
+	// Object and array literals - added at end to preserve existing node numbers
+	NodeObjectLiteral // Object literal: {key: value, ...}
+	NodeObjectField   // Object field: key: value
+	NodeArrayLiteral  // Array literal: [expr, expr, ...]
 )
 
 // ParseError represents a parse error with rich context for user-friendly messages

@@ -1524,6 +1524,14 @@ func (p *parser) primary() {
 		p.token()
 		p.finish(kind)
 
+	case p.at(lexer.LSQUARE):
+		// Array literal: [expr, expr, ...]
+		p.arrayLiteral()
+
+	case p.at(lexer.LBRACE):
+		// Object literal: {key: value, ...}
+		p.objectLiteral()
+
 	default:
 		// Unexpected token - report error and create error node
 		p.errorUnexpected("expression")
@@ -1532,6 +1540,88 @@ func (p *parser) primary() {
 			p.advance()
 		}
 	}
+}
+
+// arrayLiteral parses an array literal: [expr, expr, ...]
+func (p *parser) arrayLiteral() {
+	kind := p.start(NodeArrayLiteral)
+	p.expect(lexer.LSQUARE, "array literal") // Consume '['
+
+	// Parse elements
+	for !p.at(lexer.RSQUARE) && !p.at(lexer.EOF) {
+		// Parse element expression
+		p.expression()
+
+		// Check for comma or end of array
+		if p.at(lexer.COMMA) {
+			p.token() // Consume comma
+			// Allow trailing comma before ]
+			if p.at(lexer.RSQUARE) {
+				break
+			}
+		} else if !p.at(lexer.RSQUARE) {
+			// Expected comma or ]
+			p.errorWithDetails("expected ',' or ']' in array literal", "array literal", "")
+			break
+		}
+	}
+
+	p.expect(lexer.RSQUARE, "array literal") // Consume ']'
+	p.finish(kind)
+}
+
+// objectLiteral parses an object literal: {key: value, ...}
+func (p *parser) objectLiteral() {
+	kind := p.start(NodeObjectLiteral)
+	p.expect(lexer.LBRACE, "object literal") // Consume '{'
+
+	// Parse fields
+	for !p.at(lexer.RBRACE) && !p.at(lexer.EOF) {
+		// Parse field: key: value
+		p.objectField()
+
+		// Check for comma or end of object
+		if p.at(lexer.COMMA) {
+			p.token() // Consume comma
+			// Allow trailing comma before }
+			if p.at(lexer.RBRACE) {
+				break
+			}
+		} else if !p.at(lexer.RBRACE) {
+			// Expected comma or }
+			p.errorWithDetails("expected ',' or '}' in object literal", "object literal", "")
+			break
+		}
+	}
+
+	p.expect(lexer.RBRACE, "object literal") // Consume '}'
+	p.finish(kind)
+}
+
+// objectField parses a single object field: key: value
+func (p *parser) objectField() {
+	kind := p.start(NodeObjectField)
+
+	// Parse key (must be identifier)
+	if !p.at(lexer.IDENTIFIER) {
+		p.errorExpected(lexer.IDENTIFIER, "object field")
+		p.finish(kind)
+		return
+	}
+	p.token() // Consume identifier
+
+	// Expect colon
+	if !p.at(lexer.COLON) {
+		p.errorExpected(lexer.COLON, "object field")
+		p.finish(kind)
+		return
+	}
+	p.token() // Consume ':'
+
+	// Parse value expression
+	p.expression()
+
+	p.finish(kind)
 }
 
 // decorator parses @identifier.property
@@ -1893,9 +1983,14 @@ func (p *parser) decoratorParamsWithValidation(decoratorName string, schema type
 			}
 		}
 
-		// Parse and validate parameter value type
+		// Parse and validate parameter value
 		valueToken := p.current()
-		if p.at(lexer.STRING) || p.at(lexer.INTEGER) || p.at(lexer.FLOAT) ||
+
+		// Check if this is a simple literal or a complex expression (object/array)
+		if p.at(lexer.LBRACE) || p.at(lexer.LSQUARE) {
+			// Complex expression (object or array literal)
+			p.expression()
+		} else if p.at(lexer.STRING) || p.at(lexer.INTEGER) || p.at(lexer.FLOAT) ||
 			p.at(lexer.BOOLEAN) || p.at(lexer.DURATION) || p.at(lexer.IDENTIFIER) {
 
 			// Validate type if parameter exists in schema

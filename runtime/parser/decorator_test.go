@@ -4,9 +4,61 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aledsdavies/opal/core/decorator"
+	"github.com/aledsdavies/opal/core/types"
 	_ "github.com/aledsdavies/opal/runtime/decorators" // Register built-in decorators
 	"github.com/google/go-cmp/cmp"
 )
+
+// Test decorator implementations for parser tests
+
+// ConfigDecorator is a test decorator that accepts object parameters
+type ConfigDecorator struct{}
+
+func (d *ConfigDecorator) Descriptor() decorator.Descriptor {
+	return decorator.NewDescriptor("config").
+		Summary("Test configuration decorator").
+		Roles(decorator.RoleProvider).
+		PrimaryParamString("name", "Configuration name").
+		Done().
+		ParamObject("settings", "Configuration settings").
+		Done().
+		Returns(types.TypeString, "Configuration value").
+		Build()
+}
+
+func (d *ConfigDecorator) Resolve(ctx decorator.ValueEvalContext, call decorator.ValueCall) (any, error) {
+	return "test", nil
+}
+
+// DeployDecorator is a test decorator that accepts array parameters
+type DeployDecorator struct{}
+
+func (d *DeployDecorator) Descriptor() decorator.Descriptor {
+	return decorator.NewDescriptor("deploy").
+		Summary("Test deployment decorator").
+		Roles(decorator.RoleWrapper).
+		PrimaryParamString("target", "Deployment target").
+		Done().
+		ParamArray("hosts", "List of hosts").
+		ElementType(types.TypeString).
+		Done().
+		Build()
+}
+
+func (d *DeployDecorator) Wrap(next decorator.ExecNode, params map[string]any) decorator.ExecNode {
+	return next // Pass through for test
+}
+
+func init() {
+	// Register test decorators for parser tests
+	if err := decorator.Register("config", &ConfigDecorator{}); err != nil {
+		panic(err)
+	}
+	if err := decorator.Register("deploy", &DeployDecorator{}); err != nil {
+		panic(err)
+	}
+}
 
 // TestDecoratorDetection tests that parser recognizes registered decorators
 func TestDecoratorDetection(t *testing.T) {
@@ -1260,4 +1312,98 @@ func TestPositionalParametersNesting(t *testing.T) {
 // Helper function for case-insensitive substring check
 func containsIgnoreCase(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// TestDecoratorObjectParameter tests parsing object literals as parameter values
+func TestDecoratorObjectParameter(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "simple object",
+			input: `@config.myconfig(settings={timeout: "5m"})`,
+		},
+		{
+			name:  "object with multiple fields",
+			input: `@config.myconfig(settings={timeout: "5m", retries: 3})`,
+		},
+		{
+			name:  "empty object",
+			input: `@config.myconfig(settings={})`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := Parse([]byte(tt.input))
+
+			if len(tree.Errors) > 0 {
+				t.Errorf("unexpected parse errors:")
+				for _, err := range tree.Errors {
+					t.Logf("  %s", err.Message)
+				}
+			}
+
+			// Verify we have a decorator node
+			hasDecorator := false
+			for _, evt := range tree.Events {
+				if evt.Kind == EventOpen && NodeKind(evt.Data) == NodeDecorator {
+					hasDecorator = true
+					break
+				}
+			}
+
+			if !hasDecorator {
+				t.Error("expected decorator node")
+			}
+		})
+	}
+}
+
+// TestDecoratorArrayParameter tests parsing array literals as parameter values
+func TestDecoratorArrayParameter(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "simple array",
+			input: `@deploy.production(hosts=["web1", "web2"])`,
+		},
+		{
+			name:  "array of integers",
+			input: `@deploy.staging(hosts=[8080, 8081])`,
+		},
+		{
+			name:  "empty array",
+			input: `@deploy.test(hosts=[])`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := Parse([]byte(tt.input))
+
+			if len(tree.Errors) > 0 {
+				t.Errorf("unexpected parse errors:")
+				for _, err := range tree.Errors {
+					t.Logf("  %s", err.Message)
+				}
+			}
+
+			// Verify we have a decorator node
+			hasDecorator := false
+			for _, evt := range tree.Events {
+				if evt.Kind == EventOpen && NodeKind(evt.Data) == NodeDecorator {
+					hasDecorator = true
+					break
+				}
+			}
+
+			if !hasDecorator {
+				t.Error("expected decorator node")
+			}
+		})
+	}
 }
