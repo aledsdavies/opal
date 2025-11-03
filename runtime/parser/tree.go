@@ -156,6 +156,7 @@ type semanticValidator struct {
 func (v *semanticValidator) validate() {
 	v.validatePipeOperators()
 	v.validateRedirectOperators()
+	v.validateDecoratorParameters()
 	v.tree.Errors = append(v.tree.Errors, v.errors...)
 }
 
@@ -458,4 +459,11 @@ func (tree *ParseTree) getSchema(decoratorName string) (schema types.DecoratorSc
 
 	// Fall back to old registry for backward compatibility
 	return types.Global().GetSchema(decoratorName)
+}
+
+// validateDecoratorParameters validates literal parameter values against decorator schemas
+func (v *semanticValidator) validateDecoratorParameters() {
+	// TODO: Implement parameter validation
+	// Phase 5: Validate literal values (int, string, bool, duration, enum)
+	// Skip variables and expressions (validated at runtime)
 }
