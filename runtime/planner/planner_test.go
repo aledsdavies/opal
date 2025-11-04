@@ -901,3 +901,86 @@ func TestRedirectWithChaining(t *testing.T) {
 		})
 	}
 }
+
+// TestPlannerInitialization tests that planner initializes with empty vars map and telemetry
+func TestPlannerInitialization(t *testing.T) {
+	source := []byte(`echo "test"`)
+
+	// Parse
+	tree := parser.Parse(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	// Plan with telemetry enabled
+	result, err := planner.PlanWithObservability(tree.Events, tree.Tokens, planner.Config{
+		Telemetry: planner.TelemetryBasic,
+	})
+
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	// Verify telemetry was initialized
+	if result.Telemetry == nil {
+		t.Fatal("Expected telemetry to be initialized")
+	}
+
+	// Verify DecoratorResolutions map is initialized
+	if result.Telemetry.DecoratorResolutions == nil {
+		t.Error("Expected DecoratorResolutions map to be initialized")
+	}
+
+	// Verify map is empty (no decorator resolutions yet)
+	if len(result.Telemetry.DecoratorResolutions) != 0 {
+		t.Errorf("Expected empty DecoratorResolutions map, got %d entries", len(result.Telemetry.DecoratorResolutions))
+	}
+
+	// Verify basic telemetry is collected
+	if result.Telemetry.EventCount == 0 {
+		t.Error("Expected EventCount > 0")
+	}
+
+	if result.Telemetry.StepCount == 0 {
+		t.Error("Expected StepCount > 0")
+	}
+}
+
+// TestVarDeclBlockPlanning tests planning with var block declarations
+func TestVarDeclBlockPlanning(t *testing.T) {
+	source := []byte(`var (
+	apiUrl = "https://api.example.com"
+	replicas = 3
+)
+echo "test"`)
+
+	// Parse
+	tree := parser.Parse(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	// Plan with telemetry
+	result, err := planner.PlanWithObservability(tree.Events, tree.Tokens, planner.Config{
+		Telemetry: planner.TelemetryBasic,
+	})
+
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	// Verify telemetry tracked 2 var resolutions
+	if result.Telemetry.DecoratorResolutions["@var"] == nil {
+		t.Fatal("Expected @var decorator resolutions to be tracked")
+	}
+
+	if result.Telemetry.DecoratorResolutions["@var"].TotalCalls != 2 {
+		t.Errorf("Expected 2 @var resolutions, got %d", 
+			result.Telemetry.DecoratorResolutions["@var"].TotalCalls)
+	}
+
+	// Verify plan has 1 step (the echo command, var decls don't create steps)
+	if len(result.Plan.Steps) != 1 {
+		t.Errorf("Expected 1 step, got %d", len(result.Plan.Steps))
+	}
+}
