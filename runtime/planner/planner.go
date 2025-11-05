@@ -229,29 +229,6 @@ func (p *planner) recordDecoratorResolution(decoratorName string) {
 	metrics.TotalCalls++
 }
 
-// recordDecoratorBatch records a batch resolution
-func (p *planner) recordDecoratorBatch(decoratorName string, batchSize int, duration time.Duration) {
-	if p.telemetry == nil {
-		return
-	}
-	metrics := p.getOrCreateMetrics(decoratorName)
-	metrics.TotalCalls += batchSize
-	metrics.BatchCalls++
-	metrics.BatchSizes = append(metrics.BatchSizes, batchSize)
-	if p.config.Telemetry >= TelemetryTiming {
-		metrics.TotalTime += duration
-	}
-}
-
-// recordDecoratorSkipped records a skipped decorator call (lazy evaluation)
-func (p *planner) recordDecoratorSkipped(decoratorName string) {
-	if p.telemetry == nil {
-		return
-	}
-	metrics := p.getOrCreateMetrics(decoratorName)
-	metrics.SkippedCalls++
-}
-
 // getOrCreateMetrics gets or creates metrics for a decorator
 func (p *planner) getOrCreateMetrics(decoratorName string) *DecoratorResolutionMetrics {
 	if p.telemetry.DecoratorResolutions[decoratorName] == nil {

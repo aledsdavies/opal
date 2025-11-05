@@ -916,7 +916,6 @@ func TestPlannerInitialization(t *testing.T) {
 	result, err := planner.PlanWithObservability(tree.Events, tree.Tokens, planner.Config{
 		Telemetry: planner.TelemetryBasic,
 	})
-
 	if err != nil {
 		t.Fatalf("Planning failed: %v", err)
 	}
@@ -964,7 +963,6 @@ echo "test"`)
 	result, err := planner.PlanWithObservability(tree.Events, tree.Tokens, planner.Config{
 		Telemetry: planner.TelemetryBasic,
 	})
-
 	if err != nil {
 		t.Fatalf("Planning failed: %v", err)
 	}
@@ -975,7 +973,7 @@ echo "test"`)
 	}
 
 	if result.Telemetry.DecoratorResolutions["@var"].TotalCalls != 2 {
-		t.Errorf("Expected 2 @var resolutions, got %d", 
+		t.Errorf("Expected 2 @var resolutions, got %d",
 			result.Telemetry.DecoratorResolutions["@var"].TotalCalls)
 	}
 
