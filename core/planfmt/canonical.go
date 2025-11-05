@@ -33,10 +33,12 @@ type CanonicalStep struct {
 	Tree CanonicalNode
 }
 
-// CanonicalSecret represents a secret in canonical form
+// CanonicalSecret represents a secret in canonical form.
+// DisplayID is intentionally omitted - canonical hash is structure-only.
+// Including DisplayID would create circular dependency: DisplayIDs need plan_hash,
+// but plan_hash can't depend on DisplayIDs that don't exist yet.
 type CanonicalSecret struct {
-	Key       string
-	DisplayID string
+	Key string // Secret key only, never the DisplayID
 }
 
 // CanonicalNode is a union type for execution tree nodes in canonical form
@@ -99,11 +101,12 @@ func (p *Plan) Canonicalize() (*CanonicalPlan, error) {
 	}
 
 	// Canonicalize secrets (sorted by key for determinism)
+	// Only Key is copied because canonical hash must be structure-only.
+	// DisplayIDs are generated using this hash, so they cannot be included here.
 	secrets := make([]CanonicalSecret, len(p.Secrets))
 	for i := range p.Secrets {
 		secrets[i] = CanonicalSecret{
-			Key:       p.Secrets[i].Key,
-			DisplayID: p.Secrets[i].DisplayID,
+			Key: p.Secrets[i].Key,
 		}
 	}
 	sort.Slice(secrets, func(i, j int) bool {

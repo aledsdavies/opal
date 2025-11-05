@@ -201,6 +201,77 @@ func TestCanonicalTargetUnlinkability(t *testing.T) {
 	}
 }
 
+// TestCanonicalHashIgnoresDisplayIDs verifies that canonical hash is structure-only
+// The canonical hash must be stable whether DisplayIDs exist or not, since it's used
+// as input to DisplayID generation. If it included DisplayIDs, we'd have circular dependency.
+func TestCanonicalHashIgnoresDisplayIDs(t *testing.T) {
+	// Plan without DisplayIDs (fresh from parsing)
+	planWithoutIDs := &planfmt.Plan{
+		Target: "deploy",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo test"}},
+					},
+				},
+			},
+		},
+		Secrets: []planfmt.Secret{
+			{Key: "api_key", DisplayID: ""}, // No DisplayID yet
+		},
+	}
+
+	// Same plan WITH DisplayIDs (after ID generation)
+	planWithIDs := &planfmt.Plan{
+		Target: "deploy",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "echo test"}},
+					},
+				},
+			},
+		},
+		Secrets: []planfmt.Secret{
+			{Key: "api_key", DisplayID: "opal:s:ABC123"}, // DisplayID populated
+		},
+	}
+
+	// Canonicalize both
+	canonical1, err := planWithoutIDs.Canonicalize()
+	if err != nil {
+		t.Fatalf("canonicalization without IDs failed: %v", err)
+	}
+
+	canonical2, err := planWithIDs.Canonicalize()
+	if err != nil {
+		t.Fatalf("canonicalization with IDs failed: %v", err)
+	}
+
+	// Hash both
+	hash1, err := canonical1.Hash()
+	if err != nil {
+		t.Fatalf("hash without IDs failed: %v", err)
+	}
+
+	hash2, err := canonical2.Hash()
+	if err != nil {
+		t.Fatalf("hash with IDs failed: %v", err)
+	}
+
+	// CRITICAL: Hashes MUST be identical (canonical hash is structure-only)
+	if hash1 != hash2 {
+		t.Errorf("Canonical hash changed when DisplayIDs added - breaks deterministic ID generation!\nWithout IDs: %x\nWith IDs: %x", hash1, hash2)
+		t.Errorf("This violates the architecture: canonical hash must be structure-only to break circular dependency")
+	}
+}
+
 // Helper function for byte comparison
 func bytesEqual(a, b []byte) bool {
 	return bytes.Equal(a, b)
