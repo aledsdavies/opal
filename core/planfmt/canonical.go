@@ -71,8 +71,12 @@ type CanonicalArg struct {
 }
 
 // Canonicalize converts a Plan into canonical form for deterministic hashing.
-// This ensures that the same logical plan always produces the same hash.
+// Sorts args before canonicalization to ensure same structure produces same hash.
 func (p *Plan) Canonicalize() (*CanonicalPlan, error) {
+	// Sort args first to ensure deterministic ordering
+	// Args may come from Go maps with non-deterministic iteration order
+	p.sortArgs()
+
 	cp := &CanonicalPlan{
 		Version: 1, // Canonical format version
 		Steps:   make([]CanonicalStep, len(p.Steps)),
