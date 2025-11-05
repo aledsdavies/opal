@@ -583,62 +583,11 @@ func (p *planner) planVarDecl() error {
 	// Skip TOKEN(=)
 	p.pos++
 
-	// Parse the value expression (for now, only support literals)
-	if p.events[p.pos].Kind != parser.EventOpen || parser.NodeKind(p.events[p.pos].Data) != parser.NodeLiteral {
-		return &PlanError{
-			Message:     "variable declarations currently only support literal values",
-			Context:     fmt.Sprintf("parsing variable '%s'", varName),
-			EventPos:    p.pos,
-			TotalEvents: len(p.events),
-			Suggestion:  "Use a string, number, or boolean literal",
-			Example:     fmt.Sprintf(`var %s = "value"`, varName),
-		}
+	// Parse the value expression (supports literals, objects, arrays)
+	value, err := p.parseVarValue(varName)
+	if err != nil {
+		return err
 	}
-	p.pos++ // Move past OPEN Literal
-
-	// Get literal value
-	if p.events[p.pos].Kind != parser.EventToken {
-		return &PlanError{
-			Message:     "expected literal value",
-			Context:     fmt.Sprintf("parsing variable '%s'", varName),
-			EventPos:    p.pos,
-			TotalEvents: len(p.events),
-		}
-	}
-	valueTokenIdx := p.events[p.pos].Data
-	valueToken := p.tokens[valueTokenIdx]
-
-	// Parse literal value based on token type
-	var value any
-	switch valueToken.Type {
-	case lexer.STRING:
-		// Remove quotes from string literal
-		value = strings.Trim(string(valueToken.Text), `"'`)
-	case lexer.INTEGER, lexer.FLOAT, lexer.SCIENTIFIC:
-		// Store as string for now (proper number parsing can be added later)
-		value = string(valueToken.Text)
-	case lexer.BOOLEAN:
-		// Boolean literal
-		value = string(valueToken.Text)
-	case lexer.IDENTIFIER:
-		// Handle identifiers (could be true/false if not recognized as BOOLEAN)
-		text := string(valueToken.Text)
-		if text == "true" || text == "false" {
-			value = text
-		} else {
-			value = text
-		}
-	default:
-		value = string(valueToken.Text)
-	}
-
-	p.pos++ // Move past TOKEN(value)
-
-	// Skip CLOSE Literal
-	p.pos++
-
-	// Skip CLOSE VarDecl
-	p.pos++
 
 	// Store variable
 	p.vars[varName] = value
@@ -948,4 +897,220 @@ func getTokenText(token lexer.Token) string {
 	default:
 		return ""
 	}
+}
+
+// parseVarValue parses a variable value expression (literal, object, or array)
+func (p *planner) parseVarValue(varName string) (any, error) {
+	if p.pos >= len(p.events) {
+		return nil, &PlanError{
+			Message:     "unexpected end of input",
+			Context:     fmt.Sprintf("parsing variable '%s' value", varName),
+			EventPos:    p.pos,
+			TotalEvents: len(p.events),
+		}
+	}
+
+	evt := p.events[p.pos]
+	if evt.Kind != parser.EventOpen {
+		return nil, &PlanError{
+			Message:     "expected expression",
+			Context:     fmt.Sprintf("parsing variable '%s' value", varName),
+			EventPos:    p.pos,
+			TotalEvents: len(p.events),
+		}
+	}
+
+	nodeKind := parser.NodeKind(evt.Data)
+
+	switch nodeKind {
+	case parser.NodeLiteral:
+		return p.parseLiteralValue(varName)
+	case parser.NodeObjectLiteral:
+		return p.parseObjectLiteral(varName)
+	case parser.NodeArrayLiteral:
+		return p.parseArrayLiteral(varName)
+	default:
+		return nil, &PlanError{
+			Message:     fmt.Sprintf("unsupported expression type for variable value: %v", nodeKind),
+			Context:     fmt.Sprintf("parsing variable '%s'", varName),
+			EventPos:    p.pos,
+			TotalEvents: len(p.events),
+			Suggestion:  "Use a literal, object {}, or array []",
+			Example:     `var config = {timeout: "5m", retries: 3}`,
+		}
+	}
+}
+
+// parseLiteralValue parses a simple literal value
+func (p *planner) parseLiteralValue(varName string) (any, error) {
+	p.pos++ // Move past OPEN Literal
+
+	// Get literal value
+	if p.pos >= len(p.events) || p.events[p.pos].Kind != parser.EventToken {
+		return nil, &PlanError{
+			Message:     "expected literal value",
+			Context:     fmt.Sprintf("parsing variable '%s'", varName),
+			EventPos:    p.pos,
+			TotalEvents: len(p.events),
+		}
+	}
+
+	valueTokenIdx := p.events[p.pos].Data
+	valueToken := p.tokens[valueTokenIdx]
+
+	// Parse literal value based on token type
+	var value any
+	switch valueToken.Type {
+	case lexer.STRING:
+		// Remove quotes from string literal
+		value = strings.Trim(string(valueToken.Text), `"'`)
+	case lexer.INTEGER, lexer.FLOAT, lexer.SCIENTIFIC:
+		// Store as string for now (proper number parsing can be added later)
+		value = string(valueToken.Text)
+	case lexer.BOOLEAN:
+		// Boolean literal
+		value = string(valueToken.Text)
+	case lexer.IDENTIFIER:
+		// Handle identifiers (could be true/false if not recognized as BOOLEAN)
+		text := string(valueToken.Text)
+		if text == "true" || text == "false" {
+			value = text
+		} else {
+			value = text
+		}
+	default:
+		value = string(valueToken.Text)
+	}
+
+	p.pos++ // Move past TOKEN(value)
+
+	// Skip CLOSE Literal
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
+		p.pos++
+	}
+
+	// Skip CLOSE VarDecl
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
+		p.pos++
+	}
+
+	return value, nil
+}
+
+// parseObjectLiteral parses an object literal {key: value, ...}
+func (p *planner) parseObjectLiteral(varName string) (any, error) {
+	p.pos++ // Move past OPEN ObjectLiteral
+
+	obj := make(map[string]any)
+	depth := 1
+
+	for p.pos < len(p.events) && depth > 0 {
+		evt := p.events[p.pos]
+
+		if evt.Kind == parser.EventOpen {
+			nodeKind := parser.NodeKind(evt.Data)
+			if nodeKind == parser.NodeObjectField {
+				// Parse field: key: value
+				p.pos++ // Move past OPEN ObjectField
+
+				// Get key (should be TOKEN)
+				if p.pos >= len(p.events) || p.events[p.pos].Kind != parser.EventToken {
+					return nil, &PlanError{
+						Message:     "expected object field key",
+						Context:     fmt.Sprintf("parsing variable '%s' object", varName),
+						EventPos:    p.pos,
+						TotalEvents: len(p.events),
+					}
+				}
+				keyTokenIdx := p.events[p.pos].Data
+				key := string(p.tokens[keyTokenIdx].Text)
+				p.pos++ // Move past key token
+
+				// Skip colon token
+				if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventToken {
+					p.pos++
+				}
+
+				// Parse value (recursive - could be literal, object, or array)
+				fieldValue, err := p.parseVarValue(fmt.Sprintf("%s.%s", varName, key))
+				if err != nil {
+					return nil, err
+				}
+
+				obj[key] = fieldValue
+
+				// Skip CLOSE ObjectField
+				if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
+					p.pos++
+				}
+			} else {
+				depth++
+				p.pos++
+			}
+		} else if evt.Kind == parser.EventClose {
+			depth--
+			if depth == 0 {
+				p.pos++ // Move past CLOSE ObjectLiteral
+				break
+			}
+			p.pos++
+		} else {
+			p.pos++
+		}
+	}
+
+	// Skip CLOSE VarDecl
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
+		p.pos++
+	}
+
+	return obj, nil
+}
+
+// parseArrayLiteral parses an array literal [expr, expr, ...]
+func (p *planner) parseArrayLiteral(varName string) (any, error) {
+	p.pos++ // Move past OPEN ArrayLiteral
+
+	arr := make([]any, 0)
+	depth := 1
+	elementIndex := 0
+
+	for p.pos < len(p.events) && depth > 0 {
+		evt := p.events[p.pos]
+
+		if evt.Kind == parser.EventOpen {
+			nodeKind := parser.NodeKind(evt.Data)
+
+			// Check if this is an element expression
+			if nodeKind == parser.NodeLiteral || nodeKind == parser.NodeObjectLiteral || nodeKind == parser.NodeArrayLiteral {
+				// Parse element (recursive)
+				elementValue, err := p.parseVarValue(fmt.Sprintf("%s[%d]", varName, elementIndex))
+				if err != nil {
+					return nil, err
+				}
+				arr = append(arr, elementValue)
+				elementIndex++
+			} else {
+				depth++
+				p.pos++
+			}
+		} else if evt.Kind == parser.EventClose {
+			depth--
+			if depth == 0 {
+				p.pos++ // Move past CLOSE ArrayLiteral
+				break
+			}
+			p.pos++
+		} else {
+			// Skip commas and other tokens
+			p.pos++
+		}
+	}
+
+	// Skip CLOSE VarDecl
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
+		p.pos++
+	}
+
+	return arr, nil
 }
