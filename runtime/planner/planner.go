@@ -130,6 +130,44 @@ func (e *PlanError) Error() string {
 	return b.String()
 }
 
+// CrossSessionLeakageError prevents session-sensitive variables from crossing session boundaries.
+// Follows the parser error format for consistency.
+type CrossSessionLeakageError struct {
+	VarName       string // Variable name (e.g., "LOCAL_HOME")
+	VarOrigin     string // How it was resolved (e.g., "@env.HOME")
+	SourceSession string // Where it was resolved (e.g., "local")
+	TargetSession string // Where it was used (e.g., "ssh:server1")
+}
+
+func (e *CrossSessionLeakageError) Error() string {
+	var b strings.Builder
+
+	// Error header (Rust-style)
+	fmt.Fprintf(&b, "Error: Cross-session variable leakage\n")
+	fmt.Fprintf(&b, "  --> Variable '%s' cannot cross from %s to %s\n",
+		e.VarName, e.SourceSession, e.TargetSession)
+	fmt.Fprintf(&b, "   |\n")
+
+	// Details
+	fmt.Fprintf(&b, "   | Variable:  %s\n", e.VarName)
+	fmt.Fprintf(&b, "   | Origin:    %s\n", e.VarOrigin)
+	fmt.Fprintf(&b, "   | Resolved:  %s session\n", e.SourceSession)
+	fmt.Fprintf(&b, "   | Used in:   %s session\n", e.TargetSession)
+	fmt.Fprintf(&b, "   |\n")
+
+	// Suggestion
+	fmt.Fprintf(&b, "   = Suggestion: Resolve inside the target session\n")
+	fmt.Fprintf(&b, "   = Example:\n")
+	fmt.Fprintf(&b, "       @ssh(host=\"server\") {\n")
+	fmt.Fprintf(&b, "           var REMOTE_VALUE = %s\n", e.VarOrigin)
+	fmt.Fprintf(&b, "           echo \"$REMOTE_VALUE\"\n")
+	fmt.Fprintf(&b, "       }\n")
+	fmt.Fprintf(&b, "   = Note: Session-sensitive values (@env, @file.read) cannot cross boundaries.\n")
+	fmt.Fprintf(&b, "           Use literals or @random.uuid for session-agnostic values.\n")
+
+	return b.String()
+}
+
 // Plan consumes parser events and generates an execution plan.
 func Plan(events []parser.Event, tokens []lexer.Token, config Config) (*planfmt.Plan, error) {
 	result, err := PlanWithObservability(events, tokens, config)
@@ -160,14 +198,16 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 	}
 
 	p := &planner{
-		events:      events,
-		tokens:      tokens,
-		config:      config,
-		pos:         0,
-		stepID:      1,
-		vars:        make(map[string]any),
-		telemetry:   telemetry,
-		debugEvents: debugEvents,
+		events:           events,
+		tokens:           tokens,
+		config:           config,
+		pos:              0,
+		stepID:           1,
+		vars:             make(map[string]any),
+		varMetadata:      make(map[string]VarMetadata),
+		currentSessionID: "local", // Start in local session
+		telemetry:        telemetry,
+		debugEvents:      debugEvents,
 	}
 
 	plan, err := p.plan()
@@ -190,6 +230,14 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 	}, nil
 }
 
+// VarMetadata tracks metadata for plan-time variables
+type VarMetadata struct {
+	Value            any
+	SessionID        string // "local", "ssh:hostname", "docker:container-id"
+	Origin           string // "@env.HOME", "@file.read('/etc/config')", "literal"
+	SessionSensitive bool   // true if value varies by session/transport
+}
+
 // planner holds state during planning
 type planner struct {
 	events []parser.Event
@@ -200,7 +248,11 @@ type planner struct {
 	stepID uint64 // Next step ID to assign
 
 	// Variable resolution
-	vars map[string]any // Plan-time variable store
+	vars        map[string]any         // Plan-time variable store (values only)
+	varMetadata map[string]VarMetadata // Plan-time variable metadata (session tracking)
+
+	// Session tracking for cross-session leakage prevention
+	currentSessionID string // Current session context during AST walk
 
 	// Observability
 	telemetry   *PlanTelemetry

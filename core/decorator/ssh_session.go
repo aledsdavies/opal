@@ -254,6 +254,12 @@ func (s *SSHSession) Cwd() string {
 	return strings.TrimSpace(stdout.String())
 }
 
+// ID returns the session identifier for SSH sessions.
+// Format: "ssh:hostname" to distinguish from local and other SSH sessions.
+func (s *SSHSession) ID() string {
+	return "ssh:" + s.host
+}
+
 // Close closes the SSH connection.
 func (s *SSHSession) Close() error {
 	return s.client.Close()
@@ -388,6 +394,11 @@ func (s *SSHSessionWithEnv) Cwd() string {
 		return s.cwd
 	}
 	return s.base.Cwd()
+}
+
+// ID returns the session identifier, delegating to the base SSH session.
+func (s *SSHSessionWithEnv) ID() string {
+	return s.base.ID()
 }
 
 func (s *SSHSessionWithEnv) Close() error {

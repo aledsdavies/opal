@@ -248,6 +248,11 @@ func (m *mockSession) Cwd() string {
 	return ""
 }
 
+// ID returns a mock session identifier for testing.
+func (m *mockSession) ID() string {
+	return "mock"
+}
+
 func (m *mockSession) Close() error {
 	m.closed = true
 	return nil
