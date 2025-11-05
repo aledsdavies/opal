@@ -12,6 +12,9 @@ import (
 // It uses placeholders instead of DisplayIDs to break the circular dependency
 // between DisplayID generation and plan hash computation.
 //
+// Includes Target to ensure different commands (deploy vs destroy) produce
+// different hashes, maintaining unlinkability across semantically different plans.
+//
 // Two-pass canonicalization:
 //  1. Build canonical form with placeholders
 //  2. Compute plan hash from canonical form
@@ -19,6 +22,7 @@ import (
 //  4. Substitute DisplayIDs into plan
 type CanonicalPlan struct {
 	Version uint8             // Canonical format version (for forward compatibility)
+	Target  string            // Command/function being executed (ensures deploy != destroy)
 	Steps   []CanonicalStep   // Steps in canonical form
 	Secrets []CanonicalSecret // Secrets in canonical form
 }
@@ -72,13 +76,15 @@ type CanonicalArg struct {
 
 // Canonicalize converts a Plan into canonical form for deterministic hashing.
 // Sorts args before canonicalization to ensure same structure produces same hash.
+// Includes Target to ensure different commands produce different hashes.
 func (p *Plan) Canonicalize() (*CanonicalPlan, error) {
 	// Sort args first to ensure deterministic ordering
 	// Args may come from Go maps with non-deterministic iteration order
 	p.sortArgs()
 
 	cp := &CanonicalPlan{
-		Version: 1, // Canonical format version
+		Version: 1,        // Canonical format version
+		Target:  p.Target, // Include target to distinguish deploy vs destroy
 		Steps:   make([]CanonicalStep, len(p.Steps)),
 		Secrets: make([]CanonicalSecret, len(p.Secrets)),
 	}

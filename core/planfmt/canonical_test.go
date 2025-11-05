@@ -142,6 +142,65 @@ func TestCanonicalVersion(t *testing.T) {
 	t.Logf("Canonical version: %d", canonical.Version)
 }
 
+// TestCanonicalTargetUnlinkability verifies that different targets produce different hashes
+// This ensures deploy and destroy commands with identical steps are unlinkable
+func TestCanonicalTargetUnlinkability(t *testing.T) {
+	// Deploy plan
+	deploy := &planfmt.Plan{
+		Target: "deploy",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "kubectl apply"}},
+					},
+				},
+			},
+		},
+	}
+
+	// Destroy plan with identical steps but different target
+	destroy := &planfmt.Plan{
+		Target: "destroy",
+		Steps: []planfmt.Step{
+			{
+				ID: 1,
+				Tree: &planfmt.CommandNode{
+					Decorator: "@shell",
+					Args: []planfmt.Arg{
+						{Key: "command", Val: planfmt.Value{Kind: planfmt.ValueString, Str: "kubectl apply"}},
+					},
+				},
+			},
+		},
+	}
+
+	// Both should produce different canonical hashes
+	hash1, err := deploy.Canonicalize()
+	if err != nil {
+		t.Fatalf("deploy canonicalization failed: %v", err)
+	}
+	bytes1, err := hash1.MarshalBinary()
+	if err != nil {
+		t.Fatalf("deploy marshal failed: %v", err)
+	}
+
+	hash2, err := destroy.Canonicalize()
+	if err != nil {
+		t.Fatalf("destroy canonicalization failed: %v", err)
+	}
+	bytes2, err := hash2.MarshalBinary()
+	if err != nil {
+		t.Fatalf("destroy marshal failed: %v", err)
+	}
+
+	if bytesEqual(bytes1, bytes2) {
+		t.Errorf("Different targets produced same canonical hash - deploy and destroy should be unlinkable\ndeploy: %x\ndestroy: %x", bytes1, bytes2)
+	}
+}
+
 // Helper function for byte comparison
 func bytesEqual(a, b []byte) bool {
 	return bytes.Equal(a, b)
