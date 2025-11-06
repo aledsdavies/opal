@@ -641,8 +641,17 @@ func (p *planner) planVarDecl() error {
 		return err
 	}
 
-	// Store variable
+	// Store variable value
 	p.vars[varName] = value
+
+	// Store variable metadata for cross-session tracking
+	// Literals are session-agnostic (can be used in any session)
+	p.varMetadata[varName] = VarMetadata{
+		Value:            value,
+		SessionID:        p.currentSessionID,
+		Origin:           "literal",
+		SessionSensitive: false, // Literals are session-agnostic
+	}
 
 	// Record telemetry
 	p.recordDecoratorResolution("@var")
