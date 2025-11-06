@@ -2,6 +2,7 @@ package planner
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aledsdavies/opal/runtime/parser"
@@ -168,6 +169,106 @@ var HOME = @env.HOME
 
 	// We don't care if planning succeeds or fails, just that it doesn't hang
 	_, _ = PlanWithObservability(tree.Events, tree.Tokens, config)
+}
+
+// TestMultiDotDecoratorParsing tests that decorators with multiple dots
+// are parsed correctly (e.g., @env.HOME uses two parts).
+func TestMultiDotDecoratorParsing(t *testing.T) {
+	// @env.HOME should parse as decorator="env", primary="HOME"
+	// This is the current working syntax
+	source := `var HOME = @env.HOME`
+
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse failed: %v", tree.Errors[0])
+	}
+
+	config := Config{Target: ""}
+	result, err := PlanWithObservability(tree.Events, tree.Tokens, config)
+
+	// @env.HOME should succeed (resolves from environment)
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
+
+	if result.Plan == nil {
+		t.Fatal("Expected plan to be created")
+	}
+}
+
+// TestValueRegistryEdgeCases tests edge cases in ValueRegistry.
+func TestValueRegistryEdgeCases(t *testing.T) {
+	t.Run("empty variable name", func(t *testing.T) {
+		registry := NewValueRegistry()
+
+		// Store with empty name
+		registry.Store("", "literal", 42, "")
+
+		// Get with empty name
+		val, err := registry.Get("", "local")
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if val != 42 {
+			t.Errorf("Expected 42, got %v", val)
+		}
+	})
+
+	t.Run("empty session ID in Get", func(t *testing.T) {
+		registry := NewValueRegistry()
+
+		// Store session-agnostic value
+		registry.Store("COUNT", "literal", 42, "")
+
+		// Get with empty session ID (should work for session-agnostic)
+		val, err := registry.Get("COUNT", "")
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if val != 42 {
+			t.Errorf("Expected 42, got %v", val)
+		}
+
+		// Store session-specific value
+		registry.Store("HOME", "@env.HOME", "/home/alice", "local")
+
+		// Get with empty session ID (should fail for session-specific)
+		_, err = registry.Get("HOME", "")
+		if err == nil {
+			t.Error("Expected error when accessing session-specific value with empty session ID")
+		}
+	})
+
+	t.Run("variable not found", func(t *testing.T) {
+		registry := NewValueRegistry()
+
+		_, err := registry.Get("NONEXISTENT", "local")
+		if err == nil {
+			t.Error("Expected error for nonexistent variable")
+		}
+		if !strings.Contains(err.Error(), "not found") {
+			t.Errorf("Expected 'not found' error, got: %v", err)
+		}
+	})
+
+	t.Run("overwrite variable", func(t *testing.T) {
+		registry := NewValueRegistry()
+
+		// Store initial value
+		registry.Store("VAR", "literal", 1, "")
+
+		// Overwrite with new value
+		registry.Store("VAR", "literal", 2, "")
+
+		// Should get new value
+		val, err := registry.Get("VAR", "local")
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+		if val != 2 {
+			t.Errorf("Expected 2, got %v", val)
+		}
+	})
 }
 
 // TestCrossSessionLeakagePrevention is the MUST-PASS test for security.
