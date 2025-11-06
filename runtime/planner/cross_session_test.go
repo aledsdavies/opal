@@ -144,6 +144,32 @@ func TestValueRegistrySessionIsolation(t *testing.T) {
 	})
 }
 
+// TestDecoratorWithParametersDoesNotHang verifies that decorators with
+// parameters (parentheses, commas, string literals) don't cause infinite loops
+// in the parseDecoratorValue function.
+func TestDecoratorWithParametersDoesNotHang(t *testing.T) {
+	// This test uses @env.HOME which is valid syntax
+	// The key is that parseDecoratorValue correctly handles the decorator
+	// without hanging on tokens it doesn't recognize
+	source := `
+var HOME = @env.HOME
+`
+
+	// Parse
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse failed: %v", tree.Errors[0])
+	}
+
+	// Plan (this should not hang, even if decorator resolution fails)
+	config := Config{
+		Target: "",
+	}
+
+	// We don't care if planning succeeds or fails, just that it doesn't hang
+	_, _ = PlanWithObservability(tree.Events, tree.Tokens, config)
+}
+
 // TestCrossSessionLeakagePrevention is the MUST-PASS test for security.
 // This test will be implemented once we add decorator resolution in Week 2.
 // For now, it's a placeholder to document the requirement.

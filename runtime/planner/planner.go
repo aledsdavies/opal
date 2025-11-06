@@ -1289,14 +1289,20 @@ func (p *planner) parseDecoratorValue(varName string) (any, error) {
 			// Separator between decorator and property
 			p.pos++
 		default:
-			// Unknown token, stop parsing
-			break
+			// Unknown token (e.g. parentheses, commas for parameters)
+			// Stop parsing decorator name, but consume remaining events until EventClose
+			goto skipToClose
 		}
 	}
 
-	// Skip CLOSE Decorator
-	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
+skipToClose:
+	// Consume all remaining events until we hit EventClose
+	for p.pos < len(p.events) {
+		evt := p.events[p.pos]
 		p.pos++
+		if evt.Kind == parser.EventClose {
+			break
+		}
 	}
 
 	if len(decoratorParts) == 0 {
