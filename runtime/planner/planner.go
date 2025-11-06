@@ -1275,15 +1275,13 @@ func (p *planner) parseDecoratorValue(varName string) (any, error) {
 			// Skip @ symbol
 			p.pos++
 		case lexer.IDENTIFIER:
-			// Decorator name or property
-			if len(decoratorParts) == 0 {
-				// First identifier is decorator name
-				decoratorParts = append(decoratorParts, string(tok.Text))
-			} else {
-				// After dot, this is the property (primary parameter)
-				prop := string(tok.Text)
-				primary = &prop
-			}
+			// Collect all identifiers separated by dots
+			// The last identifier becomes the primary parameter if there's more than one segment
+			// Examples:
+			//   @env → path="env", primary=nil
+			//   @env.HOME → path="env", primary="HOME"
+			//   @aws.ssm.param → path="aws.ssm", primary="param"
+			decoratorParts = append(decoratorParts, string(tok.Text))
 			p.pos++
 		case lexer.DOT:
 			// Separator between decorator and property
@@ -1314,7 +1312,21 @@ skipToClose:
 		}
 	}
 
-	decoratorName := strings.Join(decoratorParts, ".")
+	// Split decorator path and primary parameter
+	// If we have multiple segments, the last one is the primary parameter
+	// Examples:
+	//   ["env"] → path="env", primary=nil
+	//   ["env", "HOME"] → path="env", primary="HOME"
+	//   ["aws", "ssm", "param"] → path="aws.ssm", primary="param"
+	var decoratorName string
+	if len(decoratorParts) == 1 {
+		decoratorName = decoratorParts[0]
+		// primary stays nil
+	} else {
+		decoratorName = strings.Join(decoratorParts[:len(decoratorParts)-1], ".")
+		lastPart := decoratorParts[len(decoratorParts)-1]
+		primary = &lastPart
+	}
 
 	// Build ValueCall for decorator resolution
 	call := decorator.ValueCall{
