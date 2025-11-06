@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/core/invariant"
 	"github.com/aledsdavies/opal/core/planfmt"
 	"github.com/aledsdavies/opal/core/sdk/secret"
@@ -203,9 +204,9 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 		config:           config,
 		pos:              0,
 		stepID:           1,
-		vars:             make(map[string]any),
-		varMetadata:      make(map[string]VarMetadata),
-		currentSessionID: "local", // Start in local session
+		registry:         NewValueRegistry(),          // Variable registry with session tracking
+		currentSessionID: "local",                     // Start in local session
+		session:          decorator.NewLocalSession(), // Session for decorator resolution
 		telemetry:        telemetry,
 		debugEvents:      debugEvents,
 	}
@@ -230,12 +231,70 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 	}, nil
 }
 
-// VarMetadata tracks metadata for plan-time variables
-type VarMetadata struct {
-	Value            any
-	SessionID        string // "local", "ssh:hostname", "docker:container-id"
-	Origin           string // "@env.HOME", "@file.read('/etc/config')", "literal"
-	SessionSensitive bool   // true if value varies by session/transport
+// ValueEntry tracks a resolved value with its session context.
+type ValueEntry struct {
+	Value     any
+	Origin    string // "@env.HOME", "@file.read('/etc/config')", "literal"
+	SessionID string // "local", "ssh:hostname", "docker:container-id"
+}
+
+// ValueRegistry stores resolved values and enforces session boundaries.
+// Values resolved in one session cannot be accessed from another session.
+type ValueRegistry struct {
+	entries map[string]ValueEntry
+}
+
+// NewValueRegistry creates a new value registry.
+func NewValueRegistry() *ValueRegistry {
+	return &ValueRegistry{
+		entries: make(map[string]ValueEntry),
+	}
+}
+
+// Store saves a resolved value with its session context.
+func (r *ValueRegistry) Store(varName, origin string, value any, sessionID string) {
+	r.entries[varName] = ValueEntry{
+		Value:     value,
+		Origin:    origin,
+		SessionID: sessionID,
+	}
+}
+
+// Get retrieves a value, checking session compatibility.
+// Returns CrossSessionLeakageError if the value was resolved in a different session.
+func (r *ValueRegistry) Get(varName, currentSessionID string) (any, error) {
+	entry, ok := r.entries[varName]
+	if !ok {
+		return nil, fmt.Errorf("variable '%s' not found", varName)
+	}
+
+	// Session-agnostic values (literals) have empty SessionID and can be used anywhere
+	if entry.SessionID == "" {
+		return entry.Value, nil
+	}
+
+	// Check session compatibility
+	if entry.SessionID != currentSessionID {
+		return nil, &CrossSessionLeakageError{
+			VarName:       varName,
+			VarOrigin:     entry.Origin,
+			SourceSession: entry.SessionID,
+			TargetSession: currentSessionID,
+		}
+	}
+
+	return entry.Value, nil
+}
+
+// AsMap returns all values as a map (values only, no metadata).
+// Used for decorator evaluation context.
+// Session checking happens when @var decorator is resolved.
+func (r *ValueRegistry) AsMap() map[string]any {
+	result := make(map[string]any, len(r.entries))
+	for name, entry := range r.entries {
+		result[name] = entry.Value
+	}
+	return result
 }
 
 // planner holds state during planning
@@ -247,12 +306,12 @@ type planner struct {
 	pos    int    // Current position in event stream
 	stepID uint64 // Next step ID to assign
 
-	// Variable resolution
-	vars        map[string]any         // Plan-time variable store (values only)
-	varMetadata map[string]VarMetadata // Plan-time variable metadata (session tracking)
+	// Variable resolution with session tracking
+	registry *ValueRegistry // Stores variables with session context
 
 	// Session tracking for cross-session leakage prevention
-	currentSessionID string // Current session context during AST walk
+	currentSessionID string            // Current session context during AST walk
+	session          decorator.Session // Session for decorator resolution (LocalSession by default)
 
 	// Observability
 	telemetry   *PlanTelemetry
@@ -635,23 +694,20 @@ func (p *planner) planVarDecl() error {
 	// Skip TOKEN(=)
 	p.pos++
 
-	// Parse the value expression (supports literals, objects, arrays)
+	// Parse the value expression (supports literals, objects, arrays, decorators)
 	value, err := p.parseVarValue(varName)
 	if err != nil {
 		return err
 	}
 
-	// Store variable value
-	p.vars[varName] = value
+	// Determine origin and session context
+	// For now, literals are session-agnostic (empty SessionID)
+	// Decorators will be handled in Week 2
+	origin := "literal"
+	sessionID := "" // Empty = session-agnostic (can be used anywhere)
 
-	// Store variable metadata for cross-session tracking
-	// Literals are session-agnostic (can be used in any session)
-	p.varMetadata[varName] = VarMetadata{
-		Value:            value,
-		SessionID:        p.currentSessionID,
-		Origin:           "literal",
-		SessionSensitive: false, // Literals are session-agnostic
-	}
+	// Store variable in registry with session context
+	p.registry.Store(varName, origin, value, sessionID)
 
 	// Record telemetry
 	p.recordDecoratorResolution("@var")
@@ -990,6 +1046,8 @@ func (p *planner) parseVarValue(varName string) (any, error) {
 		return p.parseObjectLiteral(varName)
 	case parser.NodeArrayLiteral:
 		return p.parseArrayLiteral(varName)
+	case parser.NodeDecorator:
+		return p.parseDecoratorValue(varName)
 	default:
 		return nil, &PlanError{
 			Message:     fmt.Sprintf("unsupported expression type for variable value: %v", nodeKind),
@@ -1174,4 +1232,107 @@ func (p *planner) parseArrayLiteral(varName string) (any, error) {
 	}
 
 	return arr, nil
+}
+
+// parseDecoratorValue resolves a decorator and returns its value.
+// This is used for variable declarations like: var HOME = @env.HOME
+func (p *planner) parseDecoratorValue(varName string) (any, error) {
+	startPos := p.pos
+	p.pos++ // Move past OPEN Decorator
+
+	// Extract decorator name and property from tokens
+	// Expected structure: TOKEN(@), TOKEN(decorator), TOKEN(.), TOKEN(property)
+	var decoratorParts []string
+	var primary *string
+
+	for p.pos < len(p.events) {
+		evt := p.events[p.pos]
+
+		if evt.Kind == parser.EventClose {
+			// End of decorator
+			break
+		}
+
+		if evt.Kind != parser.EventToken {
+			p.pos++
+			continue
+		}
+
+		tokIdx := evt.Data
+		if int(tokIdx) >= len(p.tokens) {
+			return nil, &PlanError{
+				Message:     "invalid token index in decorator",
+				Context:     fmt.Sprintf("parsing variable '%s'", varName),
+				EventPos:    p.pos,
+				TotalEvents: len(p.events),
+			}
+		}
+
+		tok := p.tokens[tokIdx]
+
+		switch tok.Type {
+		case lexer.AT:
+			// Skip @ symbol
+			p.pos++
+		case lexer.IDENTIFIER:
+			// Decorator name or property
+			if len(decoratorParts) == 0 {
+				// First identifier is decorator name
+				decoratorParts = append(decoratorParts, string(tok.Text))
+			} else {
+				// After dot, this is the property (primary parameter)
+				prop := string(tok.Text)
+				primary = &prop
+			}
+			p.pos++
+		case lexer.DOT:
+			// Separator between decorator and property
+			p.pos++
+		default:
+			// Unknown token, stop parsing
+			break
+		}
+	}
+
+	// Skip CLOSE Decorator
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
+		p.pos++
+	}
+
+	if len(decoratorParts) == 0 {
+		return nil, &PlanError{
+			Message:     "empty decorator name",
+			Context:     fmt.Sprintf("parsing variable '%s'", varName),
+			EventPos:    startPos,
+			TotalEvents: len(p.events),
+		}
+	}
+
+	decoratorName := strings.Join(decoratorParts, ".")
+
+	// Build ValueCall for decorator resolution
+	call := decorator.ValueCall{
+		Path:    decoratorName,
+		Primary: primary,
+		Params:  make(map[string]any),
+	}
+
+	// Create evaluation context
+	ctx := decorator.ValueEvalContext{
+		Session: p.session,
+		Vars:    p.registry.AsMap(),
+	}
+
+	// Resolve decorator using global registry
+	result, err := decorator.ResolveValue(ctx, call, decorator.TransportScopeLocal)
+	if err != nil {
+		return nil, &PlanError{
+			Message:     fmt.Sprintf("failed to resolve @%s: %v", decoratorName, err),
+			Context:     fmt.Sprintf("parsing variable '%s'", varName),
+			EventPos:    startPos,
+			TotalEvents: len(p.events),
+		}
+	}
+
+	return result.Value, nil
 }

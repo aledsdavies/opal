@@ -39,6 +39,12 @@ func Register(path string, impl Decorator) error {
 	return global.register(path, impl)
 }
 
+// ResolveValue resolves a value decorator using the global registry.
+// This is the package-level convenience function (database/sql pattern).
+func ResolveValue(ctx ValueEvalContext, call ValueCall, currentScope TransportScope) (ResolvedValue, error) {
+	return global.ResolveValue(ctx, call, currentScope)
+}
+
 func (r *Registry) register(path string, impl Decorator) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
