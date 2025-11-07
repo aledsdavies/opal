@@ -260,6 +260,11 @@ func (s *SSHSession) ID() string {
 	return "ssh:" + s.host
 }
 
+// TransportScope returns the transport scope for SSH sessions.
+func (s *SSHSession) TransportScope() TransportScope {
+	return TransportScopeSSH
+}
+
 // Close closes the SSH connection.
 func (s *SSHSession) Close() error {
 	return s.client.Close()
@@ -399,6 +404,11 @@ func (s *SSHSessionWithEnv) Cwd() string {
 // ID returns the session identifier, delegating to the base SSH session.
 func (s *SSHSessionWithEnv) ID() string {
 	return s.base.ID()
+}
+
+// TransportScope returns the transport scope, delegating to the base SSH session.
+func (s *SSHSessionWithEnv) TransportScope() TransportScope {
+	return s.base.TransportScope()
 }
 
 func (s *SSHSessionWithEnv) Close() error {

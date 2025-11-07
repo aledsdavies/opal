@@ -1277,8 +1277,11 @@ func (p *planner) parseDecoratorValue(varName string) (any, error) {
 		Vars:    p.scopes.AsMap(),
 	}
 
+	// Get transport scope from current session to enforce transport-scope guards
+	currentScope := p.session.TransportScope()
+
 	// Resolve decorator using global registry
-	result, err := decorator.ResolveValue(ctx, call, decorator.TransportScopeLocal)
+	result, err := decorator.ResolveValue(ctx, call, currentScope)
 	if err != nil {
 		return nil, &PlanError{
 			Message:     fmt.Sprintf("failed to resolve @%s: %v", decoratorName, err),

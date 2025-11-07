@@ -222,6 +222,11 @@ func (s *LocalSession) ID() string {
 	return "local"
 }
 
+// TransportScope returns the transport scope for local sessions.
+func (s *LocalSession) TransportScope() TransportScope {
+	return TransportScopeLocal
+}
+
 // Close is a no-op for LocalSession (no resources to clean up).
 func (s *LocalSession) Close() error {
 	return nil

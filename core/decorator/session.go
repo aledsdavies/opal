@@ -41,6 +41,10 @@ type Session interface {
 	// Used for session-scoped variable tracking and cross-session leakage prevention
 	ID() string
 
+	// TransportScope returns the transport scope of this session
+	// Used to enforce decorator transport-scope guards
+	TransportScope() TransportScope
+
 	// Close cleans up the session
 	Close() error
 }

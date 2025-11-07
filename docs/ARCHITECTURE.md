@@ -1229,29 +1229,53 @@ func (g *ScopeGraph) Store(varName, origin string, value any)
 func (g *ScopeGraph) Resolve(varName string) (any, *Scope, error)
 ```
 
-### Example: Secure by Default
+### Transport Boundaries: Sealed Scopes
+
+**Transport boundaries create sealed scopes** that block implicit variable access.
+
+**What creates transport boundaries?**
+- `@ssh(...)` - Remote execution over SSH
+- `@docker(...)` - Container execution
+- Any decorator that changes execution transport
+
+**Control flow decorators do NOT create boundaries:**
+- `@retry(...)` - Retry logic
+- `@parallel(...)` - Parallel execution
+- `@timeout(...)` - Timeout control
+
+### Example: Sealed Boundaries Require Explicit Passing
 
 ```opal
 var LOCAL_TOKEN = @env.GITHUB_TOKEN  # Stored in root scope
 
 @ssh(host="server1") {
-    # Can access parent scope variables
-    echo "Local token: @var.LOCAL_TOKEN"  # ✅ Works (parent scope)
-    
+    # ❌ CANNOT access parent - this scope is SEALED
+    # echo "Token: @var.LOCAL_TOKEN"  # Error: Transport boundary violation
+
+    # ✅ Must pass explicitly via decorator parameters
     var REMOTE_TOKEN = @env.GITHUB_TOKEN  # Resolved in SSH session
     echo "Remote token: @var.REMOTE_TOKEN"  # ✅ Works (current scope)
 }
 
-@ssh(host="server2") {
-    # Can access parent scope
-    echo "Local token: @var.LOCAL_TOKEN"  # ✅ Works (parent scope)
-    
-    # CANNOT access sibling scope
-    echo "Remote token: @var.REMOTE_TOKEN"  # ❌ Error: variable not found
+# To pass variables across boundaries, use decorator parameters:
+@ssh(host="server2", env={TOKEN: @var.LOCAL_TOKEN}) {
+    # TOKEN is passed as environment variable
+    echo "Token: $TOKEN"  # ✅ Works (passed via env parameter)
+
+    # But still cannot access via @var
+    # echo "@var.LOCAL_TOKEN"  # ❌ Error: Transport boundary violation
+}
+
+@ssh(host="server3") {
+    # ❌ CANNOT access sibling scopes
+    echo "@var.REMOTE_TOKEN"  # ❌ Error: variable not found
 }
 ```
 
-**Security property:** Variables from `server1` cannot leak to `server2` because they're in sibling scopes.
+**Security properties:**
+1. **Sibling isolation**: Variables from `server1` cannot leak to `server3`
+2. **Boundary sealing**: Parent variables require explicit passing via parameters
+3. **Explicit intent**: Each variable crossing must be declared in decorator parameters
 
 ### Benefits
 
@@ -1261,8 +1285,8 @@ var LOCAL_TOKEN = @env.GITHUB_TOKEN  # Stored in root scope
 - Secure by default
 
 **2. Natural Semantics**
-- Works like closures in programming languages
-- Parent scope access is intentional and safe
+- Control flow maintains scope chain (like closures)
+- Transport boundaries enforce explicit passing (like function parameters)
 - Sibling scope isolation is automatic
 
 **3. Efficient**
@@ -1287,7 +1311,7 @@ func (g *ScopeGraph) DebugPrint() {
 
 **5. Extensible**
 - Variable shadowing
-- Explicit export/import
+- Decorator parameters for explicit passing
 - Scope introspection
 - Immutable scopes
 

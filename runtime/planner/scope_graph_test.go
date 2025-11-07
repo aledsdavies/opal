@@ -147,31 +147,6 @@ func TestTransportBoundarySealing(t *testing.T) {
 	}
 }
 
-func TestTransportBoundaryWithImport(t *testing.T) {
-	g := NewScopeGraph("local")
-
-	// Store variable in local scope
-	g.Store("CONFIG", "literal", "config-value", VarClassConfig, VarTaintAgnostic)
-
-	// Enter transport boundary
-	g.EnterScope("ssh:server", true)
-
-	// Import the variable
-	err := g.Import("CONFIG")
-	if err != nil {
-		t.Fatalf("Import failed: %v", err)
-	}
-
-	// Now should be able to access it
-	val, _, err := g.Resolve("CONFIG")
-	if err != nil {
-		t.Fatalf("Expected success after import, got error: %v", err)
-	}
-	if val != "config-value" {
-		t.Errorf("Expected config-value, got %v", val)
-	}
-}
-
 func TestNonTransportBoundaryNotSealed(t *testing.T) {
 	g := NewScopeGraph("local")
 
@@ -193,22 +168,6 @@ func TestNonTransportBoundaryNotSealed(t *testing.T) {
 	}
 	if val != "value" {
 		t.Errorf("Expected value, got %v", val)
-	}
-}
-
-func TestImportNonexistentVariable(t *testing.T) {
-	g := NewScopeGraph("local")
-
-	// Enter child scope
-	g.EnterScope("ssh:server", true)
-
-	// Try to import nonexistent variable
-	err := g.Import("NONEXISTENT")
-	if err == nil {
-		t.Fatal("Expected error when importing nonexistent variable")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("Expected 'not found' error, got: %v", err)
 	}
 }
 
@@ -268,7 +227,6 @@ func TestDebugPrint(t *testing.T) {
 	g.Store("HOME", "literal", "/home/alice", VarClassData, VarTaintAgnostic)
 
 	g.EnterScope("ssh:server", true)
-	g.Import("HOME")
 	g.Store("REMOTE", "@env.HOME", "/home/bob", VarClassData, VarTaintAgnostic)
 
 	output := g.DebugPrint()
@@ -418,38 +376,6 @@ func TestScopeGraphAsMapRespectsTransportBoundaries(t *testing.T) {
 	}
 	if _, exists := vars["SHARED_VAR"]; exists {
 		t.Error("SHARED_VAR should NOT be accessible across sealed boundary")
-	}
-}
-
-func TestScopeGraphAsMapWithImports(t *testing.T) {
-	g := NewScopeGraph("local")
-
-	// Store in root
-	g.Store("LOCAL_VAR", "literal", "local", VarClassData, VarTaintAgnostic)
-	g.Store("IMPORTED_VAR", "literal", "imported", VarClassData, VarTaintAgnostic)
-
-	// Enter sealed scope
-	g.EnterScope("ssh:server", true)
-	g.Store("REMOTE_VAR", "literal", "remote", VarClassData, VarTaintAgnostic)
-
-	// Explicitly import one variable
-	if err := g.Import("IMPORTED_VAR"); err != nil {
-		t.Fatalf("Import failed: %v", err)
-	}
-
-	// AsMap should include REMOTE_VAR and IMPORTED_VAR, but NOT LOCAL_VAR
-	vars := g.AsMap()
-	if len(vars) != 2 {
-		t.Errorf("Expected 2 variables (REMOTE_VAR + IMPORTED_VAR), got %d: %v", len(vars), vars)
-	}
-	if vars["REMOTE_VAR"] != "remote" {
-		t.Errorf("Expected REMOTE_VAR=remote, got %v", vars["REMOTE_VAR"])
-	}
-	if vars["IMPORTED_VAR"] != "imported" {
-		t.Errorf("Expected IMPORTED_VAR=imported, got %v", vars["IMPORTED_VAR"])
-	}
-	if _, exists := vars["LOCAL_VAR"]; exists {
-		t.Error("LOCAL_VAR should NOT be accessible (not imported)")
 	}
 }
 

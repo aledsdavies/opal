@@ -253,6 +253,11 @@ func (m *mockSession) ID() string {
 	return "mock"
 }
 
+// TransportScope returns a mock transport scope for testing.
+func (m *mockSession) TransportScope() TransportScope {
+	return TransportScopeLocal
+}
+
 func (m *mockSession) Close() error {
 	m.closed = true
 	return nil

@@ -3,6 +3,7 @@ package planner
 import (
 	"testing"
 
+	"github.com/aledsdavies/opal/core/decorator"
 	"github.com/aledsdavies/opal/runtime/parser"
 )
 
@@ -111,4 +112,18 @@ func TestMultiSegmentDecoratorPath(t *testing.T) {
 	if result.Plan == nil {
 		t.Fatal("Expected plan to be created")
 	}
+}
+
+// TestSessionTransportScope verifies that sessions correctly report their transport scope.
+func TestSessionTransportScope(t *testing.T) {
+	t.Run("LocalSession", func(t *testing.T) {
+		session := &decorator.LocalSession{}
+		if session.TransportScope() != decorator.TransportScopeLocal {
+			t.Errorf("LocalSession.TransportScope() = %v, want %v",
+				session.TransportScope(), decorator.TransportScopeLocal)
+		}
+	})
+
+	// Note: SSHSession requires actual SSH connection setup, so we can't easily test it here
+	// The implementation is verified by the interface contract and type system
 }

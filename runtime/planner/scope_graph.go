@@ -129,23 +129,6 @@ func (g *ScopeGraph) Store(varName, origin string, value any, class VarClass, ta
 	}
 }
 
-// Import marks a variable as explicitly imported from parent scope.
-// Required for accessing parent variables across transport boundaries.
-func (g *ScopeGraph) Import(varName string) error {
-	if g.current.parent == nil {
-		return fmt.Errorf("cannot import in root scope (no parent)")
-	}
-
-	// Check if variable exists in parent chain
-	_, _, err := g.resolveInParent(varName)
-	if err != nil {
-		return fmt.Errorf("cannot import %q: %w", varName, err)
-	}
-
-	g.current.imported[varName] = true
-	return nil
-}
-
 // Resolve looks up a variable by traversing up the scope chain.
 // Returns the value, the scope where it was found, and any error.
 // Respects transport boundary sealing.
@@ -320,7 +303,7 @@ func (s *Scope) debugPrint(b *strings.Builder, indent int) {
 }
 
 // TransportBoundaryError is returned when attempting to access a parent variable
-// across a transport boundary without explicit import.
+// across a transport boundary without explicitly passing it.
 // Follows the CrossSessionLeakageError format for consistency.
 type TransportBoundaryError struct {
 	VarName      string
@@ -344,13 +327,12 @@ func (e *TransportBoundaryError) Error() string {
 	fmt.Fprintf(&b, "   |\n")
 
 	// Suggestion
-	fmt.Fprintf(&b, "   = Suggestion: Use @import to explicitly allow this variable\n")
+	fmt.Fprintf(&b, "   = Suggestion: Pass variables explicitly via decorator parameters\n")
 	fmt.Fprintf(&b, "   = Example:\n")
-	fmt.Fprintf(&b, "       @ssh(host=\"server\") {\n")
-	fmt.Fprintf(&b, "           @import(%s)\n", e.VarName)
-	fmt.Fprintf(&b, "           echo @var.%s\n", e.VarName)
+	fmt.Fprintf(&b, "       @ssh(host=\"server\", env={%s: @var.%s}) {\n", e.VarName, e.VarName)
+	fmt.Fprintf(&b, "           echo $%s  # Available as environment variable\n", e.VarName)
 	fmt.Fprintf(&b, "       }\n")
-	fmt.Fprintf(&b, "   = Note: Transport boundaries require explicit imports for security.\n")
+	fmt.Fprintf(&b, "   = Note: Transport boundaries block implicit variable access for security.\n")
 
 	return b.String()
 }
