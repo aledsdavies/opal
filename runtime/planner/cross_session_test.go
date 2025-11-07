@@ -80,7 +80,6 @@ func TestMultiDotDecoratorParsing(t *testing.T) {
 
 	config := Config{Target: ""}
 	result, err := PlanWithObservability(tree.Events, tree.Tokens, config)
-
 	// @env.HOME should succeed (resolves from environment)
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
