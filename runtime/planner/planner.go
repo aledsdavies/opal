@@ -1179,21 +1179,29 @@ func (p *planner) parseDecoratorValue(varName string) (any, error) {
 		case lexer.DOT:
 			// Separator between decorator and property
 			p.pos++
+		case lexer.LPAREN:
+			// Decorator has parameters - not yet supported
+			return nil, &PlanError{
+				Message: fmt.Sprintf("decorator @%s has parameters, which are not yet supported in variable declarations",
+					strings.Join(decoratorParts, ".")),
+				Context:     fmt.Sprintf("parsing variable '%s'", varName),
+				EventPos:    p.pos,
+				TotalEvents: len(p.events),
+			}
 		default:
-			// Unknown token (e.g. parentheses, commas for parameters)
-			// Stop parsing decorator name, but consume remaining events until EventClose
-			goto skipToClose
+			// Unknown token - should not happen in well-formed decorator
+			return nil, &PlanError{
+				Message:     fmt.Sprintf("unexpected token %s in decorator", tok.Type),
+				Context:     fmt.Sprintf("parsing variable '%s'", varName),
+				EventPos:    p.pos,
+				TotalEvents: len(p.events),
+			}
 		}
 	}
 
-skipToClose:
-	// Consume all remaining events until we hit EventClose
-	for p.pos < len(p.events) {
-		evt := p.events[p.pos]
+	// Consume EventClose
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventClose {
 		p.pos++
-		if evt.Kind == parser.EventClose {
-			break
-		}
 	}
 
 	if len(decoratorParts) == 0 {
@@ -1205,20 +1213,55 @@ skipToClose:
 		}
 	}
 
-	// Split decorator path and primary parameter
-	// If we have multiple segments, the last one is the primary parameter
-	// Examples:
-	//   ["env"] → path="env", primary=nil
-	//   ["env", "HOME"] → path="env", primary="HOME"
-	//   ["aws", "ssm", "param"] → path="aws.ssm", primary="param"
+	// Find the decorator by trying progressively shorter paths (most specific first).
+	// Like URL routing: try longest match first, then progressively shorter.
+	//
+	// For @aws.s3.bucket.object.tag, try:
+	//   1. "aws.s3.bucket.object.tag" (most specific, no primary)
+	//   2. "aws.s3.bucket.object" with primary="tag"
+	//   3. "aws.s3.bucket" with primary="object" (ERROR: 2 remaining segments)
+	//   4. "aws.s3" with primary="bucket" (ERROR: 3 remaining segments)
+	//   5. "aws" with primary="s3" (ERROR: 4 remaining segments)
+	//
+	// For @env.HOME, try:
+	//   1. "env.HOME" (full path, no primary)
+	//   2. "env" with primary="HOME" ✓
+	//
+	// Only ONE segment after the decorator path is allowed as primary parameter.
 	var decoratorName string
-	if len(decoratorParts) == 1 {
-		decoratorName = decoratorParts[0]
-		// primary stays nil
-	} else {
-		decoratorName = strings.Join(decoratorParts[:len(decoratorParts)-1], ".")
-		lastPart := decoratorParts[len(decoratorParts)-1]
-		primary = &lastPart
+	for splitPoint := len(decoratorParts); splitPoint > 0; splitPoint-- {
+		candidatePath := strings.Join(decoratorParts[:splitPoint], ".")
+		_, found := decorator.Global().Lookup(candidatePath)
+		if found {
+			remainingSegments := len(decoratorParts) - splitPoint
+			if remainingSegments > 1 {
+				// Too many segments after decorator name
+				return nil, &PlanError{
+					Message: fmt.Sprintf("decorator @%s: found registered decorator %q but %d segments remain (%s); only 1 primary parameter allowed",
+						strings.Join(decoratorParts, "."), candidatePath, remainingSegments,
+						strings.Join(decoratorParts[splitPoint:], ".")),
+					Context:     fmt.Sprintf("parsing variable '%s'", varName),
+					EventPos:    startPos,
+					TotalEvents: len(p.events),
+				}
+			}
+			decoratorName = candidatePath
+			if remainingSegments == 1 {
+				// Exactly one segment remains - use as primary parameter
+				lastPart := decoratorParts[splitPoint]
+				primary = &lastPart
+			}
+			break
+		}
+	}
+
+	if decoratorName == "" {
+		return nil, &PlanError{
+			Message:     fmt.Sprintf("decorator @%s not found in registry", strings.Join(decoratorParts, ".")),
+			Context:     fmt.Sprintf("parsing variable '%s'", varName),
+			EventPos:    startPos,
+			TotalEvents: len(p.events),
+		}
 	}
 
 	// Build ValueCall for decorator resolution

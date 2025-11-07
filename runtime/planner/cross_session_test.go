@@ -80,8 +80,31 @@ func TestMultiDotDecoratorParsing(t *testing.T) {
 
 	config := Config{Target: ""}
 	result, err := PlanWithObservability(tree.Events, tree.Tokens, config)
-
 	// @env.HOME should succeed (resolves from environment)
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
+
+	if result.Plan == nil {
+		t.Fatal("Expected plan to be created")
+	}
+}
+
+// TestMultiSegmentDecoratorPath verifies that decorators with multiple segments
+// in their path are resolved correctly by trying progressively shorter paths.
+func TestMultiSegmentDecoratorPath(t *testing.T) {
+	// @env.HOME should resolve as decorator="env" with primary="HOME"
+	// This works because "env" is registered in the global registry
+	source := `var HOME = @env.HOME`
+
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse failed: %v", tree.Errors[0])
+	}
+
+	config := Config{Target: ""}
+	result, err := PlanWithObservability(tree.Events, tree.Tokens, config)
+
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
