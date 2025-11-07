@@ -290,3 +290,106 @@ func TestDebugPrint(t *testing.T) {
 		t.Error("Expected output to contain 'HOME'")
 	}
 }
+
+func TestScopeGraphAsMap(t *testing.T) {
+	g := NewScopeGraph("local")
+
+	// Store in root
+	g.Store("ROOT_VAR", "literal", "root", VarClassData, VarTaintAgnostic)
+
+	// Enter child scope
+	g.EnterScope("child", false)
+	g.Store("CHILD_VAR", "literal", "child", VarClassData, VarTaintAgnostic)
+
+	// AsMap should include both
+	vars := g.AsMap()
+
+	if vars["ROOT_VAR"] != "root" {
+		t.Errorf("Expected ROOT_VAR=root, got %v", vars["ROOT_VAR"])
+	}
+	if vars["CHILD_VAR"] != "child" {
+		t.Errorf("Expected CHILD_VAR=child, got %v", vars["CHILD_VAR"])
+	}
+
+	// Exit to root
+	if err := g.ExitScope(); err != nil {
+		t.Fatalf("ExitScope failed: %v", err)
+	}
+
+	// AsMap should only have root var
+	vars = g.AsMap()
+	if vars["ROOT_VAR"] != "root" {
+		t.Errorf("Expected ROOT_VAR=root, got %v", vars["ROOT_VAR"])
+	}
+	if _, exists := vars["CHILD_VAR"]; exists {
+		t.Error("CHILD_VAR should not be accessible from root scope")
+	}
+}
+
+func TestScopeGraphAsMapShadowing(t *testing.T) {
+	g := NewScopeGraph("local")
+
+	// Store in root
+	g.Store("VAR", "literal", "parent", VarClassData, VarTaintAgnostic)
+
+	// Enter child and shadow
+	g.EnterScope("child", false)
+	g.Store("VAR", "literal", "child", VarClassData, VarTaintAgnostic)
+
+	// AsMap should return child value (shadowing)
+	vars := g.AsMap()
+	if vars["VAR"] != "child" {
+		t.Errorf("Expected VAR=child (shadowed), got %v", vars["VAR"])
+	}
+
+	// Exit to root
+	if err := g.ExitScope(); err != nil {
+		t.Fatalf("ExitScope failed: %v", err)
+	}
+
+	// AsMap should return parent value
+	vars = g.AsMap()
+	if vars["VAR"] != "parent" {
+		t.Errorf("Expected VAR=parent, got %v", vars["VAR"])
+	}
+}
+
+func TestScopeGraphAsMapNested(t *testing.T) {
+	g := NewScopeGraph("local")
+
+	// Store in root
+	g.Store("A", "literal", "a", VarClassData, VarTaintAgnostic)
+
+	// Enter child
+	g.EnterScope("child1", false)
+	g.Store("B", "literal", "b", VarClassData, VarTaintAgnostic)
+
+	// Enter grandchild
+	g.EnterScope("child2", false)
+	g.Store("C", "literal", "c", VarClassData, VarTaintAgnostic)
+
+	// AsMap should include all three
+	vars := g.AsMap()
+	if len(vars) != 3 {
+		t.Errorf("Expected 3 variables, got %d", len(vars))
+	}
+	if vars["A"] != "a" {
+		t.Errorf("Expected A=a, got %v", vars["A"])
+	}
+	if vars["B"] != "b" {
+		t.Errorf("Expected B=b, got %v", vars["B"])
+	}
+	if vars["C"] != "c" {
+		t.Errorf("Expected C=c, got %v", vars["C"])
+	}
+}
+
+func TestScopeGraphAsMapEmpty(t *testing.T) {
+	g := NewScopeGraph("local")
+
+	// AsMap on empty scope should return empty map
+	vars := g.AsMap()
+	if len(vars) != 0 {
+		t.Errorf("Expected empty map, got %d variables", len(vars))
+	}
+}

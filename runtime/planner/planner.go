@@ -131,44 +131,6 @@ func (e *PlanError) Error() string {
 	return b.String()
 }
 
-// CrossSessionLeakageError prevents session-sensitive variables from crossing session boundaries.
-// Follows the parser error format for consistency.
-type CrossSessionLeakageError struct {
-	VarName       string // Variable name (e.g., "LOCAL_HOME")
-	VarOrigin     string // How it was resolved (e.g., "@env.HOME")
-	SourceSession string // Where it was resolved (e.g., "local")
-	TargetSession string // Where it was used (e.g., "ssh:server1")
-}
-
-func (e *CrossSessionLeakageError) Error() string {
-	var b strings.Builder
-
-	// Error header (Rust-style)
-	fmt.Fprintf(&b, "Error: Cross-session variable leakage\n")
-	fmt.Fprintf(&b, "  --> Variable '%s' cannot cross from %s to %s\n",
-		e.VarName, e.SourceSession, e.TargetSession)
-	fmt.Fprintf(&b, "   |\n")
-
-	// Details
-	fmt.Fprintf(&b, "   | Variable:  %s\n", e.VarName)
-	fmt.Fprintf(&b, "   | Origin:    %s\n", e.VarOrigin)
-	fmt.Fprintf(&b, "   | Resolved:  %s session\n", e.SourceSession)
-	fmt.Fprintf(&b, "   | Used in:   %s session\n", e.TargetSession)
-	fmt.Fprintf(&b, "   |\n")
-
-	// Suggestion
-	fmt.Fprintf(&b, "   = Suggestion: Resolve inside the target session\n")
-	fmt.Fprintf(&b, "   = Example:\n")
-	fmt.Fprintf(&b, "       @ssh(host=\"server\") {\n")
-	fmt.Fprintf(&b, "           var REMOTE_VALUE = %s\n", e.VarOrigin)
-	fmt.Fprintf(&b, "           echo \"$REMOTE_VALUE\"\n")
-	fmt.Fprintf(&b, "       }\n")
-	fmt.Fprintf(&b, "   = Note: Session-sensitive values (@env, @file.read) cannot cross boundaries.\n")
-	fmt.Fprintf(&b, "           Use literals or @random.uuid for session-agnostic values.\n")
-
-	return b.String()
-}
-
 // Plan consumes parser events and generates an execution plan.
 func Plan(events []parser.Event, tokens []lexer.Token, config Config) (*planfmt.Plan, error) {
 	result, err := PlanWithObservability(events, tokens, config)
@@ -199,16 +161,15 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 	}
 
 	p := &planner{
-		events:           events,
-		tokens:           tokens,
-		config:           config,
-		pos:              0,
-		stepID:           1,
-		registry:         NewValueRegistry(),          // Variable registry with session tracking
-		currentSessionID: "local",                     // Start in local session
-		session:          decorator.NewLocalSession(), // Session for decorator resolution
-		telemetry:        telemetry,
-		debugEvents:      debugEvents,
+		events:      events,
+		tokens:      tokens,
+		config:      config,
+		pos:         0,
+		stepID:      1,
+		scopes:      NewScopeGraph("local"),      // Hierarchical variable scoping
+		session:     decorator.NewLocalSession(), // Session for decorator resolution
+		telemetry:   telemetry,
+		debugEvents: debugEvents,
 	}
 
 	plan, err := p.plan()
@@ -231,72 +192,6 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 	}, nil
 }
 
-// ValueEntry tracks a resolved value with its session context.
-type ValueEntry struct {
-	Value     any
-	Origin    string // "@env.HOME", "@file.read('/etc/config')", "literal"
-	SessionID string // "local", "ssh:hostname", "docker:container-id"
-}
-
-// ValueRegistry stores resolved values and enforces session boundaries.
-// Values resolved in one session cannot be accessed from another session.
-type ValueRegistry struct {
-	entries map[string]ValueEntry
-}
-
-// NewValueRegistry creates a new value registry.
-func NewValueRegistry() *ValueRegistry {
-	return &ValueRegistry{
-		entries: make(map[string]ValueEntry),
-	}
-}
-
-// Store saves a resolved value with its session context.
-func (r *ValueRegistry) Store(varName, origin string, value any, sessionID string) {
-	r.entries[varName] = ValueEntry{
-		Value:     value,
-		Origin:    origin,
-		SessionID: sessionID,
-	}
-}
-
-// Get retrieves a value, checking session compatibility.
-// Returns CrossSessionLeakageError if the value was resolved in a different session.
-func (r *ValueRegistry) Get(varName, currentSessionID string) (any, error) {
-	entry, ok := r.entries[varName]
-	if !ok {
-		return nil, fmt.Errorf("variable '%s' not found", varName)
-	}
-
-	// Session-agnostic values (literals) have empty SessionID and can be used anywhere
-	if entry.SessionID == "" {
-		return entry.Value, nil
-	}
-
-	// Check session compatibility
-	if entry.SessionID != currentSessionID {
-		return nil, &CrossSessionLeakageError{
-			VarName:       varName,
-			VarOrigin:     entry.Origin,
-			SourceSession: entry.SessionID,
-			TargetSession: currentSessionID,
-		}
-	}
-
-	return entry.Value, nil
-}
-
-// AsMap returns all values as a map (values only, no metadata).
-// Used for decorator evaluation context.
-// Session checking happens when @var decorator is resolved.
-func (r *ValueRegistry) AsMap() map[string]any {
-	result := make(map[string]any, len(r.entries))
-	for name, entry := range r.entries {
-		result[name] = entry.Value
-	}
-	return result
-}
-
 // planner holds state during planning
 type planner struct {
 	events []parser.Event
@@ -306,12 +201,9 @@ type planner struct {
 	pos    int    // Current position in event stream
 	stepID uint64 // Next step ID to assign
 
-	// Variable resolution with session tracking
-	registry *ValueRegistry // Stores variables with session context
-
-	// Session tracking for cross-session leakage prevention
-	currentSessionID string            // Current session context during AST walk
-	session          decorator.Session // Session for decorator resolution (LocalSession by default)
+	// Variable scoping with transport boundary guards
+	scopes  *ScopeGraph       // Hierarchical variable scoping
+	session decorator.Session // Session for decorator resolution (LocalSession by default)
 
 	// Observability
 	telemetry   *PlanTelemetry
@@ -700,14 +592,15 @@ func (p *planner) planVarDecl() error {
 		return err
 	}
 
-	// Determine origin and session context
-	// For now, literals are session-agnostic (empty SessionID)
+	// Determine origin and classification
+	// For now, literals are session-agnostic
 	// Decorators will be handled in Week 2
 	origin := "literal"
-	sessionID := "" // Empty = session-agnostic (can be used anywhere)
+	class := VarClassData
+	taint := VarTaintAgnostic
 
-	// Store variable in registry with session context
-	p.registry.Store(varName, origin, value, sessionID)
+	// Store variable in current scope
+	p.scopes.Store(varName, origin, value, class, taint)
 
 	// Record telemetry
 	p.recordDecoratorResolution("@var")
@@ -1338,7 +1231,7 @@ skipToClose:
 	// Create evaluation context
 	ctx := decorator.ValueEvalContext{
 		Session: p.session,
-		Vars:    p.registry.AsMap(),
+		Vars:    p.scopes.AsMap(),
 	}
 
 	// Resolve decorator using global registry

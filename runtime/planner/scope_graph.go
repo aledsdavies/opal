@@ -239,6 +239,29 @@ func (g *ScopeGraph) DebugPrint() string {
 	return b.String()
 }
 
+// AsMap returns all accessible variables as a flat map.
+// Includes variables from current scope and all parent scopes.
+// Used for decorator evaluation context.
+// Transport boundary checks are NOT enforced here - they happen
+// during variable resolution in the decorator itself.
+func (g *ScopeGraph) AsMap() map[string]any {
+	result := make(map[string]any)
+
+	// Traverse from current scope up to root
+	scope := g.current
+	for scope != nil {
+		// Add variables from this scope (don't overwrite - child shadows parent)
+		for name, entry := range scope.vars {
+			if _, exists := result[name]; !exists {
+				result[name] = entry.Value
+			}
+		}
+		scope = scope.parent
+	}
+
+	return result
+}
+
 func (s *Scope) debugPrint(b *strings.Builder, indent int) {
 	prefix := strings.Repeat("  ", indent)
 
