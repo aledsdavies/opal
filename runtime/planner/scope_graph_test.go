@@ -393,3 +393,92 @@ func TestScopeGraphAsMapEmpty(t *testing.T) {
 		t.Errorf("Expected empty map, got %d variables", len(vars))
 	}
 }
+
+func TestScopeGraphAsMapRespectsTransportBoundaries(t *testing.T) {
+	g := NewScopeGraph("local")
+
+	// Store in root (local session)
+	g.Store("LOCAL_VAR", "literal", "local", VarClassData, VarTaintAgnostic)
+	g.Store("SHARED_VAR", "literal", "shared", VarClassData, VarTaintAgnostic)
+
+	// Enter sealed scope (SSH session - transport boundary)
+	g.EnterScope("ssh:server", true)
+	g.Store("REMOTE_VAR", "literal", "remote", VarClassData, VarTaintAgnostic)
+
+	// AsMap should NOT include parent variables (sealed boundary)
+	vars := g.AsMap()
+	if len(vars) != 1 {
+		t.Errorf("Expected 1 variable (REMOTE_VAR only), got %d: %v", len(vars), vars)
+	}
+	if vars["REMOTE_VAR"] != "remote" {
+		t.Errorf("Expected REMOTE_VAR=remote, got %v", vars["REMOTE_VAR"])
+	}
+	if _, exists := vars["LOCAL_VAR"]; exists {
+		t.Error("LOCAL_VAR should NOT be accessible across sealed boundary")
+	}
+	if _, exists := vars["SHARED_VAR"]; exists {
+		t.Error("SHARED_VAR should NOT be accessible across sealed boundary")
+	}
+}
+
+func TestScopeGraphAsMapWithImports(t *testing.T) {
+	g := NewScopeGraph("local")
+
+	// Store in root
+	g.Store("LOCAL_VAR", "literal", "local", VarClassData, VarTaintAgnostic)
+	g.Store("IMPORTED_VAR", "literal", "imported", VarClassData, VarTaintAgnostic)
+
+	// Enter sealed scope
+	g.EnterScope("ssh:server", true)
+	g.Store("REMOTE_VAR", "literal", "remote", VarClassData, VarTaintAgnostic)
+
+	// Explicitly import one variable
+	if err := g.Import("IMPORTED_VAR"); err != nil {
+		t.Fatalf("Import failed: %v", err)
+	}
+
+	// AsMap should include REMOTE_VAR and IMPORTED_VAR, but NOT LOCAL_VAR
+	vars := g.AsMap()
+	if len(vars) != 2 {
+		t.Errorf("Expected 2 variables (REMOTE_VAR + IMPORTED_VAR), got %d: %v", len(vars), vars)
+	}
+	if vars["REMOTE_VAR"] != "remote" {
+		t.Errorf("Expected REMOTE_VAR=remote, got %v", vars["REMOTE_VAR"])
+	}
+	if vars["IMPORTED_VAR"] != "imported" {
+		t.Errorf("Expected IMPORTED_VAR=imported, got %v", vars["IMPORTED_VAR"])
+	}
+	if _, exists := vars["LOCAL_VAR"]; exists {
+		t.Error("LOCAL_VAR should NOT be accessible (not imported)")
+	}
+}
+
+func TestScopeGraphAsMapNestedBoundaries(t *testing.T) {
+	g := NewScopeGraph("local")
+
+	// Root scope
+	g.Store("ROOT_VAR", "literal", "root", VarClassData, VarTaintAgnostic)
+
+	// First boundary (SSH)
+	g.EnterScope("ssh:server", true)
+	g.Store("SSH_VAR", "literal", "ssh", VarClassData, VarTaintAgnostic)
+
+	// Second boundary (Docker inside SSH)
+	g.EnterScope("docker:container", true)
+	g.Store("DOCKER_VAR", "literal", "docker", VarClassData, VarTaintAgnostic)
+
+	// AsMap should only see DOCKER_VAR (both parent boundaries are sealed)
+	vars := g.AsMap()
+	if len(vars) != 1 {
+		t.Errorf("Expected 1 variable (DOCKER_VAR only), got %d: %v", len(vars), vars)
+	}
+	if vars["DOCKER_VAR"] != "docker" {
+		t.Errorf("Expected DOCKER_VAR=docker, got %v", vars["DOCKER_VAR"])
+	}
+	if _, exists := vars["SSH_VAR"]; exists {
+		t.Error("SSH_VAR should NOT be accessible across sealed boundary")
+	}
+	if _, exists := vars["ROOT_VAR"]; exists {
+		t.Error("ROOT_VAR should NOT be accessible across sealed boundary")
+	}
+}

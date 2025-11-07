@@ -240,10 +240,9 @@ func (g *ScopeGraph) DebugPrint() string {
 }
 
 // AsMap returns all accessible variables as a flat map.
-// Includes variables from current scope and all parent scopes.
+// Respects transport boundaries: when traversing to a parent across a sealed
+// boundary, only explicitly imported variables are included.
 // Used for decorator evaluation context.
-// Transport boundary checks are NOT enforced here - they happen
-// during variable resolution in the decorator itself.
 func (g *ScopeGraph) AsMap() map[string]any {
 	result := make(map[string]any)
 
@@ -256,10 +255,41 @@ func (g *ScopeGraph) AsMap() map[string]any {
 				result[name] = entry.Value
 			}
 		}
+
+		// Move to parent, respecting transport boundaries
+		if scope.parent != nil && scope.sealedFromParent {
+			// This scope is sealed from its parent (transport boundary).
+			// Only traverse to parent if we have explicit imports.
+			// Add only imported variables from parent chain.
+			for name := range scope.imported {
+				if _, exists := result[name]; !exists {
+					// Look up the imported variable in parent chain
+					if value, _, err := g.resolveInParentChain(scope.parent, name); err == nil {
+						result[name] = value
+					}
+				}
+			}
+			// Stop traversal - sealed boundary blocks implicit parent access
+			break
+		}
+
 		scope = scope.parent
 	}
 
 	return result
+}
+
+// resolveInParentChain looks up a variable in the parent chain starting from the given scope.
+// Used by AsMap to resolve imported variables across sealed boundaries.
+func (g *ScopeGraph) resolveInParentChain(startScope *Scope, varName string) (any, *Scope, error) {
+	scope := startScope
+	for scope != nil {
+		if entry, ok := scope.vars[varName]; ok {
+			return entry.Value, scope, nil
+		}
+		scope = scope.parent
+	}
+	return nil, nil, fmt.Errorf("variable %q not found in parent chain", varName)
 }
 
 func (s *Scope) debugPrint(b *strings.Builder, indent int) {
