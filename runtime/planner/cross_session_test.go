@@ -104,7 +104,6 @@ func TestMultiSegmentDecoratorPath(t *testing.T) {
 
 	config := Config{Target: ""}
 	result, err := PlanWithObservability(tree.Events, tree.Tokens, config)
-
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
