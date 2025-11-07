@@ -34,13 +34,15 @@ func NewRegistry() *Registry {
 //	    decorator.Register("var", &VarDecorator{})
 //	    decorator.Register("retry", &RetryDecorator{})
 //	    decorator.Register("aws.s3.object", &AWSS3ObjectDecorator{})
-//	}
+// Register adds a decorator implementation to the package-global registry under the given path.
+// Roles for the decorator are auto-inferred from the implementation; an error is returned if registration fails.
 func Register(path string, impl Decorator) error {
 	return global.register(path, impl)
 }
 
 // ResolveValue resolves a value decorator using the global registry.
-// This is the package-level convenience function (database/sql pattern).
+// ResolveValue resolves a single value decorator using the package-level registry.
+// It evaluates the provided ValueCall within the given transport scope and returns the corresponding ResolvedValue or an error.
 func ResolveValue(ctx ValueEvalContext, call ValueCall, currentScope TransportScope) (ResolvedValue, error) {
 	return global.ResolveValue(ctx, call, currentScope)
 }

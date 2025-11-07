@@ -140,7 +140,10 @@ func Plan(events []parser.Event, tokens []lexer.Token, config Config) (*planfmt.
 	return result.Plan, nil
 }
 
-// PlanWithObservability returns plan with telemetry and debug events
+// PlanWithObservability plans parser events into a Plan and collects telemetry and debug events according to the provided Config.
+// It initializes telemetry and debug buffers when enabled, creates a planner with hierarchical variable scopes and a local decorator session,
+// executes planning, records total planning time, populates telemetry EventCount and StepCount, and returns a PlanResult containing the plan, timing,
+// telemetry, and any debug events. If planning fails, the encountered error is returned.
 func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config Config) (*PlanResult, error) {
 	var telemetry *PlanTelemetry
 	var debugEvents []DebugEvent

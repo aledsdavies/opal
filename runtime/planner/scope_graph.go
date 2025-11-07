@@ -62,7 +62,7 @@ type Scope struct {
 	path  []string // Path from root (for debugging)
 }
 
-// NewScopeGraph creates a new scope graph with a root scope.
+// and its path is initialized to contain the rootSessionID.
 func NewScopeGraph(rootSessionID string) *ScopeGraph {
 	root := &Scope{
 		id:               "root",
