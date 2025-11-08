@@ -5,19 +5,34 @@ pkgs.mkShell {
   name = "opal-dev";
 
   buildInputs = with pkgs; [
-    # Development tools
-    go
+    # Go toolchain (locked version)
+    go_1_25
     gopls
+    
+    # Linting & formatting
     golangci-lint
-    # gci  # Disabled: broken in nixpkgs with Go 1.25 (tokeninternal incompatibility)
-    git
-    zsh
-    nixpkgs-fmt
     gofumpt
+    # gci  # Disabled: broken in nixpkgs with Go 1.25 (tokeninternal incompatibility)
+    
+    # Testing
+    gotestsum  # Better test output
+    
+    # Build tools
+    git
+    gnumake
+    
+    # Nix tooling
+    nixpkgs-fmt
+    
+    # Project-specific
     openssh  # For SSH session testing
+    zsh
   ];
 
   shellHook = ''
+    # Lock Go toolchain to prevent implicit downloads
+    export GOTOOLCHAIN=local
+    
     # Setup SSH for testing
     export SSH_TEST_DIR="$PWD/.ssh-test"
     mkdir -p "$SSH_TEST_DIR"

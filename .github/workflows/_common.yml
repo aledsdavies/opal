@@ -1,0 +1,33 @@
+name: Common CI
+on:
+  workflow_call:
+    inputs:
+      run:
+        required: true
+        type: string
+        description: Command to run inside nix shell
+      os:
+        required: false
+        type: string
+        default: ubuntu-latest
+        description: Runner OS
+
+jobs:
+  nix-job:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v8
+        with:
+          logger: pretty
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Run inside devShell
+        run: |
+          set -euo pipefail
+          nix develop -c bash -c "${{ inputs.run }}"
