@@ -984,12 +984,7 @@ func (p *planner) parseLiteralValue(varName string) (any, error) {
 		value = string(valueToken.Text)
 	case lexer.IDENTIFIER:
 		// Handle identifiers (could be true/false if not recognized as BOOLEAN)
-		text := string(valueToken.Text)
-		if text == "true" || text == "false" {
-			value = text
-		} else {
-			value = text
-		}
+		value = string(valueToken.Text)
 	default:
 		value = string(valueToken.Text)
 	}

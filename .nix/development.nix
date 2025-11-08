@@ -9,14 +9,13 @@ pkgs.mkShell {
     go
     gopls
     golangci-lint
+    # gci  # Disabled: broken in nixpkgs with Go 1.25 (tokeninternal incompatibility)
     git
     zsh
     nixpkgs-fmt
     gofumpt
     openssh  # For SSH session testing
-  ] ++ (if self != null then [
-    self.packages.${system}.opal # Include the opal binary itself
-  ] else []);
+  ];
 
   shellHook = ''
     # Setup SSH for testing
@@ -46,7 +45,6 @@ pkgs.mkShell {
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo ""
       echo "Available tools:"
-      echo "  opal       - The Opal CLI (operations planning language)"
       echo "  go         - Go compiler and tools"
       echo "  gofumpt    - Go formatter"
       echo "  golangci-lint - Go linter"
@@ -67,11 +65,7 @@ pkgs.mkShell {
       echo "  golangci-lint run              - Run linter"
       echo "  go test -v ./...               - Run all tests (SSH if enabled)"
       echo "  go test -v -short ./...        - Run tests (skip SSH)"
-      echo "  cd cli && go build -o opal .   - Build CLI"
-      echo ""
-      echo "Opal usage:"
-      echo "  opal deploy --dry-run          - Show execution plan"
-      echo "  opal deploy                    - Execute operation"
+      echo "  cd cli && go build -o opal .   - Build CLI binary"
       echo ""
     fi
   '';

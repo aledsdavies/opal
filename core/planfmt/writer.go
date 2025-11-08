@@ -7,8 +7,9 @@ import (
 	"io"
 	"math"
 
-	"github.com/aledsdavies/opal/core/invariant"
 	"golang.org/x/crypto/blake2b"
+
+	"github.com/aledsdavies/opal/core/invariant"
 )
 
 const (
@@ -130,7 +131,7 @@ func (wr *Writer) WritePlan(p *Plan) ([32]byte, error) {
 // writePreambleToBuffer writes the fixed-size preamble (20 bytes) to a buffer
 func (wr *Writer) writePreambleToBuffer(buf *bytes.Buffer, headerLen uint32, bodyLen uint64) error {
 	// Magic number (4 bytes)
-	if _, err := buf.Write([]byte(Magic)); err != nil {
+	if _, err := buf.WriteString(Magic); err != nil {
 		return err
 	}
 

@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/aledsdavies/opal/core/invariant"
 	"golang.org/x/crypto/blake2b"
+
+	"github.com/aledsdavies/opal/core/invariant"
 )
 
 // DebugMode enables panic-on-leak for testing
@@ -26,8 +27,8 @@ var globalCapability *Capability
 
 // SetCapability sets the global capability (executor only)
 // This enables UnsafeUnwrap/Bytes/ForEnv in production
-func SetCapability(cap *Capability) {
-	globalCapability = cap
+func SetCapability(capability *Capability) {
+	globalCapability = capability
 }
 
 // Handle wraps a secret value with taint tracking

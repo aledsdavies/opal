@@ -85,7 +85,7 @@ jobs:
         with:
           version: v2.5.0
           working-directory: ${{ matrix.module }}
-          args: --timeout=5m --verbose --new-from-rev=origin/${{ github.base_ref || 'main' }}
+          args: --timeout=5m --verbose
 
   build:
     name: Build (${{ matrix.os }})

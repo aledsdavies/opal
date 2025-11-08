@@ -6,85 +6,94 @@ run:
   allow-parallel-runners: true
 
 issues:
-  exclude-use-default: false
   max-same-issues: 0
   max-issues-per-linter: 0
 
 linters:
-  exclusions:
-    # Exclude entire paths from linting
-    paths:
-      - '(.+)_test\.go$'
-      - 'testdata/'
-      - '(_generated|\.pb|mock_.*)\.go$'
-    rules:
-      # Exclude test helpers from style checks
-      - path: '(testing|helpers)\.go$'
-        linters:
-          - revive
-          - gocritic
-    # Common false positives
-    text-rules:
-      - text: "unused-parameter"
-        linters:
-          - revive
-      - text: "package-comments"
-        linters:
-          - revive
-  disable-all: true
   enable:
     # Correctness / bugs
     - govet
     - staticcheck
     - errcheck
     - ineffassign
-    # Style & maintainability (lightweight)
+    # Idiomatic Go
     - revive
     - gocritic
+    - goconst  # Find repeated strings that should be constants
+    - thelper  # Enforce t.Helper() in test helpers
+    # Code quality
     - misspell
+  exclusions:
+    # Exclude generated code and test data
+    paths:
+      - 'testdata/'
+      - '(_generated|\.pb|mock_.*)\.go$'
+    rules:
+      # Test files: only check for real bugs, not style
+      - path: '(.+)_test\.go$'
+        linters:
+          - errcheck  # Unchecked errors make tests clearer
+          - goconst  # Repeated strings are fine in tests
+          - gocritic  # Style checks too strict for tests
+          - revive  # Style checks too strict for tests
+      # Test helpers: require t.Helper() but skip other style checks
+      - path: '(testing|helpers)\.go$'
+        linters:
+          - revive
+          - gocritic
+      # Common false positives
+      - text: "unused-parameter"
+        linters:
+          - revive
+      - text: "package-comments"
+        linters:
+          - revive
+  settings:
+    errcheck:
+      # Don't require checking these ubiquitous funcs
+      exclude-functions:
+        - (*io.Closer).Close
+        - (net/http.(*Response)).Body.Close
+        - (fmt.*).Print*
+    revive:
+      # Keep this small; add rules as the team agrees
+      rules:
+        - name: exported
+          disabled: true  # Don't require comments on all exports
+        - name: unreachable-code
+        - name: indent-error-flow
+        - name: early-return
+        - name: if-return
+        - name: blank-imports
+        - name: unnecessary-stmt
+    gocritic:
+      disabled-checks:
+        - hugeParam
+        - commentFormatting
+        - unnamedResult  # Most Go projects don't use named returns
+        - ifElseChain  # if/else is idiomatic Go, switch isn't always clearer
+        - paramTypeCombine  # Explicit parameter types improve readability
+        - nestingReduce  # Sometimes nested code is clearer than inverted conditions
+        - rangeValCopy  # Micro-optimization, profile first
+        - appendCombine  # Micro-optimization, not worth the complexity
+        - sprintfQuotedString  # %s with quotes is fine
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+    goconst:
+      min-len: 3  # Minimum length of string constant
+      min-occurrences: 3  # Minimum number of occurrences to trigger
 
 formatters:
   enable:
     - gofumpt
-    - gci
-
-linters-settings:
-  errcheck:
-    # Don't require checking these ubiquitous funcs
-    exclude-functions:
-      - (*io.Closer).Close
-      - (net/http.(*Response)).Body.Close
-      - (fmt.*).Print*
-  revive:
-    # Keep this small; add rules as the team agrees
-    rules:
-      - name: exported
-        disabled: true  # Don't require comments on all exports
-      - name: unreachable-code
-      - name: indent-error-flow
-      - name: early-return
-      - name: if-return
-      - name: blank-imports
-      - name: unnecessary-stmt
-  gocritic:
-    disabled-checks:
-      - hugeParam
-      - commentFormatting
-    enabled-tags:
-      - diagnostic
-      - performance
-      - style
-  gofumpt:
-    extra-rules: true
-  gci:
-    sections:
-      - standard
-      - default
-      - prefix(github.com/aledsdavies/opal)
-    skip-generated: true
-
-# Speed up by skipping heavy dirs
-skip-dirs:
-  - vendor
-  - third_party
-  - tools
+    # - gci  # Disabled: broken in nixpkgs with Go 1.25 (tokeninternal incompatibility)
+  settings:
+    gofumpt:
+      extra-rules: true
+    # gci:
+    #   sections:
+    #     - standard
+    #     - default
+    #     - prefix(github.com/aledsdavies/opal)
