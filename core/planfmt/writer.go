@@ -152,11 +152,7 @@ func (wr *Writer) writePreambleToBuffer(buf *bytes.Buffer, headerLen uint32, bod
 	}
 
 	// Body length (8 bytes, uint64, little-endian)
-	if err := binary.Write(buf, binary.LittleEndian, bodyLen); err != nil {
-		return err
-	}
-
-	return nil
+	return binary.Write(buf, binary.LittleEndian, bodyLen)
 }
 
 // writeHeader writes the plan header to the buffer
@@ -234,11 +230,7 @@ func (wr *Writer) writeStep(buf *bytes.Buffer, s *Step) error {
 	}
 
 	// Write execution tree (Commands field is ignored - only exists for executor during transition)
-	if err := wr.writeExecutionNode(buf, s.Tree); err != nil {
-		return err
-	}
-
-	return nil
+	return wr.writeExecutionNode(buf, s.Tree)
 }
 
 // Node type constants for binary serialization

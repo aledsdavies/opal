@@ -43,11 +43,12 @@ func NewSSHSession(params map[string]any) (*SSHSession, error) {
 	var authMethods []ssh.AuthMethod
 
 	// Try direct signer first (for testing)
-	if signer, ok := params["key"].(ssh.Signer); ok {
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
-	} else if keyPath, ok := params["key"].(string); ok {
+	switch key := params["key"].(type) {
+	case ssh.Signer:
+		authMethods = append(authMethods, ssh.PublicKeys(key))
+	case string:
 		// Try keyfile auth if string path provided
-		if keyAuth := sshKeyAuth(keyPath); keyAuth != nil {
+		if keyAuth := sshKeyAuth(key); keyAuth != nil {
 			authMethods = append(authMethods, keyAuth)
 		}
 	}

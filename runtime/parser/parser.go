@@ -359,12 +359,11 @@ func (p *parser) paramList() {
 		p.param()
 
 		// If there's a comma, consume it and continue
-		if p.at(lexer.COMMA) {
-			p.token()
-		} else {
+		if !p.at(lexer.COMMA) {
 			// No comma means we're done with parameters
 			break
 		}
+		p.token()
 	}
 
 	// Expect ')'
@@ -1739,27 +1738,25 @@ func (p *parser) decorator() {
 		foundRegistered := false
 		for {
 			p.advance() // Move to next token
-			if p.at(lexer.DOT) {
-				p.advance() // Move past dot
-				if p.at(lexer.IDENTIFIER) {
-					// Try adding this part to the name
-					testName := decoratorName + "." + string(p.current().Text)
-					if types.Global().IsRegistered(testName) || decorator.Global().IsRegistered(testName) {
-						// Found it!
-						decoratorName = testName
-						foundRegistered = true
-						break
-					}
-					// Not found yet - add it and keep trying
-					decoratorName = testName
-				} else {
-					// Dot not followed by identifier - stop here
-					break
-				}
-			} else {
+			if !p.at(lexer.DOT) {
 				// No more dots
 				break
 			}
+			p.advance() // Move past dot
+			if !p.at(lexer.IDENTIFIER) {
+				// Dot not followed by identifier - stop here
+				break
+			}
+			// Try adding this part to the name
+			testName := decoratorName + "." + string(p.current().Text)
+			if types.Global().IsRegistered(testName) || decorator.Global().IsRegistered(testName) {
+				// Found it!
+				decoratorName = testName
+				foundRegistered = true
+				break
+			}
+			// Not found yet - add it and keep trying
+			decoratorName = testName
 		}
 
 		// Reset position
@@ -2650,6 +2647,7 @@ func (p *parser) expectedTypeFromSchema(schema types.ParamSchema) string {
 
 // generateConcreteSuggestion generates a realistic example based on schema constraints
 func (p *parser) generateConcreteSuggestion(paramName string, schema types.ParamSchema, decoratorName string) string {
+	const placeholderValue = "\"value\""
 	var exampleValue string
 
 	switch schema.Type {
@@ -2693,13 +2691,13 @@ func (p *parser) generateConcreteSuggestion(paramName string, schema types.Param
 			case "duration":
 				exampleValue = "\"5m\""
 			default:
-				exampleValue = "\"value\""
+				exampleValue = placeholderValue
 			}
 		} else if len(schema.Examples) > 0 && schema.Examples[0] != "" {
 			// Use first non-empty example
 			exampleValue = fmt.Sprintf("%q", schema.Examples[0])
 		} else {
-			exampleValue = "\"value\""
+			exampleValue = placeholderValue
 		}
 
 	case types.TypeBool:
@@ -2713,7 +2711,7 @@ func (p *parser) generateConcreteSuggestion(paramName string, schema types.Param
 		if schema.EnumSchema != nil && len(schema.EnumSchema.Values) > 0 {
 			exampleValue = fmt.Sprintf("%q", schema.EnumSchema.Values[0])
 		} else {
-			exampleValue = "\"value\""
+			exampleValue = placeholderValue
 		}
 
 	case types.TypeObject:
@@ -2875,11 +2873,10 @@ func (p *parser) stringNeedsInterpolation() bool {
 
 	// Extract content without quotes
 	content := tok.Text
-	if len(content) >= 2 {
-		content = content[1 : len(content)-1]
-	} else {
+	if len(content) < 2 {
 		return false
 	}
+	content = content[1 : len(content)-1]
 
 	// Tokenize and check if there are multiple parts or decorator parts
 	parts := TokenizeString(content, quoteType)
@@ -2917,15 +2914,14 @@ func (p *parser) stringLiteral() {
 
 	// Extract content without quotes
 	content := tok.Text
-	if len(content) >= 2 {
-		content = content[1 : len(content)-1] // Remove surrounding quotes
-	} else {
+	if len(content) < 2 {
 		// Malformed string, treat as simple literal
 		kind := p.start(NodeLiteral)
 		p.token()
 		p.finish(kind)
 		return
 	}
+	content = content[1 : len(content)-1] // Remove surrounding quotes
 
 	// Tokenize the string content
 	parts := TokenizeString(content, quoteType)

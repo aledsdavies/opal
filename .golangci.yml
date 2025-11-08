@@ -48,6 +48,10 @@ linters:
       - text: "package-comments"
         linters:
           - revive
+      # goconst false positives (constants are different types)
+      - text: "but such constant .* already exists"
+        linters:
+          - goconst
   settings:
     errcheck:
       # Don't require checking these ubiquitous funcs
@@ -84,6 +88,7 @@ linters:
     goconst:
       min-len: 3  # Minimum length of string constant
       min-occurrences: 3  # Minimum number of occurrences to trigger
+      ignore-tests: true  # Don't check test files
 
 formatters:
   enable:
