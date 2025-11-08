@@ -16,6 +16,7 @@ linters:
     - staticcheck
     - errcheck
     - ineffassign
+    - nilerr  # Catch nil errors returned with non-nil values
     # Idiomatic Go
     - revive
     - gocritic
@@ -98,6 +99,7 @@ formatters:
     gofumpt:
       extra-rules: true
     # gci:
+    #   custom-order: true  # Enforce the section order below
     #   sections:
     #     - standard
     #     - default
