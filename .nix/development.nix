@@ -19,7 +19,6 @@ pkgs.mkShell {
     
     # Build tools
     git
-    gnumake
     
     # Nix tooling
     nixpkgs-fmt

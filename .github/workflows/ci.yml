@@ -47,6 +47,7 @@ jobs:
         set -euo pipefail
         echo "==> Linting core module..."
         cd core && golangci-lint run --timeout=5m --verbose
+        echo "✓ Core module linting complete - no issues found"
 
   lint-runtime:
     uses: ./.github/workflows/_common.yml
@@ -63,6 +64,7 @@ jobs:
         set -euo pipefail
         echo "==> Linting cli module..."
         cd cli && golangci-lint run --timeout=5m --verbose
+        echo "✓ CLI module linting complete - no issues found"
 
   build:
     name: Build (${{ matrix.os }})
@@ -126,9 +128,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v8
-        with:
-          logger: pretty
+        uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Test development shell
         run: |
@@ -161,12 +161,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v8
-        with:
-          logger: pretty
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
+        uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Snapshot fuzz corpus (runtime only)
         if: matrix.module == 'runtime'
@@ -229,12 +224,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v8
-        with:
-          logger: pretty
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
+        uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Download all coverage reports
         uses: actions/download-artifact@v4
@@ -359,9 +349,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v8
-        with:
-          logger: pretty
+        uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Setup Go
         uses: actions/setup-go@v5
