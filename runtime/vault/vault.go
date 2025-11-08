@@ -50,7 +50,7 @@ import (
 //   - Deduplication of identical expressions
 //   - Reproducible SecretUse generation
 //
-// # Security Model
+// # Security Model: Zanzibar-Style Access Control
 //
 // ALL value decorators produce secrets:
 //   - @var.X → secret
@@ -60,10 +60,20 @@ import (
 //
 // No classification needed - if it's a value decorator, it's a secret.
 //
-// Secrets are only unwrappable at their exact use-site:
+// Access control uses Tuple (Position) + Caveat (Constraint):
+//
+// Tuple (Position): (exprID, siteID)
+//   - Secret can only be accessed at authorized sites
 //   - Site: "root/retry[0]/params/apiKey"
 //   - SiteID: HMAC(planKey, site) - unforgeable
-//   - Executor checks: Can only unwrap if SiteID matches
+//   - Recorded via RecordReference() during planning
+//
+// Caveat (Constraint): Transport isolation (decorator-specific)
+//   - Currently: @env expressions cannot cross transport boundaries
+//   - Future: Any decorator can declare transport isolation requirement
+//   - Prevents local secrets leaking to remote SSH sessions
+//
+// Both checks must pass for Access() to succeed.
 //
 // # Planner-Vault Collaboration
 //
@@ -79,7 +89,7 @@ import (
 //	Pass 2 - Resolve (wave-based):
 //	  vault.MarkTouched(exprID)                   // Mark in execution path
 //	  vault.ResolveTouched(ctx)                   // Vault calls decorators
-//	  value, _ := vault.Access(exprID)             // Planner accesses for @if (checks SiteID)
+//	  value, _ := vault.Access(exprID, paramName) // Planner accesses for @if (checks SiteID + transport)
 //
 //	Pass 3 - Finalize:
 //	  vault.PruneUntouched()                      // Remove unreachable
@@ -423,9 +433,25 @@ func (v *Vault) checkTransportBoundary(exprID string) error {
 }
 
 // Access returns the raw value for an expression at the current site.
-// Checks both SiteID authorization and transport boundaries.
-// Used by planner for meta-programming (e.g., @if conditionals).
-func (v *Vault) Access(exprID string) (string, error) {
+//
+// Implements Zanzibar-style access control:
+//   - Tuple (Position): Checks if (exprID, siteID) is authorized
+//   - Caveat (Constraint): Checks transport boundary (if decorator requires it)
+//
+// Used by planner for meta-programming (e.g., @if conditionals, @for loops).
+//
+// Parameters:
+//   - exprID: Expression identifier (from DeclareVariable or TrackExpression)
+//   - paramName: Parameter name accessing the value (e.g., "command", "apiKey")
+//
+// Returns:
+//   - Resolved value if both checks pass
+//   - Error if expression not found, not resolved, unauthorized site, or transport violation
+//
+// Example:
+//   vault.EnterDecorator("@shell")
+//   value, err := vault.Access("API_KEY", "command")  // Checks site: root/@shell[0]/params/command
+func (v *Vault) Access(exprID, paramName string) (string, error) {
 	// 1. Get expression
 	expr, exists := v.expressions[exprID]
 	if !exists {
@@ -435,11 +461,16 @@ func (v *Vault) Access(exprID string) (string, error) {
 		return "", fmt.Errorf("expression %q not resolved yet", exprID)
 	}
 
-	// 2. Build current site
-	currentSite := v.BuildSitePath("")
+	// 2. Check transport boundary (Caveat - checked first as more fundamental)
+	if err := v.checkTransportBoundary(exprID); err != nil {
+		return "", err
+	}
+
+	// 3. Build current site with parameter name
+	currentSite := v.BuildSitePath(paramName)
 	currentSiteID := v.computeSiteID(currentSite)
 
-	// 3. Check if current site is authorized
+	// 4. Check if current site is authorized (Tuple)
 	authorized := false
 	for _, ref := range v.references[exprID] {
 		if ref.SiteID == currentSiteID {

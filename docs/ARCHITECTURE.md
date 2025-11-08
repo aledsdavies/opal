@@ -1255,24 +1255,42 @@ Expression IDs must be **unique and include transport context**:
 
 These are **different expressions** with different IDs.
 
-### Access Control: Two Rules
+### Access Control: Zanzibar-Style Model
 
-**Rule 1: Site-Based Authority**
-- Secret can only be unwrapped at authorized sites
-- Checked via SiteID: `HMAC(planKey, canonicalSitePath)`
-- HMAC prevents forgery - decorator cannot fake authorization
+Vault implements **Tuple (Position) + Caveat (Constraint)** access control, inspired by Google's Zanzibar authorization system.
 
-**Rule 2: Transport Boundaries (for @env only)**
-- `@env` secrets cannot cross transport scopes
-- Must be resolved in same transport where used
+**Tuple (Position): (exprID, siteID)**
+- Represents: "Expression X can be accessed at site Y"
+- Checked via: HMAC-based SiteID matching
+- Unforgeable: SiteID = `HMAC(planKey, canonicalSitePath)`
+- Recorded: During planning via `RecordReference(exprID, paramName)`
+- Example: `("API_KEY", "Xj9K...")` means API_KEY can be accessed at site with ID Xj9K...
+
+**Caveat (Constraint): Transport Isolation**
+- Represents: Additional restrictions beyond position
+- Currently: `@env` expressions cannot cross transport boundaries
+- Future: Any decorator can declare transport isolation requirement
+- Checked: Before position check (more fundamental security rule)
 - Example:
   ```opal
   var LOCAL = @env.HOME  # Resolved in "local" transport
   
   @ssh(host="remote") {
-      echo @var.LOCAL  # ❌ ERROR: crosses transport boundary
+      echo @var.LOCAL  # ❌ ERROR: transport boundary violation (Caveat fails)
   }
   ```
+
+**Access Check Order:**
+1. **Caveat first**: Check transport boundary (if decorator requires it)
+2. **Tuple second**: Check if (exprID, currentSiteID) is authorized
+
+Both must pass for `Access()` to succeed.
+
+**Why this model:**
+- **Proven**: Zanzibar powers Google's authorization at scale
+- **Extensible**: Easy to add new caveats (time-based, count-based, etc.)
+- **Clear separation**: Position (where) vs Constraint (how)
+- **Unforgeable**: HMAC-based SiteIDs prevent decorator forgery
 
 ### Three-Pass Planning
 
@@ -1313,9 +1331,9 @@ vault.ResolveTouched(ctx)
 
 // Meta-programming: Planner needs value for conditional
 // Planner is at: root/step-1/@if[0]/params/condition
-value, err := vault.Unwrap("API_KEY")
-// Checks: Is current SiteID authorized for "API_KEY"?
-// Checks: Transport boundary (if @env expression)
+value, err := vault.Access("API_KEY", "condition")
+// Checks: Transport boundary (if @env expression) - Caveat
+// Checks: Is current SiteID authorized for "API_KEY"? - Tuple
 // Returns: "sk-prod-key" (raw value for conditional)
 
 // Planner evaluates: @if("sk-prod-key" != "")
@@ -1370,7 +1388,7 @@ vault.ResolveTouched(ctx)
 
 // Planner evaluates @if
 vault.EnterDecorator("@if")  // Sets current site
-value, _ := vault.Unwrap("ENV")  // "prod" (checks SiteID)
+value, _ := vault.Access("ENV", "condition")  // "prod" (checks SiteID + transport)
 vault.ExitDecorator()
 
 // Evaluates: "prod" == "prod" → true, enters first block
@@ -1518,8 +1536,8 @@ vault.MarkTouched(exprID string)
 // Resolve all touched-but-unresolved expressions
 err := vault.ResolveTouched(ctx context.Context) error
 
-// Unwrap at current site (checks SiteID + transport)
-value, err := vault.Unwrap(exprID string) (string, error)
+// Access at current site (checks transport + SiteID)
+value, err := vault.Access(exprID, paramName string) (string, error)
 ```
 
 **Pass 3 - Finalize:**
