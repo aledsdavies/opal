@@ -51,11 +51,11 @@ jobs:
 
       - name: Check Go formatting
         run: |
-          echo "Checking Go formatting..."
-          if [ "$(gofumpt -l . | wc -l)" -gt 0 ]; then
+          echo "Checking Go formatting with gofumpt (extra-rules enabled)..."
+          if [ "$(gofumpt -extra -l . | wc -l)" -gt 0 ]; then
             echo "Go formatting issues found:"
-            gofumpt -l .
-            echo "Run 'gofumpt -w .' to fix."
+            gofumpt -extra -l .
+            echo "Run 'gofumpt -extra -w .' to fix."
             exit 1
           fi
 

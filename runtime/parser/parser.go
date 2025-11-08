@@ -2830,7 +2830,7 @@ func (p *parser) warningWithDetails(message, context, suggestion string) {
 }
 
 // errorSchema adds a schema validation error with structured error code
-func (p *parser) errorSchema(code ErrorCode, paramName string, message, suggestion string, expectedType, gotValue string) {
+func (p *parser) errorSchema(code ErrorCode, paramName, message, suggestion, expectedType, gotValue string) {
 	tok := p.current()
 	p.errors = append(p.errors, ParseError{
 		Position:     tok.Position,
@@ -2845,7 +2845,7 @@ func (p *parser) errorSchema(code ErrorCode, paramName string, message, suggesti
 }
 
 // warningSchema adds a schema validation warning with structured error code
-func (p *parser) warningSchema(code ErrorCode, paramName string, message, suggestion string) {
+func (p *parser) warningSchema(code ErrorCode, paramName, message, suggestion string) {
 	tok := p.current()
 	p.warnings = append(p.warnings, ParseWarning{
 		Position:   tok.Position,
