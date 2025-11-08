@@ -1226,78 +1226,170 @@ var API_KEY = "sk-secret"
 
 **No classification needed** - if it's a value decorator, it's a secret.
 
+### Expression IDs: Deterministic and Transport-Aware
+
+Expression IDs must be **unique and include transport context**:
+
+**Variables:**
+- ID = variable name (scoped to current context)
+- Example: `"API_KEY"`
+
+**Direct Decorator Calls:**
+- ID = hash(transport + decorator + params)
+- Examples:
+  - `@env.HOME` in local → `"local:env:HOME:abc123"`
+  - `@env.HOME` in ssh:server1 → `"ssh:server1:env:HOME:def456"`
+  - `@env.HOME` in ssh:server2 → `"ssh:server2:env:HOME:ghi789"`
+
+**Why transport in ID?** Same decorator in different transports resolves to **different values**:
+
+```opal
+@ssh(host="server1") {
+    echo @env.HOME  # /home/user1 (server1's HOME)
+}
+
+@ssh(host="server2") {
+    echo @env.HOME  # /home/user2 (server2's HOME)
+}
+```
+
+These are **different expressions** with different IDs.
+
+### Access Control: Two Rules
+
+**Rule 1: Site-Based Authority**
+- Secret can only be unwrapped at authorized sites
+- Checked via SiteID: `HMAC(planKey, canonicalSitePath)`
+- HMAC prevents forgery - decorator cannot fake authorization
+
+**Rule 2: Transport Boundaries (for @env only)**
+- `@env` secrets cannot cross transport scopes
+- Must be resolved in same transport where used
+- Example:
+  ```opal
+  var LOCAL = @env.HOME  # Resolved in "local" transport
+  
+  @ssh(host="remote") {
+      echo @var.LOCAL  # ❌ ERROR: crosses transport boundary
+  }
+  ```
+
 ### Three-Pass Planning
 
 **Pass 1: Scan & Build Graph**
-```
-Planner scans parser events and tells Vault:
-1. TrackExpression(id, raw) - Register ALL expressions
-   - Direct calls: @env.HOME, @aws.secret("key")
-   - Variables: var API_KEY = @aws.secret("key")
-   - Nested: @aws.secret("@var.ENV-key")
 
-2. RecordReference(id, paramName) - Track use-sites
-   - Builds canonical site path
-   - Generates unforgeable SiteID
-   - Records for SecretUse generation
+Planner scans parser events and tells Vault:
+
+```go
+// Track variable (returns variable name as ID)
+exprID := vault.DeclareVariable("API_KEY", "@env.API_KEY")  // "API_KEY"
+
+// Track direct decorator call (returns hash-based ID with transport)
+exprID := vault.TrackExpression("@env.HOME")  // "local:env:HOME:abc123"
+
+// Record use-site (builds site path from current pathStack)
+vault.RecordReference(exprID, "params/command")
+// Records: site="root/step-1/@shell[0]/params/command"
+//          siteID=HMAC(planKey, site)
 ```
+
+**Result:** Vault has complete registry of all possible expressions and their use-sites.
 
 **Pass 2: Resolve (Wave-Based)**
-```
-Planner walks execution path, Vault resolves:
-1. MarkTouched(id) - Expression is in execution path
-2. ResolveTouched(ctx) - Vault calls decorators for touched expressions
-3. GetForMeta(id) - Planner unwraps for @if conditions (meta-programming)
 
-Wave-based resolution handles:
-- Dependencies: @var.ENV must resolve before @aws.secret("@var.ENV-key")
-- Branching: Only resolve expressions in taken branch
-- Meta-programming: Planner evaluates @if, marks touched branch
+Planner orchestrates resolution in waves to handle dependencies:
+
+```go
+// Wave 1: Mark expressions in execution path
+vault.MarkTouched("API_KEY")
+
+// Vault resolves all touched expressions
+vault.ResolveTouched(ctx)
+// Internally:
+//   - For each touched expression
+//   - Call decorator (@env.API_KEY)
+//   - Wrap result in secret.Handle
+//   - Store in vault
+
+// Meta-programming: Planner needs value for conditional
+// Planner is at: root/step-1/@if[0]/params/condition
+value, err := vault.Unwrap("API_KEY")
+// Checks: Is current SiteID authorized for "API_KEY"?
+// Checks: Transport boundary (if @env expression)
+// Returns: "sk-prod-key" (raw value for conditional)
+
+// Planner evaluates: @if("sk-prod-key" != "")
+// Result: true, enters block
+
+// Wave 2: Planner discovered new expressions in @if block
+vault.MarkTouched("SECRET_KEY")
+vault.ResolveTouched(ctx)
 ```
+
+Repeat until all reachable expressions resolved.
 
 **Pass 3: Finalize**
-```
-1. PruneUntouched() - Remove unreachable expressions
-2. BuildSecretUses() - Generate authorization list
-   - Only includes: resolved + referenced + touched
-   - Auto-prunes: unresolved, unreferenced, untouched
+
+```go
+vault.PruneUntouched()  // Remove unreachable expressions
+uses := vault.BuildSecretUses()
+// Returns: []SecretUse with only resolved + touched expressions
 ```
 
-**Example:**
+**Complete Example:**
+
 ```opal
-# Pass 1: Scan
 var ENV = @env.ENVIRONMENT
-vault.TrackExpression("ENV", "@env.ENVIRONMENT")
-vault.RecordReference("ENV", "condition")  # Used in @if
 
-@if(condition="@var.ENV == 'prod'") {
+@if(@var.ENV == "prod") {
     var PROD_KEY = @aws.secret("prod-key")
-    vault.TrackExpression("PROD_KEY", "@aws.secret('prod-key')")
-    vault.RecordReference("PROD_KEY", "command")
+    echo @var.PROD_KEY
 }
 
-@if(condition="@var.ENV == 'dev'") {
+@if(@var.ENV == "dev") {
     var DEV_KEY = @aws.secret("dev-key")
-    vault.TrackExpression("DEV_KEY", "@aws.secret('dev-key')")
-    vault.RecordReference("DEV_KEY", "command")
+    echo @var.DEV_KEY
 }
+```
 
-# Pass 2: Resolve
+```go
+// Pass 1: Scan
+envID := vault.DeclareVariable("ENV", "@env.ENVIRONMENT")  // "ENV"
+vault.RecordReference("ENV", "params/condition")  // @if uses it
+
+prodID := vault.DeclareVariable("PROD_KEY", "@aws.secret('prod-key')")  // "PROD_KEY"
+vault.RecordReference("PROD_KEY", "params/command")  // echo uses it
+
+devID := vault.DeclareVariable("DEV_KEY", "@aws.secret('dev-key')")  // "DEV_KEY"
+vault.RecordReference("DEV_KEY", "params/command")  // echo uses it
+
+// Pass 2: Resolve Wave 1
 vault.MarkTouched("ENV")
-vault.ResolveTouched(ctx)  # Resolves ENV → "prod"
+vault.ResolveTouched(ctx)
+// Vault calls @env.ENVIRONMENT → "prod" → wraps in Handle → stores
 
-# Planner evaluates @if
-envValue := vault.GetForMeta("ENV")  # "prod"
-if envValue == "prod" {
-    vault.MarkTouched("PROD_KEY")  # This branch taken
-    # DEV_KEY NOT marked (other branch)
-}
+// Planner evaluates @if
+vault.EnterDecorator("@if")  // Sets current site
+value, _ := vault.Unwrap("ENV")  // "prod" (checks SiteID)
+vault.ExitDecorator()
 
-vault.ResolveTouched(ctx)  # Resolves PROD_KEY only
+// Evaluates: "prod" == "prod" → true, enters first block
+vault.MarkTouched("PROD_KEY")  // First branch taken
+// DEV_KEY NOT marked (second branch not taken)
 
-# Pass 3: Finalize
-vault.PruneUntouched()  # Removes DEV_KEY (not touched)
-uses := vault.BuildSecretUses()  # ENV + PROD_KEY only
+// Pass 2: Resolve Wave 2
+vault.ResolveTouched(ctx)
+// Vault calls @aws.secret("prod-key") → "sk-..." → wraps → stores
+// DEV_KEY not resolved (not touched)
+
+// Pass 3: Finalize
+vault.PruneUntouched()  // Removes DEV_KEY
+uses := vault.BuildSecretUses()
+// Returns:
+// [
+//   {DisplayID: "opal:v:ENV123", SiteID: "Xj9K...", Site: "root/@if[0]/params/condition"},
+//   {DisplayID: "opal:v:PROD456", SiteID: "mN2p...", Site: "root/@if[0]/body/@shell[0]/params/command"}
+// ]
 ```
 
 ### Transport Boundaries
@@ -1340,6 +1432,60 @@ vault.RecordReference("LOCAL_TOKEN", "command")
 1. Expressions resolved in parent transport cannot cross to child transport
 2. Sibling transports are isolated (ssh:host1 cannot access ssh:host2 secrets)
 3. Explicit passing via decorator parameters is allowed
+
+### Vault API
+
+**Pass 1 - Scan:**
+```go
+// Track variable (returns variable name as ID)
+exprID := vault.DeclareVariable(name, raw string) string
+
+// Track direct decorator call (returns hash-based ID with transport)
+exprID := vault.TrackExpression(raw string) string
+
+// Record use-site (builds site path from current pathStack)
+err := vault.RecordReference(exprID, paramName string) error
+```
+
+**Pass 2 - Resolve:**
+```go
+// Mark expression as in execution path
+vault.MarkTouched(exprID string)
+
+// Resolve all touched-but-unresolved expressions
+err := vault.ResolveTouched(ctx context.Context) error
+
+// Unwrap at current site (checks SiteID + transport)
+value, err := vault.Unwrap(exprID string) (string, error)
+```
+
+**Pass 3 - Finalize:**
+```go
+// Remove untouched expressions
+vault.PruneUntouched()
+
+// Build final authorization list
+uses := vault.BuildSecretUses() []SecretUse
+```
+
+**Utilities (already implemented):**
+```go
+// Path tracking
+vault.EnterStep()
+vault.EnterDecorator(name string) int
+vault.ExitDecorator()
+vault.BuildSitePath(paramName string) string
+
+// Transport tracking
+vault.EnterTransport(scope string)
+vault.ExitTransport()
+vault.CurrentTransport() string
+
+// Execution path tracking
+vault.MarkTouched(exprID string)
+vault.IsTouched(exprID string) bool
+vault.PruneUntouched()
+```
 
 ### Implementation
 
