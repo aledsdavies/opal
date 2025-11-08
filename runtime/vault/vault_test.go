@@ -2,6 +2,8 @@ package vault
 
 import (
 	"testing"
+
+	"github.com/aledsdavies/opal/core/sdk/secret"
 )
 
 // TestVault_PathTracking_SingleDecorator tests building a simple path
@@ -161,8 +163,8 @@ func TestVault_DeclareVariable(t *testing.T) {
 	if expr.Raw != "sk-secret-123" {
 		t.Errorf("Expression.Raw = %q, want %q", expr.Raw, "sk-secret-123")
 	}
-	if expr.Type != ExprVariable {
-		t.Errorf("Expression.Type = %v, want ExprVariable", expr.Type)
+	if expr.Handle != nil {
+		t.Error("Expression.Handle should be nil (not resolved yet)")
 	}
 }
 
@@ -171,17 +173,20 @@ func TestVault_TrackDecoratorCall(t *testing.T) {
 	v := New()
 
 	// GIVEN: We track a decorator call
-	v.TrackExpression("secret1", "@aws.secret('prod-key')", ExprDecorator)
+	v.TrackExpression("secret1", "@aws.secret('prod-key')")
 
 	// WHEN: We retrieve it
 	expr, exists := v.GetExpression("secret1")
 
-	// THEN: Should be registered as decorator type
+	// THEN: Should be registered
 	if !exists {
 		t.Error("Expression should be registered")
 	}
-	if expr.Type != ExprDecorator {
-		t.Errorf("Expression.Type = %v, want ExprDecorator", expr.Type)
+	if expr.Raw != "@aws.secret('prod-key')" {
+		t.Errorf("Expression.Raw = %q, want %q", expr.Raw, "@aws.secret('prod-key')")
+	}
+	if expr.Handle != nil {
+		t.Error("Expression.Handle should be nil (not resolved yet)")
 	}
 }
 
@@ -259,6 +264,219 @@ func TestVault_UnusedExpression(t *testing.T) {
 	}
 }
 
+// TestVault_StoreAndGet tests storing and retrieving resolved Handles.
+func TestVault_StoreAndGet(t *testing.T) {
+	v := New()
+
+	// GIVEN: We declare a variable
+	v.DeclareVariable("API_KEY", "@env.API_KEY")
+
+	// WHEN: Planner resolves it and stores the Handle
+	handle := secret.NewHandle("sk-secret-123")
+	v.Store("API_KEY", handle)
+
+	// THEN: We can retrieve the Handle
+	retrieved, exists := v.Get("API_KEY")
+	if !exists {
+		t.Fatal("Expected API_KEY to exist")
+	}
+	if retrieved != handle {
+		t.Error("Retrieved handle should be the same instance")
+	}
+}
+
+// TestVault_GetUnresolved tests getting an unresolved expression.
+func TestVault_GetUnresolved(t *testing.T) {
+	v := New()
+
+	// GIVEN: We declare a variable but don't resolve it
+	v.DeclareVariable("UNRESOLVED", "@env.FOO")
+
+	// WHEN: We try to get it
+	handle, exists := v.Get("UNRESOLVED")
+
+	// THEN: Should exist but Handle is nil
+	if !exists {
+		t.Error("Expression should exist")
+	}
+	if handle != nil {
+		t.Error("Handle should be nil (not resolved)")
+	}
+}
+
+// TestVault_GetNonexistent tests getting a variable that was never declared.
+func TestVault_GetNonexistent(t *testing.T) {
+	v := New()
+
+	// WHEN: We try to get a variable that doesn't exist
+	_, exists := v.Get("NONEXISTENT")
+
+	// THEN: Should not exist
+	if exists {
+		t.Error("Variable should not exist")
+	}
+}
+
+// ========== Execution Path Tracking Tests ==========
+
+// TestVault_MarkTouched tests marking expressions as touched (in execution path).
+func TestVault_MarkTouched(t *testing.T) {
+	v := New()
+
+	// GIVEN: We have two expressions
+	v.DeclareVariable("USED", "@env.HOME")
+	v.DeclareVariable("UNUSED", "@env.PATH")
+
+	// WHEN: We mark one as touched
+	v.MarkTouched("USED")
+
+	// THEN: USED is touched, UNUSED is not
+	if !v.IsTouched("USED") {
+		t.Error("USED should be marked as touched")
+	}
+	if v.IsTouched("UNUSED") {
+		t.Error("UNUSED should not be marked as touched")
+	}
+}
+
+// TestVault_PruneUntouched tests removing expressions not in execution path.
+func TestVault_PruneUntouched(t *testing.T) {
+	v := New()
+
+	// GIVEN: Three expressions, only two touched
+	v.DeclareVariable("TOUCHED1", "@env.HOME")
+	v.DeclareVariable("TOUCHED2", "@env.USER")
+	v.DeclareVariable("UNTOUCHED", "@env.PATH")
+
+	v.MarkTouched("TOUCHED1")
+	v.MarkTouched("TOUCHED2")
+
+	// WHEN: We prune untouched
+	v.PruneUntouched()
+
+	// THEN: Only touched expressions remain
+	if _, exists := v.GetExpression("TOUCHED1"); !exists {
+		t.Error("TOUCHED1 should still exist")
+	}
+	if _, exists := v.GetExpression("TOUCHED2"); !exists {
+		t.Error("TOUCHED2 should still exist")
+	}
+	if _, exists := v.GetExpression("UNTOUCHED"); exists {
+		t.Error("UNTOUCHED should be pruned")
+	}
+}
+
+// TestVault_BuildSecretUses_OnlyTouched tests that only touched expressions are included.
+func TestVault_BuildSecretUses_OnlyTouched(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Two expressions with references, only one touched
+	v.DeclareVariable("TOUCHED", "@env.HOME")
+	v.DeclareVariable("UNTOUCHED", "@env.PATH")
+
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordExpressionReference("TOUCHED", "command")
+	v.RecordExpressionReference("UNTOUCHED", "command")
+
+	// Resolve both
+	v.Store("TOUCHED", secret.NewHandle("value1"))
+	v.Store("UNTOUCHED", secret.NewHandle("value2"))
+
+	// Mark only one as touched
+	v.MarkTouched("TOUCHED")
+
+	// WHEN: We build SecretUses
+	uses := v.BuildSecretUses()
+
+	// THEN: Only TOUCHED is included
+	if len(uses) != 1 {
+		t.Fatalf("Expected 1 SecretUse, got %d", len(uses))
+	}
+}
+
+// ========== Transport Boundary Tests ==========
+
+// TestVault_EnterExitTransport tests transport scope tracking.
+func TestVault_EnterExitTransport(t *testing.T) {
+	v := New()
+
+	// GIVEN: We start in local transport
+	if v.CurrentTransport() != "local" {
+		t.Errorf("CurrentTransport = %q, want %q", v.CurrentTransport(), "local")
+	}
+
+	// WHEN: We enter SSH transport
+	v.EnterTransport("ssh:server1")
+
+	// THEN: Current transport changes
+	if v.CurrentTransport() != "ssh:server1" {
+		t.Errorf("CurrentTransport = %q, want %q", v.CurrentTransport(), "ssh:server1")
+	}
+
+	// WHEN: We exit transport
+	v.ExitTransport()
+
+	// THEN: Back to local
+	if v.CurrentTransport() != "local" {
+		t.Errorf("CurrentTransport = %q, want %q", v.CurrentTransport(), "local")
+	}
+}
+
+// TestVault_TransportBoundaryViolation tests that crossing boundaries is blocked.
+func TestVault_TransportBoundaryViolation(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Expression resolved in local transport
+	v.DeclareVariable("LOCAL_TOKEN", "@env.TOKEN")
+	v.Store("LOCAL_TOKEN", secret.NewHandle("secret"))
+	v.MarkTouched("LOCAL_TOKEN")
+
+	// WHEN: We enter SSH transport and try to use it
+	v.EnterTransport("ssh:untrusted")
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+
+	// THEN: Should error on transport boundary violation
+	err := v.RecordExpressionReference("LOCAL_TOKEN", "command")
+	if err == nil {
+		t.Fatal("Expected transport boundary error, got nil")
+	}
+	if !containsString(err.Error(), "transport boundary") {
+		t.Errorf("Error should mention transport boundary, got: %v", err)
+	}
+}
+
+// TestVault_SameTransportAllowed tests that same transport is allowed.
+func TestVault_SameTransportAllowed(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Expression resolved in local transport
+	v.DeclareVariable("LOCAL_VAR", "@env.HOME")
+	v.Store("LOCAL_VAR", secret.NewHandle("value"))
+	v.MarkTouched("LOCAL_VAR")
+
+	// WHEN: We use it in same transport
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	err := v.RecordExpressionReference("LOCAL_VAR", "command")
+
+	// THEN: Should succeed
+	if err != nil {
+		t.Errorf("Expected no error in same transport, got: %v", err)
+	}
+}
+
+// Helper function
+func containsString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 // ========== Phase 2B: Pruning Tests ==========
 
 // TestVault_PruneUnusedExpressions tests removing expressions with no references.
@@ -304,9 +522,12 @@ func TestVault_BuildSecretUses(t *testing.T) {
 	v.EnterDecorator("@shell")
 	v.RecordExpressionReference("API_KEY", "command")
 
-	// Assign DisplayID (normally done during resolution)
+	// Resolve expression (normally done during planning)
 	expr, _ := v.GetExpression("API_KEY")
-	expr.DisplayID = "opal:v:ABC123"
+	expr.Handle = secret.NewHandle("sk-secret")
+
+	// Mark as touched (in execution path)
+	v.MarkTouched("API_KEY")
 
 	// WHEN: We build final SecretUses
 	uses := v.BuildSecretUses()
@@ -368,13 +589,17 @@ func TestVault_EndToEnd_PruneAndBuild(t *testing.T) {
 	// WHEN: We prune and build
 	v.PruneUnused()
 
-	// Assign DisplayIDs (normally done during resolution)
+	// Resolve expressions (normally done during planning)
 	if expr, exists := v.GetExpression("USED_SECRET"); exists {
-		expr.DisplayID = "opal:v:SECRET1"
+		expr.Handle = secret.NewHandle("sk-used")
 	}
 	if expr, exists := v.GetExpression("ANOTHER_USED"); exists {
-		expr.DisplayID = "opal:v:SECRET2"
+		expr.Handle = secret.NewHandle("value")
 	}
+
+	// Mark as touched (in execution path)
+	v.MarkTouched("USED_SECRET")
+	v.MarkTouched("ANOTHER_USED")
 
 	uses := v.BuildSecretUses()
 

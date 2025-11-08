@@ -1226,38 +1226,120 @@ var API_KEY = "sk-secret"
 
 **No classification needed** - if it's a value decorator, it's a secret.
 
-### Two-Pass Planning
+### Three-Pass Planning
 
 **Pass 1: Scan & Build Graph**
 ```
-1. Scan all parser events
-2. Identify ALL expressions (@var.X, @aws.secret(), etc.)
-3. Track which sites reference which expressions
-4. Build complete reference graph
+Planner scans parser events and tells Vault:
+1. TrackExpression(id, raw) - Register ALL expressions
+   - Direct calls: @env.HOME, @aws.secret("key")
+   - Variables: var API_KEY = @aws.secret("key")
+   - Nested: @aws.secret("@var.ENV-key")
+
+2. RecordReference(id, paramName) - Track use-sites
+   - Builds canonical site path
+   - Generates unforgeable SiteID
+   - Records for SecretUse generation
 ```
 
-**Pass 2: Resolve & Prune**
+**Pass 2: Resolve (Wave-Based)**
 ```
-1. Resolve expressions in dependency order (wave-based)
-2. Assign DisplayIDs to resolved expressions
-3. Prune expressions with no references (unused)
-4. Build final SecretUses list
+Planner walks execution path, Vault resolves:
+1. MarkTouched(id) - Expression is in execution path
+2. ResolveTouched(ctx) - Vault calls decorators for touched expressions
+3. GetForMeta(id) - Planner unwraps for @if conditions (meta-programming)
+
+Wave-based resolution handles:
+- Dependencies: @var.ENV must resolve before @aws.secret("@var.ENV-key")
+- Branching: Only resolve expressions in taken branch
+- Meta-programming: Planner evaluates @if, marks touched branch
+```
+
+**Pass 3: Finalize**
+```
+1. PruneUntouched() - Remove unreachable expressions
+2. BuildSecretUses() - Generate authorization list
+   - Only includes: resolved + referenced + touched
+   - Auto-prunes: unresolved, unreferenced, untouched
 ```
 
 **Example:**
 ```opal
 # Pass 1: Scan
-var ENV = @env.ENVIRONMENT           # Expression 1
-var API_KEY = @aws.secret("@var.ENV-key")  # Expression 2 (depends on 1)
-var UNUSED = "sk-old"                # Expression 3
-echo "Bearer @var.API_KEY"           # Site 1 references Expression 2
+var ENV = @env.ENVIRONMENT
+vault.TrackExpression("ENV", "@env.ENVIRONMENT")
+vault.RecordReference("ENV", "condition")  # Used in @if
 
-# Pass 2: Resolve & Prune
-# Wave 1: Resolve ENV → "prod"
-# Wave 2: Resolve API_KEY → @aws.secret("prod-key") → "sk-prod-123"
-# Prune: UNUSED (no references)
-# Final SecretUses: Only API_KEY at Site 1
+@if(condition="@var.ENV == 'prod'") {
+    var PROD_KEY = @aws.secret("prod-key")
+    vault.TrackExpression("PROD_KEY", "@aws.secret('prod-key')")
+    vault.RecordReference("PROD_KEY", "command")
+}
+
+@if(condition="@var.ENV == 'dev'") {
+    var DEV_KEY = @aws.secret("dev-key")
+    vault.TrackExpression("DEV_KEY", "@aws.secret('dev-key')")
+    vault.RecordReference("DEV_KEY", "command")
+}
+
+# Pass 2: Resolve
+vault.MarkTouched("ENV")
+vault.ResolveTouched(ctx)  # Resolves ENV → "prod"
+
+# Planner evaluates @if
+envValue := vault.GetForMeta("ENV")  # "prod"
+if envValue == "prod" {
+    vault.MarkTouched("PROD_KEY")  # This branch taken
+    # DEV_KEY NOT marked (other branch)
+}
+
+vault.ResolveTouched(ctx)  # Resolves PROD_KEY only
+
+# Pass 3: Finalize
+vault.PruneUntouched()  # Removes DEV_KEY (not touched)
+uses := vault.BuildSecretUses()  # ENV + PROD_KEY only
 ```
+
+### Transport Boundaries
+
+**Vault enforces transport boundaries to prevent secret leakage:**
+
+```opal
+# ❌ VIOLATION: Local secret crosses to remote
+var LOCAL_TOKEN = @env.GITHUB_TOKEN  # Resolved in local transport
+
+@ssh(host="untrusted") {
+    curl -H "Auth: @var.LOCAL_TOKEN" ...  # ERROR: Transport boundary violation
+}
+
+# ✅ CORRECT: Explicit passing via decorator parameter
+@ssh(host="server", env={TOKEN: @env.GITHUB_TOKEN}) {
+    curl -H "Auth: $TOKEN" ...  # OK: Passed explicitly
+}
+```
+
+**How it works:**
+
+```go
+// Vault tracks current transport scope
+vault.EnterTransport("ssh:untrusted")  // Entering SSH session
+
+// When recording reference, check boundary
+vault.RecordReference("LOCAL_TOKEN", "command")
+// → Error: "LOCAL_TOKEN" resolved in "local" transport
+//          Cannot use in "ssh:untrusted" transport
+```
+
+**Transport scopes:**
+- `local` - Local machine execution
+- `ssh:hostname` - Remote SSH session
+- `docker:container` - Docker container
+- `k8s:pod` - Kubernetes pod
+
+**Rules:**
+1. Expressions resolved in parent transport cannot cross to child transport
+2. Sibling transports are isolated (ssh:host1 cannot access ssh:host2 secrets)
+3. Explicit passing via decorator parameters is allowed
 
 ### Implementation
 
@@ -1270,18 +1352,21 @@ type Vault struct {
     decoratorCounts map[string]int
     
     // Expression tracking (all value decorators are secrets)
-    expressions map[string]*Expression    // varName/exprID → Expression
-    references  map[string][]SiteRef      // varName/exprID → sites that use it
+    expressions map[string]*Expression    // exprID → Expression
+    references  map[string][]SiteRef      // exprID → sites that use it
+    touched     map[string]bool           // exprID → in execution path
+    
+    // Transport boundary tracking
+    currentTransport string                // Current transport scope
+    exprTransport    map[string]string     // exprID → transport where resolved
     
     // Security
     planKey []byte  // For HMAC-based SiteIDs
 }
 
 type Expression struct {
-    Raw       string   // Original: "sk-secret", "@aws.secret('key')"
-    Type      ExprType // Variable, Decorator, Nested
-    Resolved  bool     // Has this been resolved?
-    DisplayID string   // Placeholder ID (set after resolution)
+    Raw    string          // Original: "@env.HOME", "@aws.secret('key')"
+    Handle *secret.Handle  // Resolved value (nil if not resolved)
 }
 
 type SiteRef struct {
@@ -1291,10 +1376,23 @@ type SiteRef struct {
 }
 
 // Key operations:
-func (v *Vault) DeclareVariable(name, value string)
-func (v *Vault) RecordExpressionReference(exprID, paramName string)
-func (v *Vault) PruneUnused()                    // Remove unused expressions
-func (v *Vault) BuildSecretUses() []SecretUse    // Final list for plan
+
+// Pass 1: Scanning
+func (v *Vault) TrackExpression(id, raw string)
+func (v *Vault) RecordReference(id, paramName string) error  // Checks transport boundary
+
+// Pass 2: Resolution
+func (v *Vault) MarkTouched(id string)
+func (v *Vault) ResolveTouched(ctx ValueEvalContext) error
+func (v *Vault) GetForMeta(id string) (any, error)  // Unwrap for meta-programming
+
+// Pass 3: Finalization
+func (v *Vault) PruneUntouched()
+func (v *Vault) BuildSecretUses() []SecretUse
+
+// Transport tracking
+func (v *Vault) EnterTransport(scope string)
+func (v *Vault) ExitTransport()
 ```
 
 ### Path Tracking
