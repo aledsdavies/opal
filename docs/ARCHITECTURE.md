@@ -91,13 +91,13 @@ The core architectural principle: **every operation that performs work** becomes
 
 This means metaprogramming constructs like `for`, `if`, `when` are **not** decorators - they're language constructs that decide what work gets done. The actual work is always performed by decorators.
 
-**Value decorators** inject values inline:
-- `@env.PORT` pulls environment variables
-- `@var.REPLICAS` references script variables  
-- `@aws.secret.api_key` fetches from AWS (expensive)
+**Value decorators** inject values inline (resolved at **plan time**):
+- `@env.PORT` pulls environment variables (plan-time resolution)
+- `@var.REPLICAS` references script variables (already resolved)
+- `@aws.secret.api_key` fetches from AWS (plan-time API call - expensive!)
 
-**Execution decorators** run commands:
-- `@shell("npm run build")` executes shell commands
+**Execution decorators** run commands (executed at **execution time**):
+- `@shell("npm run build")` executes shell commands (runtime execution)
 - `@retry(3) { ... }` adds retry logic around blocks
 - `@parallel { ... }` runs commands concurrently
 
@@ -114,6 +114,51 @@ This separation means:
 - **AST structure** represents both metaprogramming constructs and decorators appropriately
 - **Execution model** is unified through decorators (no special cases for different work types)  
 - **New features** integrate by adding decorators, not special execution paths
+
+### Wave-Based Plan-Time Resolution
+
+**CRITICAL**: Value decorators resolve at **plan time**, not execution time. This enables deterministic planning and contract verification.
+
+**Resolution happens in dependency waves**:
+
+```opal
+# Wave 1: Resolve @env first (no dependencies)
+var ENVIRONMENT = @env.DEPLOY_ENV  # Resolves to "prod" or "dev"
+
+# Wave 2: Evaluate if/else based on Wave 1 result
+if ENVIRONMENT == "prod" {
+    # Wave 3a: Only resolve if prod branch taken
+    var API_KEY = @aws.secret.prod_api_key
+    var DB_URL = @aws.secret.prod_db_url
+} else {
+    # Wave 3b: Only resolve if dev branch taken  
+    var API_KEY = @aws.secret.dev_api_key
+    var DB_URL = @aws.secret.dev_db_url
+}
+
+# Wave 4: Use resolved values (already in plan)
+kubectl create secret --from-literal=key=@var.API_KEY
+```
+
+**Why waves matter**:
+1. **Branching** - Can't resolve all secrets upfront; must know which branch first
+2. **Dependencies** - Some values depend on others being resolved first
+3. **Batching** - Within each wave, batch API calls by provider (performance)
+4. **Fail-fast** - Errors at plan-time, not execution-time
+
+**Batch resolution within waves**:
+```opal
+var prodAuth = @aws.auth(profile="prod")
+
+# All three in same wave → batched into ONE AWS API call
+var db_pass = @aws.secret.db_password(auth=prodAuth)  # \
+var api_key = @aws.secret.api_key(auth=prodAuth)      #  } Single batch
+var cert = @aws.secret.tls_cert(auth=prodAuth)        # /
+
+# Performance: 1 API call (150ms) vs 3 separate calls (450ms)
+```
+
+**Key insight**: The plan is fully resolved before execution starts. All `@env`, `@aws.secret`, `@file.read` calls happen during planning. Execution just runs the commands with the resolved values.
 
 ## The Execution Context Pattern
 
@@ -2359,10 +2404,14 @@ Secrets are accessible **only at their use-site**. No propagation to parent/chil
 
 ```opal
 var API_KEY = "sk-..."
+var MAX_RETRIES = "5"
 
-@retry(apiKey=@var.API_KEY) {  # ✅ @retry can unwrap (authorized site)
-    @timeout {                  # ❌ @timeout CANNOT unwrap (different site)
-        @shell { ... }          # ❌ @shell CANNOT unwrap (different site)
+@retry(times=@var.MAX_RETRIES) {  # ✅ @retry can unwrap (authorized site)
+    @http.post(
+        url="https://api.com",
+        headers={Authorization: @var.API_KEY}  # ✅ @http.post can unwrap (authorized site)
+    ) {
+        @shell { ... }  # ❌ @shell CANNOT unwrap either secret (different site)
     }
 }
 ```
@@ -2405,8 +2454,8 @@ var RETRY_COUNT = "3"
 Plan.SecretUses = []SecretUse{
     {
         DisplayID: "opal:v:ABC123",  // API_KEY
-        SiteID:    "Xj9K...",         // HMAC(planKey, "root/http.post[0]/params/headers")
-        Site:      "root/http.post[0]/params/headers",
+        SiteID:    "Xj9K...",         // HMAC(planKey, "root/http.post[0]/params/headers/Authorization")
+        Site:      "root/http.post[0]/params/headers/Authorization",  // Path to object field
     },
     {
         DisplayID: "opal:v:XYZ789",  // RETRY_COUNT
@@ -2510,8 +2559,15 @@ func (e *Executor) DeliverSecret(cmd *exec.Cmd, secret string) error {
 type SecretUse struct {
     DisplayID string  // "opal:v:3J98t56A"
     SiteID    string  // HMAC(planHash, canonicalPath) - unforgeable
-    Site      string  // "root/retry[0]/params/apiKey" (human-readable diagnostic)
+    Site      string  // "root/retry[0]/params/times" or "root/http.post[0]/params/headers/Authorization"
 }
+
+// Path format: root/[@decorator[index]/]*/params/paramName[/objectField]*
+// Examples:
+//   - Simple param: "root/@retry[0]/params/times"
+//   - Object field: "root/@http.post[0]/params/headers/Authorization"
+//   - Nested: "root/@retry[0]/@timeout[0]/@shell[0]/params/command"
+//   - Array element: "root/@parallel[0]/tasks[2]/params/name"
 
 // Planner records each use with canonical site ID
 func (p *Planner) recordSecretUse(displayID, stepID, paramName string) {
