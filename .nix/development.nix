@@ -19,6 +19,7 @@ pkgs.mkShell {
     
     # Build tools
     git
+    jq  # JSON processing for fuzz workflows
     
     # Nix tooling
     nixpkgs-fmt
