@@ -2372,63 +2372,86 @@ var API_KEY = "sk-..."
 2. **Runtime checks authority** - Executor verifies site before unwrap
 3. **Unwrap fails if unauthorized** - Simple lookup, no complex leases
 
-#### Decorator Parameter Classes
+#### Planner Automatic Secret Tracking
 
-Decorators declare what parameters can accept via `ParamClass`:
+**Key Insight:** The planner automatically observes which parameters receive secrets during planning and records SecretUse entries. Decorators don't need to declare what can accept secrets.
 
-```go
-type ParamClass uint8
+**How it works:**
 
-const (
-    // Plain data/config. Must never receive a secret.
-    ParamData ParamClass = iota
-    
-    // May receive a SecretRef (DisplayID/handle proxy) but cannot unwrap.
-    ParamSecretRef
-    
-    // May receive a SecretRef and is allowed to unwrap it at the declared site.
-    // Planner will emit a SecretUse(siteID, displayID) for this param.
-    ParamSecretConsumer
+1. **All value decorators produce secrets** - Even `@env.HOME` or `@var.retryCount` become `secret.Handle` (could leak sensitive info)
+2. **Planner tracks usage automatically** - When a parameter receives a `secret.Handle`, planner records it
+3. **String interpolation tracked** - `Authorization: "Bearer @var.API_KEY"` is detected and recorded
+4. **Transport boundaries tracked** - Secrets crossing from local to remote execution are flagged
+
+**Example:**
+
+```opal
+var API_KEY = "sk-secret"
+var RETRY_COUNT = "3"
+
+@http.post(
+    url="https://api.example.com",
+    headers={Authorization: "Bearer @var.API_KEY"}  # Planner records: API_KEY used here
 )
 
-type ParamSpec struct {
-    Class       ParamClass
-    Optional    bool
-    Description string
-}
-
-type DecoratorSpec struct {
-    Name   string
-    Params map[string]ParamSpec
-    MayConsumeSecrets bool  // If false, all consumer params downgraded to SecretRef
+@retry(times=@var.RETRY_COUNT) {  # Planner records: RETRY_COUNT used here
+    echo "test"
 }
 ```
 
-**Example specs:**
+**What gets recorded:**
+
 ```go
-var RetrySpec = DecoratorSpec{
-    Name: "retry",
-    Params: map[string]ParamSpec{
-        "times":  {Class: ParamData},              // @retry(times=@var.retryCount) ✓
-        "apiKey": {Class: ParamSecretConsumer, Optional: true}, // here-only unwrap
+Plan.SecretUses = []SecretUse{
+    {
+        DisplayID: "opal:v:ABC123",  // API_KEY
+        SiteID:    "Xj9K...",         // HMAC(planKey, "root/http.post[0]/params/headers")
+        Site:      "root/http.post[0]/params/headers",
     },
-    MayConsumeSecrets: true,
-}
-
-var ShellSpec = DecoratorSpec{
-    Name: "shell",
-    Params: map[string]ParamSpec{
-        "cmd":         {Class: ParamData},
-        "stdinSecret": {Class: ParamSecretConsumer, Optional: true}, // unwrap via FD only
+    {
+        DisplayID: "opal:v:XYZ789",  // RETRY_COUNT
+        SiteID:    "mN2p...",         // HMAC(planKey, "root/retry[0]/params/times")
+        Site:      "root/retry[0]/params/times",
     },
-    MayConsumeSecrets: true,
 }
 ```
 
-**Plan-time validation:**
-- Passing secret into `ParamData` → **plan-time error**
-- Passing raw secret into `ParamSecretRef`/`ParamSecretConsumer` → **plan-time error** (must be SecretRef)
-- `ParamSecretConsumer` records use-site for executor authorization
+**Transport boundary tracking:**
+
+```opal
+var LOCAL_SECRET = "secret"
+
+@ssh.connect(host="remote") {
+    echo @var.LOCAL_SECRET  # Planner records: crosses transport boundary
+}
+```
+
+```go
+SecretUse{
+    DisplayID:        "opal:v:DEF456",
+    SiteID:           "pQ8r...",
+    Site:             "root/ssh.connect[0]/body/shell[0]",
+    CrossesTransport: true,
+    SourceTransport:  "local",
+    TargetTransport:  "ssh:remote",
+}
+```
+
+**Benefits:**
+
+- **No decorator declarations needed** - Planner observes actual usage
+- **Catches all secret usage** - Including string interpolation and nested objects
+- **Transport-aware** - Detects when secrets cross execution boundaries
+- **Automatic** - Works for all decorators without special code
+
+**User errors are still user errors:**
+
+If someone writes `@retry(times=@var.API_KEY)`, that's a bug in their code. The planner will:
+1. Record that `times` parameter uses `API_KEY` secret
+2. Store DisplayID in plan: `times: "opal:v:ABC123"`
+3. At execution, @retry tries to parse as integer, fails with clear error showing DisplayID
+
+The security model prevents @retry from unwrapping the secret, but it can't prevent users from passing secrets to wrong parameters.
 
 #### Secret Transport: FD/Stdin Only (Never Env/Argv)
 
