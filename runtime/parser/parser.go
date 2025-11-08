@@ -1729,44 +1729,50 @@ func (p *parser) decorator() {
 	decoratorName := string(p.current().Text)
 	tempPos := p.pos
 
-	// Try the first identifier (check both registries)
-	if types.Global().IsRegistered(decoratorName) || decorator.Global().IsRegistered(decoratorName) {
-		// Found it - use this name
-		p.pos = tempPos
-	} else {
-		// Not found - try adding dot-separated parts
-		foundRegistered := false
-		for {
-			p.advance() // Move to next token
-			if !p.at(lexer.DOT) {
-				// No more dots
-				break
-			}
-			p.advance() // Move past dot
-			if !p.at(lexer.IDENTIFIER) {
-				// Dot not followed by identifier - stop here
-				break
-			}
-			// Try adding this part to the name
-			testName := decoratorName + "." + string(p.current().Text)
-			if types.Global().IsRegistered(testName) || decorator.Global().IsRegistered(testName) {
-				// Found it!
-				decoratorName = testName
-				foundRegistered = true
-				break
-			}
-			// Not found yet - add it and keep trying
-			decoratorName = testName
+	// Scan entire dotted sequence to find longest registered match
+	var longestMatch string
+	var longestMatchPos int
+	currentName := decoratorName
+	currentPos := tempPos
+
+	// Check if first identifier is registered
+	if types.Global().IsRegistered(currentName) || decorator.Global().IsRegistered(currentName) {
+		longestMatch = currentName
+		longestMatchPos = currentPos
+	}
+
+	// Continue scanning for longer matches
+	for {
+		p.advance() // Move to next token
+		if !p.at(lexer.DOT) {
+			// No more dots
+			break
 		}
+		p.advance() // Move past dot
+		if !p.at(lexer.IDENTIFIER) {
+			// Dot not followed by identifier - stop here
+			break
+		}
+		// Extend the candidate name
+		currentName = currentName + "." + string(p.current().Text)
+		currentPos = p.pos
 
-		// Reset position
-		p.pos = tempPos
-
-		// If we never found a registered decorator, treat @ as literal
-		if !foundRegistered {
-			return
+		// Check if this longer name is registered
+		if types.Global().IsRegistered(currentName) || decorator.Global().IsRegistered(currentName) {
+			longestMatch = currentName
+			longestMatchPos = currentPos
 		}
 	}
+
+	// If no registered decorator found, reset position and treat @ as literal
+	if longestMatch == "" {
+		p.pos = tempPos
+		return
+	}
+
+	// Use the longest registered match
+	decoratorName = longestMatch
+	p.pos = longestMatchPos
 
 	// Get the schema for validation
 	// Try new registry first, fall back to old registry for backward compatibility

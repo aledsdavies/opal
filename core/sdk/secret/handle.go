@@ -126,9 +126,9 @@ func (h *Handle) UnwrapLast4() string {
 func (h *Handle) Mask(n int) string {
 	invariant.Precondition(n >= 0, "mask count must be non-negative")
 	if len(h.value) <= n*2 {
-		return "***"
+		return redactionMask
 	}
-	return h.value[:n] + "***" + h.value[len(h.value)-n:]
+	return h.value[:n] + redactionMask + h.value[len(h.value)-n:]
 }
 
 // ForEnv returns a safe environment variable assignment string
