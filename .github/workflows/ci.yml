@@ -163,6 +163,16 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
 
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: Snapshot fuzz corpus (runtime only)
         if: matrix.module == 'runtime'
         run: |
