@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
-
-	"github.com/aledsdavies/opal/core/sdk/secret"
 )
 
 // Vault is the single source of truth for secret tracking and management.
@@ -27,7 +25,7 @@ import (
 // 3. Resolution - Resolve expressions by calling decorators:
 //   - Wave-based: Planner marks which expressions are "touched" in execution path
 //   - Only resolve touched expressions (prune unreachable code)
-//   - Store resolved values as secret.Handle (never expose raw values)
+//   - Store resolved values directly (access control via SiteID + transport)
 //   - Support meta-programming: Planner can unwrap for conditionals
 //
 // 4. Transport Boundaries - Enforce security boundaries:
@@ -81,7 +79,7 @@ import (
 //	Pass 2 - Resolve (wave-based):
 //	  vault.MarkTouched(exprID)                   // Mark in execution path
 //	  vault.ResolveTouched(ctx)                   // Vault calls decorators
-//	  value, _ := vault.Unwrap(exprID)            // Planner unwraps for @if (checks SiteID)
+//	  value, _ := vault.Access(exprID)             // Planner accesses for @if (checks SiteID)
 //
 //	Pass 3 - Finalize:
 //	  vault.PruneUntouched()                      // Remove unreachable
@@ -108,12 +106,13 @@ type Vault struct {
 // Expression represents a secret-producing expression.
 // In our security model: ALL expressions are secrets.
 type Expression struct {
-	Raw    string         // Original source: "@var.X", "@aws.secret('key')", etc.
-	Handle *secret.Handle // Resolved value (nil if not yet resolved)
+	Raw       string // Original source: "@var.X", "@aws.secret('key')", etc.
+	Value     string // Resolved value (empty if not yet resolved)
+	DisplayID string // Placeholder ID for plan (e.g., "opal:v:3J98t56A")
 }
 
 // Note: No ExprType, no IsSecret - everything is a secret.
-// No raw value storage - only secret.Handle to prevent reflection attacks.
+// Vault stores raw values directly - access control via SiteID + transport checks.
 
 // SiteRef represents a reference to an expression at a specific site.
 type SiteRef struct {
@@ -231,12 +230,44 @@ func (v *Vault) BuildSitePath(paramName string) string {
 }
 
 // DeclareVariable registers a variable declaration.
-// Stores raw expression string until planner resolves it.
-func (v *Vault) DeclareVariable(name, raw string) {
+// Returns the variable name as the expression ID.
+func (v *Vault) DeclareVariable(name, raw string) string {
 	v.expressions[name] = &Expression{
-		Raw:    raw,
-		Handle: nil, // Not resolved yet
+		Raw: raw,
 	}
+	return name
+}
+
+// TrackExpression registers a direct decorator call (e.g., @env.HOME).
+// Returns a deterministic hash-based ID that includes transport context.
+// Format: "transport:hash"
+func (v *Vault) TrackExpression(raw string) string {
+	// Generate deterministic ID including transport
+	exprID := v.generateExprID(raw)
+
+	// Store expression if not already tracked
+	if _, exists := v.expressions[exprID]; !exists {
+		v.expressions[exprID] = &Expression{
+			Raw: raw,
+		}
+	}
+
+	return exprID
+}
+
+// generateExprID creates a deterministic expression ID including transport context.
+func (v *Vault) generateExprID(raw string) string {
+	// Include current transport for context-sensitive IDs
+	h := sha256.New()
+	h.Write([]byte(v.currentTransport))
+	h.Write([]byte(":"))
+	h.Write([]byte(raw))
+	hash := h.Sum(nil)
+
+	// Format: "transport:hash"
+	// Use first 8 bytes of hash for reasonable ID length
+	hashStr := fmt.Sprintf("%x", hash[:8])
+	return fmt.Sprintf("%s:%s", v.currentTransport, hashStr)
 }
 
 // RecordReference records that an expression is used at the current site.
@@ -287,7 +318,7 @@ func (v *Vault) PruneUnused() {
 
 // BuildSecretUses constructs the final SecretUse list for the plan.
 // Auto-prunes: Only includes expressions that:
-// 1. Have been resolved (Handle is set) - unresolved are skipped
+// 1. Have been resolved (Value is set) - unresolved are skipped
 // 2. Have at least one site reference - unreferenced are skipped
 // 3. Are marked as touched - untouched are skipped
 //
@@ -296,8 +327,8 @@ func (v *Vault) BuildSecretUses() []SecretUse {
 	var uses []SecretUse
 
 	for id, expr := range v.expressions {
-		// Auto-prune: Skip unresolved expressions (no Handle = not resolved)
-		if expr.Handle == nil {
+		// Auto-prune: Skip unresolved expressions (no Value = not resolved)
+		if expr.Value == "" {
 			continue
 		}
 
@@ -315,7 +346,7 @@ func (v *Vault) BuildSecretUses() []SecretUse {
 		// Build SecretUse for each reference site
 		for _, ref := range refs {
 			uses = append(uses, SecretUse{
-				DisplayID: expr.Handle.ID(),
+				DisplayID: expr.DisplayID,
 				SiteID:    ref.SiteID,
 				Site:      ref.Site,
 			})
@@ -383,10 +414,48 @@ func (v *Vault) checkTransportBoundary(exprID string) error {
 	// Check if crossing transport boundary
 	if exprTransport != v.currentTransport {
 		return fmt.Errorf(
-			"transport boundary violation: expression %q resolved in %q transport, cannot use in %q transport",
+			"transport boundary violation: expression %q resolved in %q, cannot use in %q",
 			exprID, exprTransport, v.currentTransport,
 		)
 	}
 
 	return nil
+}
+
+// Access returns the raw value for an expression at the current site.
+// Checks both SiteID authorization and transport boundaries.
+// Used by planner for meta-programming (e.g., @if conditionals).
+func (v *Vault) Access(exprID string) (string, error) {
+	// 1. Get expression
+	expr, exists := v.expressions[exprID]
+	if !exists {
+		return "", fmt.Errorf("expression %q not found", exprID)
+	}
+	if expr.Value == "" {
+		return "", fmt.Errorf("expression %q not resolved yet", exprID)
+	}
+
+	// 2. Build current site
+	currentSite := v.BuildSitePath("")
+	currentSiteID := v.computeSiteID(currentSite)
+
+	// 3. Check if current site is authorized
+	authorized := false
+	for _, ref := range v.references[exprID] {
+		if ref.SiteID == currentSiteID {
+			authorized = true
+			break
+		}
+	}
+	if !authorized {
+		return "", fmt.Errorf("no authority to unwrap %q at site %q", exprID, currentSite)
+	}
+
+	// 4. Check transport boundary
+	if err := v.checkTransportBoundary(exprID); err != nil {
+		return "", err
+	}
+
+	// 5. Return value
+	return expr.Value, nil
 }
