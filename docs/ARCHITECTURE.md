@@ -1433,6 +1433,69 @@ vault.RecordReference("LOCAL_TOKEN", "command")
 2. Sibling transports are isolated (ssh:host1 cannot access ssh:host2 secrets)
 3. Explicit passing via decorator parameters is allowed
 
+### Invocation Modes: Script vs Command
+
+Vault's pruning strategy differs based on how Opal is invoked:
+
+**Script Mode** (file execution):
+```bash
+opal run deploy.opl
+```
+
+Full three-pass planning with meta-programming:
+- **Pass 1**: Scan entire file, track all expressions
+- **Pass 2**: Wave-based resolution with conditionals
+  - Resolve expressions based on execution path
+  - Evaluate `@if` conditions, mark touched branches
+  - Handle loops, nested expressions
+- **Pass 3**: Prune untouched (unreachable code)
+
+Example:
+```opal
+var ENV = @env.ENVIRONMENT
+
+@if(@var.ENV == "prod") {
+    var PROD_KEY = @aws.secret("prod-key")  # Only resolved if ENV=="prod"
+}
+
+@if(@var.ENV == "dev") {
+    var DEV_KEY = @aws.secret("dev-key")   # Only resolved if ENV=="dev"
+}
+```
+
+**Command Mode** (function invocation):
+```bash
+opal deploy --env prod
+```
+
+Early pruning before meta-programming:
+- **Pass 1**: Scan only the target function, track expressions in function body
+- **Pass 2**: Resolve only values needed for function parameters
+  - No conditional evaluation
+  - No branching logic
+  - Just resolve what's needed for this specific invocation
+- **Pass 3**: Build SecretUses for function parameters only
+
+Example:
+```opal
+fun deploy(env: String, region: String) {
+    var API_KEY = @aws.secret("@var.env-api-key")  # Always resolved
+    kubectl apply -f k8s/@var.region/
+}
+```
+
+In command mode, `API_KEY` is always resolved (no conditional pruning), but expressions outside the `deploy` function are never scanned.
+
+**Key Differences:**
+
+| Aspect | Script Mode | Command Mode |
+|--------|-------------|--------------|
+| Scope | Entire file | Single function |
+| Meta-programming | Full evaluation | Minimal/none |
+| Pruning | Execution path-based | Function scope-based |
+| Performance | Slower (full graph) | Faster (targeted) |
+| Use case | Complex workflows | Simple CLI commands |
+
 ### Vault API
 
 **Pass 1 - Scan:**
