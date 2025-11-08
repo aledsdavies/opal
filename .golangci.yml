@@ -89,7 +89,7 @@ linters:
     goconst:
       min-len: 3  # Minimum length of string constant
       min-occurrences: 3  # Minimum number of occurrences to trigger
-      ignore-tests: true  # Don't check test files
+      # Note: Test files already excluded via linters.exclusions.rules
 
 formatters:
   enable:
