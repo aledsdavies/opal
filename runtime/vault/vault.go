@@ -69,23 +69,23 @@ import (
 //
 // # Planner-Vault Collaboration
 //
-// Planner orchestrates, Vault stores:
+// # Planner-Vault Collaboration
+//
+// Planner orchestrates, Vault resolves and stores:
 //
 //	Pass 1 - Scan:
-//	  vault.TrackExpression(id, raw)           // Register expression
-//	  vault.RecordReference(id, paramName)     // Record use-site
+//	  exprID := vault.DeclareVariable(name, raw)  // Returns variable name as ID
+//	  exprID := vault.TrackExpression(raw)        // Returns hash-based ID with transport
+//	  vault.RecordReference(exprID, paramName)    // Record use-site
 //
 //	Pass 2 - Resolve (wave-based):
-//	  vault.MarkTouched(id)                    // In execution path
-//	  vault.ResolveTouched(ctx)                // Vault calls decorators
-//	  value := vault.GetForMeta(id)            // Planner unwraps for @if
+//	  vault.MarkTouched(exprID)                   // Mark in execution path
+//	  vault.ResolveTouched(ctx)                   // Vault calls decorators
+//	  value, _ := vault.Unwrap(exprID)            // Planner unwraps for @if (checks SiteID)
 //
 //	Pass 3 - Finalize:
-//	  vault.PruneUntouched()                   // Remove unreachable
-//	  uses := vault.BuildSecretUses()          // Generate authorization list
-//
-// Planner never sees raw secret values except for meta-programming.
-// Vault immediately wraps all resolved values in secret.Handle.
+//	  vault.PruneUntouched()                      // Remove unreachable
+//	  uses := vault.BuildSecretUses()             // Generate authorization list
 type Vault struct {
 	// Path tracking (DAG traversal)
 	pathStack       []PathSegment
@@ -239,44 +239,9 @@ func (v *Vault) DeclareVariable(name, raw string) {
 	}
 }
 
-// TrackExpression registers an expression (e.g., @aws.secret() call).
-// Alias for DeclareVariable - both do the same thing.
-func (v *Vault) TrackExpression(id, raw string) {
-	v.DeclareVariable(id, raw)
-}
-
-// Store saves a resolved value as a secret.Handle.
-// Called by planner after resolving a decorator.
-// Records the transport where expression was resolved.
-func (v *Vault) Store(name string, handle *secret.Handle) {
-	if expr, exists := v.expressions[name]; exists {
-		expr.Handle = handle
-	} else {
-		// Create new expression if it doesn't exist
-		v.expressions[name] = &Expression{
-			Raw:    "", // Unknown raw expression
-			Handle: handle,
-		}
-	}
-
-	// Record transport where this expression was resolved
-	v.exprTransport[name] = v.currentTransport
-}
-
-// Get retrieves a resolved Handle for substitution.
-// Returns (nil, true) if expression exists but isn't resolved yet.
-// Returns (nil, false) if expression doesn't exist at all.
-func (v *Vault) Get(name string) (*secret.Handle, bool) {
-	expr, exists := v.expressions[name]
-	if !exists {
-		return nil, false
-	}
-	return expr.Handle, true
-}
-
-// RecordExpressionReference records that an expression is used at the current site.
+// RecordReference records that an expression is used at the current site.
 // Returns error if expression crosses transport boundary.
-func (v *Vault) RecordExpressionReference(exprID, paramName string) error {
+func (v *Vault) RecordReference(exprID, paramName string) error {
 	// Check transport boundary
 	if err := v.checkTransportBoundary(exprID); err != nil {
 		return err
@@ -292,17 +257,6 @@ func (v *Vault) RecordExpressionReference(exprID, paramName string) error {
 	})
 
 	return nil
-}
-
-// GetExpression retrieves an expression by ID.
-func (v *Vault) GetExpression(id string) (*Expression, bool) {
-	expr, exists := v.expressions[id]
-	return expr, exists
-}
-
-// GetReferences retrieves all site references for an expression.
-func (v *Vault) GetReferences(exprID string) []SiteRef {
-	return v.references[exprID]
 }
 
 // computeSiteID generates an unforgeable site identifier using HMAC.
