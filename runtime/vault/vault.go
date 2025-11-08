@@ -210,3 +210,51 @@ func (v *Vault) computeSiteID(canonicalPath string) string {
 	// Truncate to 16 bytes and base64 encode
 	return base64.RawURLEncoding.EncodeToString(mac[:16])
 }
+
+// PruneUnused removes expressions that have no site references.
+// This eliminates variables that were declared but never used.
+func (v *Vault) PruneUnused() {
+	for id := range v.expressions {
+		if len(v.references[id]) == 0 {
+			delete(v.expressions, id)
+			delete(v.references, id)
+		}
+	}
+}
+
+// BuildSecretUses constructs the final SecretUse list for the plan.
+// Only includes expressions that:
+// 1. Have been resolved (DisplayID is set)
+// 2. Have at least one site reference
+//
+// In our security model: ALL value decorators are secrets.
+func (v *Vault) BuildSecretUses() []SecretUse {
+	var uses []SecretUse
+
+	for id, expr := range v.expressions {
+		// Skip unresolved expressions (no DisplayID yet)
+		if expr.DisplayID == "" {
+			continue
+		}
+
+		// Get all site references for this expression
+		refs := v.references[id]
+		for _, ref := range refs {
+			uses = append(uses, SecretUse{
+				DisplayID: expr.DisplayID,
+				SiteID:    ref.SiteID,
+				Site:      ref.Site,
+			})
+		}
+	}
+
+	return uses
+}
+
+// SecretUse represents an authorized secret usage at a specific site.
+// This is what gets added to the Plan for executor enforcement.
+type SecretUse struct {
+	DisplayID string // "opal:v:3J98t56A"
+	SiteID    string // HMAC-based unforgeable ID
+	Site      string // "root/step-1/@shell[0]/params/command" (diagnostic)
+}

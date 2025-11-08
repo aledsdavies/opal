@@ -1178,17 +1178,243 @@ if runtime.GOOS != "windows" && cmd.Process != nil {
 - Critical for pipelines (kills all commands in pipeline)
 - Example: `yes | head -n1` - both processes killed on cancel
 
-## Variable Scoping via Scope Graph
+## Vault: Secret Tracking and Variable Management
 
-### The Problem: Cross-Session Variable Leakage
+### The Problem: Secret Leakage and Unauthorized Access
 
-Variables resolved in one session could leak to another session, exposing sensitive values:
+**Two security requirements:**
+
+1. **Cross-session leakage:** Variables resolved in one session could leak to another
+2. **Unauthorized unwrapping:** Secrets could be unwrapped at sites they weren't intended for
+
+**Example violations:**
 
 ```opal
-var LOCAL_TOKEN = @env.GITHUB_TOKEN  # Resolved in local session
+# Violation 1: Cross-session leakage
+var LOCAL_TOKEN = @env.GITHUB_TOKEN
+@ssh(host="untrusted") {
+    curl -H "Auth: @var.LOCAL_TOKEN" ...  # ❌ Local token sent to remote!
+}
 
-@ssh(host="untrusted-server") {
-    curl -H "Auth: @var.LOCAL_TOKEN" ...  # ❌ Sends local token to remote!
+# Violation 2: Decorator trying to access secret it wasn't given
+var API_KEY = "sk-secret"
+@retry(apiKey=@var.API_KEY) {  # ✅ @retry receives secret, can unwrap
+    echo "test"
+}
+
+# Inside @retry decorator implementation:
+# ✅ Can unwrap: apiKey parameter (authorized site: root/retry[0]/params/apiKey)
+# ❌ Cannot unwrap: secrets from parent/child decorators (different sites)
+# ❌ Cannot forge SiteID to steal secrets from other sites
+```
+
+### The Solution: Vault
+
+**Vault is the single source of truth for:**
+1. Variable storage and resolution (replaces ScopeGraph)
+2. Secret tracking and use-site recording
+3. DAG path tracking for site-based authority
+4. Expression pruning (remove unused secrets)
+
+### Core Security Model
+
+**ALL value decorators produce secrets:**
+- `@var.X` → secret
+- `@env.X` → secret
+- `@aws.secret()` → secret
+- `@vault.read()` → secret
+
+**No classification needed** - if it's a value decorator, it's a secret.
+
+### Two-Pass Planning
+
+**Pass 1: Scan & Build Graph**
+```
+1. Scan all parser events
+2. Identify ALL expressions (@var.X, @aws.secret(), etc.)
+3. Track which sites reference which expressions
+4. Build complete reference graph
+```
+
+**Pass 2: Resolve & Prune**
+```
+1. Resolve expressions in dependency order (wave-based)
+2. Assign DisplayIDs to resolved expressions
+3. Prune expressions with no references (unused)
+4. Build final SecretUses list
+```
+
+**Example:**
+```opal
+# Pass 1: Scan
+var ENV = @env.ENVIRONMENT           # Expression 1
+var API_KEY = @aws.secret("@var.ENV-key")  # Expression 2 (depends on 1)
+var UNUSED = "sk-old"                # Expression 3
+echo "Bearer @var.API_KEY"           # Site 1 references Expression 2
+
+# Pass 2: Resolve & Prune
+# Wave 1: Resolve ENV → "prod"
+# Wave 2: Resolve API_KEY → @aws.secret("prod-key") → "sk-prod-123"
+# Prune: UNUSED (no references)
+# Final SecretUses: Only API_KEY at Site 1
+```
+
+### Implementation
+
+```go
+// Vault manages variables, secrets, and DAG path tracking.
+type Vault struct {
+    // Path tracking (decorator DAG traversal)
+    pathStack       []PathSegment
+    stepCount       int
+    decoratorCounts map[string]int
+    
+    // Expression tracking (all value decorators are secrets)
+    expressions map[string]*Expression    // varName/exprID → Expression
+    references  map[string][]SiteRef      // varName/exprID → sites that use it
+    
+    // Security
+    planKey []byte  // For HMAC-based SiteIDs
+}
+
+type Expression struct {
+    Raw       string   // Original: "sk-secret", "@aws.secret('key')"
+    Type      ExprType // Variable, Decorator, Nested
+    Resolved  bool     // Has this been resolved?
+    DisplayID string   // Placeholder ID (set after resolution)
+}
+
+type SiteRef struct {
+    Site      string // "root/step-1/@shell[0]/params/command"
+    SiteID    string // HMAC-based unforgeable ID
+    ParamName string // "command", "apiKey", etc.
+}
+
+// Key operations:
+func (v *Vault) DeclareVariable(name, value string)
+func (v *Vault) RecordExpressionReference(exprID, paramName string)
+func (v *Vault) PruneUnused()                    // Remove unused expressions
+func (v *Vault) BuildSecretUses() []SecretUse    // Final list for plan
+```
+
+### Path Tracking
+
+**Vault tracks exact decorator DAG path:**
+
+```opal
+@retry {
+    @timeout {
+        @shell { echo "test" }
+    }
+}
+```
+
+**Path at @shell:**
+```
+root/@retry[0]/@timeout[0]/@shell[0]/params/command
+```
+
+**Multiple instances tracked:**
+```opal
+echo "one"   # root/step-1/@shell[0]/params/command
+echo "two"   # root/step-2/@shell[0]/params/command
+```
+
+### Site-Based Authority
+
+**Each secret use creates a SecretUse entry:**
+
+```go
+type SecretUse struct {
+    DisplayID string // "opal:v:3J98t56A"
+    SiteID    string // HMAC(planKey, canonicalPath) - unforgeable
+    Site      string // "root/retry[0]/params/apiKey" - diagnostic
+}
+```
+
+**Executor enforces:**
+- Secret can ONLY be unwrapped at authorized sites
+- SiteID is HMAC-based (unforgeable without planKey)
+- Parent/child decorators CANNOT unwrap (different sites)
+
+**Example:**
+```opal
+var API_KEY = "sk-secret"
+@retry(apiKey=@var.API_KEY) {
+    echo "test"
+}
+
+# Plan contains SecretUse:
+# - DisplayID: opal:v:ABC123
+# - SiteID: Xj9K... (HMAC of "root/retry[0]/params/apiKey")
+# - Site: root/retry[0]/params/apiKey
+#
+# Executor enforcement:
+# - Secret can ONLY be unwrapped at site "root/retry[0]/params/apiKey"
+# - @retry decorator receives the secret at this exact site → can unwrap
+# - Any other site (different decorator, different parameter) → cannot unwrap
+#
+# Simple rule: Secrets are only unwrappable at the site where they are used.
+```
+
+### Benefits
+
+**1. Unified System**
+- One component handles variables AND secrets
+- No separate ScopeGraph needed
+- Simpler architecture
+
+**2. Security by Default**
+- ALL value decorators are secrets
+- Site-based authority prevents leakage
+- Unforgeable SiteIDs (HMAC-based)
+
+**3. Efficient**
+- Prunes unused secrets automatically
+- O(1) authority checks (index lookup)
+- Wave-based resolution handles dependencies
+
+**4. Debuggable**
+```go
+func (v *Vault) DebugPrint() {
+    // Show all expressions and their references
+    for id, expr := range v.expressions {
+        refs := v.references[id]
+        fmt.Printf("%s: %d references\n", id, len(refs))
+        for _, ref := range refs {
+            fmt.Printf("  - %s\n", ref.Site)
+        }
+    }
+}
+```
+
+### Planner Integration
+
+```go
+// Planner uses vault for everything
+type planner struct {
+    vault *vault.Vault
+    // ... other fields ...
+}
+
+func Plan(events []parser.Event) (*planfmt.Plan, error) {
+    planKey := make([]byte, 32)
+    rand.Read(planKey)
+    
+    p := &planner{
+        vault: vault.NewWithPlanKey(planKey),
+    }
+    
+    // Pass 1: Scan events
+    p.scanEvents()
+    
+    // Pass 2: Resolve and prune
+    p.resolveAndPrune()
+    
+    // Extract SecretUses
+    plan.SecretUses = p.vault.BuildSecretUses()
+    
+    return plan, nil
 }
 ```
 

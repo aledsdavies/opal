@@ -258,3 +258,133 @@ func TestVault_UnusedExpression(t *testing.T) {
 		t.Errorf("Expected 0 references, got %d", len(refs))
 	}
 }
+
+// ========== Phase 2B: Pruning Tests ==========
+
+// TestVault_PruneUnusedExpressions tests removing expressions with no references.
+func TestVault_PruneUnusedExpressions(t *testing.T) {
+	v := New()
+
+	// GIVEN: Two variables, one used, one unused
+	v.DeclareVariable("USED", "sk-used")
+	v.DeclareVariable("UNUSED", "sk-unused")
+
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordExpressionReference("USED", "command")
+
+	// WHEN: We prune unused expressions
+	v.PruneUnused()
+
+	// THEN: Only USED should remain
+	_, usedExists := v.GetExpression("USED")
+	_, unusedExists := v.GetExpression("UNUSED")
+
+	if !usedExists {
+		t.Error("USED expression should still exist")
+	}
+	if unusedExists {
+		t.Error("UNUSED expression should be pruned")
+	}
+}
+
+// TestVault_BuildSecretUses tests building final SecretUse list.
+// In our security model: ALL value decorators are secrets.
+func TestVault_BuildSecretUses(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Variables with references (all are secrets in our model)
+	v.DeclareVariable("API_KEY", "sk-secret")
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordExpressionReference("API_KEY", "command")
+	v.ExitDecorator()
+
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordExpressionReference("API_KEY", "command")
+
+	// Assign DisplayID (normally done during resolution)
+	expr, _ := v.GetExpression("API_KEY")
+	expr.DisplayID = "opal:v:ABC123"
+
+	// WHEN: We build final SecretUses
+	uses := v.BuildSecretUses()
+
+	// THEN: Should have 2 SecretUse entries
+	if len(uses) != 2 {
+		t.Fatalf("Expected 2 SecretUses, got %d", len(uses))
+	}
+
+	// Both should have same DisplayID
+	if uses[0].DisplayID != uses[1].DisplayID {
+		t.Error("Same secret should have same DisplayID")
+	}
+
+	// Different SiteIDs
+	if uses[0].SiteID == uses[1].SiteID {
+		t.Error("Different sites should have different SiteIDs")
+	}
+}
+
+// TestVault_BuildSecretUses_RequiresDisplayID tests that expressions without
+// DisplayID are skipped (not yet resolved).
+func TestVault_BuildSecretUses_RequiresDisplayID(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Variable with reference but no DisplayID (not resolved yet)
+	v.DeclareVariable("UNRESOLVED", "value")
+
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordExpressionReference("UNRESOLVED", "command")
+
+	// Don't assign DisplayID - simulates unresolved expression
+
+	// WHEN: We build SecretUses
+	uses := v.BuildSecretUses()
+
+	// THEN: Should be empty (no DisplayID = not resolved = skip)
+	if len(uses) != 0 {
+		t.Fatalf("Expected 0 SecretUses (unresolved), got %d", len(uses))
+	}
+}
+
+// TestVault_EndToEnd_PruneAndBuild tests complete workflow.
+func TestVault_EndToEnd_PruneAndBuild(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Multiple variables, some used, some unused
+	v.DeclareVariable("USED_SECRET", "sk-used")
+	v.DeclareVariable("UNUSED_SECRET", "sk-unused")
+	v.DeclareVariable("ANOTHER_USED", "value")
+
+	// Only reference USED_SECRET and ANOTHER_USED
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordExpressionReference("USED_SECRET", "command")
+	v.RecordExpressionReference("ANOTHER_USED", "command")
+
+	// WHEN: We prune and build
+	v.PruneUnused()
+
+	// Assign DisplayIDs (normally done during resolution)
+	if expr, exists := v.GetExpression("USED_SECRET"); exists {
+		expr.DisplayID = "opal:v:SECRET1"
+	}
+	if expr, exists := v.GetExpression("ANOTHER_USED"); exists {
+		expr.DisplayID = "opal:v:SECRET2"
+	}
+
+	uses := v.BuildSecretUses()
+
+	// THEN: Should have 2 SecretUses (UNUSED_SECRET pruned)
+	if len(uses) != 2 {
+		t.Fatalf("Expected 2 SecretUses, got %d", len(uses))
+	}
+
+	// Verify UNUSED_SECRET was pruned
+	if _, exists := v.GetExpression("UNUSED_SECRET"); exists {
+		t.Error("UNUSED_SECRET should have been pruned")
+	}
+}
