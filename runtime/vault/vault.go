@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/aledsdavies/opal/core/invariant"
+	"github.com/aledsdavies/opal/runtime/streamscrub"
 )
 
 // Vault manages variable scoping and secret tracking with site-based access control.
@@ -63,6 +65,8 @@ import (
 //
 // See docs/ARCHITECTURE.md for complete architecture.
 type Vault struct {
+	mu sync.Mutex // Protects all fields below
+
 	// Path tracking (DAG traversal)
 	pathStack       []PathSegment
 	stepCount       int
@@ -82,6 +86,9 @@ type Vault struct {
 
 	// Security
 	planKey []byte // For HMAC-based SiteIDs
+
+	// Secret scrubbing (lazy initialization)
+	provider streamscrub.SecretProvider
 }
 
 // Expression represents a secret-producing expression.
@@ -316,8 +323,15 @@ func (v *Vault) DeclareVariable(name, raw string) string {
 	exprID := v.generateExprID(raw)
 
 	if _, exists := v.expressions[exprID]; !exists {
+		// Generate DisplayID from exprID hash (strip transport prefix)
+		// exprID format: "transport:hash" -> DisplayID format: "opal:v:hash"
+		parts := strings.SplitN(exprID, ":", 2)
+		hash := parts[1] // Extract hash part after transport prefix
+		displayID := fmt.Sprintf("opal:v:%s", hash)
+		
 		v.expressions[exprID] = &Expression{
-			Raw: raw,
+			Raw:       raw,
+			DisplayID: displayID,
 		}
 	}
 
@@ -337,8 +351,15 @@ func (v *Vault) TrackExpression(raw string) string {
 
 	// Store expression if not already tracked
 	if _, exists := v.expressions[exprID]; !exists {
+		// Generate DisplayID from exprID hash (strip transport prefix)
+		// exprID format: "transport:hash" -> DisplayID format: "opal:v:hash"
+		parts := strings.SplitN(exprID, ":", 2)
+		hash := parts[1] // Extract hash part after transport prefix
+		displayID := fmt.Sprintf("opal:v:%s", hash)
+		
 		v.expressions[exprID] = &Expression{
-			Raw: raw,
+			Raw:       raw,
+			DisplayID: displayID,
 		}
 	}
 
@@ -583,4 +604,50 @@ func (v *Vault) Access(exprID, paramName string) (string, error) {
 
 	// 5. Return value
 	return expr.Value, nil
+}
+
+// ============================================================================
+// SecretProvider Implementation (for streamscrub integration)
+// ============================================================================
+
+// getPatterns returns all resolved expressions as scrubbing patterns.
+// This is called by the pattern provider on each HandleChunk invocation.
+func (v *Vault) getPatterns() []streamscrub.Pattern {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	var patterns []streamscrub.Pattern
+
+	for _, expr := range v.expressions {
+		// Only include resolved expressions with non-empty values
+		if !expr.Resolved || expr.Value == "" {
+			continue
+		}
+
+		patterns = append(patterns, streamscrub.Pattern{
+			Value:       []byte(expr.Value),
+			Placeholder: []byte(expr.DisplayID),
+		})
+	}
+
+	return patterns
+}
+
+// SecretProvider returns a streamscrub.SecretProvider for this vault.
+// The provider replaces all resolved expression values with their DisplayIDs.
+//
+// This enables automatic secret scrubbing in output streams without manual
+// registration. The scrubber calls the provider to process each chunk.
+//
+// The provider is lazily initialized on first call and reused.
+// Thread-safe: Safe for concurrent calls.
+func (v *Vault) SecretProvider() streamscrub.SecretProvider {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.provider == nil {
+		v.provider = streamscrub.NewPatternProvider(v.getPatterns)
+	}
+
+	return v.provider
 }
