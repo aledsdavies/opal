@@ -289,35 +289,20 @@ func (s *Scrubber) scrubAll(buf []byte) []byte {
 	return s.scrubAllLegacy(buf)
 }
 
-// scrubAllProvider uses SecretProvider for on-demand secret detection.
+// scrubAllProvider uses SecretProvider to process chunk.
+// Provider handles all secret detection and replacement internally.
 // Assumes mu is held.
 func (s *Scrubber) scrubAllProvider(buf []byte) []byte {
-	result := buf
-	
-	// Keep replacing until no more secrets found
-	// LOOP INVARIANT: Track that we make progress (result changes or no secret found)
-	maxIterations := len(result) // Prevent infinite loops
-	iteration := 0
-	
-	for iteration < maxIterations {
-		pattern, placeholder, found := s.provider.FindSecret(result)
-		if !found {
-			break // No more secrets
-		}
-		
-		// Replace first occurrence
-		newResult := bytes.Replace(result, pattern, placeholder, 1)
-		
-		// Assert we made progress
-		invariant.Postcondition(!bytes.Equal(result, newResult), "scrubbing must make progress")
-		
-		result = newResult
-		iteration++
+	// Provider does all the work - finds and replaces all secrets
+	processed, err := s.provider.HandleChunk(buf)
+	if err != nil {
+		// Provider rejected chunk (e.g., fail-fast mode detected secret)
+		// For now, return original - caller should handle errors differently
+		// TODO: Consider how to surface provider errors to Write() caller
+		return buf
 	}
 	
-	invariant.Postcondition(iteration < maxIterations, "scrubbing loop must not exceed max iterations")
-	
-	return result
+	return processed
 }
 
 // scrubAllLegacy replaces secrets using registered secrets list.

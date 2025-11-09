@@ -2,6 +2,7 @@ package streamscrub
 
 import (
 	"bytes"
+	"sort"
 	"testing"
 )
 
@@ -20,25 +21,33 @@ func (m *mockProvider) AddSecret(secret, placeholder string) {
 	m.secrets[secret] = placeholder
 }
 
-func (m *mockProvider) FindSecret(chunk []byte) ([]byte, []byte, bool) {
-	// Find longest match (greedy)
-	var longestSecret string
-	var longestPlaceholder string
+func (m *mockProvider) HandleChunk(chunk []byte) ([]byte, error) {
+	result := chunk
 	
+	// Build sorted list (longest first)
+	type entry struct {
+		secret      []byte
+		placeholder []byte
+	}
+	var entries []entry
 	for secret, placeholder := range m.secrets {
-		if bytes.Contains(chunk, []byte(secret)) {
-			if len(secret) > len(longestSecret) {
-				longestSecret = secret
-				longestPlaceholder = placeholder
-			}
-		}
+		entries = append(entries, entry{
+			secret:      []byte(secret),
+			placeholder: []byte(placeholder),
+		})
 	}
 	
-	if longestSecret != "" {
-		return []byte(longestSecret), []byte(longestPlaceholder), true
+	// Sort by descending length
+	sort.Slice(entries, func(i, j int) bool {
+		return len(entries[i].secret) > len(entries[j].secret)
+	})
+	
+	// Replace all secrets (longest first)
+	for _, e := range entries {
+		result = bytes.ReplaceAll(result, e.secret, e.placeholder)
 	}
 	
-	return nil, nil, false
+	return result, nil
 }
 
 // TestSecretProvider_NilProvider tests scrubber with no provider (pass-through)
@@ -172,5 +181,285 @@ func TestSecretProvider_ChunkBoundary(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(got), []byte("opal:v:xyz")) {
 		t.Errorf("placeholder not found: %q", got)
+	}
+}
+
+// ========== NewPatternProvider SDK Helper Tests ==========
+
+// TestNewPatternProvider_EmptyPatterns tests provider with no patterns
+func TestNewPatternProvider_EmptyPatterns(t *testing.T) {
+	source := func() []Pattern {
+		return []Pattern{}
+	}
+	
+	provider := NewPatternProvider(source)
+	
+	chunk := []byte("some data here")
+	result, err := provider.HandleChunk(chunk)
+	
+	if err != nil {
+		t.Fatalf("HandleChunk failed: %v", err)
+	}
+	
+	// Should pass through unchanged
+	if !bytes.Equal(result, chunk) {
+		t.Errorf("got %q, want %q", result, chunk)
+	}
+}
+
+// TestNewPatternProvider_SinglePattern tests provider with one pattern
+func TestNewPatternProvider_SinglePattern(t *testing.T) {
+	source := func() []Pattern {
+		return []Pattern{
+			{Value: []byte("secret123"), Placeholder: []byte("opal:v:abc")},
+		}
+	}
+	
+	provider := NewPatternProvider(source)
+	
+	chunk := []byte("The value is: secret123")
+	result, err := provider.HandleChunk(chunk)
+	
+	if err != nil {
+		t.Fatalf("HandleChunk failed: %v", err)
+	}
+	
+	want := "The value is: opal:v:abc"
+	if string(result) != want {
+		t.Errorf("got %q, want %q", result, want)
+	}
+}
+
+// TestNewPatternProvider_MultiplePatterns tests provider with multiple patterns
+func TestNewPatternProvider_MultiplePatterns(t *testing.T) {
+	source := func() []Pattern {
+		return []Pattern{
+			{Value: []byte("secret1"), Placeholder: []byte("opal:v:aaa")},
+			{Value: []byte("secret2"), Placeholder: []byte("opal:v:bbb")},
+		}
+	}
+	
+	provider := NewPatternProvider(source)
+	
+	chunk := []byte("First: secret1, Second: secret2")
+	result, err := provider.HandleChunk(chunk)
+	
+	if err != nil {
+		t.Fatalf("HandleChunk failed: %v", err)
+	}
+	
+	got := string(result)
+	// Both secrets should be replaced
+	if bytes.Contains([]byte(got), []byte("secret1")) {
+		t.Errorf("secret1 not scrubbed: %q", got)
+	}
+	if bytes.Contains([]byte(got), []byte("secret2")) {
+		t.Errorf("secret2 not scrubbed: %q", got)
+	}
+	if !bytes.Contains([]byte(got), []byte("opal:v:aaa")) {
+		t.Errorf("placeholder opal:v:aaa not found: %q", got)
+	}
+	if !bytes.Contains([]byte(got), []byte("opal:v:bbb")) {
+		t.Errorf("placeholder opal:v:bbb not found: %q", got)
+	}
+}
+
+// TestNewPatternProvider_LongestFirst tests longest-first matching
+func TestNewPatternProvider_LongestFirst(t *testing.T) {
+	source := func() []Pattern {
+		return []Pattern{
+			{Value: []byte("SECRET"), Placeholder: []byte("opal:v:short")},
+			{Value: []byte("SECRET_EXTENDED"), Placeholder: []byte("opal:v:long")},
+		}
+	}
+	
+	provider := NewPatternProvider(source)
+	
+	chunk := []byte("Value: SECRET_EXTENDED")
+	result, err := provider.HandleChunk(chunk)
+	
+	if err != nil {
+		t.Fatalf("HandleChunk failed: %v", err)
+	}
+	
+	got := string(result)
+	// Should use longest match
+	want := "Value: opal:v:long"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	
+	// Verify no partial replacement
+	if bytes.Contains([]byte(got), []byte("SECRET")) {
+		t.Errorf("secret not fully scrubbed: %q", got)
+	}
+}
+
+// TestNewPatternProvider_DynamicPatterns tests that patterns can change between calls
+func TestNewPatternProvider_DynamicPatterns(t *testing.T) {
+	patterns := []Pattern{
+		{Value: []byte("secret1"), Placeholder: []byte("opal:v:aaa")},
+	}
+	
+	source := func() []Pattern {
+		return patterns
+	}
+	
+	provider := NewPatternProvider(source)
+	
+	// First call with secret1
+	chunk1 := []byte("Value: secret1")
+	result1, err := provider.HandleChunk(chunk1)
+	if err != nil {
+		t.Fatalf("HandleChunk failed: %v", err)
+	}
+	
+	want1 := "Value: opal:v:aaa"
+	if string(result1) != want1 {
+		t.Errorf("got %q, want %q", result1, want1)
+	}
+	
+	// Update patterns
+	patterns = []Pattern{
+		{Value: []byte("secret1"), Placeholder: []byte("opal:v:aaa")},
+		{Value: []byte("secret2"), Placeholder: []byte("opal:v:bbb")},
+	}
+	
+	// Second call with secret2 (should now be replaced)
+	chunk2 := []byte("Value: secret2")
+	result2, err := provider.HandleChunk(chunk2)
+	if err != nil {
+		t.Fatalf("HandleChunk failed: %v", err)
+	}
+	
+	want2 := "Value: opal:v:bbb"
+	if string(result2) != want2 {
+		t.Errorf("got %q, want %q", result2, want2)
+	}
+}
+
+// TestNewPatternProvider_EmptyValue tests pattern with empty value (should be skipped)
+func TestNewPatternProvider_EmptyValue(t *testing.T) {
+	source := func() []Pattern {
+		return []Pattern{
+			{Value: []byte(""), Placeholder: []byte("opal:v:empty")},
+			{Value: []byte("secret"), Placeholder: []byte("opal:v:abc")},
+		}
+	}
+	
+	provider := NewPatternProvider(source)
+	
+	chunk := []byte("Value: secret")
+	result, err := provider.HandleChunk(chunk)
+	
+	if err != nil {
+		t.Fatalf("HandleChunk failed: %v", err)
+	}
+	
+	want := "Value: opal:v:abc"
+	if string(result) != want {
+		t.Errorf("got %q, want %q", result, want)
+	}
+}
+
+// TestNewPatternProvider_NoMatch tests chunk with no matching patterns
+func TestNewPatternProvider_NoMatch(t *testing.T) {
+	source := func() []Pattern {
+		return []Pattern{
+			{Value: []byte("secret123"), Placeholder: []byte("opal:v:abc")},
+		}
+	}
+	
+	provider := NewPatternProvider(source)
+	
+	chunk := []byte("No secrets here")
+	result, err := provider.HandleChunk(chunk)
+	
+	if err != nil {
+		t.Fatalf("HandleChunk failed: %v", err)
+	}
+	
+	// Should pass through unchanged
+	if !bytes.Equal(result, chunk) {
+		t.Errorf("got %q, want %q", result, chunk)
+	}
+}
+
+// ========== Integration Tests: NewPatternProvider + Scrubber ==========
+
+// TestIntegration_PatternProviderWithScrubber tests complete flow
+func TestIntegration_PatternProviderWithScrubber(t *testing.T) {
+	// Create pattern source
+	source := func() []Pattern {
+		return []Pattern{
+			{Value: []byte("ghp_abc123xyz"), Placeholder: []byte("opal:v:token1")},
+			{Value: []byte("sk_test_456"), Placeholder: []byte("opal:v:token2")},
+		}
+	}
+	
+	// Create provider using SDK helper
+	provider := NewPatternProvider(source)
+	
+	// Create scrubber with provider
+	var buf bytes.Buffer
+	s := New(&buf, WithSecretProvider(provider))
+	
+	// Write data with secrets
+	input := []byte("API Key: ghp_abc123xyz, Stripe: sk_test_456")
+	s.Write(input)
+	s.Flush()
+	
+	got := buf.String()
+	
+	// Verify secrets replaced
+	want := "API Key: opal:v:token1, Stripe: opal:v:token2"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	
+	// Verify no secrets leaked
+	if bytes.Contains([]byte(got), []byte("ghp_abc123xyz")) {
+		t.Errorf("secret ghp_abc123xyz leaked: %q", got)
+	}
+	if bytes.Contains([]byte(got), []byte("sk_test_456")) {
+		t.Errorf("secret sk_test_456 leaked: %q", got)
+	}
+}
+
+// TestIntegration_DynamicPatternsWithScrubber tests patterns changing between writes
+func TestIntegration_DynamicPatternsWithScrubber(t *testing.T) {
+	// Mutable pattern list
+	patterns := []Pattern{
+		{Value: []byte("secret1"), Placeholder: []byte("opal:v:aaa")},
+	}
+	
+	source := func() []Pattern {
+		return patterns
+	}
+	
+	provider := NewPatternProvider(source)
+	
+	var buf bytes.Buffer
+	s := New(&buf, WithSecretProvider(provider))
+	
+	// First write with secret1
+	s.Write([]byte("Value: secret1\n"))
+	s.Flush()
+	
+	// Add secret2 to patterns
+	patterns = append(patterns, Pattern{
+		Value:       []byte("secret2"),
+		Placeholder: []byte("opal:v:bbb"),
+	})
+	
+	// Second write with secret2 (should now be replaced)
+	s.Write([]byte("Value: secret2\n"))
+	s.Flush()
+	
+	got := buf.String()
+	want := "Value: opal:v:aaa\nValue: opal:v:bbb\n"
+	
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
