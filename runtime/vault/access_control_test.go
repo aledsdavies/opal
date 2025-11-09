@@ -19,9 +19,7 @@ func TestAccess_AuthorizedSite_SameTransport_Succeeds(t *testing.T) {
 
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
-	v.expressions[exprID].Value = "secret-value"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "secret-value")
 
 	// AND: Authorized site recorded
 	v.EnterStep()
@@ -47,9 +45,7 @@ func TestAccess_AuthorizedSite_DifferentTransport_FailsWithTransportError(t *tes
 
 	// GIVEN: @env expression resolved in local transport
 	exprID := v.DeclareVariable("LOCAL_TOKEN", "@env.TOKEN")
-	v.expressions[exprID].Value = "secret-value"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "secret-value")
 
 	// AND: Authorized site recorded in local transport
 	v.EnterStep()
@@ -82,9 +78,7 @@ func TestAccess_UnauthorizedSite_SameTransport_FailsWithAuthorityError(t *testin
 
 	// GIVEN: Expression with one authorized site
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
-	v.expressions[exprID].Value = "secret-value"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "secret-value")
 
 	// AND: Authorized site: root/step-1/@shell[0]/params/command
 	v.EnterStep()
@@ -115,9 +109,7 @@ func TestAccess_UnauthorizedSite_DifferentTransport_Fails(t *testing.T) {
 
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
-	v.expressions[exprID].Value = "secret-value"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "secret-value")
 
 	// AND: Authorized site in local transport
 	v.EnterStep()
@@ -154,9 +146,7 @@ func TestAccess_MultipleSites_EachSiteIndependent(t *testing.T) {
 
 	// GIVEN: Expression authorized at two different sites
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
-	v.expressions[exprID].Value = "secret-value"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "secret-value")
 
 	// Site 1: root/step-1/@shell[0]/params/command
 	v.EnterStep()
@@ -272,9 +262,7 @@ func TestAccess_SameDecorator_DifferentTransports_IndependentExpressions(t *test
 
 	// GIVEN: @env.HOME in local transport
 	localID := v.TrackExpression("@env.HOME")
-	v.expressions[localID].Value = "/home/local"
-	v.expressions[localID].Resolved = true
-	v.exprTransport[localID] = "local"
+	v.MarkResolved(localID, "/home/local")
 
 	v.EnterStep()
 	v.EnterDecorator("@shell")
@@ -284,9 +272,7 @@ func TestAccess_SameDecorator_DifferentTransports_IndependentExpressions(t *test
 	// AND: @env.HOME in ssh:server1 transport (different expression!)
 	v.EnterTransport("ssh:server1")
 	sshID := v.TrackExpression("@env.HOME")
-	v.expressions[sshID].Value = "/home/server1"
-	v.expressions[sshID].Resolved = true
-	v.exprTransport[sshID] = "ssh:server1"
+	v.MarkResolved(sshID, "/home/server1")
 
 	v.EnterStep()
 	v.EnterDecorator("@shell")
@@ -344,9 +330,7 @@ func TestAccess_NoPlanKey_SkipsSiteIDCheck(t *testing.T) {
 
 	// GIVEN: Expression without plan key
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
-	v.expressions[exprID].Value = "secret-value"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "secret-value")
 
 	// AND: Reference recorded (SiteID will be empty without plan key)
 	v.EnterStep()
@@ -374,9 +358,7 @@ func TestAccess_NonEnvDecorator_CrossesTransportBoundary(t *testing.T) {
 
 	// GIVEN: Non-@env expression (e.g., @var) resolved in local transport
 	exprID := v.DeclareVariable("API_KEY", "sk-secret-123")
-	v.expressions[exprID].Value = "sk-secret-123"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "sk-secret-123")
 
 	// AND: Authorized site in local transport
 	v.EnterStep()
@@ -406,9 +388,7 @@ func TestAccess_EmptyStringSecret_IsValid(t *testing.T) {
 
 	// GIVEN: Expression resolved to empty string (valid secret)
 	exprID := v.DeclareVariable("EMPTY_VAR", "@env.EMPTY")
-	v.expressions[exprID].Value = ""
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "")
 
 	// AND: Authorized site recorded
 	v.EnterStep()

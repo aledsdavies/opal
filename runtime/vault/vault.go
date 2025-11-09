@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+
+	"github.com/aledsdavies/opal/core/invariant"
 )
 
 // Vault is the single source of truth for secret tracking and management.
@@ -282,13 +284,8 @@ func (v *Vault) generateExprID(raw string) string {
 }
 
 // RecordReference records that an expression is used at the current site.
-// Returns error if expression crosses transport boundary.
+// Transport boundary check is deferred to Access() time (after resolution).
 func (v *Vault) RecordReference(exprID, paramName string) error {
-	// Check transport boundary
-	if err := v.checkTransportBoundary(exprID); err != nil {
-		return err
-	}
-
 	site := v.BuildSitePath(paramName)
 	siteID := v.computeSiteID(site)
 
@@ -413,17 +410,37 @@ func (v *Vault) CurrentTransport() string {
 	return v.currentTransport
 }
 
+// MarkResolved marks an expression as resolved and captures its transport.
+// This MUST be called when an expression is resolved (e.g., @env.HOME → "/home/user").
+// The transport is captured at resolution time, not at first reference.
+//
+// This is critical for security: transport must be set when the value is resolved,
+// not when it's first accessed. Otherwise, a local @env secret could be first
+// accessed in an @ssh block, incorrectly capturing the transport as "ssh:*".
+//
+// Panics if expression not found or already resolved (programmer errors).
+func (v *Vault) MarkResolved(exprID, value string) {
+	expr, exists := v.expressions[exprID]
+	invariant.Precondition(exists, "MarkResolved: expression %q not found", exprID)
+	invariant.Precondition(!expr.Resolved, "MarkResolved: expression %q already resolved", exprID)
+
+	expr.Value = value
+	expr.Resolved = true
+	v.exprTransport[exprID] = v.currentTransport // CRITICAL: Capture transport NOW
+}
+
 // checkTransportBoundary checks if expression can be used in current transport.
 func (v *Vault) checkTransportBoundary(exprID string) error {
 	// Get transport where expression was resolved
 	exprTransport, exists := v.exprTransport[exprID]
-	if !exists {
-		// Expression not resolved yet, record current transport for later
-		v.exprTransport[exprID] = v.currentTransport
-		return nil
-	}
+	
+	// CRITICAL: This should NEVER happen in production!
+	// If it does, it means MarkResolved() wasn't called (programmer error).
+	invariant.Invariant(exists, 
+		"expression %q has no transport recorded (MarkResolved not called?)", 
+		exprID)
 
-	// Check if crossing transport boundary
+	// Check if crossing transport boundary (legitimate security check - return error)
 	if exprTransport != v.currentTransport {
 		return fmt.Errorf(
 			"transport boundary violation: expression %q resolved in %q, cannot use in %q",
@@ -482,11 +499,6 @@ func (v *Vault) Access(exprID, paramName string) (string, error) {
 	}
 	if !authorized {
 		return "", fmt.Errorf("no authority to unwrap %q at site %q", exprID, currentSite)
-	}
-
-	// 4. Check transport boundary
-	if err := v.checkTransportBoundary(exprID); err != nil {
-		return "", err
 	}
 
 	// 5. Return value

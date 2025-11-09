@@ -180,18 +180,25 @@ func TestVault_TransportBoundaryViolation(t *testing.T) {
 
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("LOCAL_TOKEN", "@env.TOKEN")
-	v.expressions[exprID].Value = "secret"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "secret")
 	v.MarkTouched(exprID)
 
-	// WHEN: We enter SSH transport and try to use it
+	// AND: Record reference in local transport (allowed)
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	err := v.RecordReference(exprID, "command")
+	if err != nil {
+		t.Fatalf("RecordReference should succeed in same transport: %v", err)
+	}
+
+	// WHEN: We enter SSH transport and try to access it
 	v.EnterTransport("ssh:untrusted")
 	v.EnterStep()
 	v.EnterDecorator("@shell")
+	v.RecordReference(exprID, "command") // Recording is allowed
 
-	// THEN: Should error on transport boundary violation
-	err := v.RecordReference(exprID, "command")
+	// THEN: Access should fail with transport boundary violation
+	_, err = v.Access(exprID, "command")
 	if err == nil {
 		t.Fatal("Expected transport boundary error, got nil")
 	}
@@ -206,8 +213,7 @@ func TestVault_SameTransportAllowed(t *testing.T) {
 
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("LOCAL_VAR", "@env.HOME")
-	v.expressions[exprID].Value = "value"
-	v.expressions[exprID].Resolved = true
+	v.MarkResolved(exprID, "value")
 	v.exprTransport[exprID] = "local"
 	v.MarkTouched(exprID)
 

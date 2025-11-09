@@ -25,9 +25,7 @@ func TestBug1_DuplicateTransportCheck_RedundantValidation(t *testing.T) {
 
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
-	v.expressions[exprID].Value = "secret-value"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "secret-value")
 
 	// AND: Authorized site in local transport
 	v.EnterStep()
@@ -61,10 +59,8 @@ func TestBug2_LazyInit_CapturesTransportAtFirstReference(t *testing.T) {
 	// GIVEN: Expression declared and resolved in LOCAL transport
 	// (Simulating @env.HOME resolved in local context)
 	exprID := v.DeclareVariable("HOME", "@env.HOME")
-	v.expressions[exprID].Value = "/home/local-user"
-	v.expressions[exprID].Resolved = true
-	// NOTE: We do NOT manually set v.exprTransport[exprID] here
-	// This simulates production code where transport is never recorded at resolution
+	v.MarkResolved(exprID, "/home/local-user")
+	// NOTE: MarkResolved() captures transport as "local" at resolution time
 
 	// AND: First reference happens in REMOTE SSH transport
 	v.EnterTransport("ssh:server1")
@@ -97,16 +93,30 @@ func TestBug2_LazyInit_SubsequentAccessInLocalFails(t *testing.T) {
 
 	// GIVEN: Expression resolved in LOCAL transport
 	exprID := v.DeclareVariable("HOME", "@env.HOME")
-	v.expressions[exprID].Value = "/home/local-user"
-	v.expressions[exprID].Resolved = true
-	// NOTE: No manual exprTransport assignment (simulates production)
+	v.MarkResolved(exprID, "/home/local-user")
+	// NOTE: MarkResolved() captures transport as "local" at resolution time
 
-	// AND: First reference in SSH transport (captures transport as "ssh:server1")
+	// AND: First reference in SSH transport
 	v.EnterTransport("ssh:server1")
 	v.EnterStep()
 	v.EnterDecorator("@shell")
 	v.RecordReference(exprID, "command")
-	_, _ = v.Access(exprID, "command") // First access captures transport as SSH
+
+	// WHEN: Try to access in SSH transport (should fail - wrong transport)
+	_, err := v.Access(exprID, "command")
+
+	// THEN: Should FAIL with transport boundary error (resolved in local, accessing in SSH)
+	if err != nil {
+		if strings.Contains(err.Error(), "transport boundary violation") {
+			t.Logf("GOOD: Transport boundary correctly enforced")
+			t.Logf("Error: %v", err)
+		} else {
+			t.Errorf("Wrong error type: %v", err)
+		}
+	} else {
+		t.Errorf("BUG: Access() should fail with transport boundary error")
+		t.Errorf("Expression resolved in 'local', accessed in 'ssh:server1'")
+	}
 
 	// AND: Second reference in LOCAL transport (where it was actually resolved)
 	v.ExitDecorator()
@@ -116,22 +126,13 @@ func TestBug2_LazyInit_SubsequentAccessInLocalFails(t *testing.T) {
 	v.RecordReference(exprID, "env")
 
 	// WHEN: Access in local transport (the CORRECT transport)
-	_, err := v.Access(exprID, "env")
+	_, err = v.Access(exprID, "env")
 
-	// THEN: BUG - Should SUCCEED (local is correct), but FAILS
-	// Because exprTransport was captured as "ssh:server1" on first reference
+	// THEN: Should SUCCEED (local is correct)
 	if err == nil {
-		t.Logf("GOOD: Access() succeeded in local transport")
-		t.Logf("This means the bug is already fixed!")
+		t.Logf("GOOD: Access() succeeded in local transport (the correct one)")
 	} else {
-		if strings.Contains(err.Error(), "transport boundary violation") {
-			t.Errorf("BUG REPRODUCED: Access() failed in LOCAL transport (the correct one!)")
-			t.Errorf("Error: %v", err)
-			t.Errorf("Root cause: exprTransport was set to 'ssh:server1' on first reference")
-			t.Errorf("Expected: exprTransport should be 'local' (set at resolution time)")
-		} else {
-			t.Errorf("Unexpected error: %v", err)
-		}
+		t.Errorf("Access() should succeed in LOCAL transport, got error: %v", err)
 	}
 }
 
@@ -149,23 +150,10 @@ func TestBug3_MissingMarkResolved_NoAPIToSetTransportAtResolution(t *testing.T) 
 	// GIVEN: We're in local transport and want to resolve an @env expression
 	exprID := v.DeclareVariable("HOME", "@env.HOME")
 
-	// WHEN: We try to mark it as resolved with its value
-	// Expected API: v.MarkResolved(exprID, "/home/local-user")
-	// This should:
-	// 1. Set expr.Resolved = true
-	// 2. Set expr.Value = "/home/local-user"
-	// 3. Set v.exprTransport[exprID] = v.currentTransport ("local")
+	// WHEN: We use the MarkResolved() API
+	v.MarkResolved(exprID, "/home/local-user")
 
-	// Current workaround (what tests do manually):
-	v.expressions[exprID].Value = "/home/local-user"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local" // Manual assignment masks the bug!
-
-	// THEN: After fix, we should have a proper API:
-	// v.MarkResolved(exprID, "/home/local-user")
-	// And checkTransportBoundary should error if exprTransport is missing
-
-	// For now, just verify the workaround works
+	// THEN: Expression should be properly resolved with transport captured
 	if !v.expressions[exprID].Resolved {
 		t.Error("Expression should be marked as resolved")
 	}
@@ -176,9 +164,9 @@ func TestBug3_MissingMarkResolved_NoAPIToSetTransportAtResolution(t *testing.T) 
 		t.Errorf("Expression transport = %q, want %q", v.exprTransport[exprID], "local")
 	}
 
-	t.Log("TODO: Implement MarkResolved(exprID, value) method")
-	t.Log("TODO: Remove lazy initialization from checkTransportBoundary")
-	t.Log("TODO: Return error if exprTransport[exprID] is missing")
+	t.Log("✅ MarkResolved() API implemented successfully")
+	t.Log("✅ Lazy initialization removed from checkTransportBoundary")
+	t.Log("✅ checkTransportBoundary panics if exprTransport missing")
 }
 
 // ========== Integration Test: Full Bug Scenario ==========
@@ -198,9 +186,7 @@ func TestBug_FullScenario_LocalEnvLeaksToSSH(t *testing.T) {
 	// GIVEN: Local environment variable (sensitive secret)
 	// In real code, this would be resolved by @env decorator in local context
 	exprID := v.DeclareVariable("AWS_SECRET_KEY", "@env.AWS_SECRET_KEY")
-	v.expressions[exprID].Value = "AKIAIOSFODNN7EXAMPLE" // Sensitive local secret
-	v.expressions[exprID].Resolved = true
-	// NOTE: No exprTransport assignment (simulates production bug)
+	v.MarkResolved(exprID, "AKIAIOSFODNN7EXAMPLE") // Resolved in local transport
 
 	// AND: Code enters SSH transport (remote server)
 	v.EnterTransport("ssh:production-server")
@@ -245,14 +231,7 @@ func TestAfterFix_ExistingBehaviorStillWorks(t *testing.T) {
 
 	// GIVEN: Expression properly resolved with transport set at resolution
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
-
-	// TODO: After implementing MarkResolved(), use it here:
-	// v.MarkResolved(exprID, "secret-value")
-
-	// For now, simulate proper resolution:
-	v.expressions[exprID].Value = "secret-value"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local" // Set at resolution time
+	v.MarkResolved(exprID, "secret-value")
 
 	// AND: Authorized site in same transport
 	v.EnterStep()
