@@ -64,6 +64,9 @@ type Vault struct {
 	references  map[string][]SiteRef   // exprID → sites that use it
 	touched     map[string]bool        // exprID → in execution path
 
+	// Scope-aware variable storage (pathStack IS the trie)
+	scopes map[string]*VaultScope // scopePath → scope
+
 	// Transport boundary tracking
 	currentTransport string            // Current transport scope
 	exprTransport    map[string]string // exprID → transport where resolved
@@ -83,6 +86,16 @@ type Expression struct {
 
 // Note: No ExprType, no IsSecret - everything is a secret.
 // Vault stores raw values directly - access control via SiteID + transport checks.
+
+// VaultScope represents a scope in the variable trie.
+// Each scope corresponds to a level in the pathStack.
+// Variables declared at a scope are stored in that scope.
+// Lookup walks up the trie (current → parent → grandparent → root).
+type VaultScope struct {
+	path   string            // "root/step-1/@retry[0]"
+	parent string            // Parent scope path (empty for root)
+	vars   map[string]string // varName → exprID
+}
 
 // SiteRef represents a reference to an expression at a specific site.
 type SiteRef struct {
@@ -109,16 +122,26 @@ const (
 
 // New creates a new Vault.
 func New() *Vault {
-	return &Vault{
+	v := &Vault{
 		pathStack:        []PathSegment{{Type: SegmentRoot, Name: "root", Index: -1}},
 		stepCount:        0,
 		decoratorCounts:  make(map[string]int),
 		expressions:      make(map[string]*Expression),
 		references:       make(map[string][]SiteRef),
 		touched:          make(map[string]bool),
+		scopes:           make(map[string]*VaultScope),
 		currentTransport: "local",
 		exprTransport:    make(map[string]string),
 	}
+
+	// Initialize root scope
+	v.scopes["root"] = &VaultScope{
+		path:   "root",
+		parent: "",
+		vars:   make(map[string]string),
+	}
+
+	return v
 }
 
 // NewWithPlanKey creates a new Vault with a specific plan key for HMAC-based SiteIDs.
@@ -199,12 +222,95 @@ func (v *Vault) BuildSitePath(paramName string) string {
 	return strings.Join(parts, "/")
 }
 
-// DeclareVariable registers a variable declaration.
+// ========== Scope Management ==========
+
+// currentScopePath builds the scope path from pathStack.
+// Example: [root, step-1, @retry[0]] → "root/step-1/@retry[0]"
+func (v *Vault) currentScopePath() string {
+	var parts []string
+	for _, seg := range v.pathStack {
+		switch seg.Type {
+		case SegmentRoot:
+			parts = append(parts, seg.Name)
+		case SegmentStep:
+			parts = append(parts, seg.Name)
+		case SegmentDecorator:
+			parts = append(parts, fmt.Sprintf("%s[%d]", seg.Name, seg.Index))
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// getOrCreateScope gets existing scope or creates new one with parent link.
+func (v *Vault) getOrCreateScope(scopePath string) *VaultScope {
+	if scope, exists := v.scopes[scopePath]; exists {
+		return scope
+	}
+
+	// Determine parent scope path
+	parentPath := v.parentScopePath(scopePath)
+
+	scope := &VaultScope{
+		path:   scopePath,
+		parent: parentPath,
+		vars:   make(map[string]string),
+	}
+	v.scopes[scopePath] = scope
+	return scope
+}
+
+// parentScopePath extracts parent scope path.
+// Example: "root/step-1/@retry[0]" → "root/step-1"
+// Returns empty string for root (no parent).
+func (v *Vault) parentScopePath(scopePath string) string {
+	lastSlash := strings.LastIndex(scopePath, "/")
+	if lastSlash == -1 {
+		return "" // Root has no parent
+	}
+	return scopePath[:lastSlash]
+}
+
+// LookupVariable looks up a variable by name, walking up the scope trie.
+// Returns the expression ID if found, or an error if not found in any scope.
+func (v *Vault) LookupVariable(varName string) (string, error) {
+	// Start at current scope
+	scopePath := v.currentScopePath()
+
+	// Walk up trie until found or reach root
+	for scopePath != "" {
+		scope := v.scopes[scopePath]
+		if scope != nil {
+			if exprID, exists := scope.vars[varName]; exists {
+				return exprID, nil // Found in this scope
+			}
+			// Move to parent scope (from scope's parent field)
+			scopePath = scope.parent
+		} else {
+			// Scope doesn't exist yet, compute parent path directly
+			scopePath = v.parentScopePath(scopePath)
+		}
+	}
+
+	return "", fmt.Errorf("variable %q not found in any scope", varName)
+}
+
+// ========== Expression Tracking ==========
+
+// DeclareVariable registers a variable declaration in the current scope.
 // Returns the variable name as the expression ID.
 func (v *Vault) DeclareVariable(name, raw string) string {
-	v.expressions[name] = &Expression{
-		Raw: raw,
+	// Create expression if not already tracked
+	if _, exists := v.expressions[name]; !exists {
+		v.expressions[name] = &Expression{
+			Raw: raw,
+		}
 	}
+
+	// Store variable name in current scope
+	scopePath := v.currentScopePath()
+	scope := v.getOrCreateScope(scopePath)
+	scope.vars[name] = name // varName → exprID (for variables, exprID is the name)
+
 	return name
 }
 
