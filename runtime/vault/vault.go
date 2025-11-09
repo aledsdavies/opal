@@ -10,92 +10,108 @@ import (
 	"github.com/aledsdavies/opal/core/invariant"
 )
 
-// Vault is the single source of truth for secret tracking and management.
+// Vault tracks secret-producing expressions and enforces site-based access control.
 //
-// # Responsibilities
+// In Opal's security model, ALL value decorators produce secrets:
+//   - @var.X, @env.X, @aws.secret(), @vault.read() are all secrets
+//   - No classification needed - if it's a value decorator, it's a secret
 //
-// 1. Expression Tracking - Track ALL secret-producing expressions:
-//   - Direct decorator calls: @env.HOME, @aws.secret("key")
-//   - Variable declarations: var API_KEY = @aws.secret("key")
-//   - Nested expressions: @aws.secret("@var.ENV-key")
+// # Usage: Three-Pass Planning
 //
-// 2. Site Recording - Track WHERE each expression is used:
-//   - Build canonical site paths: root/step-1/@shell[0]/params/command
-//   - Generate unforgeable SiteIDs (HMAC-based)
-//   - Create SecretUse entries for executor enforcement
+// The planner uses Vault in three passes to track, resolve, and authorize secrets:
 //
-// 3. Resolution - Resolve expressions by calling decorators:
-//   - Wave-based: Planner marks which expressions are "touched" in execution path
-//   - Only resolve touched expressions (prune unreachable code)
-//   - Store resolved values directly (access control via SiteID + transport)
-//   - Support meta-programming: Planner can unwrap for conditionals
+//	// Pass 1: Scan - Track all expressions and their use-sites
+//	vault := vault.NewWithPlanKey(planKey)
 //
-// 4. Transport Boundaries - Enforce security boundaries:
-//   - Track current transport scope (local, ssh:host, docker:container)
-//   - Error if expression crosses transport boundary without explicit passing
-//   - Example: Local @env.TOKEN cannot be used inside @ssh block
+//	vault.EnterStep()
+//	vault.EnterDecorator("@shell")
 //
-// 5. Pruning - Remove unused/unreachable expressions:
-//   - Auto-prune: Expressions not marked "touched" are unreachable
-//   - Auto-prune: Expressions with no references are unused
-//   - BuildSecretUses only includes resolved + referenced expressions
+//	// Track variable declaration (returns variable name as ID)
+//	apiKeyID := vault.DeclareVariable("API_KEY", "@env.API_KEY")
 //
-// # Expression IDs
+//	// Track direct decorator call (returns hash-based ID with transport)
+//	homeID := vault.TrackExpression("@env.HOME")
 //
-// Expression IDs must be deterministic and unique:
-//   - Variables: Use variable name ("API_KEY")
-//   - Direct calls: Hash of decorator + params ("@env.HOME" → "env:HOME")
-//   - Nested: Hash of full expression ("@aws.secret('@var.ENV-key')" → "aws.secret:...")
+//	// Record where expression is used (builds site path from current position)
+//	vault.RecordReference(apiKeyID, "command")  // Site: root/step-1/@shell[0]/params/command
 //
-// Deterministic IDs enable:
-//   - Consistent tracking across planning phases
-//   - Deduplication of identical expressions
-//   - Reproducible SecretUse generation
+//	// Pass 2: Resolve - Wave-based resolution for touched expressions
+//	vault.MarkTouched(apiKeyID)  // Mark as in execution path
 //
-// # Security Model: Zanzibar-Style Access Control
+//	// Planner resolves touched expressions (calls decorators)
+//	vault.MarkResolved(apiKeyID, "ghp_abc123")  // Captures transport at resolution time
 //
-// ALL value decorators produce secrets:
-//   - @var.X → secret
-//   - @env.X → secret
-//   - @aws.secret() → secret
-//   - @vault.read() → secret
+//	// Access for meta-programming (checks SiteID + transport boundary)
+//	value, err := vault.Access(apiKeyID, "command")  // Returns "ghp_abc123"
 //
-// No classification needed - if it's a value decorator, it's a secret.
+//	// Pass 3: Finalize - Prune and build authorization list
+//	vault.PruneUntouched()  // Remove unreachable expressions
+//	uses := vault.BuildSecretUses()  // Generate SecretUse entries for executor
 //
-// Access control uses Tuple (Position) + Caveat (Constraint):
+// # Access Control: Site-Based Authority
 //
-// Tuple (Position): (exprID, siteID)
-//   - Secret can only be accessed at authorized sites
-//   - Site: "root/retry[0]/params/apiKey"
-//   - SiteID: HMAC(planKey, site) - unforgeable
-//   - Recorded via RecordReference() during planning
+// Vault enforces two security checks via Access():
 //
-// Caveat (Constraint): Transport isolation (decorator-specific)
-//   - Currently: @env expressions cannot cross transport boundaries
-//   - Future: Any decorator can declare transport isolation requirement
-//   - Prevents local secrets leaking to remote SSH sessions
+//  1. Transport Boundary (Caveat): Expression cannot cross transport boundaries
+//     - @env expressions resolved in "local" cannot be used in "ssh:host"
+//     - Prevents local secrets leaking to remote sessions
+//     - Checked first (more fundamental security rule)
+//
+//  2. Site Authorization (Tuple): Expression can only be accessed at authorized sites
+//     - Site: "root/retry[0]/params/apiKey" (canonical path)
+//     - SiteID: HMAC(planKey, site) - unforgeable, cannot be forged
+//     - Recorded via RecordReference() during Pass 1
 //
 // Both checks must pass for Access() to succeed.
 //
-// # Planner-Vault Collaboration
+// # Expression IDs: Deterministic and Transport-Aware
 //
-// # Planner-Vault Collaboration
+// Expression IDs must be unique and include transport context:
 //
-// Planner orchestrates, Vault resolves and stores:
+//   - Variables: Use variable name ("API_KEY")
+//   - Direct calls: Hash of transport + raw expression
+//   - @env.HOME in local → "local:abc123..."
+//   - @env.HOME in ssh:server1 → "ssh:server1:def456..."
 //
-//	Pass 1 - Scan:
-//	  exprID := vault.DeclareVariable(name, raw)  // Returns variable name as ID
-//	  exprID := vault.TrackExpression(raw)        // Returns hash-based ID with transport
-//	  vault.RecordReference(exprID, paramName)    // Record use-site
+// Same decorator in different transports produces different IDs because
+// they resolve to different values.
 //
-//	Pass 2 - Resolve (wave-based):
-//	  vault.MarkTouched(exprID)                   // Mark in execution path
-//	  vault.ResolveTouched(ctx)                   // Vault calls decorators
-//	  value, _ := vault.Access(exprID, paramName) // Planner accesses for @if (checks SiteID + transport)
+// # Path Tracking
 //
-//	Pass 3 - Finalize:
-//	  vault.PruneUntouched()                      // Remove unreachable
-//	  uses := vault.BuildSecretUses()             // Generate authorization list
+// Vault maintains a path stack to build canonical site paths:
+//
+//	vault.EnterStep()           // root/step-1
+//	vault.EnterDecorator("@retry")  // root/step-1/@retry[0]
+//	vault.EnterDecorator("@shell")  // root/step-1/@retry[0]/@shell[0]
+//
+//	site := vault.BuildSitePath("command")
+//	// Returns: "root/step-1/@retry[0]/@shell[0]/params/command"
+//
+// Multiple instances of the same decorator get different indices:
+//
+//	vault.EnterDecorator("@shell")  // @shell[0]
+//	vault.ExitDecorator()
+//	vault.EnterDecorator("@shell")  // @shell[1]
+//
+// # Transport Boundaries
+//
+// Vault tracks transport scope to prevent secret leakage:
+//
+//	vault.EnterTransport("ssh:untrusted")  // Entering SSH session
+//
+//	// This will fail - LOCAL_TOKEN resolved in "local" transport
+//	err := vault.Access("LOCAL_TOKEN", "command")
+//	// Error: "transport boundary violation: expression resolved in local, cannot use in ssh:untrusted"
+//
+// Explicit passing via decorator parameters is allowed (handled by planner).
+//
+// # Security Properties
+//
+//   - Site-based authority: Secrets only accessible at authorized sites
+//   - Unforgeable SiteIDs: HMAC-based, cannot be forged without planKey
+//   - Transport isolation: Secrets cannot cross transport boundaries
+//   - No propagation: Parent/child decorators cannot access each other's secrets
+//   - Automatic pruning: Unused and unreachable expressions removed
 type Vault struct {
 	// Path tracking (DAG traversal)
 	pathStack       []PathSegment
@@ -433,11 +449,11 @@ func (v *Vault) MarkResolved(exprID, value string) {
 func (v *Vault) checkTransportBoundary(exprID string) error {
 	// Get transport where expression was resolved
 	exprTransport, exists := v.exprTransport[exprID]
-	
+
 	// CRITICAL: This should NEVER happen in production!
 	// If it does, it means MarkResolved() wasn't called (programmer error).
-	invariant.Invariant(exists, 
-		"expression %q has no transport recorded (MarkResolved not called?)", 
+	invariant.Invariant(exists,
+		"expression %q has no transport recorded (MarkResolved not called?)",
 		exprID)
 
 	// Check if crossing transport boundary (legitimate security check - return error)
@@ -468,8 +484,9 @@ func (v *Vault) checkTransportBoundary(exprID string) error {
 //   - Error if expression not found, not resolved, unauthorized site, or transport violation
 //
 // Example:
-//   vault.EnterDecorator("@shell")
-//   value, err := vault.Access("API_KEY", "command")  // Checks site: root/@shell[0]/params/command
+//
+//	vault.EnterDecorator("@shell")
+//	value, err := vault.Access("API_KEY", "command")  // Checks site: root/@shell[0]/params/command
 func (v *Vault) Access(exprID, paramName string) (string, error) {
 	// 1. Get expression
 	expr, exists := v.expressions[exprID]
