@@ -1397,7 +1397,7 @@ vault.MarkTouched("PROD_KEY")  // First branch taken
 
 // Pass 2: Resolve Wave 2
 vault.ResolveTouched(ctx)
-// Vault calls @aws.secret("prod-key") → "sk-..." → wraps → stores
+// Vault calls @aws.secret("prod-key") → "sk-..." → stores directly
 // DEV_KEY not resolved (not touched)
 
 // Pass 3: Finalize
@@ -1592,8 +1592,10 @@ type Vault struct {
 }
 
 type Expression struct {
-    Raw    string          // Original: "@env.HOME", "@aws.secret('key')"
-    Handle *secret.Handle  // Resolved value (nil if not resolved)
+    Raw       string // Original: "@env.HOME", "@aws.secret('key')"
+    Value     string // Resolved value (can be empty string - check Resolved flag)
+    DisplayID string // Placeholder ID for plan (e.g., "opal:v:3J98t56A")
+    Resolved  bool   // True if expression has been resolved (even if Value is "")
 }
 
 type SiteRef struct {
@@ -1686,7 +1688,7 @@ var API_KEY = "sk-secret"
 
 **1. Unified System**
 - One component handles variables AND secrets
-- No separate ScopeGraph needed
+- Replaces ScopeGraph entirely
 - Simpler architecture
 
 **2. Security by Default**
@@ -1774,7 +1776,12 @@ Root (local session)
 
 ### Variable Resolution Algorithm
 
-**Lookup via parent traversal:**
+**NOTE: This section describes the legacy ScopeGraph system which is being replaced by Vault.**
+**See the Vault section above for the current implementation.**
+
+**Legacy approach (ScopeGraph - being removed):**
+
+Variables were resolved via parent scope traversal:
 
 ```
 Resolve @var.HOME in docker scope:
@@ -1784,46 +1791,12 @@ Resolve @var.HOME in docker scope:
 4. Return value
 ```
 
-**Automatic isolation between siblings:**
+**Current approach (Vault):**
 
-```
-Resolve @var.REMOTE_HOME in ssh:server2:
-1. Check current scope → found: "/home/charlie"
-
-Resolve @var.REMOTE_HOME in ssh:server1:
-1. Check current scope → found: "/home/bob"
-
-# Different values! Each session has its own scope.
-# No session checking needed - variables are simply not in scope.
-```
-
-### Implementation
-
-```go
-// ScopeGraph manages hierarchical variable scoping across sessions.
-type ScopeGraph struct {
-    root    *Scope
-    current *Scope  // Current scope during planning/execution
-}
-
-// Scope represents a variable scope tied to a session context.
-type Scope struct {
-    id        string            // Unique scope ID
-    sessionID string            // Session identifier from Session.ID()
-    vars      map[string]VarEntry
-    parent    *Scope            // Parent scope (nil for root)
-    children  []*Scope          // Child scopes
-    depth     int               // Distance from root
-    path      []string          // Path from root (for debugging)
-}
-
-// Key operations:
-func NewScopeGraph(rootSessionID string) *ScopeGraph
-func (g *ScopeGraph) EnterScope(sessionID string)  // Create child scope
-func (g *ScopeGraph) ExitScope() error              // Return to parent
-func (g *ScopeGraph) Store(varName, origin string, value any)
-func (g *ScopeGraph) Resolve(varName string) (any, *Scope, error)
-```
+Variables are flat expressions tracked by Vault:
+- `var HOME = @env.HOME` → Vault stores expression
+- `@var.HOME` → Vault resolves via `Access()` with site check
+- No scope hierarchy needed - all variables are global with access control
 
 ### Transport Boundaries: Sealed Scopes
 
@@ -3390,12 +3363,13 @@ func (d *RetryDecorator) Execute(frame *ExecutionFrame) error {
 
 **2. No Handle Exposure (Prevent Reflection)**
 
-Decorators never receive `*secret.Handle` objects:
+Decorators never receive values directly - they must use Vault.Access():
 
 ```go
-// ❌ BAD: Decorator can use reflection
-func (d *Decorator) Execute(params map[string]any) {
-    handle := params["apiKey"].(*secret.Handle)  // Reflection attack possible
+// ❌ BAD: Decorator receives value directly (bypasses access control)
+func (d *MyDecorator) Execute(params map[string]any) {
+    apiKey := params["apiKey"].(string)  // No site check!
+    // Can use anywhere - no authority enforcement
 }
 
 // ✅ GOOD: Decorator gets DisplayIDs only
