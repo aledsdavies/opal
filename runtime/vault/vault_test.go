@@ -641,3 +641,181 @@ func containsString(s, substr string) bool {
 	}
 	return false
 }
+
+// TestVault_LookupVariable tests variable name lookup
+func TestVault_LookupVariable(t *testing.T) {
+	v := New()
+
+	// Declare variable
+	exprID := v.DeclareVariable("API_KEY", "@env.API_KEY")
+
+	// Lookup should return the expression ID
+	foundID, err := v.LookupVariable("API_KEY")
+	if err != nil {
+		t.Fatalf("LookupVariable failed: %v", err)
+	}
+	if foundID != exprID {
+		t.Errorf("LookupVariable returned %q, want %q", foundID, exprID)
+	}
+}
+
+// TestVault_LookupVariable_NotFound tests lookup of non-existent variable
+func TestVault_LookupVariable_NotFound(t *testing.T) {
+	v := New()
+
+	// Lookup non-existent variable
+	_, err := v.LookupVariable("NONEXISTENT")
+	if err == nil {
+		t.Error("LookupVariable should return error for non-existent variable")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("Error should mention 'not found', got: %v", err)
+	}
+}
+
+// TestVault_DeclareVariable_RegistersName tests that DeclareVariable registers the name
+func TestVault_DeclareVariable_RegistersName(t *testing.T) {
+	v := New()
+
+	// Declare multiple variables
+	v.DeclareVariable("VAR1", "@env.HOME")
+	v.DeclareVariable("VAR2", "@env.USER")
+	v.DeclareVariable("VAR3", "@aws.secret('key')")
+
+	// All should be lookupable
+	for _, varName := range []string{"VAR1", "VAR2", "VAR3"} {
+		_, err := v.LookupVariable(varName)
+		if err != nil {
+			t.Errorf("Variable %q should be lookupable: %v", varName, err)
+		}
+	}
+}
+
+// TestVault_ScopeAwareVariables_BasicDeclaration tests variable declaration in current scope
+func TestVault_ScopeAwareVariables_BasicDeclaration(t *testing.T) {
+	v := New()
+
+	// Declare variable at root scope
+	exprID := v.DeclareVariable("API_KEY", "@env.API_KEY")
+
+	// Should be able to look it up
+	foundID, err := v.LookupVariable("API_KEY")
+	if err != nil {
+		t.Fatalf("LookupVariable failed: %v", err)
+	}
+	if foundID != exprID {
+		t.Errorf("LookupVariable returned %q, want %q", foundID, exprID)
+	}
+}
+
+// TestVault_ScopeAwareVariables_ParentToChild tests that child can read parent variables
+func TestVault_ScopeAwareVariables_ParentToChild(t *testing.T) {
+	v := New()
+
+	// Declare at root
+	v.DeclareVariable("COUNT", "5")
+
+	// Enter child scope
+	v.EnterStep()
+	v.EnterDecorator("@retry")
+
+	// Should still be able to read parent variable
+	exprID, err := v.LookupVariable("COUNT")
+	if err != nil {
+		t.Fatalf("Child scope should read parent variable: %v", err)
+	}
+	if exprID != "COUNT" {
+		t.Errorf("Got exprID %q, want %q", exprID, "COUNT")
+	}
+}
+
+// TestVault_ScopeAwareVariables_Shadowing tests that child can shadow parent variables
+func TestVault_ScopeAwareVariables_Shadowing(t *testing.T) {
+	v := New()
+
+	// Declare at root
+	v.DeclareVariable("COUNT", "5")
+
+	// Enter child scope
+	v.EnterStep()
+	v.EnterDecorator("@retry")
+
+	// Declare same variable in child (shadows parent)
+	childExprID := v.DeclareVariable("COUNT", "3")
+
+	// Lookup should return child's version
+	foundID, err := v.LookupVariable("COUNT")
+	if err != nil {
+		t.Fatalf("LookupVariable failed: %v", err)
+	}
+	if foundID != childExprID {
+		t.Errorf("Should get child's COUNT, got %q want %q", foundID, childExprID)
+	}
+
+	// Exit child scope
+	v.ExitDecorator()
+
+	// Now should get parent's version again
+	foundID, err = v.LookupVariable("COUNT")
+	if err != nil {
+		t.Fatalf("LookupVariable failed after ExitDecorator: %v", err)
+	}
+	if foundID != "COUNT" {
+		t.Errorf("Should get parent's COUNT after exit, got %q", foundID)
+	}
+}
+
+// TestVault_ScopeAwareVariables_NotFound tests lookup of non-existent variable
+func TestVault_ScopeAwareVariables_NotFound(t *testing.T) {
+	v := New()
+
+	// Try to lookup variable that doesn't exist
+	_, err := v.LookupVariable("NONEXISTENT")
+	if err == nil {
+		t.Error("LookupVariable should return error for non-existent variable")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("Error should mention 'not found', got: %v", err)
+	}
+}
+
+// TestVault_ScopeAwareVariables_NestedScopes tests multiple levels of nesting
+func TestVault_ScopeAwareVariables_NestedScopes(t *testing.T) {
+	v := New()
+
+	// Root: COUNT = 5
+	v.DeclareVariable("COUNT", "5")
+
+	// Step 1
+	v.EnterStep()
+	v.DeclareVariable("STEP_VAR", "step1")
+
+	// @retry[0]
+	v.EnterDecorator("@retry")
+	v.DeclareVariable("RETRY_VAR", "retry")
+
+	// @shell[0]
+	v.EnterDecorator("@shell")
+
+	// Should be able to read all three
+	if _, err := v.LookupVariable("COUNT"); err != nil {
+		t.Errorf("Should read COUNT from root: %v", err)
+	}
+	if _, err := v.LookupVariable("STEP_VAR"); err != nil {
+		t.Errorf("Should read STEP_VAR from step: %v", err)
+	}
+	if _, err := v.LookupVariable("RETRY_VAR"); err != nil {
+		t.Errorf("Should read RETRY_VAR from retry: %v", err)
+	}
+
+	// Exit @shell
+	v.ExitDecorator()
+
+	// Still should read all
+	if _, err := v.LookupVariable("COUNT"); err != nil {
+		t.Errorf("Should still read COUNT: %v", err)
+	}
+	if _, err := v.LookupVariable("RETRY_VAR"); err != nil {
+		t.Errorf("Should still read RETRY_VAR: %v", err)
+	}
+}
