@@ -181,6 +181,7 @@ func TestVault_TransportBoundaryViolation(t *testing.T) {
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("LOCAL_TOKEN", "@env.TOKEN")
 	v.expressions[exprID].Value = "secret"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 	v.MarkTouched(exprID)
 
@@ -206,6 +207,7 @@ func TestVault_SameTransportAllowed(t *testing.T) {
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("LOCAL_VAR", "@env.HOME")
 	v.expressions[exprID].Value = "value"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 	v.MarkTouched(exprID)
 
@@ -288,6 +290,7 @@ func TestVault_BuildSecretUses(t *testing.T) {
 
 	// Resolve expression (normally done during planning)
 	v.expressions[exprID].Value = "sk-secret"
+	v.expressions[exprID].Resolved = true
 	v.expressions[exprID].DisplayID = "opal:v:ABC123"
 
 	// Mark as touched (in execution path)
@@ -350,8 +353,10 @@ func TestVault_BuildSecretUses_OnlyTouched(t *testing.T) {
 
 	// Resolve both
 	v.expressions[id1].Value = "value1"
+	v.expressions[id1].Resolved = true
 	v.expressions[id1].DisplayID = "opal:v:AAA"
 	v.expressions[id2].Value = "value2"
+	v.expressions[id2].Resolved = true
 	v.expressions[id2].DisplayID = "opal:v:BBB"
 
 	// Mark only one as touched
@@ -473,6 +478,7 @@ func TestVault_Access_ChecksSiteID(t *testing.T) {
 
 	// Manually set Value for testing (normally done by ResolveTouched)
 	v.expressions[exprID].Value = "sk-secret-123"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// Record authorized site
@@ -499,6 +505,7 @@ func TestVault_Access_RejectsUnauthorizedSite(t *testing.T) {
 	// GIVEN: Variable with resolved value
 	exprID := v.DeclareVariable("API_KEY", "@env.API_KEY")
 	v.expressions[exprID].Value = "sk-secret-123"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// Record authorized site
@@ -600,10 +607,12 @@ func TestVault_EndToEnd_PruneAndBuild(t *testing.T) {
 	// Resolve expressions (normally done during planning)
 	if v.expressions[id1] != nil {
 		v.expressions[id1].Value = "sk-used"
+	v.expressions[id1].Resolved = true
 		v.expressions[id1].DisplayID = "opal:v:AAA"
 	}
 	if v.expressions[id3] != nil {
 		v.expressions[id3].Value = "value"
+	v.expressions[id3].Resolved = true
 		v.expressions[id3].DisplayID = "opal:v:BBB"
 	}
 

@@ -20,6 +20,7 @@ func TestAccess_AuthorizedSite_SameTransport_Succeeds(t *testing.T) {
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
 	v.expressions[exprID].Value = "secret-value"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// AND: Authorized site recorded
@@ -47,6 +48,7 @@ func TestAccess_AuthorizedSite_DifferentTransport_FailsWithTransportError(t *tes
 	// GIVEN: @env expression resolved in local transport
 	exprID := v.DeclareVariable("LOCAL_TOKEN", "@env.TOKEN")
 	v.expressions[exprID].Value = "secret-value"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// AND: Authorized site recorded in local transport
@@ -81,6 +83,7 @@ func TestAccess_UnauthorizedSite_SameTransport_FailsWithAuthorityError(t *testin
 	// GIVEN: Expression with one authorized site
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
 	v.expressions[exprID].Value = "secret-value"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// AND: Authorized site: root/step-1/@shell[0]/params/command
@@ -113,6 +116,7 @@ func TestAccess_UnauthorizedSite_DifferentTransport_Fails(t *testing.T) {
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
 	v.expressions[exprID].Value = "secret-value"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// AND: Authorized site in local transport
@@ -151,6 +155,7 @@ func TestAccess_MultipleSites_EachSiteIndependent(t *testing.T) {
 	// GIVEN: Expression authorized at two different sites
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
 	v.expressions[exprID].Value = "secret-value"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// Site 1: root/step-1/@shell[0]/params/command
@@ -268,6 +273,7 @@ func TestAccess_SameDecorator_DifferentTransports_IndependentExpressions(t *test
 	// GIVEN: @env.HOME in local transport
 	localID := v.TrackExpression("@env.HOME")
 	v.expressions[localID].Value = "/home/local"
+	v.expressions[localID].Resolved = true
 	v.exprTransport[localID] = "local"
 
 	v.EnterStep()
@@ -279,6 +285,7 @@ func TestAccess_SameDecorator_DifferentTransports_IndependentExpressions(t *test
 	v.EnterTransport("ssh:server1")
 	sshID := v.TrackExpression("@env.HOME")
 	v.expressions[sshID].Value = "/home/server1"
+	v.expressions[sshID].Resolved = true
 	v.exprTransport[sshID] = "ssh:server1"
 
 	v.EnterStep()
@@ -338,6 +345,7 @@ func TestAccess_NoPlanKey_SkipsSiteIDCheck(t *testing.T) {
 	// GIVEN: Expression without plan key
 	exprID := v.DeclareVariable("TOKEN", "@env.TOKEN")
 	v.expressions[exprID].Value = "secret-value"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// AND: Reference recorded (SiteID will be empty without plan key)
@@ -367,6 +375,7 @@ func TestAccess_NonEnvDecorator_CrossesTransportBoundary(t *testing.T) {
 	// GIVEN: Non-@env expression (e.g., @var) resolved in local transport
 	exprID := v.DeclareVariable("API_KEY", "sk-secret-123")
 	v.expressions[exprID].Value = "sk-secret-123"
+	v.expressions[exprID].Resolved = true
 	v.exprTransport[exprID] = "local"
 
 	// AND: Authorized site in local transport
@@ -387,5 +396,84 @@ func TestAccess_NonEnvDecorator_CrossesTransportBoundary(t *testing.T) {
 	}
 	if value != "sk-secret-123" {
 		t.Errorf("Access() = %q, want %q", value, "sk-secret-123")
+	}
+}
+
+// ========== Edge Case: Empty String Secret ==========
+
+func TestAccess_EmptyStringSecret_IsValid(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Expression resolved to empty string (valid secret)
+	exprID := v.DeclareVariable("EMPTY_VAR", "@env.EMPTY")
+	v.expressions[exprID].Value = ""
+	v.expressions[exprID].Resolved = true
+	v.exprTransport[exprID] = "local"
+
+	// AND: Authorized site recorded
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordReference(exprID, "command")
+
+	// WHEN: Access the empty string secret
+	value, err := v.Access(exprID, "command")
+
+	// THEN: Should succeed with empty string value
+	if err != nil {
+		t.Errorf("Access() should succeed for empty string secret, got error: %v", err)
+	}
+	if value != "" {
+		t.Errorf("Access() = %q, want empty string", value)
+	}
+}
+
+func TestBuildSecretUses_EmptyStringSecret_IsIncluded(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Expression resolved to empty string
+	exprID := v.DeclareVariable("EMPTY_VAR", "@env.EMPTY")
+	v.expressions[exprID].Value = ""
+	v.expressions[exprID].Resolved = true
+	v.expressions[exprID].DisplayID = "opal:v:EMPTY"
+
+	// AND: Has reference and is touched
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordReference(exprID, "command")
+	v.MarkTouched(exprID)
+
+	// WHEN: Build SecretUses
+	uses := v.BuildSecretUses()
+
+	// THEN: Empty string secret should be included
+	if len(uses) != 1 {
+		t.Fatalf("Expected 1 SecretUse for empty string secret, got %d", len(uses))
+	}
+	if uses[0].DisplayID != "opal:v:EMPTY" {
+		t.Errorf("SecretUse.DisplayID = %q, want %q", uses[0].DisplayID, "opal:v:EMPTY")
+	}
+}
+
+func TestBuildSecretUses_UnresolvedExpression_IsExcluded(t *testing.T) {
+	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
+
+	// GIVEN: Expression NOT resolved (Resolved = false)
+	exprID := v.DeclareVariable("UNRESOLVED", "@env.FOO")
+	v.expressions[exprID].Value = "some-value"
+	v.expressions[exprID].Resolved = false // Explicitly not resolved
+	v.expressions[exprID].DisplayID = "opal:v:UNRES"
+
+	// AND: Has reference and is touched
+	v.EnterStep()
+	v.EnterDecorator("@shell")
+	v.RecordReference(exprID, "command")
+	v.MarkTouched(exprID)
+
+	// WHEN: Build SecretUses
+	uses := v.BuildSecretUses()
+
+	// THEN: Unresolved expression should be excluded
+	if len(uses) != 0 {
+		t.Errorf("Expected 0 SecretUses for unresolved expression, got %d", len(uses))
 	}
 }

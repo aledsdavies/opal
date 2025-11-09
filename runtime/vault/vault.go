@@ -117,8 +117,9 @@ type Vault struct {
 // In our security model: ALL expressions are secrets.
 type Expression struct {
 	Raw       string // Original source: "@var.X", "@aws.secret('key')", etc.
-	Value     string // Resolved value (empty if not yet resolved)
+	Value     string // Resolved value (can be empty string - check Resolved flag)
 	DisplayID string // Placeholder ID for plan (e.g., "opal:v:3J98t56A")
+	Resolved  bool   // True if expression has been resolved (even if Value is "")
 }
 
 // Note: No ExprType, no IsSecret - everything is a secret.
@@ -328,17 +329,18 @@ func (v *Vault) PruneUnused() {
 
 // BuildSecretUses constructs the final SecretUse list for the plan.
 // Auto-prunes: Only includes expressions that:
-// 1. Have been resolved (Value is set) - unresolved are skipped
+// 1. Have been resolved (Resolved flag is true) - unresolved are skipped
 // 2. Have at least one site reference - unreferenced are skipped
 // 3. Are marked as touched - untouched are skipped
 //
 // In our security model: ALL value decorators are secrets.
+// Note: Empty string values are valid secrets (e.g., empty env vars).
 func (v *Vault) BuildSecretUses() []SecretUse {
 	var uses []SecretUse
 
 	for id, expr := range v.expressions {
-		// Auto-prune: Skip unresolved expressions (no Value = not resolved)
-		if expr.Value == "" {
+		// Auto-prune: Skip unresolved expressions (check Resolved flag, not Value)
+		if !expr.Resolved {
 			continue
 		}
 
@@ -457,7 +459,7 @@ func (v *Vault) Access(exprID, paramName string) (string, error) {
 	if !exists {
 		return "", fmt.Errorf("expression %q not found", exprID)
 	}
-	if expr.Value == "" {
+	if !expr.Resolved {
 		return "", fmt.Errorf("expression %q not resolved yet", exprID)
 	}
 
