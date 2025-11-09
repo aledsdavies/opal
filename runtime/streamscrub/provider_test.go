@@ -50,6 +50,16 @@ func (m *mockProvider) HandleChunk(chunk []byte) ([]byte, error) {
 	return result, nil
 }
 
+func (m *mockProvider) MaxSecretLength() int {
+	maxLen := 0
+	for secret := range m.secrets {
+		if len(secret) > maxLen {
+			maxLen = len(secret)
+		}
+	}
+	return maxLen
+}
+
 // TestSecretProvider_NilProvider tests scrubber with no provider (pass-through)
 func TestSecretProvider_NilProvider(t *testing.T) {
 	var buf bytes.Buffer
@@ -157,12 +167,7 @@ func TestSecretProvider_NoSecrets(t *testing.T) {
 }
 
 // TestSecretProvider_ChunkBoundary tests secret split across writes
-// NOTE: Provider-based scrubbing with chunk boundaries requires the carry buffer
-// to query the provider. This is a known limitation that will be addressed when
-// we fully remove the legacy RegisterSecret API.
 func TestSecretProvider_ChunkBoundary(t *testing.T) {
-	t.Skip("Provider-based chunk boundary handling not yet implemented - tracked in Phase 2.3")
-	
 	var buf bytes.Buffer
 	provider := newMockProvider()
 	provider.AddSecret("SECRET_TOKEN", "opal:v:xyz")
@@ -382,6 +387,52 @@ func TestNewPatternProvider_NoMatch(t *testing.T) {
 	// Should pass through unchanged
 	if !bytes.Equal(result, chunk) {
 		t.Errorf("got %q, want %q", result, chunk)
+	}
+}
+
+// TestNewPatternProvider_MaxSecretLength tests MaxSecretLength method
+func TestNewPatternProvider_MaxSecretLength(t *testing.T) {
+	tests := []struct {
+		name     string
+		patterns []Pattern
+		wantMax  int
+	}{
+		{
+			name:     "empty patterns",
+			patterns: []Pattern{},
+			wantMax:  0,
+		},
+		{
+			name: "single pattern",
+			patterns: []Pattern{
+				{Value: []byte("secret"), Placeholder: []byte("opal:v:abc")},
+			},
+			wantMax: 6, // len("secret")
+		},
+		{
+			name: "multiple patterns",
+			patterns: []Pattern{
+				{Value: []byte("short"), Placeholder: []byte("opal:v:aaa")},
+				{Value: []byte("SECRET_EXTENDED_TOKEN"), Placeholder: []byte("opal:v:bbb")},
+				{Value: []byte("medium"), Placeholder: []byte("opal:v:ccc")},
+			},
+			wantMax: 21, // len("SECRET_EXTENDED_TOKEN")
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := func() []Pattern {
+				return tt.patterns
+			}
+			
+			provider := NewPatternProvider(source)
+			got := provider.MaxSecretLength()
+			
+			if got != tt.wantMax {
+				t.Errorf("MaxSecretLength() = %d, want %d", got, tt.wantMax)
+			}
+		})
 	}
 }
 

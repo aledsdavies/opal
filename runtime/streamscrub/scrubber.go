@@ -489,8 +489,18 @@ func (s *Scrubber) Write(p []byte) (int, error) {
 	// Keep last maxLen-1 bytes as carry for next write
 	// (in case secret is split across chunk boundary)
 	carrySize := 0
-	if s.maxLen > 0 {
-		carrySize = s.maxLen - 1
+	maxLen := s.maxLen
+	
+	// If using provider, also check provider's max secret length
+	if s.provider != nil {
+		providerMaxLen := s.provider.MaxSecretLength()
+		if providerMaxLen > maxLen {
+			maxLen = providerMaxLen
+		}
+	}
+	
+	if maxLen > 0 {
+		carrySize = maxLen - 1
 		// UTF-8 safety: hold back at least 3 bytes for multi-byte code points
 		if carrySize < 3 {
 			carrySize = 3

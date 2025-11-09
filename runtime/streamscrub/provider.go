@@ -106,6 +106,21 @@ type SecretProvider interface {
 	//
 	// 4. Idempotent: Calling multiple times on same chunk should be safe.
 	HandleChunk(chunk []byte) (processed []byte, err error)
+	
+	// MaxSecretLength returns the length of the longest secret in bytes.
+	//
+	// The scrubber uses this to maintain a carry buffer for chunk-boundary safety.
+	// If a secret could span chunk boundaries, the scrubber holds back
+	// (maxLen - 1) bytes from each chunk to ensure complete secret detection.
+	//
+	// Example: If longest secret is "SECRET_TOKEN" (12 bytes), scrubber holds
+	// back 11 bytes between chunks to catch secrets split across boundaries.
+	//
+	// Return 0 if no secrets are registered or if all secrets are guaranteed
+	// to be within single chunks (not recommended - unsafe for streaming).
+	//
+	// Thread-safety: Must be safe for concurrent calls.
+	MaxSecretLength() int
 }
 
 // Pattern represents a secret to find and replace.
@@ -181,4 +196,18 @@ func (p *patternProvider) HandleChunk(chunk []byte) ([]byte, error) {
 	}
 	
 	return result, nil
+}
+
+// MaxSecretLength implements SecretProvider interface.
+func (p *patternProvider) MaxSecretLength() int {
+	patterns := p.getPatterns()
+	
+	maxLen := 0
+	for _, pattern := range patterns {
+		if len(pattern.Value) > maxLen {
+			maxLen = len(pattern.Value)
+		}
+	}
+	
+	return maxLen
 }
