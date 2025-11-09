@@ -21,7 +21,8 @@ type PlaceholderFunc func(secret []byte) string
 type Scrubber struct {
 	mu              sync.Mutex // Protects all fields below
 	out             io.Writer
-	secrets         []secretEntry
+	provider        SecretProvider // Optional provider for on-demand secret detection
+	secrets         []secretEntry  // Legacy: registered secrets (deprecated)
 	frames          []frame
 	carry           []byte // Rolling window for chunk-boundary secrets
 	maxLen          int    // Longest registered secret
@@ -48,6 +49,21 @@ type Option func(*Scrubber)
 func WithPlaceholderFunc(fn PlaceholderFunc) Option {
 	return func(s *Scrubber) {
 		s.placeholderFunc = fn
+	}
+}
+
+// WithSecretProvider sets a secret provider for on-demand detection.
+// The provider is queried for each chunk of data to determine if it contains
+// secrets. This enables automatic secret detection without manual registration.
+//
+// Example:
+//
+//	vault := vault.New()
+//	scrubber := streamscrub.New(output, streamscrub.WithSecretProvider(vault))
+//	// Secrets automatically detected via vault
+func WithSecretProvider(provider SecretProvider) Option {
+	return func(s *Scrubber) {
+		s.provider = provider
 	}
 }
 
@@ -264,6 +280,49 @@ func (s *Scrubber) MaxPatternLen() int {
 // scrubAll replaces all secrets in buf using longest-first matching.
 // Assumes mu is held.
 func (s *Scrubber) scrubAll(buf []byte) []byte {
+	// Use provider-based scrubbing if available
+	if s.provider != nil {
+		return s.scrubAllProvider(buf)
+	}
+	
+	// Fall back to legacy registered secrets
+	return s.scrubAllLegacy(buf)
+}
+
+// scrubAllProvider uses SecretProvider for on-demand secret detection.
+// Assumes mu is held.
+func (s *Scrubber) scrubAllProvider(buf []byte) []byte {
+	result := buf
+	
+	// Keep replacing until no more secrets found
+	// LOOP INVARIANT: Track that we make progress (result changes or no secret found)
+	maxIterations := len(result) // Prevent infinite loops
+	iteration := 0
+	
+	for iteration < maxIterations {
+		pattern, placeholder, found := s.provider.FindSecret(result)
+		if !found {
+			break // No more secrets
+		}
+		
+		// Replace first occurrence
+		newResult := bytes.Replace(result, pattern, placeholder, 1)
+		
+		// Assert we made progress
+		invariant.Postcondition(!bytes.Equal(result, newResult), "scrubbing must make progress")
+		
+		result = newResult
+		iteration++
+	}
+	
+	invariant.Postcondition(iteration < maxIterations, "scrubbing loop must not exceed max iterations")
+	
+	return result
+}
+
+// scrubAllLegacy replaces secrets using registered secrets list.
+// Assumes mu is held.
+func (s *Scrubber) scrubAllLegacy(buf []byte) []byte {
 	// Sort secrets by descending length (longest first)
 	entries := make([]secretEntry, len(s.secrets))
 	copy(entries, s.secrets)
