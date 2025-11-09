@@ -68,19 +68,8 @@ type Vault struct {
 	currentTransport string            // Current transport scope
 	exprTransport    map[string]string // exprID → transport where resolved
 
-	// Scope-aware variable storage (pathStack IS the trie)
-	scopes map[string]*VaultScope // scopePath → scope
-
 	// Security
 	planKey []byte // For HMAC-based SiteIDs
-}
-
-// VaultScope represents a scope in the variable trie.
-// The trie structure is implicit via parent pointers - pathStack defines the hierarchy.
-type VaultScope struct {
-	path   string            // "root/step-1/@retry[0]"
-	parent string            // Parent scope path (empty for root)
-	vars   map[string]string // varName → exprID
 }
 
 // Expression represents a secret-producing expression.
