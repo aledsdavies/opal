@@ -213,15 +213,13 @@ func TestVault_SameTransportAllowed(t *testing.T) {
 
 	// GIVEN: Expression resolved in local transport
 	exprID := v.DeclareVariable("LOCAL_VAR", "@env.HOME")
-	v.MarkResolved(exprID, "value")
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "value") // MarkResolved captures transport automatically
 	v.MarkTouched(exprID)
 
 	// WHEN: We use it in same transport
 	v.EnterStep()
 	v.EnterDecorator("@shell")
 	err := v.RecordReference(exprID, "command")
-
 	// THEN: Should succeed
 	if err != nil {
 		t.Errorf("Expected no error in same transport, got: %v", err)
@@ -482,10 +480,8 @@ func TestVault_Access_ChecksSiteID(t *testing.T) {
 	// GIVEN: Variable with resolved value
 	exprID := v.DeclareVariable("API_KEY", "@env.API_KEY")
 
-	// Manually set Value for testing (normally done by ResolveTouched)
-	v.expressions[exprID].Value = "sk-secret-123"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	// Resolve expression (sets Value, Resolved, and transport)
+	v.MarkResolved(exprID, "sk-secret-123")
 
 	// Record authorized site
 	v.EnterStep()
@@ -494,7 +490,6 @@ func TestVault_Access_ChecksSiteID(t *testing.T) {
 
 	// WHEN: We try to access at authorized site (current site)
 	value, err := v.Access(exprID, "command")
-
 	// THEN: Should succeed
 	if err != nil {
 		t.Errorf("Access() at authorized site should succeed, got error: %v", err)
@@ -510,9 +505,7 @@ func TestVault_Access_RejectsUnauthorizedSite(t *testing.T) {
 
 	// GIVEN: Variable with resolved value
 	exprID := v.DeclareVariable("API_KEY", "@env.API_KEY")
-	v.expressions[exprID].Value = "sk-secret-123"
-	v.expressions[exprID].Resolved = true
-	v.exprTransport[exprID] = "local"
+	v.MarkResolved(exprID, "sk-secret-123")
 
 	// Record authorized site
 	v.EnterStep()
@@ -613,12 +606,12 @@ func TestVault_EndToEnd_PruneAndBuild(t *testing.T) {
 	// Resolve expressions (normally done during planning)
 	if v.expressions[id1] != nil {
 		v.expressions[id1].Value = "sk-used"
-	v.expressions[id1].Resolved = true
+		v.expressions[id1].Resolved = true
 		v.expressions[id1].DisplayID = "opal:v:AAA"
 	}
 	if v.expressions[id3] != nil {
 		v.expressions[id3].Value = "value"
-	v.expressions[id3].Resolved = true
+		v.expressions[id3].Resolved = true
 		v.expressions[id3].DisplayID = "opal:v:BBB"
 	}
 

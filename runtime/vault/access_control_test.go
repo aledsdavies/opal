@@ -28,7 +28,6 @@ func TestAccess_AuthorizedSite_SameTransport_Succeeds(t *testing.T) {
 
 	// WHEN: Access at authorized site in same transport
 	value, err := v.Access(exprID, "command")
-
 	// THEN: Should succeed with correct value
 	if err != nil {
 		t.Errorf("Access() should succeed at authorized site, got error: %v", err)
@@ -339,7 +338,6 @@ func TestAccess_NoPlanKey_SkipsSiteIDCheck(t *testing.T) {
 
 	// WHEN: Access without plan key
 	value, err := v.Access(exprID, "command")
-
 	// THEN: Should succeed (no SiteID enforcement in test mode)
 	if err != nil {
 		t.Errorf("Access() without plan key should succeed, got: %v", err)
@@ -369,7 +367,6 @@ func TestAccess_NonEnvDecorator_CrossesTransportBoundary(t *testing.T) {
 	v.EnterTransport("ssh:remote")
 
 	value, err := v.Access(exprID, "command")
-
 	// THEN: Should succeed (non-@env can cross transport boundaries)
 	// This will fail with current implementation - transport isolation is global
 	// Need to implement decorator-level capability system
@@ -397,7 +394,6 @@ func TestAccess_EmptyStringSecret_IsValid(t *testing.T) {
 
 	// WHEN: Access the empty string secret
 	value, err := v.Access(exprID, "command")
-
 	// THEN: Should succeed with empty string value
 	if err != nil {
 		t.Errorf("Access() should succeed for empty string secret, got error: %v", err)

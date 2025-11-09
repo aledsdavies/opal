@@ -34,7 +34,6 @@ func TestBug1_DuplicateTransportCheck_RedundantValidation(t *testing.T) {
 
 	// WHEN: Access at authorized site
 	_, err := v.Access(exprID, "command")
-
 	// THEN: Should succeed (first check is sufficient)
 	if err != nil {
 		t.Errorf("Access() should succeed, got error: %v", err)
@@ -143,7 +142,8 @@ func TestBug2_LazyInit_SubsequentAccessInLocalFails(t *testing.T) {
 //
 // Current behavior: No MarkResolved() method exists
 // Expected behavior: MarkResolved(exprID, value) should set Resolved=true, Value=value,
-//                    and exprTransport[exprID]=currentTransport
+//
+//	and exprTransport[exprID]=currentTransport
 func TestBug3_MissingMarkResolved_NoAPIToSetTransportAtResolution(t *testing.T) {
 	v := NewWithPlanKey([]byte("test-key-32-bytes-long!!!!!!"))
 
@@ -240,7 +240,6 @@ func TestAfterFix_ExistingBehaviorStillWorks(t *testing.T) {
 
 	// WHEN: Access at authorized site in same transport
 	value, err := v.Access(exprID, "command")
-
 	// THEN: Should still succeed
 	if err != nil {
 		t.Errorf("Access() should succeed, got error: %v", err)

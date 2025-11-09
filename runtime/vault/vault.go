@@ -336,6 +336,8 @@ func (v *Vault) PruneUnused() {
 		if len(v.references[id]) == 0 {
 			delete(v.expressions, id)
 			delete(v.references, id)
+			delete(v.touched, id)
+			delete(v.exprTransport, id)
 		}
 	}
 }
