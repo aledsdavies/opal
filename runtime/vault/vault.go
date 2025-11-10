@@ -65,7 +65,7 @@ import (
 //
 // See docs/ARCHITECTURE.md for complete architecture.
 type Vault struct {
-	mu sync.Mutex // Protects all fields below
+	mu sync.RWMutex // Protects all fields below (RWMutex for better read performance)
 
 	// Path tracking (DAG traversal)
 	pathStack       []PathSegment
@@ -640,8 +640,8 @@ func (v *Vault) Access(exprID, paramName string) (string, error) {
 // getPatterns returns all resolved expressions as scrubbing patterns.
 // This is called by the pattern provider on each HandleChunk invocation.
 func (v *Vault) getPatterns() []streamscrub.Pattern {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 
 	var patterns []streamscrub.Pattern
 
@@ -669,9 +669,19 @@ func (v *Vault) getPatterns() []streamscrub.Pattern {
 // The provider is lazily initialized on first call and reused.
 // Thread-safe: Safe for concurrent calls.
 func (v *Vault) SecretProvider() streamscrub.SecretProvider {
+	// Fast path: check with read lock first
+	v.mu.RLock()
+	if v.provider != nil {
+		defer v.mu.RUnlock()
+		return v.provider
+	}
+	v.mu.RUnlock()
+
+	// Slow path: initialize with write lock
 	v.mu.Lock()
 	defer v.mu.Unlock()
-
+	
+	// Double-check after acquiring write lock (another goroutine might have initialized)
 	if v.provider == nil {
 		v.provider = streamscrub.NewPatternProvider(v.getPatterns)
 	}
