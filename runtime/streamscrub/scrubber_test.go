@@ -26,6 +26,20 @@ func (sb *safeBuffer) String() string {
 	return sb.buf.String()
 }
 
+// testProvider creates a simple pattern provider for testing
+func testProvider(patterns map[string]string) SecretProvider {
+	return NewPatternProvider(func() []Pattern {
+		var result []Pattern
+		for secret, placeholder := range patterns {
+			result = append(result, Pattern{
+				Value:       []byte(secret),
+				Placeholder: []byte(placeholder),
+			})
+		}
+		return result
+	})
+}
+
 // TestBasicScrubbing - simplest possible test
 func TestBasicScrubbing(t *testing.T) {
 	var buf bytes.Buffer
@@ -55,12 +69,10 @@ func TestBasicScrubbing(t *testing.T) {
 // TestSimpleSecretRedaction - register a secret and scrub it
 func TestSimpleSecretRedaction(t *testing.T) {
 	var buf bytes.Buffer
-	s := New(&buf)
-
-	// Register a secret
-	secret := []byte("my-secret-key")
-	placeholder := []byte("<REDACTED>")
-	s.RegisterSecret(secret, placeholder)
+	provider := testProvider(map[string]string{
+		"my-secret-key": "<REDACTED>",
+	})
+	s := New(&buf, WithSecretProvider(provider))
 
 	// Write output containing the secret
 	input := []byte("The key is: my-secret-key")
@@ -134,12 +146,10 @@ func TestFrameScrubbingHierarchical(t *testing.T) {
 // TestChunkBoundarySafety - secret split across multiple writes
 func TestChunkBoundarySafety(t *testing.T) {
 	var buf bytes.Buffer
-	s := New(&buf)
-
-	// Register a secret
-	secret := []byte("secret-value-123")
-	placeholder := []byte("<REDACTED>")
-	s.RegisterSecret(secret, placeholder)
+	provider := testProvider(map[string]string{
+		"secret-value-123": "<REDACTED>",
+	})
+	s := New(&buf, WithSecretProvider(provider))
 
 	// Write secret split across 3 chunks
 	s.Write([]byte("prefix secret-"))
