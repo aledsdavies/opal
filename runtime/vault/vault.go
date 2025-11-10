@@ -680,7 +680,7 @@ func (v *Vault) SecretProvider() streamscrub.SecretProvider {
 	// Slow path: initialize with write lock
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	
+
 	// Double-check after acquiring write lock (another goroutine might have initialized)
 	if v.provider == nil {
 		v.provider = streamscrub.NewPatternProvider(v.getPatterns)

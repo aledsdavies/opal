@@ -1,8 +1,8 @@
 package streamscrub
 
 import (
-	"errors"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -441,11 +441,11 @@ func TestEmptySecret(t *testing.T) {
 // TestProviderError verifies that provider errors prevent unsanitized output.
 func TestProviderError(t *testing.T) {
 	var output bytes.Buffer
-	
+
 	// Create provider that rejects all chunks
 	rejectProvider := &errorProvider{err: errors.New("secret detected")}
 	scrubber := New(&output, WithSecretProvider(rejectProvider))
-	
+
 	// Write should fail and not write anything
 	_, err := scrubber.Write([]byte("sensitive data"))
 	if err == nil {
@@ -454,7 +454,7 @@ func TestProviderError(t *testing.T) {
 	if err.Error() != "secret detected" {
 		t.Errorf("Expected 'secret detected', got %v", err)
 	}
-	
+
 	// Output should be empty (no unsanitized data written)
 	if output.Len() != 0 {
 		t.Errorf("Expected no output, got: %q", output.String())
@@ -464,15 +464,15 @@ func TestProviderError(t *testing.T) {
 // TestProviderErrorInFrame verifies that provider errors in frames prevent output.
 func TestProviderErrorInFrame(t *testing.T) {
 	var output bytes.Buffer
-	
+
 	// Create provider that rejects all chunks
 	rejectProvider := &errorProvider{err: errors.New("secret in frame")}
 	scrubber := New(&output, WithSecretProvider(rejectProvider))
-	
+
 	// Start frame and write
 	scrubber.StartFrame("test")
 	scrubber.Write([]byte("sensitive data in frame"))
-	
+
 	// EndFrame should fail and not write anything
 	err := scrubber.EndFrame()
 	if err == nil {
@@ -481,7 +481,7 @@ func TestProviderErrorInFrame(t *testing.T) {
 	if err.Error() != "secret in frame" {
 		t.Errorf("Expected 'secret in frame', got %v", err)
 	}
-	
+
 	// Output should be empty (no unsanitized data written)
 	if output.Len() != 0 {
 		t.Errorf("Expected no output, got: %q", output.String())
@@ -491,7 +491,7 @@ func TestProviderErrorInFrame(t *testing.T) {
 // TestProviderErrorInFlush verifies that provider errors in Flush prevent output.
 func TestProviderErrorInFlush(t *testing.T) {
 	var output bytes.Buffer
-	
+
 	// Create provider that accepts first write but rejects flush
 	callCount := 0
 	conditionalProvider := &conditionalErrorProvider{
@@ -501,15 +501,15 @@ func TestProviderErrorInFlush(t *testing.T) {
 		},
 		err: errors.New("secret in flush"),
 	}
-	
+
 	scrubber := New(&output, WithSecretProvider(conditionalProvider))
-	
+
 	// First write succeeds (provider accepts it)
 	_, err := scrubber.Write([]byte("ok"))
 	if err != nil {
 		t.Fatalf("First write should succeed, got: %v", err)
 	}
-	
+
 	// Flush should fail
 	err = scrubber.Flush()
 	if err == nil {
