@@ -140,11 +140,16 @@ func (s *Scrubber) EndFrame() error {
 	currentFrame := s.frames[len(s.frames)-1]
 	s.frames = s.frames[:len(s.frames)-1]
 
-	// Scrub frame buffer with provider (if available)
-	scrubbed := s.scrubAll(currentFrame.buf.Bytes())
-
-	// Zeroize frame buffer after scrubbing
+	// Get frame buffer bytes
 	frameBuf := currentFrame.buf.Bytes()
+	
+	// Scrub frame buffer with provider (if available)
+	scrubbed := s.scrubAll(frameBuf)
+
+	// Flush to output BEFORE zeroizing (scrubbed may share underlying array with frameBuf)
+	_, err := s.out.Write(scrubbed)
+	
+	// Zeroize frame buffer after writing
 	for i := range frameBuf {
 		frameBuf[i] = 0
 	}
@@ -153,8 +158,6 @@ func (s *Scrubber) EndFrame() error {
 	// OUTPUT CONTRACT
 	invariant.Postcondition(len(s.frames) == oldFrameCount-1, "frame must be popped from stack")
 
-	// Flush to output
-	_, err := s.out.Write(scrubbed)
 	return err
 }
 

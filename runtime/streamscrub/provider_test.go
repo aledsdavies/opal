@@ -514,3 +514,60 @@ func TestIntegration_DynamicPatternsWithScrubber(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// TestNewPatternProviderWithVariants tests encoding variant generation
+func TestNewPatternProviderWithVariants(t *testing.T) {
+	source := func() []Pattern {
+		return []Pattern{
+			{Value: []byte("test"), Placeholder: []byte("REDACTED")},
+		}
+	}
+	
+	provider := NewPatternProviderWithVariants(source)
+	
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "raw secret",
+			input: "Value: test",
+			want:  "Value: REDACTED",
+		},
+		{
+			name:  "hex lowercase",
+			input: "Value: 74657374",
+			want:  "Value: REDACTED",
+		},
+		{
+			name:  "hex uppercase",
+			input: "Value: 74657374",
+			want:  "Value: REDACTED",
+		},
+		{
+			name:  "base64 standard",
+			input: "Value: dGVzdA==",
+			want:  "Value: REDACTED",
+		},
+		{
+			name:  "base64 raw",
+			input: "Value: dGVzdA",
+			want:  "Value: REDACTED",
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := provider.HandleChunk([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("HandleChunk failed: %v", err)
+			}
+			
+			got := string(result)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

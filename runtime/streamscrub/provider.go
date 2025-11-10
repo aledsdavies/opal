@@ -211,3 +211,81 @@ func (p *patternProvider) MaxSecretLength() int {
 	
 	return maxLen
 }
+
+// NewPatternProviderWithVariants creates a SecretProvider that automatically
+// generates encoding variants for defense-in-depth.
+//
+// For each secret, it generates variants in common encodings:
+//   - Hex (lowercase and uppercase)
+//   - Base64 (standard, raw, URL)
+//   - Percent encoding (lowercase and uppercase)
+//   - Separator-inserted variants (-, _, :, ., space)
+//
+// This provides additional security if secrets are accidentally encoded
+// somewhere in the pipeline. The tradeoff is more patterns to match.
+//
+// Example:
+//
+//	getSecrets := func() []streamscrub.Pattern {
+//	    return []streamscrub.Pattern{
+//	        {Value: []byte("secret"), Placeholder: []byte("REDACTED")},
+//	    }
+//	}
+//	provider := streamscrub.NewPatternProviderWithVariants(getSecrets)
+//	// Will also match: "736563726574" (hex), "c2VjcmV0" (base64), etc.
+func NewPatternProviderWithVariants(source PatternSource) SecretProvider {
+	expandedSource := func() []Pattern {
+		base := source()
+		var expanded []Pattern
+		
+		for _, pattern := range base {
+			// Add original pattern
+			expanded = append(expanded, pattern)
+			
+			// Add encoding variants
+			expanded = append(expanded, generateVariants(pattern)...)
+		}
+		
+		return expanded
+	}
+	
+	return &patternProvider{
+		getPatterns: expandedSource,
+	}
+}
+
+// generateVariants creates encoding variants of a pattern for defense-in-depth.
+func generateVariants(pattern Pattern) []Pattern {
+	var variants []Pattern
+	secret := pattern.Value
+	placeholder := pattern.Placeholder
+	
+	// Hex: lowercase and uppercase
+	hexLower := toHex(secret)
+	hexUpper := toUpperHex(hexLower)
+	variants = append(variants, Pattern{Value: []byte(hexLower), Placeholder: placeholder})
+	variants = append(variants, Pattern{Value: []byte(hexUpper), Placeholder: placeholder})
+	
+	// Base64: standard, raw, and URL encodings
+	b64Std := toBase64(secret)
+	b64Raw := toBase64Raw(secret)
+	b64URL := toBase64URL(secret)
+	variants = append(variants, Pattern{Value: []byte(b64Std), Placeholder: placeholder})
+	variants = append(variants, Pattern{Value: []byte(b64Raw), Placeholder: placeholder})
+	variants = append(variants, Pattern{Value: []byte(b64URL), Placeholder: placeholder})
+	
+	// Percent encoding: lowercase and uppercase
+	percentLower := toPercentEncoding(secret, false)
+	percentUpper := toPercentEncoding(secret, true)
+	variants = append(variants, Pattern{Value: []byte(percentLower), Placeholder: placeholder})
+	variants = append(variants, Pattern{Value: []byte(percentUpper), Placeholder: placeholder})
+	
+	// Separator-inserted variants (common in formatted output)
+	separators := []string{"-", "_", ":", ".", " "}
+	for _, sep := range separators {
+		variant := insertSeparators(secret, sep)
+		variants = append(variants, Pattern{Value: []byte(variant), Placeholder: placeholder})
+	}
+	
+	return variants
+}
