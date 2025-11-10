@@ -3,17 +3,14 @@ package decorator
 import (
 	"bytes"
 	"context"
-	"errors"
-	"io/fs"
-	"os"
+	"fmt"
 	"os/exec"
-	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
-
-	"github.com/aledsdavies/opal/core/invariant"
+	"time"
 )
+
+const osWindows = "windows"
 
 // LocalSession implements Session for local command execution.
 // Uses os/exec to run commands on the local machine.

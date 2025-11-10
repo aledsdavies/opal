@@ -58,6 +58,7 @@ jobs:
         with:
           version: v2.6
           working-directory: core
+          args: --config=../.golangci.yml
 
   lint-runtime:
     name: Lint Runtime
@@ -96,6 +97,7 @@ jobs:
         with:
           version: v2.6
           working-directory: cli
+          args: --config=../.golangci.yml
 
   build:
     name: Build (${{ matrix.os }})
