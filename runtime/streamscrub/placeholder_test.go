@@ -106,16 +106,16 @@ func TestPlaceholderGeneratorIntegration(t *testing.T) {
 	gen, _ := NewPlaceholderGeneratorWithKey(key)
 
 	var buf bytes.Buffer
-	
+
 	secret := []byte("API_KEY_12345")
 	placeholder := gen.Generate(secret)
-	
+
 	provider := NewPatternProvider(func() []Pattern {
 		return []Pattern{
 			{Value: secret, Placeholder: []byte(placeholder)},
 		}
 	})
-	
+
 	s := New(&buf, WithPlaceholderFunc(gen.PlaceholderFunc()), WithSecretProvider(provider))
 
 	input := []byte("The key is: API_KEY_12345\n")

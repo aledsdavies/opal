@@ -217,11 +217,11 @@ func TestNestedFrames(t *testing.T) {
 
 	s.StartFrame("outer")
 	s.Write([]byte("outer: outer-secret "))
-	
+
 	s.StartFrame("inner")
 	s.Write([]byte("inner: inner-secret"))
 	s.EndFrame()
-	
+
 	s.EndFrame()
 
 	got := buf.String()
@@ -327,7 +327,7 @@ func TestOverlappingSecrets(t *testing.T) {
 // TestEncodingVariants verifies variant detection
 func TestEncodingVariants(t *testing.T) {
 	var buf bytes.Buffer
-	
+
 	source := func() []Pattern {
 		return []Pattern{
 			{Value: []byte("test"), Placeholder: []byte("<REDACTED>")},
@@ -343,7 +343,7 @@ func TestEncodingVariants(t *testing.T) {
 	s.Flush()
 
 	got := buf.String()
-	
+
 	// All variants should be scrubbed
 	if bytes.Contains([]byte(got), []byte("test")) {
 		t.Errorf("raw secret leaked: %q", got)
@@ -354,7 +354,7 @@ func TestEncodingVariants(t *testing.T) {
 	if bytes.Contains([]byte(got), []byte("dGVzdA")) {
 		t.Errorf("base64 variant leaked: %q", got)
 	}
-	
+
 	// Should have placeholders
 	wantCount := 3
 	gotCount := bytes.Count([]byte(got), []byte("<REDACTED>"))
@@ -377,10 +377,10 @@ func TestCloseZeroization(t *testing.T) {
 
 	// Write to create carry buffer
 	s.Write([]byte("secret123"))
-	
+
 	// Close should zeroize
 	s.Close()
-	
+
 	// Verify output was flushed
 	if !bytes.Contains(buf.Bytes(), []byte("<REDACTED>")) {
 		t.Errorf("output not flushed on close")

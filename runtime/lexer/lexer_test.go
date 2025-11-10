@@ -50,7 +50,7 @@ type tokenExpectation struct {
 }
 
 // assertTokens compares actual tokens with expected, providing clear error messages
-func assertTokens(t *testing.T, name string, input string, expected []tokenExpectation) {
+func assertTokens(t *testing.T, name, input string, expected []tokenExpectation) {
 	t.Helper()
 
 	lexer := newTestLexer(input)

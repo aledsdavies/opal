@@ -53,17 +53,17 @@ import (
 //	func (v *VaultProvider) HandleChunk(chunk []byte) ([]byte, error) {
 //	    v.mu.Lock()
 //	    defer v.mu.Unlock()
-//	    
+//
 //	    result := chunk
-//	    
+//
 //	    // Sort secrets by length (longest first)
 //	    secrets := v.sortedSecrets()
-//	    
+//
 //	    // Replace all secrets
 //	    for _, secret := range secrets {
 //	        result = bytes.ReplaceAll(result, secret.value, secret.placeholder)
 //	    }
-//	    
+//
 //	    return result, nil
 //	}
 //
@@ -106,7 +106,7 @@ type SecretProvider interface {
 	//
 	// 4. Idempotent: Calling multiple times on same chunk should be safe.
 	HandleChunk(chunk []byte) (processed []byte, err error)
-	
+
 	// MaxSecretLength returns the length of the longest secret in bytes.
 	//
 	// The scrubber uses this to maintain a carry buffer for chunk-boundary safety.
@@ -176,17 +176,17 @@ type patternProvider struct {
 func (p *patternProvider) HandleChunk(chunk []byte) ([]byte, error) {
 	// Get current patterns from source
 	patterns := p.getPatterns()
-	
+
 	if len(patterns) == 0 {
 		return chunk, nil
 	}
-	
+
 	// Sort by descending length (longest first)
 	// This ensures overlapping secrets use longest match
 	sort.Slice(patterns, func(i, j int) bool {
 		return len(patterns[i].Value) > len(patterns[j].Value)
 	})
-	
+
 	// Replace all patterns (longest first)
 	result := chunk
 	for _, pattern := range patterns {
@@ -194,21 +194,21 @@ func (p *patternProvider) HandleChunk(chunk []byte) ([]byte, error) {
 			result = bytes.ReplaceAll(result, pattern.Value, pattern.Placeholder)
 		}
 	}
-	
+
 	return result, nil
 }
 
 // MaxSecretLength implements SecretProvider interface.
 func (p *patternProvider) MaxSecretLength() int {
 	patterns := p.getPatterns()
-	
+
 	maxLen := 0
 	for _, pattern := range patterns {
 		if len(pattern.Value) > maxLen {
 			maxLen = len(pattern.Value)
 		}
 	}
-	
+
 	return maxLen
 }
 
@@ -237,18 +237,18 @@ func NewPatternProviderWithVariants(source PatternSource) SecretProvider {
 	expandedSource := func() []Pattern {
 		base := source()
 		var expanded []Pattern
-		
+
 		for _, pattern := range base {
 			// Add original pattern
 			expanded = append(expanded, pattern)
-			
+
 			// Add encoding variants
 			expanded = append(expanded, generateVariants(pattern)...)
 		}
-		
+
 		return expanded
 	}
-	
+
 	return &patternProvider{
 		getPatterns: expandedSource,
 	}
@@ -259,13 +259,13 @@ func generateVariants(pattern Pattern) []Pattern {
 	var variants []Pattern
 	secret := pattern.Value
 	placeholder := pattern.Placeholder
-	
+
 	// Hex: lowercase and uppercase
 	hexLower := toHex(secret)
 	hexUpper := toUpperHex(hexLower)
 	variants = append(variants, Pattern{Value: []byte(hexLower), Placeholder: placeholder})
 	variants = append(variants, Pattern{Value: []byte(hexUpper), Placeholder: placeholder})
-	
+
 	// Base64: standard, raw, and URL encodings
 	b64Std := toBase64(secret)
 	b64Raw := toBase64Raw(secret)
@@ -273,19 +273,19 @@ func generateVariants(pattern Pattern) []Pattern {
 	variants = append(variants, Pattern{Value: []byte(b64Std), Placeholder: placeholder})
 	variants = append(variants, Pattern{Value: []byte(b64Raw), Placeholder: placeholder})
 	variants = append(variants, Pattern{Value: []byte(b64URL), Placeholder: placeholder})
-	
+
 	// Percent encoding: lowercase and uppercase
 	percentLower := toPercentEncoding(secret, false)
 	percentUpper := toPercentEncoding(secret, true)
 	variants = append(variants, Pattern{Value: []byte(percentLower), Placeholder: placeholder})
 	variants = append(variants, Pattern{Value: []byte(percentUpper), Placeholder: placeholder})
-	
+
 	// Separator-inserted variants (common in formatted output)
 	separators := []string{"-", "_", ":", ".", " "}
 	for _, sep := range separators {
 		variant := insertSeparators(secret, sep)
 		variants = append(variants, Pattern{Value: []byte(variant), Placeholder: placeholder})
 	}
-	
+
 	return variants
 }

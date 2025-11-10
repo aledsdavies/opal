@@ -328,7 +328,7 @@ func (v *Vault) DeclareVariable(name, raw string) string {
 		parts := strings.SplitN(exprID, ":", 2)
 		hash := parts[1] // Extract hash part after transport prefix
 		displayID := fmt.Sprintf("opal:v:%s", hash)
-		
+
 		v.expressions[exprID] = &Expression{
 			Raw:       raw,
 			DisplayID: displayID,
@@ -356,7 +356,7 @@ func (v *Vault) TrackExpression(raw string) string {
 		parts := strings.SplitN(exprID, ":", 2)
 		hash := parts[1] // Extract hash part after transport prefix
 		displayID := fmt.Sprintf("opal:v:%s", hash)
-		
+
 		v.expressions[exprID] = &Expression{
 			Raw:       raw,
 			DisplayID: displayID,

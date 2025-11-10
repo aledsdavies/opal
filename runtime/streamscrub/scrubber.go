@@ -103,8 +103,6 @@ func simplePlaceholder(secret []byte) string {
 	return "<REDACTED>"
 }
 
-
-
 // StartFrame begins a new buffering scope.
 func (s *Scrubber) StartFrame(label string) {
 	// INPUT CONTRACT
@@ -142,13 +140,13 @@ func (s *Scrubber) EndFrame() error {
 
 	// Get frame buffer bytes
 	frameBuf := currentFrame.buf.Bytes()
-	
+
 	// Scrub frame buffer with provider (if available)
 	scrubbed := s.scrubAll(frameBuf)
 
 	// Flush to output BEFORE zeroizing (scrubbed may share underlying array with frameBuf)
 	_, err := s.out.Write(scrubbed)
-	
+
 	// Zeroize frame buffer after writing
 	for i := range frameBuf {
 		frameBuf[i] = 0
@@ -168,7 +166,7 @@ func (s *Scrubber) scrubAll(buf []byte) []byte {
 	if s.provider != nil {
 		return s.scrubAllProvider(buf)
 	}
-	
+
 	// No provider - pass through unchanged
 	return buf
 }
@@ -185,11 +183,9 @@ func (s *Scrubber) scrubAllProvider(buf []byte) []byte {
 		// TODO: Consider how to surface provider errors to Write() caller
 		return buf
 	}
-	
+
 	return processed
 }
-
-
 
 // Helper functions for encoding variants
 
@@ -352,12 +348,12 @@ func (s *Scrubber) Write(p []byte) (int, error) {
 	// (in case secret is split across chunk boundary)
 	carrySize := 0
 	maxLen := 0
-	
+
 	// Get max secret length from provider
 	if s.provider != nil {
 		maxLen = s.provider.MaxSecretLength()
 	}
-	
+
 	if maxLen > 0 {
 		carrySize = maxLen - 1
 		// UTF-8 safety: hold back at least 3 bytes for multi-byte code points

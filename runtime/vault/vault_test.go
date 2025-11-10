@@ -836,7 +836,6 @@ func TestVault_SecretProvider_NoExpressions(t *testing.T) {
 
 	chunk := []byte("No secrets here")
 	result, err := provider.HandleChunk(chunk)
-
 	if err != nil {
 		t.Fatalf("HandleChunk failed: %v", err)
 	}
@@ -857,7 +856,6 @@ func TestVault_SecretProvider_UnresolvedExpression(t *testing.T) {
 	provider := v.SecretProvider()
 	chunk := []byte("The key is: secret123")
 	result, err := provider.HandleChunk(chunk)
-
 	if err != nil {
 		t.Fatalf("HandleChunk failed: %v", err)
 	}
@@ -879,7 +877,6 @@ func TestVault_SecretProvider_ResolvedExpression(t *testing.T) {
 	provider := v.SecretProvider()
 	chunk := []byte("The key is: secret123")
 	result, err := provider.HandleChunk(chunk)
-
 	if err != nil {
 		t.Fatalf("HandleChunk failed: %v", err)
 	}
@@ -909,7 +906,6 @@ func TestVault_SecretProvider_MultipleSecrets(t *testing.T) {
 	provider := v.SecretProvider()
 	chunk := []byte("First: secret1, Second: secret2")
 	result, err := provider.HandleChunk(chunk)
-
 	if err != nil {
 		t.Fatalf("HandleChunk failed: %v", err)
 	}
@@ -942,7 +938,6 @@ func TestVault_SecretProvider_LongestFirst(t *testing.T) {
 	provider := v.SecretProvider()
 	chunk := []byte("Value: SECRET_EXTENDED")
 	result, err := provider.HandleChunk(chunk)
-
 	if err != nil {
 		t.Fatalf("HandleChunk failed: %v", err)
 	}
@@ -970,7 +965,6 @@ func TestVault_SecretProvider_EmptyValue(t *testing.T) {
 	provider := v.SecretProvider()
 	chunk := []byte("No secrets here")
 	result, err := provider.HandleChunk(chunk)
-
 	if err != nil {
 		t.Fatalf("HandleChunk failed: %v", err)
 	}
