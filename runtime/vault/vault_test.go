@@ -1057,15 +1057,18 @@ func TestVault_SecretProvider_MaxSecretLength(t *testing.T) {
 	id1 := v.DeclareVariable("SHORT", "@env.SHORT")
 	v.MarkResolved(id1, "short")
 
-	if got := provider.MaxSecretLength(); got != 5 {
-		t.Errorf("MaxSecretLength() = %d, want 5", got)
+	// With variants, max length includes encoded forms (hex, base64, percent-encoding, separators)
+	// "short" (5 bytes) -> percent-encoded "%73%68%6F%72%74" (15 bytes) is longest
+	if got := provider.MaxSecretLength(); got != 15 {
+		t.Errorf("MaxSecretLength() = %d, want 15 (includes percent-encoded variant)", got)
 	}
 
 	// Add longer secret
 	id2 := v.DeclareVariable("LONG", "@env.LONG")
 	v.MarkResolved(id2, "this_is_a_much_longer_secret")
 
-	if got := provider.MaxSecretLength(); got != 28 {
-		t.Errorf("MaxSecretLength() = %d, want 28", got)
+	// "this_is_a_much_longer_secret" (28 bytes) -> percent-encoded (84 bytes) is longest
+	if got := provider.MaxSecretLength(); got != 84 {
+		t.Errorf("MaxSecretLength() = %d, want 84 (includes percent-encoded variant)", got)
 	}
 }

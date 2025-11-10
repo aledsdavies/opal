@@ -683,7 +683,7 @@ func (v *Vault) SecretProvider() streamscrub.SecretProvider {
 
 	// Double-check after acquiring write lock (another goroutine might have initialized)
 	if v.provider == nil {
-		v.provider = streamscrub.NewPatternProvider(v.getPatterns)
+		v.provider = streamscrub.NewPatternProviderWithVariants(v.getPatterns)
 	}
 
 	return v.provider

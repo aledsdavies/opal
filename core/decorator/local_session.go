@@ -3,11 +3,16 @@ package decorator
 import (
 	"bytes"
 	"context"
-	"fmt"
+	"errors"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
-	"time"
+
+	"github.com/aledsdavies/opal/core/invariant"
 )
 
 const osWindows = "windows"
