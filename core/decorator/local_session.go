@@ -54,7 +54,7 @@ func (s *LocalSession) Run(ctx context.Context, argv []string, opts RunOpts) (Re
 	// CRITICAL: Set process group for proper cancellation
 	// On Unix: Setpgid=true creates new process group
 	// We manually kill the entire group on cancellation below
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != osWindows {
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			Setpgid: true,
 		}
@@ -91,7 +91,7 @@ func (s *LocalSession) Run(ctx context.Context, argv []string, opts RunOpts) (Re
 	select {
 	case <-ctx.Done():
 		// Context canceled - kill entire process group
-		if runtime.GOOS != "windows" && cmd.Process != nil {
+		if runtime.GOOS != osWindows && cmd.Process != nil {
 			// Send SIGKILL to process group (negative PID)
 			// This kills the parent and all children in the group
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
