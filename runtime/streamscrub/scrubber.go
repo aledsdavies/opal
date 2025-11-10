@@ -142,10 +142,19 @@ func (s *Scrubber) EndFrame() error {
 	frameBuf := currentFrame.buf.Bytes()
 
 	// Scrub frame buffer with provider (if available)
-	scrubbed := s.scrubAll(frameBuf)
+	scrubbed, err := s.scrubAll(frameBuf)
+	if err != nil {
+		// Provider rejected chunk - do not write unsanitized data
+		// Zeroize buffer and return error
+		for i := range frameBuf {
+			frameBuf[i] = 0
+		}
+		currentFrame.buf.Reset()
+		return err
+	}
 
 	// Flush to output BEFORE zeroizing (scrubbed may share underlying array with frameBuf)
-	_, err := s.out.Write(scrubbed)
+	_, err = s.out.Write(scrubbed)
 
 	// Zeroize frame buffer after writing
 	for i := range frameBuf {
@@ -160,31 +169,32 @@ func (s *Scrubber) EndFrame() error {
 }
 
 // scrubAll replaces all secrets in buf using the SecretProvider.
+// Returns an error if the provider rejects the chunk (e.g., fail-fast mode).
 // Assumes mu is held.
-func (s *Scrubber) scrubAll(buf []byte) []byte {
+func (s *Scrubber) scrubAll(buf []byte) ([]byte, error) {
 	// Use provider-based scrubbing if available
 	if s.provider != nil {
 		return s.scrubAllProvider(buf)
 	}
 
 	// No provider - pass through unchanged
-	return buf
+	return buf, nil
 }
 
 // scrubAllProvider uses SecretProvider to process chunk.
 // Provider handles all secret detection and replacement internally.
+// Returns an error if the provider rejects the chunk.
 // Assumes mu is held.
-func (s *Scrubber) scrubAllProvider(buf []byte) []byte {
+func (s *Scrubber) scrubAllProvider(buf []byte) ([]byte, error) {
 	// Provider does all the work - finds and replaces all secrets
 	processed, err := s.provider.HandleChunk(buf)
 	if err != nil {
 		// Provider rejected chunk (e.g., fail-fast mode detected secret)
-		// For now, return original - caller should handle errors differently
-		// TODO: Consider how to surface provider errors to Write() caller
-		return buf
+		// Return error to prevent writing unsanitized data
+		return nil, err
 	}
 
-	return processed
+	return processed, nil
 }
 
 // Helper functions for encoding variants
@@ -342,7 +352,11 @@ func (s *Scrubber) Write(p []byte) (int, error) {
 	buf := append(append([]byte{}, s.carry...), p...)
 
 	// Scrub all secrets (longest-first)
-	result := s.scrubAll(buf)
+	result, err := s.scrubAll(buf)
+	if err != nil {
+		// Provider rejected chunk - do not write unsanitized data
+		return 0, err
+	}
 
 	// Keep last maxLen-1 bytes as carry for next write
 	// (in case secret is split across chunk boundary)
@@ -407,10 +421,18 @@ func (s *Scrubber) Flush() error {
 	}
 
 	// Scrub carry one final time (longest-first)
-	result := s.scrubAll(s.carry)
+	result, err := s.scrubAll(s.carry)
+	if err != nil {
+		// Provider rejected chunk - zeroize carry and return error
+		for i := range s.carry {
+			s.carry[i] = 0
+		}
+		s.carry = s.carry[:0]
+		return err
+	}
 
 	// Write and zeroize carry
-	_, err := s.out.Write(result)
+	_, err = s.out.Write(result)
 
 	// Zeroize carry buffer
 	for i := range s.carry {
