@@ -457,13 +457,13 @@ func runFromPlan(planFile, sourceFile string, debug, noColor bool, scrubber *str
 			return 1, fmt.Errorf(
 				"found 1 syntax error in source file (see details above)\n\n" +
 					"Cannot verify contract with syntax errors.\n" +
-					"Fix the syntax error and try again.",
+					"Fix the syntax error and try again",
 			)
 		}
 		return 1, fmt.Errorf(
 			"found %d syntax errors in source file (see details above)\n\n"+
 				"Cannot verify contract with syntax errors.\n"+
-				"Fix the syntax errors and try again.",
+				"Fix the syntax errors and try again",
 			errorCount,
 		)
 	}

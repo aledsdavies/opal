@@ -464,7 +464,7 @@ echo "Top level"
 func TestPlanSaltValidationErrors(t *testing.T) {
 	// This test documents the expected error message format
 	// The actual validation happens in cli/main.go around line 481
-	
+
 	t.Run("ErrorMessageFormat_MissingPlanSalt", func(t *testing.T) {
 		// Verify the error message code exists and follows guidelines
 		// Expected format (from cli/main.go):
@@ -476,18 +476,18 @@ func TestPlanSaltValidationErrors(t *testing.T) {
 			"opal plan --mode=contract",
 			"--mode=plan",
 		}
-		
+
 		// This is a documentation test - the actual error is in cli/main.go
 		// We verify the format exists by checking the test passes
 		for _, part := range expectedParts {
 			// Document expected error message parts
 			t.Logf("Expected error message should contain: %q", part)
 		}
-		
+
 		// Verify error does NOT mention "older version" (pre-alpha project)
 		t.Log("Error should NOT mention 'older version' (project is pre-alpha)")
 	})
-	
+
 	t.Run("ErrorMessageFormat_CorruptedPlanSalt", func(t *testing.T) {
 		// Expected format for wrong-length PlanSalt
 		expectedParts := []string{
@@ -498,7 +498,7 @@ func TestPlanSaltValidationErrors(t *testing.T) {
 			"Regenerate the contract",
 			"restore from backup",
 		}
-		
+
 		for _, part := range expectedParts {
 			t.Logf("Expected error message should contain: %q", part)
 		}
