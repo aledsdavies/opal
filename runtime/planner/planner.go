@@ -53,6 +53,7 @@ type Command struct {
 type Config struct {
 	Target    string           // Command name (e.g., "hello") or "" for script mode
 	IDFactory secret.IDFactory // Factory for generating deterministic secret IDs (optional, uses run-mode if nil)
+	Vault     *vault.Vault     // Shared vault for variable storage and scrubbing (optional, creates new if nil)
 	Telemetry TelemetryLevel   // Telemetry level (production-safe)
 	Debug     DebugLevel       // Debug level (development only)
 }
@@ -172,10 +173,18 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 		idFactory = secret.NewIDFactory(secret.ModePlan, key)
 	}
 
-	// Initialize Vault with random planKey for HMAC-based SiteIDs
-	planKey := make([]byte, 32)
-	_, err := rand.Read(planKey)
-	invariant.ExpectNoError(err, "failed to generate Vault planKey")
+	// Use provided Vault or create new one with random planKey
+	var vlt *vault.Vault
+	if config.Vault != nil {
+		// Use shared vault from caller (e.g., CLI for scrubbing integration)
+		vlt = config.Vault
+	} else {
+		// Create new vault with random planKey for HMAC-based SiteIDs
+		planKey := make([]byte, 32)
+		_, err := rand.Read(planKey)
+		invariant.ExpectNoError(err, "failed to generate Vault planKey")
+		vlt = vault.NewWithPlanKey(planKey)
+	}
 
 	p := &planner{
 		events:      events,
@@ -183,11 +192,11 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 		config:      config,
 		pos:         0,
 		stepID:      1,
-		vault:       vault.NewWithPlanKey(planKey), // Scope-aware variable storage
-		scopes:      NewScopeGraph("local"),        // Hierarchical variable scoping (legacy)
-		session:     decorator.NewLocalSession(),   // Session for decorator resolution
-		secrets:     []planfmt.Secret{},            // Accumulated secrets
-		idFactory:   idFactory,                     // For placeholder generation
+		vault:       vlt,                         // Scope-aware variable storage (shared or new)
+		scopes:      NewScopeGraph("local"),      // Hierarchical variable scoping (legacy)
+		session:     decorator.NewLocalSession(), // Session for decorator resolution
+		secrets:     []planfmt.Secret{},          // Accumulated secrets
+		idFactory:   idFactory,                   // For placeholder generation
 		telemetry:   telemetry,
 		debugEvents: debugEvents,
 	}
@@ -644,7 +653,7 @@ func (p *planner) planVarDecl() error {
 
 	// Record debug event
 	if p.config.Debug >= DebugDetailed {
-		p.recordDebugEvent("var_declared", fmt.Sprintf("name=%s value=%v exprID=%s displayID=%s", 
+		p.recordDebugEvent("var_declared", fmt.Sprintf("name=%s value=%v exprID=%s displayID=%s",
 			varName, value, exprID, expr.DisplayID))
 	}
 

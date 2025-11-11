@@ -51,7 +51,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 
 		// Use reflection to call Vault methods (avoids circular import)
 		vaultValue := reflect.ValueOf(ctx.Vault)
-		
+
 		// Call LookupVariable(varName) -> (string, error)
 		lookupMethod := vaultValue.MethodByName("LookupVariable")
 		if !lookupMethod.IsValid() {
@@ -62,7 +62,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			}
 			continue
 		}
-		
+
 		lookupResults := lookupMethod.Call([]reflect.Value{reflect.ValueOf(varName)})
 		if len(lookupResults) != 2 {
 			results[i] = decorator.ResolveResult{
@@ -72,7 +72,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			}
 			continue
 		}
-		
+
 		// Check for error
 		if !lookupResults[1].IsNil() {
 			err := lookupResults[1].Interface().(error)
@@ -83,9 +83,9 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			}
 			continue
 		}
-		
+
 		exprID := lookupResults[0].String()
-		
+
 		// Call GetExpression(exprID) -> *Expression
 		getExprMethod := vaultValue.MethodByName("GetExpression")
 		if !getExprMethod.IsValid() {
@@ -96,7 +96,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			}
 			continue
 		}
-		
+
 		exprResults := getExprMethod.Call([]reflect.Value{reflect.ValueOf(exprID)})
 		if len(exprResults) != 1 || exprResults[0].IsNil() {
 			results[i] = decorator.ResolveResult{
@@ -106,7 +106,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			}
 			continue
 		}
-		
+
 		// Access Expression.Value field via reflection
 		exprValue := exprResults[0].Elem()
 		valueField := exprValue.FieldByName("Value")
@@ -118,7 +118,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			}
 			continue
 		}
-		
+
 		results[i] = decorator.ResolveResult{
 			Value:  valueField.String(),
 			Origin: fmt.Sprintf("var.%s", varName),
