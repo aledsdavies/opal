@@ -553,6 +553,15 @@ func (v *Vault) MarkResolved(exprID, value string) {
 	v.exprTransport[exprID] = v.currentTransport // CRITICAL: Capture transport NOW
 }
 
+// GetExpression retrieves an expression by ID.
+// Returns nil if expression doesn't exist.
+func (v *Vault) GetExpression(exprID string) *Expression {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	return v.expressions[exprID]
+}
+
 // checkTransportBoundary checks if expression can be used in current transport.
 func (v *Vault) checkTransportBoundary(exprID string) error {
 	// Get transport where expression was resolved
