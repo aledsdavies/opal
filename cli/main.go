@@ -482,11 +482,12 @@ func runFromPlan(planFile, sourceFile string, debug, noColor bool, scrubber *str
 		if len(contractPlan.PlanSalt) == 0 {
 			return 1, fmt.Errorf(
 				"contract file '%s' is missing plan salt\n\n"+
-					"This contract was likely created with an older version of opal.\n"+
+					"The contract file may be corrupted or manually edited.\n"+
 					"Plan salt is required for contract verification to ensure DisplayIDs remain consistent.\n\n"+
 					"To fix:\n"+
-					"  1. Regenerate the contract with the current version: opal plan --mode=contract <file>\n"+
-					"  2. Or use --mode=plan to execute without contract verification",
+					"  1. Regenerate the contract: opal plan --mode=contract <file>\n"+
+					"  2. Or restore from backup if available\n"+
+					"  3. Or use --mode=plan to execute without contract verification",
 				planFile,
 			)
 		}
