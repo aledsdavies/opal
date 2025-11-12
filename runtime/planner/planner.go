@@ -521,7 +521,10 @@ func (p *planner) planStep() (planfmt.Step, error) {
 	p.pos++
 
 	// Track step in Vault for scope-aware variable storage
-	p.vault.EnterStep()
+	stepName := fmt.Sprintf("step-%d", p.stepID)
+	p.vault.ResetCounts() // Reset decorator indices for new step
+	p.vault.Push(stepName)
+	defer p.vault.Pop() // Pop step when done
 
 	var commands []Command
 

@@ -120,26 +120,18 @@ type SiteRef struct {
 	ParamName string // "command", "apiKey", etc.
 }
 
-// PathSegment represents one level in the decorator DAG path.
+// PathSegment represents one level in the scope/site path.
+// Generic representation - Vault doesn't know what the name means.
+// The caller (planner) decides: "root", "step-1", "@retry", etc.
 type PathSegment struct {
-	Type  SegmentType
-	Name  string
-	Index int // -1 if not applicable
+	Name  string // Scope name: "root", "step-1", "@retry", etc.
+	Index int    // Instance index (-1 if not applicable)
 }
-
-// SegmentType identifies the type of path segment.
-type SegmentType int
-
-const (
-	SegmentRoot SegmentType = iota
-	SegmentStep
-	SegmentDecorator
-)
 
 // New creates a new Vault.
 func New() *Vault {
 	v := &Vault{
-		pathStack:        []PathSegment{{Type: SegmentRoot, Name: "root", Index: -1}},
+		pathStack:        []PathSegment{{Name: "root", Index: -1}},
 		stepCount:        0,
 		decoratorCounts:  make(map[string]int),
 		expressions:      make(map[string]*Expression),
@@ -167,52 +159,43 @@ func NewWithPlanKey(planKey []byte) *Vault {
 	return v
 }
 
-// EnterStep pushes a new step onto the path stack and resets decorator counts.
-// If there's already a step in the stack, it's replaced (steps don't nest).
-func (v *Vault) EnterStep() {
-	v.stepCount++
-	stepID := fmt.Sprintf("step-%d", v.stepCount)
+// Push adds a segment to the path stack.
+// The caller (planner) decides what the segment represents: "step-1", "@retry", etc.
+// Returns the index for this segment name at the current level.
+func (v *Vault) Push(name string) int {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 
-	// Pop previous step if exists (steps are siblings, not nested)
-	if len(v.pathStack) > 1 && v.pathStack[len(v.pathStack)-1].Type == SegmentStep {
-		v.pathStack = v.pathStack[:len(v.pathStack)-1]
-	}
-
-	v.pathStack = append(v.pathStack, PathSegment{
-		Type:  SegmentStep,
-		Name:  stepID,
-		Index: -1,
-	})
-
-	// Reset decorator counts for new step
-	v.decoratorCounts = make(map[string]int)
-}
-
-// EnterDecorator pushes a decorator onto the path stack and returns its index.
-func (v *Vault) EnterDecorator(decorator string) int {
-	// Get next instance index for this decorator at current level
-	index := v.decoratorCounts[decorator]
-	v.decoratorCounts[decorator]++
+	// Get next instance index for this name at current level
+	index := v.decoratorCounts[name]
+	v.decoratorCounts[name]++
 
 	v.pathStack = append(v.pathStack, PathSegment{
-		Type:  SegmentDecorator,
-		Name:  decorator,
+		Name:  name,
 		Index: index,
 	})
 
 	return index
 }
 
-// ExitDecorator pops the current decorator from the path stack.
-func (v *Vault) ExitDecorator() {
-	if len(v.pathStack) <= 1 {
-		panic("cannot exit root")
-	}
+// Pop removes the top segment from the path stack.
+// Panics if attempting to pop root (programmer error).
+func (v *Vault) Pop() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 
-	// Only pop if top is a decorator
-	if v.pathStack[len(v.pathStack)-1].Type == SegmentDecorator {
-		v.pathStack = v.pathStack[:len(v.pathStack)-1]
-	}
+	invariant.Precondition(len(v.pathStack) > 1, "cannot pop root from path stack")
+	v.pathStack = v.pathStack[:len(v.pathStack)-1]
+}
+
+// ResetCounts resets the decorator instance counters.
+// Used when entering a new step to reset decorator indices to 0.
+// The caller (planner) decides when to reset - typically when starting a new step.
+func (v *Vault) ResetCounts() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	v.decoratorCounts = make(map[string]int)
 }
 
 // BuildSitePath constructs the canonical site path for a parameter.
@@ -221,14 +204,12 @@ func (v *Vault) BuildSitePath(paramName string) string {
 	var parts []string
 
 	for _, seg := range v.pathStack {
-		switch seg.Type {
-		case SegmentRoot:
-			parts = append(parts, seg.Name)
-		case SegmentStep:
-			parts = append(parts, seg.Name)
-		case SegmentDecorator:
-			// Decorator with index: @shell[0]
+		// Decorators (starting with @) include instance index
+		if strings.HasPrefix(seg.Name, "@") {
 			parts = append(parts, fmt.Sprintf("%s[%d]", seg.Name, seg.Index))
+		} else {
+			// Non-decorators (root, step-N) are just the name
+			parts = append(parts, seg.Name)
 		}
 	}
 
@@ -245,13 +226,12 @@ func (v *Vault) BuildSitePath(paramName string) string {
 func (v *Vault) currentScopePath() string {
 	var parts []string
 	for _, seg := range v.pathStack {
-		switch seg.Type {
-		case SegmentRoot:
-			parts = append(parts, seg.Name)
-		case SegmentStep:
-			parts = append(parts, seg.Name)
-		case SegmentDecorator:
+		// Decorators (starting with @) include instance index
+		if strings.HasPrefix(seg.Name, "@") {
 			parts = append(parts, fmt.Sprintf("%s[%d]", seg.Name, seg.Index))
+		} else {
+			// Non-decorators (root, step-N) are just the name
+			parts = append(parts, seg.Name)
 		}
 	}
 	return strings.Join(parts, "/")
