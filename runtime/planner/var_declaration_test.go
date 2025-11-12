@@ -133,3 +133,67 @@ func TestVarDeclaration_DifferentTypes(t *testing.T) {
 		})
 	}
 }
+
+// TestVarDeclaration_SameLiteralValue tests that multiple variables with the same
+// literal value share the same exprID (expression deduplication) and don't panic.
+//
+// This is a regression test for the bug where:
+//
+//	var X = "foo"
+//	var Y = "foo"
+//
+// would panic on the second MarkResolved call because the expression was already resolved.
+//
+// Expected behavior (from vault.go documentation):
+// - Multiple variables can share the same exprID (deduplication)
+// - Expression should only be resolved once (first time)
+// - Subsequent declarations reuse the already-resolved expression
+func TestVarDeclaration_SameLiteralValue(t *testing.T) {
+	source := `var X = "same"
+var Y = "same"
+var Z = "same"`
+
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	// This should NOT panic - multiple variables can share the same literal value
+	result, err := PlanWithObservability(tree.Events, tree.Tokens, Config{})
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	if len(result.Plan.Steps) != 0 {
+		t.Errorf("Expected 0 steps, got %d", len(result.Plan.Steps))
+	}
+
+	t.Logf("Multiple variables with same literal value planned successfully")
+}
+
+// TestVarDeclaration_SameLiteralValue_DifferentTypes tests that variables with
+// the same literal value but different types work correctly.
+func TestVarDeclaration_SameLiteralValue_DifferentTypes(t *testing.T) {
+	source := `var A = 42
+var B = 42
+var C = "hello"
+var D = "hello"
+var E = true
+var F = true`
+
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	result, err := PlanWithObservability(tree.Events, tree.Tokens, Config{})
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	if len(result.Plan.Steps) != 0 {
+		t.Errorf("Expected 0 steps, got %d", len(result.Plan.Steps))
+	}
+
+	t.Logf("Multiple variables with same literal values (different types) planned successfully")
+}

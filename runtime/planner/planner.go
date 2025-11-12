@@ -635,12 +635,20 @@ func (p *planner) planVarDecl() error {
 	rawExpr := fmt.Sprintf("literal:%v", value)
 	exprID := p.vault.DeclareVariable(varName, rawExpr)
 
-	// Mark as resolved immediately (it's a literal value, not a decorator call)
-	// Pass original value to preserve type (string, int, bool, map, slice)
-	p.vault.MarkResolved(exprID, value)
-
-	// Get expression for debug logging
+	// Get expression to check if already resolved (expression deduplication)
 	expr := p.vault.GetExpression(exprID)
+
+	// Mark as resolved only if not already resolved
+	// Multiple variables can share the same literal value (same exprID via hash-based deduplication)
+	// Only the first declaration resolves the expression; subsequent ones reuse it
+	if !expr.Resolved {
+		// First time this literal is resolved
+		// Pass original value to preserve type (string, int, bool, map, slice)
+		p.vault.MarkResolved(exprID, value)
+	}
+	// Note: If already resolved, we reuse the existing resolved value
+	// For literals, the value should always match (same source → same value)
+	// If there's a mismatch, it indicates a bug in the parser/planner
 
 	// LEGACY: Also store in ScopeGraph (will be removed in Phase 4)
 	origin := "literal"
