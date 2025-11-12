@@ -554,13 +554,28 @@ func (v *Vault) MarkResolved(exprID string, value any) {
 	v.exprTransport[exprID] = v.currentTransport // CRITICAL: Capture transport NOW
 }
 
-// GetExpression retrieves an expression by ID.
-// Returns nil if expression doesn't exist.
-func (v *Vault) GetExpression(exprID string) *Expression {
+// GetDisplayID returns the placeholder ID for an expression.
+// Safe to call - returns only the DisplayID, not the actual secret value.
+// Returns empty string if expression doesn't exist or isn't resolved.
+func (v *Vault) GetDisplayID(exprID string) string {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
-	return v.expressions[exprID]
+	expr, exists := v.expressions[exprID]
+	if !exists || !expr.Resolved {
+		return ""
+	}
+	return expr.DisplayID
+}
+
+// IsResolved checks if an expression has been resolved.
+// Safe to call - returns only resolution status, not the actual value.
+func (v *Vault) IsResolved(exprID string) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	expr, exists := v.expressions[exprID]
+	return exists && expr.Resolved
 }
 
 // checkTransportBoundary checks if expression can be used in current transport.
