@@ -1,0 +1,16 @@
+# CodeRabbit configuration
+# Docs: https://docs.coderabbit.ai/
+
+reviews:
+  # Enable code reviews and comments
+  auto_review:
+    enabled: true
+  
+  # Disable PR description summary
+  # This prevents CodeRabbit from adding summary to PR descriptions
+  # while still allowing it to review code and add comments
+  auto_title_placeholder: ""
+  
+  # Poem is the summary that gets added to PR descriptions
+  # Set to false to disable it
+  poem: false

@@ -119,8 +119,9 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			continue
 		}
 
+		// Return value directly (preserves original type: string, int, bool, map, slice)
 		results[i] = decorator.ResolveResult{
-			Value:  valueField.String(),
+			Value:  valueField.Interface(),
 			Origin: fmt.Sprintf("var.%s", varName),
 			Error:  nil,
 		}

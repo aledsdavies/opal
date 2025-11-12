@@ -636,8 +636,8 @@ func (p *planner) planVarDecl() error {
 	exprID := p.vault.DeclareVariable(varName, rawExpr)
 
 	// Mark as resolved immediately (it's a literal value, not a decorator call)
-	valueStr := fmt.Sprintf("%v", value)
-	p.vault.MarkResolved(exprID, valueStr)
+	// Pass original value to preserve type (string, int, bool, map, slice)
+	p.vault.MarkResolved(exprID, value)
 
 	// Get expression for debug logging
 	expr := p.vault.GetExpression(exprID)
