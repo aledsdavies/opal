@@ -1106,26 +1106,27 @@ echo @var.HOME
 		t.Fatalf("Plan failed: %v", err)
 	}
 
-	// ASSERT: Plan has one secret (HOME variable)
-	if len(plan.Secrets) != 1 {
-		t.Fatalf("Expected 1 secret, got %d", len(plan.Secrets))
+	// ASSERT: Plan has one SecretUse entry (HOME variable used once)
+	// Phase 5.5: Plan contains SecretUses (authorization list), not Secrets (RuntimeValue)
+	if len(plan.SecretUses) != 1 {
+		t.Fatalf("Expected 1 SecretUse, got %d", len(plan.SecretUses))
 	}
 
-	secret := plan.Secrets[0]
+	secretUse := plan.SecretUses[0]
 
-	// ASSERT: Secret has correct key
-	if secret.Key != "HOME" {
-		t.Errorf("Expected key=HOME, got %s", secret.Key)
+	// ASSERT: SecretUse has DisplayID with correct prefix
+	if !strings.HasPrefix(secretUse.DisplayID, "opal:v:") {
+		t.Errorf("Expected DisplayID prefix opal:v:, got %s", secretUse.DisplayID)
 	}
 
-	// ASSERT: Secret has runtime value
-	if secret.RuntimeValue != "/home/alice" {
-		t.Errorf("Expected runtime value=/home/alice, got %s", secret.RuntimeValue)
+	// ASSERT: SecretUse has SiteID (HMAC-based authorization)
+	if secretUse.SiteID == "" {
+		t.Error("Expected non-empty SiteID")
 	}
 
-	// ASSERT: Secret has placeholder ID with correct prefix
-	if !strings.HasPrefix(secret.DisplayID, "opal:v:") {
-		t.Errorf("Expected DisplayID prefix opal:v:, got %s", secret.DisplayID)
+	// ASSERT: SecretUse has Site path
+	if secretUse.Site == "" {
+		t.Error("Expected non-empty Site")
 	}
 
 	// ASSERT: Step uses placeholder, not raw value

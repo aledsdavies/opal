@@ -266,23 +266,7 @@ echo "Hello, @var.NAME"`
 
 	// REQUIREMENT: Command should be a string containing DisplayID, not a placeholder reference
 	// The plan formatter needs to see: echo "Hello, opal:v:3J98t56A"
-	// Currently it's: ValuePlaceholder with Ref=0
-
-	if commandVal.Kind == planfmt.ValuePlaceholder {
-		// This is WRONG - the command should be a string with DisplayID embedded
-		// Not a placeholder reference
-		t.Errorf("FAIL: Command is a placeholder reference (Ref=%d), should be a string with DisplayID embedded",
-			commandVal.Ref)
-
-		// Show what we have vs what we need
-		secret := result.Plan.Secrets[commandVal.Ref]
-		t.Logf("Current: Command is placeholder Ref=%d pointing to Secret.RuntimeValue=%q",
-			commandVal.Ref, secret.RuntimeValue)
-		t.Logf("Required: Command should be string: 'echo \"Hello, %s\"'", secret.DisplayID)
-		return
-	}
-
-	// If it's a string, verify it contains DisplayID not actual value
+	// Phase 5: Commands now store DisplayID strings directly (not placeholder references)
 	if commandVal.Kind != planfmt.ValueString {
 		t.Fatalf("Expected ValueString, got kind=%v", commandVal.Kind)
 	}
@@ -367,4 +351,72 @@ func formatStepForTest(node planfmt.ExecutionNode, indent int) string {
 	default:
 		return strings.Repeat("  ", indent) + "(unsupported node type)"
 	}
+}
+
+// TestVarUsage_SecretUsesPopulated tests that plan.SecretUses is populated
+// with authorization entries from Vault.
+//
+// This is Phase 5.5 of variable resolution:
+// - Plan contract contains SecretUses (DisplayID + SiteID + Site)
+// - Same DisplayID can appear multiple times (different usage sites)
+// - Plan does NOT contain Secrets field (RuntimeValue never leaves Vault)
+//
+// Contract verification model:
+// - Plan time: Build SecretUses, compute hash
+// - Execution time: Re-plan with same PlanSalt, compare hashes
+// - If value changes → DisplayID changes → hash changes → contract invalid
+// - If site changes → SiteID changes → hash changes → contract invalid
+func TestVarUsage_SecretUsesPopulated(t *testing.T) {
+	source := `var NAME = "Aled"
+echo "Hello, @var.NAME"
+echo "Goodbye, @var.NAME"`
+
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	result, err := PlanWithObservability(tree.Events, tree.Tokens, Config{})
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	// ASSERT: SecretUses should have 2 entries (same DisplayID, different sites)
+	if len(result.Plan.SecretUses) != 2 {
+		t.Fatalf("Expected 2 SecretUses (same DisplayID, different sites), got %d", len(result.Plan.SecretUses))
+	}
+
+	// Both entries should have same DisplayID (same variable value)
+	displayID1 := result.Plan.SecretUses[0].DisplayID
+	displayID2 := result.Plan.SecretUses[1].DisplayID
+	if displayID1 != displayID2 {
+		t.Errorf("Expected same DisplayID for both uses, got %q and %q", displayID1, displayID2)
+	}
+
+	// But different SiteIDs (different usage sites)
+	siteID1 := result.Plan.SecretUses[0].SiteID
+	siteID2 := result.Plan.SecretUses[1].SiteID
+	if siteID1 == siteID2 {
+		t.Errorf("Expected different SiteIDs for different sites, got same: %q", siteID1)
+	}
+
+	// Each entry should have all fields populated
+	for i, use := range result.Plan.SecretUses {
+		if use.DisplayID == "" {
+			t.Errorf("SecretUse[%d].DisplayID is empty", i)
+		}
+		if use.SiteID == "" {
+			t.Errorf("SecretUse[%d].SiteID is empty", i)
+		}
+		if use.Site == "" {
+			t.Errorf("SecretUse[%d].Site is empty", i)
+		}
+		if !strings.Contains(use.DisplayID, "opal:v:") {
+			t.Errorf("SecretUse[%d].DisplayID should contain 'opal:v:', got %q", i, use.DisplayID)
+		}
+		t.Logf("SecretUse[%d]: DisplayID=%s, SiteID=%s, Site=%s",
+			i, use.DisplayID, use.SiteID, use.Site)
+	}
+
+	t.Logf("✓ Plan.SecretUses populated correctly with %d entries", len(result.Plan.SecretUses))
 }
