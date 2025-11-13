@@ -937,7 +937,9 @@ func (p *planner) resolveCommandDecorator(command string) (string, int, error) {
 	// TODO: This should use GetDisplayID for plan output (Phase 5)
 	// For now, keep existing behavior to avoid breaking tests
 	// Authorize this site to access the variable
-	p.vault.RecordReference(exprID, "command")
+	if err := p.vault.RecordReference(exprID, "command"); err != nil {
+		return "", 0, err
+	}
 
 	// Get the actual value (this bypasses security - will fix in Phase 5)
 	value, err := p.vault.Access(exprID, "command")
