@@ -104,17 +104,26 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			reflect.ValueOf(exprID),
 			reflect.ValueOf(paramName),
 		})
-		if len(recordResults) != 1 || !recordResults[0].IsNil() {
-			// RecordReference returned an error
-			if !recordResults[0].IsNil() {
-				err := recordResults[0].Interface().(error)
-				results[i] = decorator.ResolveResult{
-					Value:  nil,
-					Origin: fmt.Sprintf("var.%s", varName),
-					Error:  err,
-				}
-				continue
+
+		// Check return signature first
+		if len(recordResults) != 1 {
+			results[i] = decorator.ResolveResult{
+				Value:  nil,
+				Origin: fmt.Sprintf("var.%s", varName),
+				Error:  fmt.Errorf("unexpected RecordReference return values: got %d, want 1", len(recordResults)),
 			}
+			continue
+		}
+
+		// Check if RecordReference returned an error
+		if !recordResults[0].IsNil() {
+			err := recordResults[0].Interface().(error)
+			results[i] = decorator.ResolveResult{
+				Value:  nil,
+				Origin: fmt.Sprintf("var.%s", varName),
+				Error:  err,
+			}
+			continue
 		}
 
 		// Call Access(exprID, paramName) -> (any, error)
