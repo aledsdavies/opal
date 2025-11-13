@@ -200,7 +200,16 @@ func (v *Vault) ResetCounts() {
 
 // BuildSitePath constructs the canonical site path for a parameter.
 // Format: root/step-N/@decorator[index]/params/paramName
+// Thread-safe: Acquires read lock.
 func (v *Vault) BuildSitePath(paramName string) string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.buildSitePathLocked(paramName)
+}
+
+// buildSitePathLocked is the internal unlocked version of BuildSitePath.
+// Caller must hold at least a read lock.
+func (v *Vault) buildSitePathLocked(paramName string) string {
 	var parts []string
 
 	for _, seg := range v.pathStack {
@@ -406,7 +415,7 @@ func (v *Vault) RecordReference(exprID, paramName string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	site := v.BuildSitePath(paramName)
+	site := v.buildSitePathLocked(paramName)
 	siteID := v.computeSiteID(site)
 
 	v.references[exprID] = append(v.references[exprID], SiteRef{
@@ -652,7 +661,7 @@ func (v *Vault) Access(exprID, paramName string) (any, error) {
 	}
 
 	// 3. Build current site with parameter name
-	currentSite := v.BuildSitePath(paramName)
+	currentSite := v.buildSitePathLocked(paramName)
 	currentSiteID := v.computeSiteID(currentSite)
 
 	// 4. Check if current site is authorized (Tuple)
