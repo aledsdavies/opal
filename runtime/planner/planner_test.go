@@ -1161,13 +1161,24 @@ echo @var.HOME
 		t.Fatal("No 'command' argument found")
 	}
 
-	// ASSERT: Command uses placeholder reference
-	if commandArg.Val.Kind != planfmt.ValuePlaceholder {
-		t.Errorf("Expected ValuePlaceholder, got %v", commandArg.Val.Kind)
+	// ASSERT: Command uses string with DisplayID embedded (Phase 5)
+	// Plan should show: echo opal:v:XXXXX
+	// NOT: echo /home/alice
+	if commandArg.Val.Kind != planfmt.ValueString {
+		t.Errorf("Expected ValueString, got %v", commandArg.Val.Kind)
 	}
 
-	// ASSERT: Placeholder ref points to first secret
-	if commandArg.Val.Ref != 0 {
-		t.Errorf("Expected Ref=0 (first secret), got %d", commandArg.Val.Ref)
+	commandStr := commandArg.Val.Str
+
+	// ASSERT: Command contains DisplayID placeholder
+	if !strings.Contains(commandStr, "opal:v:") {
+		t.Errorf("Expected command to contain DisplayID 'opal:v:', got: %s", commandStr)
 	}
+
+	// ASSERT: Command does NOT contain actual value
+	if strings.Contains(commandStr, "/home/alice") {
+		t.Errorf("Command should NOT contain actual value '/home/alice', got: %s", commandStr)
+	}
+
+	t.Logf("✓ Plan command: %s", commandStr)
 }
