@@ -222,7 +222,7 @@ func (v *Vault) BuildSitePath(paramName string) string {
 // ========== Scope Management ==========
 
 // currentScopePath converts pathStack to a scope path string.
-// Scope paths identify variable storage locations in the trie.
+// Used for site paths (authorization). Includes all segments.
 func (v *Vault) currentScopePath() string {
 	var parts []string
 	for _, seg := range v.pathStack {
@@ -234,6 +234,34 @@ func (v *Vault) currentScopePath() string {
 			parts = append(parts, seg.Name)
 		}
 	}
+	return strings.Join(parts, "/")
+}
+
+// currentVariableScopePath converts pathStack to a variable scope path.
+// Variable scopes exclude step segments (steps are not scopes).
+// Only root and decorator blocks create variable scopes.
+func (v *Vault) currentVariableScopePath() string {
+	var parts []string
+	for _, seg := range v.pathStack {
+		// Skip step segments (step-N) - they're for site paths, not variable scoping
+		if strings.HasPrefix(seg.Name, "step-") {
+			continue
+		}
+
+		// Include decorators with instance index
+		if strings.HasPrefix(seg.Name, "@") {
+			parts = append(parts, fmt.Sprintf("%s[%d]", seg.Name, seg.Index))
+		} else {
+			// Include root
+			parts = append(parts, seg.Name)
+		}
+	}
+
+	// If no parts (only step segments), return root
+	if len(parts) == 0 {
+		return "root"
+	}
+
 	return strings.Join(parts, "/")
 }
 
@@ -297,12 +325,18 @@ func (v *Vault) LookupVariable(varName string) (string, error) {
 
 // ========== Expression Tracking ==========
 
-// DeclareVariable registers a variable in the current scope.
+// DeclareVariable registers a variable in the current variable scope.
+// Variable scope excludes step segments (steps are not scopes, only decorator blocks are).
 // Uses hash-based exprID (not variable name) to support:
 // - Same variable name with different values in different scopes (shadowing)
 // - Same expression shared by multiple variables (deduplication)
 // - Transport-sensitive expressions (@env.HOME differs per SSH session)
 func (v *Vault) DeclareVariable(name, raw string) string {
+	return v.declareVariableAt(name, raw, v.currentVariableScopePath())
+}
+
+// declareVariableAt is the internal implementation for declaring variables at a specific scope.
+func (v *Vault) declareVariableAt(name, raw, scopePath string) string {
 	exprID := v.generateExprID(raw)
 
 	if _, exists := v.expressions[exprID]; !exists {
@@ -318,7 +352,6 @@ func (v *Vault) DeclareVariable(name, raw string) string {
 		}
 	}
 
-	scopePath := v.currentScopePath()
 	scope := v.getOrCreateScope(scopePath)
 	scope.vars[name] = exprID
 

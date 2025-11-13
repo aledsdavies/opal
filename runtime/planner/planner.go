@@ -226,9 +226,8 @@ type planner struct {
 	tokens []lexer.Token
 	config Config
 
-	pos             int    // Current position in event stream
-	stepID          uint64 // Next step ID to assign
-	currentStepName string // Current step name on vault stack (for var declarations at root)
+	pos    int    // Current position in event stream
+	stepID uint64 // Next step ID to assign
 
 	// Variable scoping with transport boundary guards
 	vault   *vault.Vault      // Scope-aware variable storage
@@ -525,13 +524,9 @@ func (p *planner) planStep() (planfmt.Step, error) {
 	// Note: Variables are declared at root scope (accessible across all steps)
 	// but site paths include step segment for authorization granularity
 	stepName := fmt.Sprintf("step-%d", p.stepID)
-	p.currentStepName = stepName // Track for var declarations
-	p.vault.ResetCounts()        // Reset decorator indices for new step
+	p.vault.ResetCounts() // Reset decorator indices for new step
 	p.vault.Push(stepName)
-	defer func() {
-		p.vault.Pop()
-		p.currentStepName = "" // Clear after step
-	}()
+	defer p.vault.Pop()
 
 	var commands []Command
 
@@ -639,19 +634,11 @@ func (p *planner) planVarDecl() error {
 		return err
 	}
 
-	// Declare variable at ROOT scope (accessible across all steps)
-	// Temporarily pop step scope, declare at root, then push step back
-	// This ensures variables are accessible across steps (not step-scoped)
-	if p.currentStepName != "" {
-		p.vault.Pop() // Pop step scope
-	}
-
+	// Declare variable in current variable scope
+	// Variable scope excludes step segments (steps are not scopes)
+	// Only root and decorator blocks create variable scopes
 	rawExpr := fmt.Sprintf("literal:%v", value)
 	exprID := p.vault.DeclareVariable(varName, rawExpr)
-
-	if p.currentStepName != "" {
-		p.vault.Push(p.currentStepName) // Push step scope back
-	}
 
 	// Mark as resolved only if not already resolved (expression deduplication)
 	// Multiple variables can share the same literal value (same exprID via hash-based deduplication)
