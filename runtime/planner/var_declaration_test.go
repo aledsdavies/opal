@@ -1,8 +1,10 @@
 package planner
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/aledsdavies/opal/core/planfmt"
 	"github.com/aledsdavies/opal/runtime/parser"
 )
 
@@ -196,4 +198,108 @@ var F = true`
 	}
 
 	t.Logf("Multiple variables with same literal values (different types) planned successfully")
+}
+
+// TestVarUsage_DisplayIDInPlan tests that when a variable is used in a command,
+// the plan contains the DisplayID placeholder, NOT the actual value.
+//
+// This is Phase 5 of variable resolution:
+// - Planning: Plan stores DisplayID (e.g., "opal:v:3J98t56A")
+// - Execution: Executor replaces DisplayID with actual value
+// - Scrubbing: Scrubber replaces actual value back to DisplayID in output
+//
+// Security: The plan never contains sensitive values, only placeholders.
+//
+// Requirements from WORK.md Phase 5:
+// 1. Plan should show: `echo "Hello, opal:v:3J98t56A"`
+// 2. NOT: `echo "Hello, Aled"`
+// 3. Plan output contains `opal:v:` placeholder
+// 4. Plan does NOT contain "Aled"
+func TestVarUsage_DisplayIDInPlan(t *testing.T) {
+	source := `var NAME = "Aled"
+echo "Hello, @var.NAME"`
+
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	result, err := PlanWithObservability(tree.Events, tree.Tokens, Config{})
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	// Should have 1 step (the echo command)
+	if len(result.Plan.Steps) != 1 {
+		t.Fatalf("Expected 1 step, got %d", len(result.Plan.Steps))
+	}
+
+	step := result.Plan.Steps[0]
+	if step.Tree == nil {
+		t.Fatal("Expected tree, got nil")
+	}
+
+	// Tree should be a CommandNode with @shell decorator
+	cmd, ok := step.Tree.(*planfmt.CommandNode)
+	if !ok {
+		t.Fatalf("Expected CommandNode, got %T", step.Tree)
+	}
+
+	if cmd.Decorator != "@shell" {
+		t.Errorf("Expected @shell decorator, got %q", cmd.Decorator)
+	}
+
+	// Get the command argument
+	var commandVal planfmt.Value
+	var found bool
+	for _, arg := range cmd.Args {
+		if arg.Key == "command" {
+			commandVal = arg.Val
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatalf("Command argument not found")
+	}
+
+	// REQUIREMENT: Command should be a string containing DisplayID, not a placeholder reference
+	// The plan formatter needs to see: echo "Hello, opal:v:3J98t56A"
+	// Currently it's: ValuePlaceholder with Ref=0
+
+	if commandVal.Kind == planfmt.ValuePlaceholder {
+		// This is WRONG - the command should be a string with DisplayID embedded
+		// Not a placeholder reference
+		t.Errorf("FAIL: Command is a placeholder reference (Ref=%d), should be a string with DisplayID embedded",
+			commandVal.Ref)
+
+		// Show what we have vs what we need
+		secret := result.Plan.Secrets[commandVal.Ref]
+		t.Logf("Current: Command is placeholder Ref=%d pointing to Secret.RuntimeValue=%q",
+			commandVal.Ref, secret.RuntimeValue)
+		t.Logf("Required: Command should be string: 'echo \"Hello, %s\"'", secret.DisplayID)
+		return
+	}
+
+	// If it's a string, verify it contains DisplayID not actual value
+	if commandVal.Kind != planfmt.ValueString {
+		t.Fatalf("Expected ValueString, got kind=%v", commandVal.Kind)
+	}
+
+	commandArg := commandVal.Str
+	t.Logf("Command string: %s", commandArg)
+
+	// ASSERT: Command should contain "opal:v:" placeholder
+	if !strings.Contains(commandArg, "opal:v:") {
+		t.Errorf("FAIL: Command should contain DisplayID placeholder 'opal:v:', got: %s", commandArg)
+	}
+
+	// ASSERT: Command should NOT contain the actual value "Aled"
+	if strings.Contains(commandArg, "Aled") {
+		t.Errorf("FAIL: Command should NOT contain actual value 'Aled', got: %s", commandArg)
+	}
+
+	// SUCCESS
+	t.Logf("✓ Plan command contains DisplayID: %s", commandArg)
 }
