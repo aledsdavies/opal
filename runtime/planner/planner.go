@@ -226,8 +226,9 @@ type planner struct {
 	tokens []lexer.Token
 	config Config
 
-	pos    int    // Current position in event stream
-	stepID uint64 // Next step ID to assign
+	pos             int    // Current position in event stream
+	stepID          uint64 // Next step ID to assign
+	currentStepName string // Current step name on vault stack (for var declarations at root)
 
 	// Variable scoping with transport boundary guards
 	vault   *vault.Vault      // Scope-aware variable storage
@@ -520,11 +521,17 @@ func (p *planner) planStep() (planfmt.Step, error) {
 	// We're at EventStepEnter, move past it
 	p.pos++
 
-	// Track step in Vault for scope-aware variable storage
+	// Track step in Vault for site path generation (authorization)
+	// Note: Variables are declared at root scope (accessible across all steps)
+	// but site paths include step segment for authorization granularity
 	stepName := fmt.Sprintf("step-%d", p.stepID)
-	p.vault.ResetCounts() // Reset decorator indices for new step
+	p.currentStepName = stepName // Track for var declarations
+	p.vault.ResetCounts()        // Reset decorator indices for new step
 	p.vault.Push(stepName)
-	defer p.vault.Pop() // Pop step when done
+	defer func() {
+		p.vault.Pop()
+		p.currentStepName = "" // Clear after step
+	}()
 
 	var commands []Command
 
@@ -632,9 +639,19 @@ func (p *planner) planVarDecl() error {
 		return err
 	}
 
-	// Declare variable in Vault (returns hash-based exprID)
+	// Declare variable at ROOT scope (accessible across all steps)
+	// Temporarily pop step scope, declare at root, then push step back
+	// This ensures variables are accessible across steps (not step-scoped)
+	if p.currentStepName != "" {
+		p.vault.Pop() // Pop step scope
+	}
+
 	rawExpr := fmt.Sprintf("literal:%v", value)
 	exprID := p.vault.DeclareVariable(varName, rawExpr)
+
+	if p.currentStepName != "" {
+		p.vault.Push(p.currentStepName) // Push step scope back
+	}
 
 	// Mark as resolved only if not already resolved (expression deduplication)
 	// Multiple variables can share the same literal value (same exprID via hash-based deduplication)
