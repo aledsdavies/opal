@@ -86,8 +86,38 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 
 		exprID := lookupResults[0].String()
 
+		// Record reference to authorize this site before accessing
+		// Use a default parameter name for decorator resolution
+		paramName := "value"
+
+		recordRefMethod := vaultValue.MethodByName("RecordReference")
+		if !recordRefMethod.IsValid() {
+			results[i] = decorator.ResolveResult{
+				Value:  nil,
+				Origin: fmt.Sprintf("var.%s", varName),
+				Error:  fmt.Errorf("Vault.RecordReference method not found"),
+			}
+			continue
+		}
+
+		recordResults := recordRefMethod.Call([]reflect.Value{
+			reflect.ValueOf(exprID),
+			reflect.ValueOf(paramName),
+		})
+		if len(recordResults) != 1 || !recordResults[0].IsNil() {
+			// RecordReference returned an error
+			if !recordResults[0].IsNil() {
+				err := recordResults[0].Interface().(error)
+				results[i] = decorator.ResolveResult{
+					Value:  nil,
+					Origin: fmt.Sprintf("var.%s", varName),
+					Error:  err,
+				}
+				continue
+			}
+		}
+
 		// Call Access(exprID, paramName) -> (any, error)
-		// Use the parameter name from the call context for site authorization
 		accessMethod := vaultValue.MethodByName("Access")
 		if !accessMethod.IsValid() {
 			results[i] = decorator.ResolveResult{
@@ -97,10 +127,6 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			}
 			continue
 		}
-
-		// Use a default parameter name for site authorization
-		// The actual parameter name is recorded during planning via RecordReference()
-		paramName := "value"
 
 		accessResults := accessMethod.Call([]reflect.Value{
 			reflect.ValueOf(exprID),
