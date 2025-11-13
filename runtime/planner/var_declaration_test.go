@@ -303,3 +303,68 @@ echo "Hello, @var.NAME"`
 	// SUCCESS
 	t.Logf("✓ Plan command contains DisplayID: %s", commandArg)
 }
+
+// TestVarUsage_FormattedPlanOutput tests that the formatted plan output
+// (what users see with --dry-run) contains DisplayID, not actual values.
+//
+// This verifies the end-to-end flow: parsing → planning → formatting
+//
+// Plan contract security:
+// - Command strings contain DisplayID: echo "Hello, opal:v:3J98t56A"
+// - Secret.RuntimeValue is NEVER serialized (runtime only, see plan.go:79)
+// - Only DisplayIDs are stored in the contract for scrubbing
+func TestVarUsage_FormattedPlanOutput(t *testing.T) {
+	source := `var NAME = "Aled"
+echo "Hello, @var.NAME"`
+
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	result, err := PlanWithObservability(tree.Events, tree.Tokens, Config{})
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	// Format the plan (simulates what CLI shows with --dry-run)
+	formatted := formatPlanForTest(result.Plan)
+	t.Logf("Formatted plan:\n%s", formatted)
+
+	// ASSERT: Formatted output contains DisplayID
+	if !strings.Contains(formatted, "opal:v:") {
+		t.Errorf("Formatted plan should contain DisplayID 'opal:v:', got:\n%s", formatted)
+	}
+
+	// ASSERT: Formatted output does NOT contain actual value
+	if strings.Contains(formatted, "Aled") {
+		t.Errorf("Formatted plan should NOT contain actual value 'Aled', got:\n%s", formatted)
+	}
+
+	t.Logf("✓ Formatted plan contains DisplayID, not actual value")
+}
+
+// formatPlanForTest formats a plan's steps for testing (simplified version)
+func formatPlanForTest(plan *planfmt.Plan) string {
+	var b strings.Builder
+	for _, step := range plan.Steps {
+		b.WriteString(formatStepForTest(step.Tree, 0))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func formatStepForTest(node planfmt.ExecutionNode, indent int) string {
+	switch n := node.(type) {
+	case *planfmt.CommandNode:
+		var args []string
+		for _, arg := range n.Args {
+			if arg.Key == "command" {
+				args = append(args, arg.Val.Str)
+			}
+		}
+		return strings.Repeat("  ", indent) + n.Decorator + " " + strings.Join(args, " ")
+	default:
+		return strings.Repeat("  ", indent) + "(unsupported node type)"
+	}
+}
