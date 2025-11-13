@@ -80,7 +80,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 				results[i] = decorator.ResolveResult{
 					Value:  nil,
 					Origin: fmt.Sprintf("var.%s", varName),
-					Error:  fmt.Errorf("LookupVariable returned unexpected error type: %T", lookupResults[1].Interface()),
+					Error:  fmt.Errorf("lookupVariable returned unexpected error type: %T", lookupResults[1].Interface()),
 				}
 				continue
 			}
@@ -98,7 +98,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 			results[i] = decorator.ResolveResult{
 				Value:  nil,
 				Origin: fmt.Sprintf("var.%s", varName),
-				Error:  fmt.Errorf("LookupVariable returned non-string exprID: %T", lookupResults[0].Interface()),
+				Error:  fmt.Errorf("lookupVariable returned non-string exprID: %T", lookupResults[0].Interface()),
 			}
 			continue
 		}
@@ -139,7 +139,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 				results[i] = decorator.ResolveResult{
 					Value:  nil,
 					Origin: fmt.Sprintf("var.%s", varName),
-					Error:  fmt.Errorf("RecordReference returned unexpected type: %T", recordResults[0].Interface()),
+					Error:  fmt.Errorf("recordReference returned unexpected type: %T", recordResults[0].Interface()),
 				}
 				continue
 			}
@@ -182,7 +182,7 @@ func (d *VarDecorator) Resolve(ctx decorator.ValueEvalContext, calls ...decorato
 				results[i] = decorator.ResolveResult{
 					Value:  nil,
 					Origin: fmt.Sprintf("var.%s", varName),
-					Error:  fmt.Errorf("Access returned unexpected error type: %T", accessResults[1].Interface()),
+					Error:  fmt.Errorf("access returned unexpected error type: %T", accessResults[1].Interface()),
 				}
 				continue
 			}
