@@ -288,8 +288,11 @@ func (p *planner) plan() (*planfmt.Plan, error) {
 		p.recordDebugEvent("enter_plan", "target="+p.config.Target)
 	}
 
-	// Create plan with random PlanSalt for security
+	// Create plan with PlanSalt from vault
+	// CRITICAL: plan.PlanSalt must equal vault.planKey for contract verification
+	// When re-planning with same PlanSalt, DisplayIDs will match (determinism)
 	plan := planfmt.NewPlan()
+	plan.PlanSalt = p.vault.GetPlanKey() // Override NewPlan's random salt
 	// Preserve header fields from NewPlan (schema UUID, CreatedAt, etc.)
 	plan.Header.PlanKind = 0 // View plan
 	plan.Target = p.config.Target

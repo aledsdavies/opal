@@ -634,6 +634,23 @@ func (v *Vault) IsResolved(exprID string) bool {
 	return exists && expr.Resolved
 }
 
+// GetPlanKey returns the plan key used for HMAC-based DisplayID generation.
+// This should be stored in plan.PlanSalt for contract verification.
+// Returns a copy to prevent external modification.
+func (v *Vault) GetPlanKey() []byte {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	if len(v.planKey) == 0 {
+		return nil
+	}
+
+	// Return a copy to prevent external modification
+	keyCopy := make([]byte, len(v.planKey))
+	copy(keyCopy, v.planKey)
+	return keyCopy
+}
+
 // checkTransportBoundary checks if expression can be used in current transport.
 func (v *Vault) checkTransportBoundary(exprID string) error {
 	// Get transport where expression was resolved
