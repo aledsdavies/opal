@@ -308,7 +308,7 @@ func TestVault_BuildSecretUses(t *testing.T) {
 	// Resolve expression (normally done during planning)
 	v.expressions[exprID].Value = "sk-secret"
 	v.expressions[exprID].Resolved = true
-	v.expressions[exprID].DisplayID = "opal:v:ABC123"
+	v.expressions[exprID].DisplayID = "opal:ABC123"
 
 	// Mark as touched (in execution path)
 	v.MarkTouched(exprID)
@@ -371,10 +371,10 @@ func TestVault_BuildSecretUses_OnlyTouched(t *testing.T) {
 	// Resolve both
 	v.expressions[id1].Value = "value1"
 	v.expressions[id1].Resolved = true
-	v.expressions[id1].DisplayID = "opal:v:AAA"
+	v.expressions[id1].DisplayID = "opal:AAA"
 	v.expressions[id2].Value = "value2"
 	v.expressions[id2].Resolved = true
-	v.expressions[id2].DisplayID = "opal:v:BBB"
+	v.expressions[id2].DisplayID = "opal:BBB"
 
 	// Mark only one as touched
 	v.MarkTouched(id1)
@@ -386,8 +386,8 @@ func TestVault_BuildSecretUses_OnlyTouched(t *testing.T) {
 	if len(uses) != 1 {
 		t.Fatalf("Expected 1 SecretUse, got %d", len(uses))
 	}
-	if uses[0].DisplayID != "opal:v:AAA" {
-		t.Errorf("Expected DisplayID opal:v:AAA, got %s", uses[0].DisplayID)
+	if uses[0].DisplayID != "opal:AAA" {
+		t.Errorf("Expected DisplayID opal:AAA, got %s", uses[0].DisplayID)
 	}
 }
 
@@ -612,12 +612,12 @@ func TestVault_EndToEnd_PruneAndBuild(t *testing.T) {
 	if v.expressions[id1] != nil {
 		v.expressions[id1].Value = "sk-used"
 		v.expressions[id1].Resolved = true
-		v.expressions[id1].DisplayID = "opal:v:AAA"
+		v.expressions[id1].DisplayID = "opal:AAA"
 	}
 	if v.expressions[id3] != nil {
 		v.expressions[id3].Value = "value"
 		v.expressions[id3].Resolved = true
-		v.expressions[id3].DisplayID = "opal:v:BBB"
+		v.expressions[id3].DisplayID = "opal:BBB"
 	}
 
 	// Mark as touched (in execution path)
@@ -894,8 +894,8 @@ func TestVault_SecretProvider_ResolvedExpression(t *testing.T) {
 		t.Errorf("Secret not replaced: %q", result)
 	}
 
-	// Should contain DisplayID (format: opal:v:...)
-	if !bytes.Contains(result, []byte("opal:v:")) {
+	// Should contain DisplayID (format: opal:...)
+	if !bytes.Contains(result, []byte("opal:")) {
 		t.Errorf("DisplayID not found in result: %q", result)
 	}
 }
@@ -927,7 +927,7 @@ func TestVault_SecretProvider_MultipleSecrets(t *testing.T) {
 	}
 
 	// Should contain DisplayIDs
-	if !bytes.Contains(result, []byte("opal:v:")) {
+	if !bytes.Contains(result, []byte("opal:")) {
 		t.Errorf("DisplayIDs not found in result: %q", result)
 	}
 }
@@ -956,7 +956,7 @@ func TestVault_SecretProvider_LongestFirst(t *testing.T) {
 	}
 
 	// Should have one DisplayID
-	count := bytes.Count(result, []byte("opal:v:"))
+	count := bytes.Count(result, []byte("opal:"))
 	if count != 1 {
 		t.Errorf("Expected 1 DisplayID, got %d in: %q", count, result)
 	}
@@ -1079,4 +1079,105 @@ func TestVault_SecretProvider_MaxSecretLength(t *testing.T) {
 	if got := provider.MaxSecretLength(); got != 84 {
 		t.Errorf("MaxSecretLength() = %d, want 84 (includes percent-encoded variant)", got)
 	}
+}
+
+// ========== Security Tests ==========
+
+// TestVault_DisplayID_Unlinkability tests that the same secret value
+// produces different DisplayIDs across different plans (unlinkability).
+//
+// Security requirement: DisplayIDs must be derived from per-plan salt
+// to prevent correlation of secrets across plans. If DisplayIDs were
+// derived only from the secret value, an attacker could correlate the
+// same secret across multiple plan executions.
+//
+// This test verifies the documented security model:
+// "DisplayIDs are derived from structure + per-plan salt + value hash"
+// "Same secret value in different plans → different DisplayIDs (unlinkability)"
+func TestVault_DisplayID_Unlinkability(t *testing.T) {
+	secretValue := "sk-secret-api-key-123"
+
+	// GIVEN: Two vaults with different plan keys (simulating different plans)
+	planKey1 := []byte("plan-key-1-32-bytes-for-hmac-123")
+	planKey2 := []byte("plan-key-2-32-bytes-for-hmac-456")
+
+	vault1 := NewWithPlanKey(planKey1)
+	vault2 := NewWithPlanKey(planKey2)
+
+	// WHEN: We declare and resolve the SAME secret value in both vaults
+	exprID1 := vault1.DeclareVariable("API_KEY", "literal:sk-secret-api-key-123")
+	vault1.MarkResolved(exprID1, secretValue)
+
+	exprID2 := vault2.DeclareVariable("API_KEY", "literal:sk-secret-api-key-123")
+	vault2.MarkResolved(exprID2, secretValue)
+
+	// THEN: DisplayIDs should be DIFFERENT (unlinkability)
+	displayID1 := vault1.GetDisplayID(exprID1)
+	displayID2 := vault2.GetDisplayID(exprID2)
+
+	if displayID1 == "" {
+		t.Fatal("vault1.GetDisplayID() returned empty string")
+	}
+	if displayID2 == "" {
+		t.Fatal("vault2.GetDisplayID() returned empty string")
+	}
+
+	if displayID1 == displayID2 {
+		t.Errorf("SECURITY BUG: Same secret value produced same DisplayID across different plans!\n"+
+			"  Plan 1 DisplayID: %s\n"+
+			"  Plan 2 DisplayID: %s\n"+
+			"This violates unlinkability - DisplayIDs must be derived from per-plan salt.\n"+
+			"An attacker can correlate secrets across plans by comparing DisplayIDs.",
+			displayID1, displayID2)
+	}
+
+	t.Logf("✓ Unlinkability verified:")
+	t.Logf("  Plan 1 DisplayID: %s", displayID1)
+	t.Logf("  Plan 2 DisplayID: %s", displayID2)
+	t.Logf("  Same secret value → different DisplayIDs (prevents correlation)")
+}
+
+// TestVault_DisplayID_Deterministic tests that the same secret value
+// in the SAME plan produces the SAME DisplayID (determinism).
+//
+// This is required for contract verification - if we re-plan with the
+// same PlanSalt, we should get the same DisplayIDs and thus the same
+// contract hash.
+func TestVault_DisplayID_Deterministic(t *testing.T) {
+	secretValue := "sk-secret-api-key-123"
+	planKey := []byte("plan-key-32-bytes-for-hmac-12345")
+
+	// GIVEN: Two vaults with the SAME plan key (simulating contract verification)
+	vault1 := NewWithPlanKey(planKey)
+	vault2 := NewWithPlanKey(planKey)
+
+	// WHEN: We declare and resolve the same secret in both vaults
+	exprID1 := vault1.DeclareVariable("API_KEY", "literal:sk-secret-api-key-123")
+	vault1.MarkResolved(exprID1, secretValue)
+
+	exprID2 := vault2.DeclareVariable("API_KEY", "literal:sk-secret-api-key-123")
+	vault2.MarkResolved(exprID2, secretValue)
+
+	// THEN: DisplayIDs should be IDENTICAL (determinism)
+	displayID1 := vault1.GetDisplayID(exprID1)
+	displayID2 := vault2.GetDisplayID(exprID2)
+
+	if displayID1 == "" {
+		t.Fatal("vault1.GetDisplayID() returned empty string")
+	}
+	if displayID2 == "" {
+		t.Fatal("vault2.GetDisplayID() returned empty string")
+	}
+
+	if displayID1 != displayID2 {
+		t.Errorf("Same plan key + same secret should produce same DisplayID\n"+
+			"  Vault 1 DisplayID: %s\n"+
+			"  Vault 2 DisplayID: %s\n"+
+			"This breaks contract verification - re-planning should produce same hash.",
+			displayID1, displayID2)
+	}
+
+	t.Logf("✓ Determinism verified:")
+	t.Logf("  DisplayID: %s", displayID1)
+	t.Logf("  Same plan key + same secret → same DisplayID (contract verification)")
 }

@@ -97,7 +97,7 @@ type Vault struct {
 type Expression struct {
 	Raw       string // Original source: "@var.X", "@aws.secret('key')", etc.
 	Value     any    // Resolved value (preserves original type: string, int, bool, map, slice)
-	DisplayID string // Placeholder ID for plan (e.g., "opal:v:3J98t56A")
+	DisplayID string // Placeholder ID for plan (e.g., "opal:3J98t56A")
 	Resolved  bool   // True if expression has been resolved (even if Value is nil)
 }
 
@@ -347,18 +347,17 @@ func (v *Vault) DeclareVariable(name, raw string) string {
 
 // declareVariableAt is the internal implementation for declaring variables at a specific scope.
 func (v *Vault) declareVariableAt(name, raw, scopePath string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	exprID := v.generateExprID(raw)
 
 	if _, exists := v.expressions[exprID]; !exists {
-		// Generate DisplayID from exprID hash (strip transport prefix)
-		// exprID format: "transport:hash" -> DisplayID format: "opal:v:hash"
-		parts := strings.SplitN(exprID, ":", 2)
-		hash := parts[1] // Extract hash part after transport prefix
-		displayID := fmt.Sprintf("opal:v:%s", hash)
-
+		// DisplayID will be generated in MarkResolved() when we have the actual value
+		// This ensures DisplayID = HMAC(planKey, value) for unlinkability
 		v.expressions[exprID] = &Expression{
 			Raw:       raw,
-			DisplayID: displayID,
+			DisplayID: "", // Empty until resolved
 		}
 	}
 
@@ -380,15 +379,11 @@ func (v *Vault) TrackExpression(raw string) string {
 
 	// Store expression if not already tracked
 	if _, exists := v.expressions[exprID]; !exists {
-		// Generate DisplayID from exprID hash (strip transport prefix)
-		// exprID format: "transport:hash" -> DisplayID format: "opal:v:hash"
-		parts := strings.SplitN(exprID, ":", 2)
-		hash := parts[1] // Extract hash part after transport prefix
-		displayID := fmt.Sprintf("opal:v:%s", hash)
-
+		// DisplayID will be generated in MarkResolved() when we have the actual value
+		// This ensures DisplayID = HMAC(planKey, value) for unlinkability
 		v.expressions[exprID] = &Expression{
 			Raw:       raw,
-			DisplayID: displayID,
+			DisplayID: "", // Empty until resolved
 		}
 	}
 
@@ -437,6 +432,29 @@ func (v *Vault) computeSiteID(canonicalPath string) string {
 
 	h := hmac.New(sha256.New, v.planKey)
 	h.Write([]byte(canonicalPath))
+	mac := h.Sum(nil)
+
+	// Truncate to 16 bytes and base64 encode
+	return base64.RawURLEncoding.EncodeToString(mac[:16])
+}
+
+// computeDisplayID generates a DisplayID from a resolved value using HMAC.
+// DisplayID = HMAC(planKey, value) ensures unlinkability across plans.
+// Same secret in different plans → different DisplayIDs (prevents correlation).
+// Same secret in same plan → same DisplayID (enables contract verification).
+func (v *Vault) computeDisplayID(value any) string {
+	if len(v.planKey) == 0 {
+		// No plan key set - use simple hash (tests without security)
+		// This maintains backward compatibility for tests that don't set planKey
+		h := sha256.New()
+		h.Write([]byte(fmt.Sprintf("%v", value)))
+		hash := h.Sum(nil)
+		return base64.RawURLEncoding.EncodeToString(hash[:16])
+	}
+
+	// Production: Use HMAC with planKey for unlinkability
+	h := hmac.New(sha256.New, v.planKey)
+	h.Write([]byte(fmt.Sprintf("%v", value)))
 	mac := h.Sum(nil)
 
 	// Truncate to 16 bytes and base64 encode
@@ -516,7 +534,7 @@ func (v *Vault) BuildSecretUses() []SecretUse {
 // SecretUse represents an authorized secret usage at a specific site.
 // This is what gets added to the Plan for executor enforcement.
 type SecretUse struct {
-	DisplayID string // "opal:v:3J98t56A"
+	DisplayID string // "opal:3J98t56A"
 	SiteID    string // HMAC-based unforgeable ID
 	Site      string // "root/step-1/@shell[0]/params/command" (diagnostic)
 }
@@ -588,6 +606,11 @@ func (v *Vault) MarkResolved(exprID string, value any) {
 	expr.Value = value
 	expr.Resolved = true
 	v.exprTransport[exprID] = v.currentTransport // CRITICAL: Capture transport NOW
+
+	// Generate DisplayID from value using HMAC(planKey, value)
+	// This ensures unlinkability: same secret in different plans → different DisplayIDs
+	hash := v.computeDisplayID(value)
+	expr.DisplayID = fmt.Sprintf("opal:%s", hash)
 }
 
 // GetDisplayID returns the placeholder ID for an expression.
@@ -612,6 +635,23 @@ func (v *Vault) IsResolved(exprID string) bool {
 
 	expr, exists := v.expressions[exprID]
 	return exists && expr.Resolved
+}
+
+// GetPlanKey returns the plan key used for HMAC-based DisplayID generation.
+// This should be stored in plan.PlanSalt for contract verification.
+// Returns a copy to prevent external modification.
+func (v *Vault) GetPlanKey() []byte {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	if len(v.planKey) == 0 {
+		return nil
+	}
+
+	// Return a copy to prevent external modification
+	keyCopy := make([]byte, len(v.planKey))
+	copy(keyCopy, v.planKey)
+	return keyCopy
 }
 
 // checkTransportBoundary checks if expression can be used in current transport.
