@@ -728,19 +728,36 @@ func (p *planner) planCommand() (Command, error) {
 	// POSTCONDITION: command must not be empty
 	invariant.Postcondition(command != "", "shell command must not be empty")
 
-	// TODO: THREE-PASS REFACTOR
-	// Pass 1: Store command AS-IS with @var.X syntax (no resolution yet)
-	// Pass 2: Resolve all variables (mark touched, get DisplayIDs)
-	// Pass 3: Interpolate - replace all @var.X with DisplayIDs
-	//
-	// For now, just store the command string as-is
-	commandValue := planfmt.Value{
-		Kind: planfmt.ValueString,
-		Str:  command,
-	}
+	// THREE-PASS MODEL:
+	// Pass 1: Command string stored AS-IS (already done above)
+	// Pass 2: Record decorator references (if command has @var.X)
+	// Pass 3: Interpolate - replace @var.X with DisplayIDs
 
-	// TODO: Record decorator references for Pass 2
-	_ = hasDecorator // Will use this to find @var.X patterns
+	var commandValue planfmt.Value
+
+	if hasDecorator {
+		// Pass 2: Find all @var.X, record references, mark touched
+		if err := p.recordDecoratorReferences(command); err != nil {
+			return Command{}, err
+		}
+
+		// Pass 3: Replace all @var.X with DisplayIDs
+		interpolated, err := p.interpolateCommand(command)
+		if err != nil {
+			return Command{}, err
+		}
+
+		commandValue = planfmt.Value{
+			Kind: planfmt.ValueString,
+			Str:  interpolated,
+		}
+	} else {
+		// No decorators - use command as-is
+		commandValue = planfmt.Value{
+			Kind: planfmt.ValueString,
+			Str:  command,
+		}
+	}
 
 	// Check for redirect operator after this command (> or >>)
 	var redirectTarget *Command
@@ -1379,4 +1396,114 @@ func (p *planner) parseDecoratorValue(varName string) (any, error) {
 	}
 
 	return result.Value, nil
+}
+
+// recordDecoratorReferences finds all @var.X patterns in command string,
+// records references in Vault, and marks them as touched.
+// This is Pass 2 - scanning for decorator usage.
+func (p *planner) recordDecoratorReferences(command string) error {
+	// Find all @var.NAME patterns
+	// Pattern: @var.IDENTIFIER where IDENTIFIER = [a-zA-Z_][a-zA-Z0-9_]*
+
+	i := 0
+	for i < len(command) {
+		// Find next @var.
+		idx := strings.Index(command[i:], "@var.")
+		if idx == -1 {
+			break // No more @var patterns
+		}
+
+		// Absolute position in command
+		pos := i + idx
+
+		// Extract variable name after @var.
+		varStart := pos + 5 // len("@var.")
+		varEnd := varStart
+		for varEnd < len(command) && (isAlphaNumeric(command[varEnd]) || command[varEnd] == '_') {
+			varEnd++
+		}
+
+		if varEnd == varStart {
+			return &PlanError{
+				Message: "invalid variable name in decorator",
+				Context: fmt.Sprintf("parsing @var at position %d", pos),
+			}
+		}
+
+		varName := command[varStart:varEnd]
+
+		// Lookup variable in Vault
+		exprID, err := p.vault.LookupVariable(varName)
+		if err != nil {
+			return fmt.Errorf("variable %q not found: %w", varName, err)
+		}
+
+		// Record reference (authorize this site)
+		if err := p.vault.RecordReference(exprID, "command"); err != nil {
+			return err
+		}
+
+		// Mark as touched (in execution path)
+		p.vault.MarkTouched(exprID)
+
+		// Move past this @var to find next one
+		i = varEnd
+	}
+
+	return nil
+}
+
+// interpolateCommand replaces ALL @var.X patterns with DisplayIDs.
+// This is Pass 3 - final interpolation.
+func (p *planner) interpolateCommand(command string) (string, error) {
+	result := command
+
+	// Find all @var.NAME patterns and replace with DisplayIDs
+	i := 0
+	offset := 0 // Track position shift due to replacements
+
+	for i < len(command) {
+		// Find next @var.
+		idx := strings.Index(command[i:], "@var.")
+		if idx == -1 {
+			break // No more @var patterns
+		}
+
+		// Absolute position in original command
+		pos := i + idx
+
+		// Extract variable name
+		varStart := pos + 5 // len("@var.")
+		varEnd := varStart
+		for varEnd < len(command) && (isAlphaNumeric(command[varEnd]) || command[varEnd] == '_') {
+			varEnd++
+		}
+
+		varName := command[varStart:varEnd]
+
+		// Lookup variable
+		exprID, err := p.vault.LookupVariable(varName)
+		if err != nil {
+			return "", fmt.Errorf("variable %q not found: %w", varName, err)
+		}
+
+		// Get DisplayID
+		displayID := p.vault.GetDisplayID(exprID)
+
+		// Replace @var.NAME with DisplayID in result string
+		// Account for offset from previous replacements
+		decoratorText := command[pos:varEnd]
+		resultPos := pos + offset
+		resultEnd := varEnd + offset
+
+		result = result[:resultPos] + displayID + result[resultEnd:]
+
+		// Update offset (DisplayID length - decorator length)
+		offset += len(displayID) - len(decoratorText)
+
+		// Move past this @var in original command
+		i = varEnd
+	}
+
+	return result, nil
 }
