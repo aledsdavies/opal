@@ -1181,3 +1181,48 @@ func TestVault_DisplayID_Deterministic(t *testing.T) {
 	t.Logf("  DisplayID: %s", displayID1)
 	t.Logf("  Same plan key + same secret → same DisplayID (contract verification)")
 }
+
+func TestVault_DisplayID_MapDeterminism(t *testing.T) {
+	// Test that map values produce deterministic DisplayIDs
+	// Maps have non-deterministic iteration order, but JSON marshaling sorts keys
+
+	planKey := []byte("test-plan-key-32-bytes-for-hmac!!")
+
+	// Create two vaults with same plan key
+	v1 := NewWithPlanKey(planKey)
+	v2 := NewWithPlanKey(planKey)
+
+	// Same map value (logically identical)
+	map1 := map[string]any{
+		"timeout": "5m",
+		"retries": "3",
+		"host":    "localhost",
+	}
+	map2 := map[string]any{
+		"retries": "3", // Different insertion order
+		"host":    "localhost",
+		"timeout": "5m",
+	}
+
+	// Resolve in both vaults
+	exprID1 := v1.DeclareVariable("CONFIG", "map-value")
+	v1.MarkResolved(exprID1, map1)
+	displayID1 := v1.GetDisplayID(exprID1)
+
+	exprID2 := v2.DeclareVariable("CONFIG", "map-value")
+	v2.MarkResolved(exprID2, map2)
+	displayID2 := v2.GetDisplayID(exprID2)
+
+	// Same logical map should produce same DisplayID (determinism)
+	if displayID1 != displayID2 {
+		t.Errorf("Same logical map should produce same DisplayID\n"+
+			"  Map 1 DisplayID: %s\n"+
+			"  Map 2 DisplayID: %s\n"+
+			"This breaks contract verification - maps must be deterministic.",
+			displayID1, displayID2)
+	}
+
+	t.Logf("✓ Map determinism verified:")
+	t.Logf("  DisplayID: %s", displayID1)
+	t.Logf("  Same logical map → same DisplayID (JSON canonicalization works)")
+}

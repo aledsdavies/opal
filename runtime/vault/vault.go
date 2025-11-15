@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -442,19 +443,38 @@ func (v *Vault) computeSiteID(canonicalPath string) string {
 // DisplayID = HMAC(planKey, value) ensures unlinkability across plans.
 // Same secret in different plans → different DisplayIDs (prevents correlation).
 // Same secret in same plan → same DisplayID (enables contract verification).
+//
+// CRITICAL: Uses canonical JSON encoding for determinism.
+// Maps have non-deterministic iteration order in Go, so we use JSON with sorted keys
+// to ensure the same logical value always produces the same DisplayID.
 func (v *Vault) computeDisplayID(value any) string {
+	// Canonicalize value to deterministic byte representation
+	var canonical []byte
+
+	switch v := value.(type) {
+	case string:
+		// Strings are already deterministic
+		canonical = []byte(v)
+	default:
+		// For maps, slices, and other types: use canonical JSON (sorted keys)
+		// This ensures deterministic serialization regardless of map iteration order
+		var err error
+		canonical, err = json.Marshal(value)
+		invariant.Invariant(err == nil, "computeDisplayID: failed to marshal value to JSON: %v", err)
+	}
+
 	if len(v.planKey) == 0 {
 		// No plan key set - use simple hash (tests without security)
 		// This maintains backward compatibility for tests that don't set planKey
 		h := sha256.New()
-		h.Write([]byte(fmt.Sprintf("%v", value)))
+		h.Write(canonical)
 		hash := h.Sum(nil)
 		return base64.RawURLEncoding.EncodeToString(hash[:16])
 	}
 
 	// Production: Use HMAC with planKey for unlinkability
 	h := hmac.New(sha256.New, v.planKey)
-	h.Write([]byte(fmt.Sprintf("%v", value)))
+	h.Write(canonical)
 	mac := h.Sum(nil)
 
 	// Truncate to 16 bytes and base64 encode
