@@ -35,6 +35,9 @@ import (
 	"github.com/aledsdavies/opal/runtime/parser"
 	"github.com/aledsdavies/opal/runtime/vault"
 	"github.com/lithammer/fuzzysearch/fuzzy"
+
+	// Import decorator registry so parser can detect @var.X patterns
+	_ "github.com/aledsdavies/opal/runtime/decorators"
 )
 
 // Command represents a single decorator invocation during planning (internal type).
@@ -1402,6 +1405,10 @@ func (p *planner) parseDecoratorValue(varName string) (any, error) {
 // records references in Vault, and marks them as touched.
 // This is Pass 2 - scanning for decorator usage.
 func (p *planner) recordDecoratorReferences(command string) error {
+	if p.config.Debug >= DebugDetailed {
+		p.recordDebugEvent("recordDecoratorReferences", fmt.Sprintf("command=%s", command))
+	}
+
 	// Find all @var.NAME patterns
 	// Pattern: @var.IDENTIFIER where IDENTIFIER = [a-zA-Z_][a-zA-Z0-9_]*
 
