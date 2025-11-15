@@ -350,15 +350,11 @@ func (v *Vault) declareVariableAt(name, raw, scopePath string) string {
 	exprID := v.generateExprID(raw)
 
 	if _, exists := v.expressions[exprID]; !exists {
-		// Generate DisplayID from exprID hash (strip transport prefix)
-		// exprID format: "transport:hash" -> DisplayID format: "opal:hash"
-		parts := strings.SplitN(exprID, ":", 2)
-		hash := parts[1] // Extract hash part after transport prefix
-		displayID := fmt.Sprintf("opal:%s", hash)
-
+		// DisplayID will be generated in MarkResolved() when we have the actual value
+		// This ensures DisplayID = HMAC(planKey, value) for unlinkability
 		v.expressions[exprID] = &Expression{
 			Raw:       raw,
-			DisplayID: displayID,
+			DisplayID: "", // Empty until resolved
 		}
 	}
 
@@ -380,15 +376,11 @@ func (v *Vault) TrackExpression(raw string) string {
 
 	// Store expression if not already tracked
 	if _, exists := v.expressions[exprID]; !exists {
-		// Generate DisplayID from exprID hash (strip transport prefix)
-		// exprID format: "transport:hash" -> DisplayID format: "opal:hash"
-		parts := strings.SplitN(exprID, ":", 2)
-		hash := parts[1] // Extract hash part after transport prefix
-		displayID := fmt.Sprintf("opal:%s", hash)
-
+		// DisplayID will be generated in MarkResolved() when we have the actual value
+		// This ensures DisplayID = HMAC(planKey, value) for unlinkability
 		v.expressions[exprID] = &Expression{
 			Raw:       raw,
-			DisplayID: displayID,
+			DisplayID: "", // Empty until resolved
 		}
 	}
 
@@ -437,6 +429,29 @@ func (v *Vault) computeSiteID(canonicalPath string) string {
 
 	h := hmac.New(sha256.New, v.planKey)
 	h.Write([]byte(canonicalPath))
+	mac := h.Sum(nil)
+
+	// Truncate to 16 bytes and base64 encode
+	return base64.RawURLEncoding.EncodeToString(mac[:16])
+}
+
+// computeDisplayID generates a DisplayID from a resolved value using HMAC.
+// DisplayID = HMAC(planKey, value) ensures unlinkability across plans.
+// Same secret in different plans → different DisplayIDs (prevents correlation).
+// Same secret in same plan → same DisplayID (enables contract verification).
+func (v *Vault) computeDisplayID(value any) string {
+	if len(v.planKey) == 0 {
+		// No plan key set - use simple hash (tests without security)
+		// This maintains backward compatibility for tests that don't set planKey
+		h := sha256.New()
+		h.Write([]byte(fmt.Sprintf("%v", value)))
+		hash := h.Sum(nil)
+		return base64.RawURLEncoding.EncodeToString(hash[:16])
+	}
+
+	// Production: Use HMAC with planKey for unlinkability
+	h := hmac.New(sha256.New, v.planKey)
+	h.Write([]byte(fmt.Sprintf("%v", value)))
 	mac := h.Sum(nil)
 
 	// Truncate to 16 bytes and base64 encode
@@ -588,6 +603,11 @@ func (v *Vault) MarkResolved(exprID string, value any) {
 	expr.Value = value
 	expr.Resolved = true
 	v.exprTransport[exprID] = v.currentTransport // CRITICAL: Capture transport NOW
+
+	// Generate DisplayID from value using HMAC(planKey, value)
+	// This ensures unlinkability: same secret in different plans → different DisplayIDs
+	hash := v.computeDisplayID(value)
+	expr.DisplayID = fmt.Sprintf("opal:%s", hash)
 }
 
 // GetDisplayID returns the placeholder ID for an expression.
