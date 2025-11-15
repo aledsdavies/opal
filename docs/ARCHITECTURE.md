@@ -1350,7 +1350,7 @@ var API_KEY = "sk-secret"
 **Plan contains SecretUse:**
 ```go
 SecretUse{
-    DisplayID: "opal:v:ABC123",
+    DisplayID: "opal:ABC123",
     SiteID:    "Xj9K...",  // HMAC(planKey, "root/retry[0]/params/apiKey")
     Site:      "root/retry[0]/params/apiKey",
 }
@@ -1596,7 +1596,7 @@ type Vault struct {
 type Expression struct {
     Raw       string // "@env.HOME", "@aws.secret('key')"
     Value     string // Resolved value
-    DisplayID string // "opal:v:3J98t56A"
+    DisplayID string // "opal:3J98t56A"
     Resolved  bool   // True if resolved
 }
 
@@ -2798,12 +2798,12 @@ var RETRY_COUNT = "3"
 ```go
 Plan.SecretUses = []SecretUse{
     {
-        DisplayID: "opal:v:ABC123",  // API_KEY
+        DisplayID: "opal:ABC123",  // API_KEY
         SiteID:    "Xj9K...",         // HMAC(planKey, "root/http.post[0]/params/headers/Authorization")
         Site:      "root/http.post[0]/params/headers/Authorization",  // Path to object field
     },
     {
-        DisplayID: "opal:v:XYZ789",  // RETRY_COUNT
+        DisplayID: "opal:XYZ789",  // RETRY_COUNT
         SiteID:    "mN2p...",         // HMAC(planKey, "root/retry[0]/params/times")
         Site:      "root/retry[0]/params/times",
     },
@@ -2822,7 +2822,7 @@ var LOCAL_SECRET = "secret"
 
 ```go
 SecretUse{
-    DisplayID:        "opal:v:DEF456",
+    DisplayID:        "opal:DEF456",
     SiteID:           "pQ8r...",
     Site:             "root/ssh.connect[0]/body/shell[0]",
     CrossesTransport: true,
@@ -2842,7 +2842,7 @@ SecretUse{
 
 If someone writes `@retry(times=@var.API_KEY)`, that's a bug in their code. The planner will:
 1. Record that `times` parameter uses `API_KEY` secret
-2. Store DisplayID in plan: `times: "opal:v:ABC123"`
+2. Store DisplayID in plan: `times: "opal:ABC123"`
 3. At execution, @retry tries to parse as integer, fails with clear error showing DisplayID
 
 The security model prevents @retry from unwrapping the secret, but it can't prevent users from passing secrets to wrong parameters.
@@ -2902,35 +2902,9 @@ func (e *Executor) DeliverSecret(cmd *exec.Cmd, secret string) error {
 ```go
 // Plan tracks where secrets are used with canonical site IDs
 type SecretUse struct {
-    DisplayID string  // "opal:v:3J98t56A"
+    DisplayID string  // "opal:3J98t56A"
     SiteID    string  // HMAC(planHash, canonicalPath) - unforgeable
     Site      string  // "root/retry[0]/params/times" or "root/http.post[0]/params/headers/Authorization"
-}
-
-// Path format: root/[@decorator[index]/]*/params/paramName[/objectField]*
-// Examples:
-//   - Simple param: "root/@retry[0]/params/times"
-//   - Object field: "root/@http.post[0]/params/headers/Authorization"
-//   - Nested: "root/@retry[0]/@timeout[0]/@shell[0]/params/command"
-//   - Array element: "root/@parallel[0]/tasks[2]/params/name"
-
-// Planner records each use with canonical site ID
-func (p *Planner) recordSecretUse(displayID, stepID, paramName string) {
-    canonicalPath := fmt.Sprintf("%s/params/%s", stepID, paramName)
-    siteID := p.computeSiteID(canonicalPath)  // HMAC-based, unforgeable
-    
-    p.plan.SecretUses = append(p.plan.SecretUses, SecretUse{
-        DisplayID: displayID,
-        SiteID:    siteID,
-        Site:      canonicalPath,  // For debugging only
-    })
-}
-
-// Canonical site ID prevents forgery and refactor brittleness
-func (p *Planner) computeSiteID(canonicalPath string) string {
-    h := hmac.New(sha256.New, p.planKey)
-    h.Write([]byte(canonicalPath))
-    return base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:16])
 }
 ```
 
@@ -3199,7 +3173,7 @@ func (d *MyDecorator) Execute(params map[string]any) {
 
 // ✅ GOOD: Decorator gets DisplayIDs only
 func (d *Decorator) Execute(params map[string]string) {
-    displayID := params["apiKey"]  // Just a string "opal:v:3J98t56A"
+    displayID := params["apiKey"]  // Just a string "opal:3J98t56A"
 }
 ```
 

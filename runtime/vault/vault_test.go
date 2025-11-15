@@ -308,7 +308,7 @@ func TestVault_BuildSecretUses(t *testing.T) {
 	// Resolve expression (normally done during planning)
 	v.expressions[exprID].Value = "sk-secret"
 	v.expressions[exprID].Resolved = true
-	v.expressions[exprID].DisplayID = "opal:v:ABC123"
+	v.expressions[exprID].DisplayID = "opal:ABC123"
 
 	// Mark as touched (in execution path)
 	v.MarkTouched(exprID)
@@ -371,10 +371,10 @@ func TestVault_BuildSecretUses_OnlyTouched(t *testing.T) {
 	// Resolve both
 	v.expressions[id1].Value = "value1"
 	v.expressions[id1].Resolved = true
-	v.expressions[id1].DisplayID = "opal:v:AAA"
+	v.expressions[id1].DisplayID = "opal:AAA"
 	v.expressions[id2].Value = "value2"
 	v.expressions[id2].Resolved = true
-	v.expressions[id2].DisplayID = "opal:v:BBB"
+	v.expressions[id2].DisplayID = "opal:BBB"
 
 	// Mark only one as touched
 	v.MarkTouched(id1)
@@ -386,8 +386,8 @@ func TestVault_BuildSecretUses_OnlyTouched(t *testing.T) {
 	if len(uses) != 1 {
 		t.Fatalf("Expected 1 SecretUse, got %d", len(uses))
 	}
-	if uses[0].DisplayID != "opal:v:AAA" {
-		t.Errorf("Expected DisplayID opal:v:AAA, got %s", uses[0].DisplayID)
+	if uses[0].DisplayID != "opal:AAA" {
+		t.Errorf("Expected DisplayID opal:AAA, got %s", uses[0].DisplayID)
 	}
 }
 
@@ -612,12 +612,12 @@ func TestVault_EndToEnd_PruneAndBuild(t *testing.T) {
 	if v.expressions[id1] != nil {
 		v.expressions[id1].Value = "sk-used"
 		v.expressions[id1].Resolved = true
-		v.expressions[id1].DisplayID = "opal:v:AAA"
+		v.expressions[id1].DisplayID = "opal:AAA"
 	}
 	if v.expressions[id3] != nil {
 		v.expressions[id3].Value = "value"
 		v.expressions[id3].Resolved = true
-		v.expressions[id3].DisplayID = "opal:v:BBB"
+		v.expressions[id3].DisplayID = "opal:BBB"
 	}
 
 	// Mark as touched (in execution path)
@@ -894,8 +894,8 @@ func TestVault_SecretProvider_ResolvedExpression(t *testing.T) {
 		t.Errorf("Secret not replaced: %q", result)
 	}
 
-	// Should contain DisplayID (format: opal:v:...)
-	if !bytes.Contains(result, []byte("opal:v:")) {
+	// Should contain DisplayID (format: opal:...)
+	if !bytes.Contains(result, []byte("opal:")) {
 		t.Errorf("DisplayID not found in result: %q", result)
 	}
 }
@@ -927,7 +927,7 @@ func TestVault_SecretProvider_MultipleSecrets(t *testing.T) {
 	}
 
 	// Should contain DisplayIDs
-	if !bytes.Contains(result, []byte("opal:v:")) {
+	if !bytes.Contains(result, []byte("opal:")) {
 		t.Errorf("DisplayIDs not found in result: %q", result)
 	}
 }
@@ -956,7 +956,7 @@ func TestVault_SecretProvider_LongestFirst(t *testing.T) {
 	}
 
 	// Should have one DisplayID
-	count := bytes.Count(result, []byte("opal:v:"))
+	count := bytes.Count(result, []byte("opal:"))
 	if count != 1 {
 		t.Errorf("Expected 1 DisplayID, got %d in: %q", count, result)
 	}

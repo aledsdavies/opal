@@ -1115,8 +1115,8 @@ echo @var.HOME
 	secretUse := plan.SecretUses[0]
 
 	// ASSERT: SecretUse has DisplayID with correct prefix
-	if !strings.HasPrefix(secretUse.DisplayID, "opal:v:") {
-		t.Errorf("Expected DisplayID prefix opal:v:, got %s", secretUse.DisplayID)
+	if !strings.HasPrefix(secretUse.DisplayID, "opal:") {
+		t.Errorf("Expected DisplayID prefix opal:, got %s", secretUse.DisplayID)
 	}
 
 	// ASSERT: SecretUse has SiteID (HMAC-based authorization)
@@ -1163,7 +1163,7 @@ echo @var.HOME
 	}
 
 	// ASSERT: Command uses string with DisplayID embedded (Phase 5)
-	// Plan should show: echo opal:v:XXXXX
+	// Plan should show: echo opal:XXXXX
 	// NOT: echo /home/alice
 	if commandArg.Val.Kind != planfmt.ValueString {
 		t.Errorf("Expected ValueString, got %v", commandArg.Val.Kind)
@@ -1172,8 +1172,8 @@ echo @var.HOME
 	commandStr := commandArg.Val.Str
 
 	// ASSERT: Command contains DisplayID placeholder
-	if !strings.Contains(commandStr, "opal:v:") {
-		t.Errorf("Expected command to contain DisplayID 'opal:v:', got: %s", commandStr)
+	if !strings.Contains(commandStr, "opal:") {
+		t.Errorf("Expected command to contain DisplayID 'opal:', got: %s", commandStr)
 	}
 
 	// ASSERT: Command does NOT contain actual value

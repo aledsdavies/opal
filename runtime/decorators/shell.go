@@ -55,12 +55,12 @@ func (n *shellNode) Execute(ctx decorator.ExecContext) (decorator.Result, error)
 
 	// INVARIANT: Command must not contain unresolved DisplayIDs
 	// DisplayIDs should be resolved to actual values before execution
-	// Format: opal:<type>:<hash> where type = v (value), s (secret), st (step), pl (plan)
+	// Format: opal:<hash> (all values are secrets in our security model)
 	// If this fails, it means the executor didn't resolve DisplayIDs from the plan
 	if strings.Contains(command, "opal:") {
 		panic(fmt.Sprintf("INVARIANT VIOLATION: Command contains unresolved DisplayID: %s\n"+
 			"DisplayIDs must be resolved to actual values before execution.\n"+
-			"Format: opal:<type>:<hash> where type = v (value), s (secret), st (step), pl (plan)\n"+
+			"Format: opal:<hash> (all values are secrets)\n"+
 			"This indicates the executor is not resolving secrets from the plan.", command))
 	}
 

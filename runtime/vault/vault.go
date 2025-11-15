@@ -97,7 +97,7 @@ type Vault struct {
 type Expression struct {
 	Raw       string // Original source: "@var.X", "@aws.secret('key')", etc.
 	Value     any    // Resolved value (preserves original type: string, int, bool, map, slice)
-	DisplayID string // Placeholder ID for plan (e.g., "opal:v:3J98t56A")
+	DisplayID string // Placeholder ID for plan (e.g., "opal:3J98t56A")
 	Resolved  bool   // True if expression has been resolved (even if Value is nil)
 }
 
@@ -351,10 +351,10 @@ func (v *Vault) declareVariableAt(name, raw, scopePath string) string {
 
 	if _, exists := v.expressions[exprID]; !exists {
 		// Generate DisplayID from exprID hash (strip transport prefix)
-		// exprID format: "transport:hash" -> DisplayID format: "opal:v:hash"
+		// exprID format: "transport:hash" -> DisplayID format: "opal:hash"
 		parts := strings.SplitN(exprID, ":", 2)
 		hash := parts[1] // Extract hash part after transport prefix
-		displayID := fmt.Sprintf("opal:v:%s", hash)
+		displayID := fmt.Sprintf("opal:%s", hash)
 
 		v.expressions[exprID] = &Expression{
 			Raw:       raw,
@@ -381,10 +381,10 @@ func (v *Vault) TrackExpression(raw string) string {
 	// Store expression if not already tracked
 	if _, exists := v.expressions[exprID]; !exists {
 		// Generate DisplayID from exprID hash (strip transport prefix)
-		// exprID format: "transport:hash" -> DisplayID format: "opal:v:hash"
+		// exprID format: "transport:hash" -> DisplayID format: "opal:hash"
 		parts := strings.SplitN(exprID, ":", 2)
 		hash := parts[1] // Extract hash part after transport prefix
-		displayID := fmt.Sprintf("opal:v:%s", hash)
+		displayID := fmt.Sprintf("opal:%s", hash)
 
 		v.expressions[exprID] = &Expression{
 			Raw:       raw,
@@ -516,7 +516,7 @@ func (v *Vault) BuildSecretUses() []SecretUse {
 // SecretUse represents an authorized secret usage at a specific site.
 // This is what gets added to the Plan for executor enforcement.
 type SecretUse struct {
-	DisplayID string // "opal:v:3J98t56A"
+	DisplayID string // "opal:3J98t56A"
 	SiteID    string // HMAC-based unforgeable ID
 	Site      string // "root/step-1/@shell[0]/params/command" (diagnostic)
 }
