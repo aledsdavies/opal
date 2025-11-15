@@ -1199,8 +1199,8 @@ echo "@var.NAME"`
 		t.Fatalf("Parse errors: %v", tree.Errors)
 	}
 
-	// Create vault with known planKey
-	planKey := []byte("test-plan-key-32-bytes-for-hmac")
+	// Create vault with known planKey (must be exactly 32 bytes)
+	planKey := []byte("test-plan-key-32-bytes-for-hmac!")
 	vlt := vault.NewWithPlanKey(planKey)
 
 	// Plan with this vault
@@ -1404,4 +1404,53 @@ echo "@var.NAME"`
 	t.Logf("✓ Random PlanSalt generation works")
 	t.Logf("  Plan1 PlanSalt: %x", plan1.PlanSalt)
 	t.Logf("  Plan2 PlanSalt: %x", plan2.PlanSalt)
+}
+
+func TestPlanSalt_VaultWithoutPlanKey_PreservesRandomSalt(t *testing.T) {
+	// Test that when vault has no plan key (GetPlanKey() returns nil),
+	// the planner preserves NewPlan()'s random 32-byte salt instead of overwriting with nil
+
+	source := `var NAME = "test"`
+
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	// Create vault WITHOUT plan key (like Mode 4 verification might do)
+	vlt := vault.New() // No plan key set
+
+	result, err := planner.PlanWithObservability(tree.Events, tree.Tokens, planner.Config{
+		Vault: vlt, // Provide vault without plan key
+	})
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	plan := result.Plan
+
+	// CRITICAL: PlanSalt must be 32 bytes (from NewPlan's random generation)
+	// NOT nil (from vault.GetPlanKey())
+	if len(plan.PlanSalt) != 32 {
+		t.Errorf("PlanSalt should be 32 bytes (random from NewPlan), got %d bytes", len(plan.PlanSalt))
+	}
+
+	if plan.PlanSalt == nil {
+		t.Error("PlanSalt should not be nil (should preserve NewPlan's random salt)")
+	}
+
+	// Verify it's actually random (not all zeros)
+	allZeros := true
+	for _, b := range plan.PlanSalt {
+		if b != 0 {
+			allZeros = false
+			break
+		}
+	}
+	if allZeros {
+		t.Error("PlanSalt should be random, not all zeros")
+	}
+
+	t.Logf("✓ Vault without plan key preserves random PlanSalt")
+	t.Logf("  PlanSalt: %x", plan.PlanSalt)
 }

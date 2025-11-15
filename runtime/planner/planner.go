@@ -292,7 +292,18 @@ func (p *planner) plan() (*planfmt.Plan, error) {
 	// CRITICAL: plan.PlanSalt must equal vault.planKey for contract verification
 	// When re-planning with same PlanSalt, DisplayIDs will match (determinism)
 	plan := planfmt.NewPlan()
-	plan.PlanSalt = p.vault.GetPlanKey() // Override NewPlan's random salt
+
+	// Override PlanSalt only if vault has a valid plan key
+	// Otherwise preserve NewPlan's random 32-byte salt (for Mode 4 compatibility)
+	vaultKey := p.vault.GetPlanKey()
+	if vaultKey != nil {
+		// Vault has plan key - use it for contract verification
+		invariant.Invariant(len(vaultKey) == 32,
+			"vault plan key must be 32 bytes, got %d", len(vaultKey))
+		plan.PlanSalt = vaultKey
+	}
+	// If vaultKey is nil, keep NewPlan's random salt (already 32 bytes)
+
 	// Preserve header fields from NewPlan (schema UUID, CreatedAt, etc.)
 	plan.Header.PlanKind = 0 // View plan
 	plan.Target = p.config.Target
