@@ -1,5 +1,15 @@
 // Package planner converts parser events into execution plans.
 //
+// # Decorator Registry Requirement
+//
+// IMPORTANT: Callers must import the decorator registry for the parser to detect
+// decorator patterns like @var.X, @env.X, etc. Without the registry, the parser
+// won't emit NodeDecorator events and interpolation will be skipped.
+//
+// Import in your main package or test files:
+//
+//	import _ "github.com/aledsdavies/opal/runtime/decorators"
+//
 // # Contract Stability
 //
 // Plans are function-scoped by design. When planning a target function, only that
@@ -35,9 +45,6 @@ import (
 	"github.com/aledsdavies/opal/runtime/parser"
 	"github.com/aledsdavies/opal/runtime/vault"
 	"github.com/lithammer/fuzzysearch/fuzzy"
-
-	// Import decorator registry so parser can detect @var.X patterns
-	_ "github.com/aledsdavies/opal/runtime/decorators"
 )
 
 // Command represents a single decorator invocation during planning (internal type).
