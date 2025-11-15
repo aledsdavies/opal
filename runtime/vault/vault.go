@@ -347,6 +347,9 @@ func (v *Vault) DeclareVariable(name, raw string) string {
 
 // declareVariableAt is the internal implementation for declaring variables at a specific scope.
 func (v *Vault) declareVariableAt(name, raw, scopePath string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	exprID := v.generateExprID(raw)
 
 	if _, exists := v.expressions[exprID]; !exists {
