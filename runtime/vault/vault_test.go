@@ -1226,3 +1226,45 @@ func TestVault_DisplayID_MapDeterminism(t *testing.T) {
 	t.Logf("  DisplayID: %s", displayID1)
 	t.Logf("  Same logical map → same DisplayID (JSON canonicalization works)")
 }
+
+func TestVault_DisplayID_ByteSliceConsistency(t *testing.T) {
+	// Test that []byte values use same representation for DisplayID and scrubbing
+	// Bug: DisplayID uses json.Marshal (base64), scrubbing uses fmt.Sprintf (bracketed ints)
+
+	planKey := []byte("test-plan-key-32-bytes-for-hmac!!")
+	v := NewWithPlanKey(planKey)
+
+	// Resolve a []byte value
+	byteValue := []byte("secret-bytes")
+	exprID := v.DeclareVariable("BYTES", "byte-value")
+	v.MarkResolved(exprID, byteValue)
+	v.MarkTouched(exprID)
+
+	// Get scrubbing patterns
+	patterns := v.getPatterns()
+	if len(patterns) != 1 {
+		t.Fatalf("Expected 1 pattern, got %d", len(patterns))
+	}
+
+	pattern := patterns[0]
+
+	// CRITICAL: Pattern value should be the raw bytes, not JSON-marshaled
+	// Currently BROKEN:
+	//   - DisplayID computed from json.Marshal([]byte("secret")) = base64 string
+	//   - Pattern value from fmt.Sprintf("%v", []byte("secret")) = "[115 101 99...]"
+	// These don't match, so scrubbing won't work!
+
+	expectedPattern := byteValue // Should be raw bytes
+	if !bytes.Equal(pattern.Value, expectedPattern) {
+		t.Errorf("Pattern value mismatch - scrubbing won't work!\n"+
+			"  Pattern value:     %q (fmt.Sprintf)\n"+
+			"  Expected:          %q (raw bytes)\n"+
+			"  Original []byte:   %q\n"+
+			"DisplayID and scrubbing must use same representation.",
+			string(pattern.Value), string(expectedPattern), string(byteValue))
+	}
+
+	t.Logf("✓ []byte consistency verified:")
+	t.Logf("  Pattern value: %q", string(pattern.Value))
+	t.Logf("  Uses raw byte representation (not JSON-marshaled)")
+}

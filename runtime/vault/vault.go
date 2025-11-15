@@ -455,6 +455,11 @@ func (v *Vault) computeDisplayID(value any) string {
 	case string:
 		// Strings are already deterministic
 		canonical = []byte(v)
+	case []byte:
+		// Byte slices: use raw bytes directly (not JSON-marshaled)
+		// CRITICAL: Must match fmt.Sprintf("%v", []byte) used in getPatterns()
+		// for scrubbing to work correctly
+		canonical = v
 	default:
 		// For maps, slices, and other types: use canonical JSON (sorted keys)
 		// This ensures deterministic serialization regardless of map iteration order
@@ -773,15 +778,32 @@ func (v *Vault) getPatterns() []streamscrub.Pattern {
 			continue
 		}
 
-		// Convert value to string for pattern matching
-		// Skip nil values and empty strings
-		valueStr := fmt.Sprintf("%v", expr.Value)
-		if valueStr == "" || valueStr == "<nil>" {
+		// Convert value to bytes for pattern matching
+		// CRITICAL: Must use same representation as computeDisplayID()
+		var valueBytes []byte
+		switch v := expr.Value.(type) {
+		case string:
+			valueBytes = []byte(v)
+		case []byte:
+			// Use raw bytes directly (matches computeDisplayID)
+			valueBytes = v
+		case nil:
+			continue // Skip nil values
+		default:
+			// For other types, use fmt.Sprintf (matches JSON marshal in computeDisplayID)
+			valueStr := fmt.Sprintf("%v", v)
+			if valueStr == "" || valueStr == "<nil>" {
+				continue
+			}
+			valueBytes = []byte(valueStr)
+		}
+
+		if len(valueBytes) == 0 {
 			continue
 		}
 
 		patterns = append(patterns, streamscrub.Pattern{
-			Value:       []byte(valueStr),
+			Value:       valueBytes,
 			Placeholder: []byte(expr.DisplayID),
 		})
 	}
