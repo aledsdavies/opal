@@ -975,17 +975,6 @@ func (p *planner) planCommand() (Command, error) {
 	return cmd, nil
 }
 
-// TODO: THREE-PASS REFACTOR - DELETE THIS FUNCTION
-// This function is fundamentally broken:
-// 1. Only handles ONE variable (strings.Index finds first, strings.Replace replaces once)
-// 2. Hardcoded to @var. only (can't support @env, @aws.secret, etc.)
-// 3. Immediate resolution prevents deferred evaluation for meta-programming
-//
-// DELETED - Will be replaced by:
-// - Pass 1: recordDecoratorReferences() - find all @var.X, record refs, mark touched
-// - Pass 2: resolveWaves() - resolve all touched variables
-// - Pass 3: interpolateCommand() - replace ALL @var.X with DisplayIDs
-
 // isAlphaNumeric checks if a byte is alphanumeric
 func isAlphaNumeric(ch byte) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
@@ -1461,8 +1450,20 @@ func (p *planner) parseDecoratorValue(varName string) (any, error) {
 }
 
 // buildCommandIR tokenizes a command string into CommandIR with captured exprIDs.
+//
+// CommandIR solves the variable shadowing problem by capturing exprIDs at parse time.
+// Without this, Pass 3 would do fresh variable lookups and find the wrong values:
+//
+//	var COUNT = "5"
+//	echo "@var.COUNT"   # Should use "5"
+//	var COUNT = "10"
+//	echo "@var.COUNT"   # Should use "10"
+//
+// If Pass 3 did fresh lookups, both echoes would find COUNT="10" (latest declaration).
+// CommandIR preserves temporal binding: each @var.COUNT captures the exprID that was
+// in scope when that specific command was parsed.
+//
 // This is Pass 2 - builds IR, captures exprIDs, validates (hoisting check), marks touched.
-// The captured exprIDs preserve temporal binding for correct shadowing behavior.
 func (p *planner) buildCommandIR(command string) (*CommandIR, error) {
 	if p.config.Debug >= DebugDetailed {
 		p.recordDebugEvent("buildCommandIR", fmt.Sprintf("command=%s", command))
@@ -1549,7 +1550,11 @@ func (p *planner) buildCommandIR(command string) (*CommandIR, error) {
 }
 
 // interpolateCommandIR converts CommandIR to final string with DisplayIDs.
-// This is Pass 3 - uses captured exprIDs from Pass 2, NO variable lookup.
+//
+// Uses captured exprIDs from Pass 2 instead of doing fresh variable lookups.
+// This preserves temporal binding and prevents shadowing bugs (see buildCommandIR).
+//
+// This is Pass 3 - final interpolation after all expressions are resolved.
 func (p *planner) interpolateCommandIR(ir *CommandIR) string {
 	var result strings.Builder
 	for _, part := range ir.Parts {

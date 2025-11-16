@@ -89,10 +89,12 @@ type executor struct {
 }
 
 // Execute runs SDK steps and returns the result.
-// The executor only sees SDK types - it has no knowledge of planfmt.
-// Secret scrubbing is handled by the CLI (stdout/stderr already locked down).
-// Context is used for cancellation and timeout propagation.
-// vault is optional - if provided, DisplayIDs in commands will be resolved to actual values.
+//
+// The executor resolves DisplayIDs to actual values during execution when vault is provided.
+// Without vault, commands execute as-is (useful for testing or non-secret workflows).
+//
+// Context enables cancellation and timeout propagation through the execution chain.
+// The CLI handles secret scrubbing by redirecting stdout/stderr through the scrubber.
 func Execute(ctx context.Context, steps []sdk.Step, config Config, vlt *vault.Vault) (*ExecutionResult, error) {
 	// INPUT CONTRACT (preconditions)
 	invariant.NotNil(ctx, "ctx")
@@ -188,14 +190,18 @@ func Execute(ctx context.Context, steps []sdk.Step, config Config, vlt *vault.Va
 	}, nil
 }
 
-// executeStep executes a single step by executing its tree
+// executeStep executes a single step by executing its tree.
+//
+// Site context matching: During planning, the planner records variable references
+// at site paths like "root/step-1/params/command". During execution, we must push
+// the same step context so AccessByDisplayID() can verify authorization at the
+// matching site. Without this, all authorization checks would fail.
 func (e *executor) executeStep(execCtx sdk.ExecutionContext, step sdk.Step) int {
 	// INPUT CONTRACT
 	invariant.NotNil(execCtx, "execCtx")
 	invariant.Precondition(step.Tree != nil, "step must have a tree")
 
-	// Push step context to vault for site path matching (if vault available)
-	// This ensures AccessByDisplayID uses same site path as RecordReference during planning
+	// Push step context to vault for site path matching
 	if e.vault != nil {
 		stepName := fmt.Sprintf("step-%d", step.ID)
 		e.vault.ResetCounts() // Reset decorator indices for new step
@@ -447,8 +453,16 @@ func (e *executor) executeCommandWithPipes(execCtx sdk.ExecutionContext, cmd *sd
 }
 
 // resolveDisplayIDs scans params for DisplayID strings and resolves them to actual values.
-// DisplayID format: opal:<base64url-hash> (22 chars)
-// This is called during execution to replace DisplayID placeholders with actual secret values.
+//
+// DisplayIDs are content-addressed placeholders (format: opal:<base64url-hash>) that appear
+// in the plan instead of actual secret values. This enables:
+//   - Plan contracts to be stored/transmitted without exposing secrets
+//   - Contract verification without re-resolving secrets
+//   - Deterministic hashing for contract stability
+//
+// During execution, we resolve DisplayIDs back to actual values just before passing
+// params to decorators. The vault enforces site-based authorization to prevent
+// unauthorized access.
 func (e *executor) resolveDisplayIDs(params map[string]any, decoratorName string) (map[string]any, error) {
 	// Import regexp here since we need it
 	displayIDPattern := regexp.MustCompile(`opal:[A-Za-z0-9_-]{22}`)
