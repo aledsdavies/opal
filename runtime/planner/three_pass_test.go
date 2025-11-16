@@ -40,7 +40,6 @@ var COUNT = "5"
 	_, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Plan should not error: %v", err)
 	}
@@ -74,7 +73,6 @@ echo "@var.COUNT"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error: %v", err)
 	}

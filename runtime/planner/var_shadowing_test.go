@@ -50,7 +50,6 @@ echo "@var.COUNT"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error on same-level override: %v", err)
 	}
@@ -113,7 +112,6 @@ echo "@var.COUNT"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error on multiple overrides: %v", err)
 	}
@@ -149,7 +147,6 @@ echo "@var.ANOTHER"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error: %v", err)
 	}
@@ -201,7 +198,6 @@ echo "@var.COUNT"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error: %v", err)
 	}
@@ -250,7 +246,6 @@ echo "@var.COUNT"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error: %v", err)
 	}
@@ -284,7 +279,6 @@ echo "@var.COUNT"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error: %v", err)
 	}
@@ -337,7 +331,6 @@ echo "@var.NAME"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error: %v", err)
 	}
@@ -399,7 +392,6 @@ echo "@var.COUNT"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should not error: %v", err)
 	}

@@ -353,7 +353,7 @@ func runCommand(cmd *cobra.Command, commandName, file string, dryRun, resolve, d
 	result, err := executor.Execute(ctx, steps, executor.Config{
 		Debug:     execDebug,
 		Telemetry: telemetryLevel,
-	})
+	}, vlt)
 	if err != nil {
 		return 1, fmt.Errorf("execution failed: %w", err)
 	}
@@ -591,7 +591,7 @@ func runFromPlan(planFile, sourceFile string, debug, noColor bool, vlt *vault.Va
 	result, err := executor.Execute(ctx, steps, executor.Config{
 		Debug:     execDebug,
 		Telemetry: executor.TelemetryBasic,
-	})
+	}, vlt)
 	if err != nil {
 		return 1, fmt.Errorf("execution failed: %w", err)
 	}
