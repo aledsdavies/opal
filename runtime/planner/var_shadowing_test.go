@@ -379,6 +379,64 @@ echo "@var.NAME"
 	}
 }
 
+func TestVarShadowing_CommandsHaveDifferentDisplayIDs(t *testing.T) {
+	// CRITICAL TEST: Verify that commands actually use different DisplayIDs
+	// This test will FAIL if Pass 3 does a fresh LookupVariable() instead of using captured exprIDs
+
+	source := []byte(`
+var COUNT = "5"
+echo "@var.COUNT"
+var COUNT = "10"
+echo "@var.COUNT"
+`)
+
+	tree := parser.Parse(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	vlt := vault.NewWithPlanKey(make([]byte, 32))
+	plan, err := Plan(tree.Events, tree.Tokens, Config{
+		Vault: vlt,
+	})
+
+	if err != nil {
+		t.Fatalf("Should not error: %v", err)
+	}
+
+	if plan == nil {
+		t.Fatal("Plan should not be nil")
+	}
+
+	// Should have 2 steps
+	if len(plan.Steps) != 2 {
+		t.Fatalf("Expected 2 steps, got %d", len(plan.Steps))
+	}
+
+	// Extract the actual command strings
+	cmd1 := getCommandArg(plan.Steps[0].Tree, "command")
+	cmd2 := getCommandArg(plan.Steps[1].Tree, "command")
+
+	t.Logf("First command:  %s", cmd1)
+	t.Logf("Second command: %s", cmd2)
+
+	// The commands should be DIFFERENT (different DisplayIDs)
+	if cmd1 == cmd2 {
+		t.Errorf("❌ BUG: Both commands have the same DisplayID!")
+		t.Errorf("   This means Pass 3 is doing a fresh LookupVariable() instead of using captured exprIDs")
+		t.Errorf("   Both commands: %s", cmd1)
+		t.Errorf("   Expected: First should use DisplayID for '5', second should use DisplayID for '10'")
+	}
+
+	// Verify both contain DisplayIDs
+	if !containsDisplayID(cmd1) {
+		t.Errorf("First command should contain DisplayID, got: %s", cmd1)
+	}
+	if !containsDisplayID(cmd2) {
+		t.Errorf("Second command should contain DisplayID, got: %s", cmd2)
+	}
+}
+
 // ========== Helper Functions ==========
 
 func containsDisplayID(s string) bool {

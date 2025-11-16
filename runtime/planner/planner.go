@@ -321,6 +321,11 @@ func (p *planner) plan() (*planfmt.Plan, error) {
 	// Enables batching efficiency: decorators can batch API calls (e.g., multiple @aws.secret)
 	p.vault.ResolveAllTouched()
 
+	// Pass 3: Interpolate - replace all @var.X with DisplayIDs
+	if err := p.interpolateAllCommands(plan.Steps); err != nil {
+		return nil, err
+	}
+
 	// Build SecretUses from Vault (authorization list for contract verification)
 	// This populates the plan with DisplayID → SiteID mappings for each variable usage.
 	// Same DisplayID can appear multiple times (different usage sites).
@@ -746,27 +751,17 @@ func (p *planner) planCommand() (Command, error) {
 	var commandValue planfmt.Value
 
 	if hasDecorator {
-		// Pass 2: Find all @var.X, record references, mark touched
+		// Pass 1: Record decorator references (find all @var.X, mark touched)
 		if err := p.recordDecoratorReferences(command); err != nil {
 			return Command{}, err
 		}
+	}
 
-		// Pass 3: Replace all @var.X with DisplayIDs
-		interpolated, err := p.interpolateCommand(command)
-		if err != nil {
-			return Command{}, err
-		}
-
-		commandValue = planfmt.Value{
-			Kind: planfmt.ValueString,
-			Str:  interpolated,
-		}
-	} else {
-		// No decorators - use command as-is
-		commandValue = planfmt.Value{
-			Kind: planfmt.ValueString,
-			Str:  command,
-		}
+	// Store raw command string (with @var.X syntax)
+	// Interpolation happens in Pass 3 after resolution
+	commandValue = planfmt.Value{
+		Kind: planfmt.ValueString,
+		Str:  command,
 	}
 
 	// Check for redirect operator after this command (> or >>)
@@ -1446,7 +1441,7 @@ func (p *planner) recordDecoratorReferences(command string) error {
 
 		varName := command[varStart:varEnd]
 
-		// Lookup variable in Vault
+		// Lookup variable in Vault (captures exprID at this point in time)
 		exprID, err := p.vault.LookupVariable(varName)
 		if err != nil {
 			return fmt.Errorf("variable %q not found: %w", varName, err)
@@ -1459,6 +1454,9 @@ func (p *planner) recordDecoratorReferences(command string) error {
 
 		// Mark as touched (in execution path)
 		p.vault.MarkTouched(exprID)
+
+		// TODO: Need to preserve exprID for Pass 3 interpolation
+		// Currently interpolateCommand() does a fresh lookup which breaks shadowing
 
 		// Move past this @var to find next one
 		i = varEnd
@@ -1520,4 +1518,84 @@ func (p *planner) interpolateCommand(command string) (string, error) {
 	}
 
 	return result, nil
+}
+
+// interpolateAllCommands walks all steps and interpolates commands (Pass 3).
+// Replaces all @var.X patterns with DisplayIDs after resolution completes.
+func (p *planner) interpolateAllCommands(steps []planfmt.Step) error {
+	for i := range steps {
+		if err := p.interpolateStepTree(&steps[i].Tree); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// interpolateStepTree recursively walks an execution tree and interpolates all command strings.
+func (p *planner) interpolateStepTree(node *planfmt.ExecutionNode) error {
+	if node == nil || *node == nil {
+		return nil
+	}
+
+	switch n := (*node).(type) {
+	case *planfmt.CommandNode:
+		// Interpolate the command argument
+		for i := range n.Args {
+			if n.Args[i].Key == "command" && n.Args[i].Val.Kind == planfmt.ValueString {
+				interpolated, err := p.interpolateCommand(n.Args[i].Val.Str)
+				if err != nil {
+					return err
+				}
+				n.Args[i].Val.Str = interpolated
+			}
+		}
+		// Recursively interpolate nested blocks
+		for i := range n.Block {
+			if err := p.interpolateStepTree(&n.Block[i].Tree); err != nil {
+				return err
+			}
+		}
+
+	case *planfmt.PipelineNode:
+		for i := range n.Commands {
+			if err := p.interpolateStepTree(&n.Commands[i]); err != nil {
+				return err
+			}
+		}
+
+	case *planfmt.AndNode:
+		if err := p.interpolateStepTree(&n.Left); err != nil {
+			return err
+		}
+		if err := p.interpolateStepTree(&n.Right); err != nil {
+			return err
+		}
+
+	case *planfmt.OrNode:
+		if err := p.interpolateStepTree(&n.Left); err != nil {
+			return err
+		}
+		if err := p.interpolateStepTree(&n.Right); err != nil {
+			return err
+		}
+
+	case *planfmt.SequenceNode:
+		for i := range n.Nodes {
+			if err := p.interpolateStepTree(&n.Nodes[i]); err != nil {
+				return err
+			}
+		}
+
+	case *planfmt.RedirectNode:
+		if err := p.interpolateStepTree(&n.Source); err != nil {
+			return err
+		}
+		// Target is a CommandNode, convert to ExecutionNode
+		var targetNode planfmt.ExecutionNode = &n.Target
+		if err := p.interpolateStepTree(&targetNode); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
