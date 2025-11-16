@@ -195,7 +195,6 @@ func TestPluginSecurity_MultipleDecorators_IndependentAuthorization(t *testing.T
 	// After authorization, @timeout can access
 	v.RecordReference(exprID, "duration")
 	value, err = v.Access(exprID, "duration")
-
 	if err != nil {
 		t.Errorf("@timeout should access after authorization, got error: %v", err)
 	}
