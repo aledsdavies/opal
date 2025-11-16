@@ -359,6 +359,10 @@ func (p *planner) plan() (*planfmt.Plan, error) {
 		return nil, err
 	}
 
+	// Prune untouched expressions (declared but never used)
+	// Saves API calls and reduces secrets in plan
+	p.vault.PruneUntouched()
+
 	// Build SecretUses from Vault (authorization list for contract verification)
 	// This populates the plan with DisplayID → SiteID mappings for each variable usage.
 	// Same DisplayID can appear multiple times (different usage sites).
