@@ -59,6 +59,30 @@ type Command struct {
 	RedirectTarget *Command       // For redirect operators, the target decorator (nil otherwise)
 }
 
+// CommandPartKind identifies the type of a command part
+type CommandPartKind int
+
+const (
+	PartLiteral CommandPartKind = iota // Literal text (e.g., "echo ", "foo")
+	PartVarRef                         // Variable reference with captured exprID
+)
+
+// CommandPart represents a piece of a command string
+// Commands are tokenized into parts during Pass 2 to preserve temporal binding of variables to exprIDs.
+type CommandPart struct {
+	Kind   CommandPartKind // Type of this part
+	Text   string          // For PartLiteral: the literal text
+	ExprID string          // For PartVarRef: the captured exprID from Pass 2
+}
+
+// CommandIR is the intermediate representation of a command with captured exprIDs.
+// Built during Pass 2, used during Pass 3 for interpolation.
+// This preserves temporal binding: each @var.X usage captures the exprID that was in scope
+// at the time the command was parsed, preventing shadowing bugs.
+type CommandIR struct {
+	Parts []CommandPart // Sequence of literals and variable references
+}
+
 // Config configures the planner
 type Config struct {
 	Target    string           // Command name (e.g., "hello") or "" for script mode
@@ -197,16 +221,18 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 	}
 
 	p := &planner{
-		events:      events,
-		tokens:      tokens,
-		config:      config,
-		pos:         0,
-		stepID:      1,
-		vault:       vlt,                         // Scope-aware variable storage (shared or new)
-		session:     decorator.NewLocalSession(), // Session for decorator resolution
-		idFactory:   idFactory,                   // For placeholder generation
-		telemetry:   telemetry,
-		debugEvents: debugEvents,
+		events:        events,
+		tokens:        tokens,
+		config:        config,
+		pos:           0,
+		stepID:        1,
+		vault:         vlt,                         // Scope-aware variable storage (shared or new)
+		session:       decorator.NewLocalSession(), // Session for decorator resolution
+		idFactory:     idFactory,                   // For placeholder generation
+		commandIRs:    make(map[uint64]*CommandIR), // CommandIR storage (Pass 1 → Pass 3)
+		nextCommandID: 1,
+		telemetry:     telemetry,
+		debugEvents:   debugEvents,
 	}
 
 	plan, err := p.plan()
@@ -244,6 +270,12 @@ type planner struct {
 
 	// Placeholder generation (for deterministic IDs in plan mode)
 	idFactory secret.IDFactory // For generating deterministic placeholder IDs
+
+	// CommandIR storage (Pass 1 → Pass 3)
+	// Maps unique command IDs to their tokenized representation with captured exprIDs
+	// Each command gets a unique ID during Pass 1 to handle shadowing correctly
+	commandIRs    map[uint64]*CommandIR
+	nextCommandID uint64
 
 	// Observability
 	telemetry   *PlanTelemetry
@@ -318,10 +350,11 @@ func (p *planner) plan() (*planfmt.Plan, error) {
 	}
 
 	// Pass 2: Resolve - mark all touched expressions as resolved
+	// CommandIRs were already built during Pass 1 (in planCommand)
 	// Enables batching efficiency: decorators can batch API calls (e.g., multiple @aws.secret)
 	p.vault.ResolveAllTouched()
 
-	// Pass 3: Interpolate - replace all @var.X with DisplayIDs
+	// Pass 3: Interpolate - replace all @var.X with DisplayIDs using CommandIRs
 	if err := p.interpolateAllCommands(plan.Steps); err != nil {
 		return nil, err
 	}
@@ -744,22 +777,27 @@ func (p *planner) planCommand() (Command, error) {
 	invariant.Postcondition(command != "", "shell command must not be empty")
 
 	// THREE-PASS MODEL:
-	// Pass 1: Command string stored AS-IS (already done above)
-	// Pass 2: Record decorator references (if command has @var.X)
-	// Pass 3: Interpolate - replace @var.X with DisplayIDs
+	// Pass 1: Build CommandIR NOW (capture exprIDs at this point in time)
+	// Pass 2: Resolve all touched expressions
+	// Pass 3: Interpolate using CommandIR (uses captured exprIDs)
 
-	var commandValue planfmt.Value
+	// Assign unique ID to this command instance
+	commandID := p.nextCommandID
+	p.nextCommandID++
 
+	// Build CommandIR if command has decorators (captures exprIDs NOW)
 	if hasDecorator {
-		// Pass 1: Record decorator references (find all @var.X, mark touched)
-		if err := p.recordDecoratorReferences(command); err != nil {
+		ir, err := p.buildCommandIR(command)
+		if err != nil {
 			return Command{}, err
 		}
+		// Store CommandIR with unique ID for Pass 3
+		p.commandIRs[commandID] = ir
 	}
 
-	// Store raw command string (with @var.X syntax)
-	// Interpolation happens in Pass 3 after resolution
-	commandValue = planfmt.Value{
+	// Store raw command string for now (will be interpolated in Pass 3)
+	// Also store command ID so Pass 3 can look up the CommandIR
+	commandValue := planfmt.Value{
 		Kind: planfmt.ValueString,
 		Str:  command,
 	}
@@ -895,14 +933,29 @@ func (p *planner) planCommand() (Command, error) {
 		}
 	}
 
-	cmd := Command{
-		Decorator: "@shell",
-		Args: []planfmt.Arg{
-			{
-				Key: "command",
-				Val: commandValue,
+	// Build Args with command and internal commandID (must be sorted alphabetically)
+	args := []planfmt.Arg{}
+
+	// Add internal __commandID for Pass 3 interpolation lookup (comes first alphabetically)
+	if hasDecorator {
+		args = append(args, planfmt.Arg{
+			Key: "__commandID",
+			Val: planfmt.Value{
+				Kind: planfmt.ValueInt,
+				Int:  int64(commandID),
 			},
-		},
+		})
+	}
+
+	// Add command argument
+	args = append(args, planfmt.Arg{
+		Key: "command",
+		Val: commandValue,
+	})
+
+	cmd := Command{
+		Decorator:      "@shell",
+		Args:           args,
 		Operator:       operator,
 		RedirectMode:   redirectMode,
 		RedirectTarget: redirectTarget,
@@ -1465,8 +1518,114 @@ func (p *planner) recordDecoratorReferences(command string) error {
 	return nil
 }
 
+// buildCommandIR tokenizes a command string into CommandIR with captured exprIDs.
+// This is Pass 2 - builds IR, captures exprIDs, validates (hoisting check), marks touched.
+// The captured exprIDs preserve temporal binding for correct shadowing behavior.
+func (p *planner) buildCommandIR(command string) (*CommandIR, error) {
+	if p.config.Debug >= DebugDetailed {
+		p.recordDebugEvent("buildCommandIR", fmt.Sprintf("command=%s", command))
+	}
+
+	ir := &CommandIR{
+		Parts: make([]CommandPart, 0),
+	}
+
+	// Parse command into parts (literals and variable references)
+	i := 0
+	for i < len(command) {
+		// Find next @var.
+		idx := strings.Index(command[i:], "@var.")
+		if idx == -1 {
+			// No more @var patterns - rest is literal
+			if i < len(command) {
+				ir.Parts = append(ir.Parts, CommandPart{
+					Kind: PartLiteral,
+					Text: command[i:],
+				})
+			}
+			break
+		}
+
+		// Absolute position in command
+		pos := i + idx
+
+		// Add literal part before @var (if any)
+		if pos > i {
+			ir.Parts = append(ir.Parts, CommandPart{
+				Kind: PartLiteral,
+				Text: command[i:pos],
+			})
+		}
+
+		// Extract variable name after @var.
+		varStart := pos + 5 // len("@var.")
+		varEnd := varStart
+		for varEnd < len(command) && (isAlphaNumeric(command[varEnd]) || command[varEnd] == '_') {
+			varEnd++
+		}
+
+		if varEnd == varStart {
+			return nil, &PlanError{
+				Message: "invalid variable name in decorator",
+				Context: fmt.Sprintf("parsing @var at position %d", pos),
+			}
+		}
+
+		varName := command[varStart:varEnd]
+
+		// Lookup variable in Vault (captures exprID at this point in time)
+		// This is where hoisting validation happens - if variable not declared yet, error
+		exprID, err := p.vault.LookupVariable(varName)
+		if err != nil {
+			return nil, fmt.Errorf("variable %q not found: %w", varName, err)
+		}
+
+		// DEBUG: Log captured exprID
+		if p.config.Debug >= DebugDetailed {
+			p.recordDebugEvent("buildCommandIR", fmt.Sprintf("captured exprID=%s for var=%s in command=%s", exprID, varName, command))
+		}
+
+		// Record reference (authorize this site)
+		if err := p.vault.RecordReference(exprID, "command"); err != nil {
+			return nil, err
+		}
+
+		// Mark as touched (in execution path)
+		p.vault.MarkTouched(exprID)
+
+		// Add variable reference part with CAPTURED exprID
+		ir.Parts = append(ir.Parts, CommandPart{
+			Kind:   PartVarRef,
+			ExprID: exprID, // Temporal binding preserved!
+		})
+
+		// Move past this @var
+		i = varEnd
+	}
+
+	return ir, nil
+}
+
+// interpolateCommandIR converts CommandIR to final string with DisplayIDs.
+// This is Pass 3 - uses captured exprIDs from Pass 2, NO variable lookup.
+func (p *planner) interpolateCommandIR(ir *CommandIR) string {
+	var result strings.Builder
+	for _, part := range ir.Parts {
+		switch part.Kind {
+		case PartLiteral:
+			result.WriteString(part.Text)
+		case PartVarRef:
+			// Use captured exprID - NO lookup needed!
+			displayID := p.vault.GetDisplayID(part.ExprID)
+			result.WriteString(displayID)
+		}
+	}
+	return result.String()
+}
+
 // interpolateCommand replaces ALL @var.X patterns with DisplayIDs.
 // This is Pass 3 - final interpolation.
+// DEPRECATED: Use buildCommandIR() + interpolateCommandIR() instead.
 func (p *planner) interpolateCommand(command string) (string, error) {
 	result := command
 
@@ -1539,14 +1698,27 @@ func (p *planner) interpolateStepTree(node *planfmt.ExecutionNode) error {
 
 	switch n := (*node).(type) {
 	case *planfmt.CommandNode:
-		// Interpolate the command argument
+		// Interpolate the command argument using CommandIR
+		var commandID uint64
+		var commandArgIdx int = -1
+
+		// Find command arg and commandID
 		for i := range n.Args {
-			if n.Args[i].Key == "command" && n.Args[i].Val.Kind == planfmt.ValueString {
-				interpolated, err := p.interpolateCommand(n.Args[i].Val.Str)
-				if err != nil {
-					return err
-				}
-				n.Args[i].Val.Str = interpolated
+			if n.Args[i].Key == "command" {
+				commandArgIdx = i
+			}
+			if n.Args[i].Key == "__commandID" && n.Args[i].Val.Kind == planfmt.ValueInt {
+				commandID = uint64(n.Args[i].Val.Int)
+			}
+		}
+
+		// If we have a commandID, look up CommandIR and interpolate
+		if commandID > 0 && commandArgIdx >= 0 {
+			ir, ok := p.commandIRs[commandID]
+			if ok {
+				// Interpolate using CommandIR (uses captured exprIDs, no lookup)
+				interpolated := p.interpolateCommandIR(ir)
+				n.Args[commandArgIdx].Val.Str = interpolated
 			}
 		}
 		// Recursively interpolate nested blocks
