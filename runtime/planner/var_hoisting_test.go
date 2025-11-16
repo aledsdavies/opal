@@ -61,7 +61,6 @@ echo "@var.NAME"
 	plan, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should work when variable declared before use, got error: %v", err)
 	}
@@ -211,7 +210,6 @@ echo "@var.SECOND"
 	_, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should work when variables declared before use, got error: %v", err)
 	}
@@ -235,7 +233,6 @@ echo "@var.NAME"
 	_, err := Plan(tree.Events, tree.Tokens, Config{
 		Vault: vlt,
 	})
-
 	if err != nil {
 		t.Fatalf("Should work when variable declared in earlier step, got error: %v", err)
 	}
