@@ -600,8 +600,55 @@ func (v *Vault) CurrentTransport() string {
 	return v.currentTransport
 }
 
-// MarkResolved marks an expression as resolved and captures its transport.
-// This MUST be called when an expression is resolved (e.g., @env.HOME → "/home/user").
+// ResolveAllTouched marks all touched expressions as resolved and generates DisplayIDs.
+// Enables batching efficiency: decorators can batch multiple API calls (e.g., @aws.secret).
+func (v *Vault) ResolveAllTouched() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	for exprID := range v.touched {
+		expr, exists := v.expressions[exprID]
+		if !exists {
+			continue
+		}
+
+		if expr.Resolved {
+			continue
+		}
+
+		invariant.Invariant(expr.Value != nil,
+			"ResolveAllTouched: expression %q is touched but has no value stored", exprID)
+
+		// Inline MarkResolved logic to avoid mutex deadlock
+		expr.Resolved = true
+		v.exprTransport[exprID] = v.currentTransport
+
+		hash := v.computeDisplayID(expr.Value)
+		expr.DisplayID = fmt.Sprintf("opal:%s", hash)
+	}
+}
+
+// StoreUnresolvedValue stores a parsed value without marking it resolved.
+// Enables deferred resolution for batching efficiency (multiple @aws.secret calls batched into one API request).
+// No-op if value already stored (expression deduplication).
+func (v *Vault) StoreUnresolvedValue(exprID string, value any) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	expr, exists := v.expressions[exprID]
+	invariant.Precondition(exists, "StoreUnresolvedValue: expression %q not found", exprID)
+
+	if expr.Value != nil {
+		return
+	}
+
+	expr.Value = value
+}
+
+// MarkResolved marks an expression as resolved and captures transport context.
+// Transport must be captured at resolution time, not at first reference.
+// Otherwise a local @env secret accessed in an @ssh block would incorrectly capture transport as "ssh:*".
+
 // The transport is captured at resolution time, not at first reference.
 //
 // This is critical for security: transport must be set when the value is resolved,
@@ -620,17 +667,15 @@ func (v *Vault) MarkResolved(exprID string, value any) {
 
 	expr.Value = value
 	expr.Resolved = true
-	v.exprTransport[exprID] = v.currentTransport // CRITICAL: Capture transport NOW
+	v.exprTransport[exprID] = v.currentTransport
 
-	// Generate DisplayID from value using HMAC(planKey, value)
-	// This ensures unlinkability: same secret in different plans → different DisplayIDs
+	// HMAC ensures unlinkability: same secret in different plans gets different DisplayIDs
 	hash := v.computeDisplayID(value)
 	expr.DisplayID = fmt.Sprintf("opal:%s", hash)
 }
 
 // GetDisplayID returns the placeholder ID for an expression.
-// Safe to call - returns only the DisplayID, not the actual secret value.
-// Returns empty string if expression doesn't exist or isn't resolved.
+// Safe to call because it returns only the DisplayID, not the actual secret value.
 func (v *Vault) GetDisplayID(exprID string) string {
 	v.mu.RLock()
 	defer v.mu.RUnlock()

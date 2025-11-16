@@ -302,7 +302,7 @@ func (p *planner) plan() (*planfmt.Plan, error) {
 	plan.Target = p.config.Target
 	plan.Steps = []planfmt.Step{}
 
-	// Command mode: find target function
+	// Pass 1: Scan - build complete execution graph
 	if p.config.Target != "" {
 		steps, err := p.planTargetFunction()
 		if err != nil {
@@ -310,13 +310,16 @@ func (p *planner) plan() (*planfmt.Plan, error) {
 		}
 		plan.Steps = steps
 	} else {
-		// Script mode: plan all top-level commands
 		steps, err := p.planSource()
 		if err != nil {
 			return nil, err
 		}
 		plan.Steps = steps
 	}
+
+	// Pass 2: Resolve - mark all touched expressions as resolved
+	// Enables batching efficiency: decorators can batch API calls (e.g., multiple @aws.secret)
+	p.vault.ResolveAllTouched()
 
 	// Build SecretUses from Vault (authorization list for contract verification)
 	// This populates the plan with DisplayID → SiteID mappings for each variable usage.
@@ -658,23 +661,13 @@ func (p *planner) planVarDecl() error {
 		return err
 	}
 
-	// Declare variable in current variable scope
-	// Variable scope excludes step segments (steps are not scopes)
-	// Only root and decorator blocks create variable scopes
+	// Variable scope excludes step segments because steps are not scopes
 	rawExpr := fmt.Sprintf("literal:%v", value)
 	exprID := p.vault.DeclareVariable(varName, rawExpr)
 
-	// Mark as resolved only if not already resolved (expression deduplication)
-	// Multiple variables can share the same literal value (same exprID via hash-based deduplication)
-	// Only the first declaration resolves the expression; subsequent ones reuse it
-	if !p.vault.IsResolved(exprID) {
-		// First time this literal is resolved
-		// Pass original value to preserve type (string, int, bool, map, slice)
-		p.vault.MarkResolved(exprID, value)
-	}
-	// Note: If already resolved, we reuse the existing resolved value
-	// For literals, the value should always match (same source → same value)
-	// If there's a mismatch, it indicates a bug in the parser/planner
+	// Store value for deferred resolution to enable batching efficiency
+	// Preserves original type (string, int, bool, map, slice)
+	p.vault.StoreUnresolvedValue(exprID, value)
 
 	// Record telemetry
 	p.recordDecoratorResolution("@var")
