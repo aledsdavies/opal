@@ -662,54 +662,43 @@ func (p *planner) planFunctionBody() ([]planfmt.Step, error) {
 		evt := p.events[p.pos]
 
 		if evt.Kind == parser.EventStepEnter {
-			// Found a step boundary - plan the entire step
-			// Scope is already active if inside decorator block
+			// Check if this step contains a decorator block
+			savedPos := p.pos
+			p.pos++
+
+			hasDecoratorBlock := false
+			decoratorName := ""
+
+			if p.pos < len(p.events) {
+				nextEvt := p.events[p.pos]
+				if nextEvt.Kind == parser.EventOpen && parser.NodeKind(nextEvt.Data) == parser.NodeDecorator {
+					hasDecoratorBlock, decoratorName = p.checkDecoratorBlock()
+				}
+			}
+
+			p.pos = savedPos
+
+			if hasDecoratorBlock {
+				err := p.processDecoratorBlock(decoratorName, &steps)
+				if err != nil {
+					return nil, err
+				}
+				continue
+			}
+
+			// Normal step
 			step, err := p.planStep()
 			if err != nil {
 				return nil, err
 			}
-			// Skip steps with only var declarations (ID=0 is sentinel)
 			if step.ID != 0 {
 				steps = append(steps, step)
 			}
-			// planStep already advanced p.pos past EventStepExit, so continue
 			continue
 		} else if evt.Kind == parser.EventOpen {
-			// Check for decorator block entry
-			if hasBlock, decoratorName := p.checkDecoratorBlock(); hasBlock {
-				// Enter decorator block scope
-				currentDepth := p.currentEventDepth()
-				p.vault.Push(decoratorName)
-				p.decoratorStack = append(p.decoratorStack, decoratorBlockContext{
-					name:       decoratorName,
-					startDepth: currentDepth,
-				})
-
-				if p.config.Debug >= DebugDetailed {
-					p.recordDebugEvent("decorator_block_enter",
-						fmt.Sprintf("name=%s depth=%d", decoratorName, currentDepth))
-				}
-			}
 			depth++
 		} else if evt.Kind == parser.EventClose {
 			depth--
-
-			// Check for decorator block exit
-			if len(p.decoratorStack) > 0 {
-				currentDepth := p.currentEventDepth()
-				topBlock := p.decoratorStack[len(p.decoratorStack)-1]
-
-				// If we're closing the decorator block, pop scope
-				if currentDepth == topBlock.startDepth {
-					p.vault.Pop()
-					p.decoratorStack = p.decoratorStack[:len(p.decoratorStack)-1]
-
-					if p.config.Debug >= DebugDetailed {
-						p.recordDebugEvent("decorator_block_exit",
-							fmt.Sprintf("name=%s depth=%d", topBlock.name, currentDepth))
-					}
-				}
-			}
 		}
 
 		p.pos++

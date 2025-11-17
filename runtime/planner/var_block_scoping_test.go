@@ -464,6 +464,67 @@ echo "@var.A @var.B"
 
 // ========== Stress Tests ==========
 
+// TestVarBlockScoping_InFunction tests that decorator blocks work in functions.
+func TestVarBlockScoping_InFunction(t *testing.T) {
+	source := `
+fun test {
+    var COUNT = "5"
+    @retry {
+        var COUNT = "3"
+        echo "@var.COUNT"
+    }
+    echo "@var.COUNT"
+}
+`
+
+	// Parse
+	tree := parser.ParseString(source)
+	if len(tree.Errors) > 0 {
+		t.Fatalf("Parse errors: %v", tree.Errors)
+	}
+
+	// Plan
+	result, err := PlanWithObservability(tree.Events, tree.Tokens, Config{Target: "test"})
+	if err != nil {
+		t.Fatalf("Planning failed: %v", err)
+	}
+
+	plan := result.Plan
+
+	// ASSERT: Should have 2 steps (2 echo commands)
+	if len(plan.Steps) != 2 {
+		t.Fatalf("Expected 2 steps, got %d", len(plan.Steps))
+	}
+
+	// ASSERT: First echo (inside @retry) should use COUNT=3
+	// ASSERT: Second echo (outside @retry) should use COUNT=5
+	// They should have DIFFERENT DisplayIDs
+
+	firstCommand := getCommandString(plan.Steps[0])
+	secondCommand := getCommandString(plan.Steps[1])
+
+	firstDisplayID := extractDisplayID(firstCommand)
+	secondDisplayID := extractDisplayID(secondCommand)
+
+	if firstDisplayID == "" {
+		t.Errorf("First command missing DisplayID: %s", firstCommand)
+	}
+	if secondDisplayID == "" {
+		t.Errorf("Second command missing DisplayID: %s", secondCommand)
+	}
+
+	// CRITICAL: DisplayIDs should be DIFFERENT (different values)
+	if firstDisplayID == secondDisplayID {
+		t.Errorf("DisplayIDs should be different (isolated scopes), but both are: %s", firstDisplayID)
+		t.Errorf("First command:  %s", firstCommand)
+		t.Errorf("Second command: %s", secondCommand)
+	}
+
+	t.Logf("✓ First echo (inside @retry):  %s", firstCommand)
+	t.Logf("✓ Second echo (outside @retry): %s", secondCommand)
+	t.Logf("✓ Function decorator blocks work correctly")
+}
+
 // TestVarBlockScoping_DeeplyNested tests that deeply nested
 // blocks work correctly (5 levels).
 func TestVarBlockScoping_DeeplyNested(t *testing.T) {
