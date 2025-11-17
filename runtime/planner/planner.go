@@ -363,12 +363,13 @@ func (p *planner) checkDecoratorBlock() (bool, string) {
 		prevPos := p.pos
 		evt := p.events[p.pos]
 
-		if evt.Kind == parser.EventOpen {
+		switch evt.Kind {
+		case parser.EventOpen:
 			if parser.NodeKind(evt.Data) == parser.NodeBlock {
 				return true, decoratorName
 			}
 			depth++
-		} else if evt.Kind == parser.EventClose {
+		case parser.EventClose:
 			depth--
 			if depth < 0 {
 				return false, ""
@@ -388,9 +389,10 @@ func (p *planner) currentEventDepth() int {
 	depth := 0
 	for i := 0; i < p.pos && i < len(p.events); i++ {
 		evt := p.events[i]
-		if evt.Kind == parser.EventOpen {
+		switch evt.Kind {
+		case parser.EventOpen:
 			depth++
-		} else if evt.Kind == parser.EventClose {
+		case parser.EventClose:
 			depth--
 		}
 	}
