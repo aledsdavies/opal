@@ -8,6 +8,8 @@ import (
 	"github.com/aledsdavies/opal/core/planfmt"
 	"github.com/aledsdavies/opal/runtime/parser"
 	"github.com/google/go-cmp/cmp"
+
+	_ "github.com/aledsdavies/opal/runtime/decorators" // Register decorators for parser
 )
 
 // Block Scoping Tests
@@ -245,7 +247,7 @@ func TestVarBlockScoping_DifferentDecoratorTypes(t *testing.T) {
 @retry {
     var A = "retry-scope"
 }
-@timeout {
+@timeout(duration=5s) {
     var B = "timeout-scope"
 }
 @parallel {
