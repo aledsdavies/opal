@@ -1,13 +1,11 @@
 package planner
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/aledsdavies/opal/core/planfmt"
 	"github.com/aledsdavies/opal/runtime/parser"
-	"github.com/google/go-cmp/cmp"
 
 	_ "github.com/aledsdavies/opal/runtime/decorators" // Register decorators for parser
 )
@@ -566,30 +564,4 @@ func extractAllDisplayIDs(command string) []string {
 	}
 
 	return displayIDs
-}
-
-// planScript is a helper to plan a script string (for tests that don't need full control)
-func planScript(source string) (*planfmt.Plan, error) {
-	tree := parser.ParseString(source)
-	if len(tree.Errors) > 0 {
-		return nil, fmt.Errorf("parse error: %v", tree.Errors[0])
-	}
-
-	result, err := PlanWithObservability(tree.Events, tree.Tokens, Config{})
-	if err != nil {
-		return nil, err
-	}
-
-	return result.Plan, nil
-}
-
-// assertNoDiff is a helper for comparing expected vs actual with cmp.Diff
-func assertNoDiff(t *testing.T, expected, actual interface{}, msgAndArgs ...interface{}) {
-	t.Helper()
-	if diff := cmp.Diff(expected, actual); diff != "" {
-		t.Errorf("Mismatch (-want +got):\n%s", diff)
-		if len(msgAndArgs) > 0 {
-			t.Errorf("Context: %v", msgAndArgs)
-		}
-	}
 }
