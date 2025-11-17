@@ -394,8 +394,23 @@ func (p *planner) processDecoratorBlock(decoratorName string) (planfmt.Step, err
 	}
 
 	// We're now at OPEN Decorator
-	// TODO: Parse decorator arguments here (before the block)
-	// For now, skip to the block
+	p.pos++ // Move past OPEN Decorator
+
+	// Skip @ and decorator name tokens
+	for p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventToken {
+		p.pos++
+	}
+
+	// Parse decorator arguments (ParamList)
+	var args []planfmt.Arg
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventOpen &&
+		parser.NodeKind(p.events[p.pos].Data) == parser.NodeParamList {
+		var err error
+		args, err = p.parseParamList()
+		if err != nil {
+			return planfmt.Step{}, err
+		}
+	}
 
 	// Enter scope for variable isolation
 	p.vault.Push(decoratorName)
@@ -408,8 +423,7 @@ func (p *planner) processDecoratorBlock(decoratorName string) (planfmt.Step, err
 			fmt.Sprintf("name=%s", decoratorName))
 	}
 
-	// Skip past decorator tokens to find block
-	p.pos++ // Move past OPEN Decorator
+	// Find the block
 	for p.pos < len(p.events) {
 		prevPos := p.pos
 		evt := p.events[p.pos]
@@ -453,7 +467,7 @@ func (p *planner) processDecoratorBlock(decoratorName string) (planfmt.Step, err
 			// Create CommandNode for the decorator
 			decoratorCmd := &planfmt.CommandNode{
 				Decorator: decoratorName,
-				Args:      []planfmt.Arg{}, // TODO: Parse actual arguments
+				Args:      args,
 				Block:     blockSteps,
 			}
 
@@ -511,6 +525,149 @@ func (p *planner) processDecoratorBlock(decoratorName string) (planfmt.Step, err
 	}
 
 	return planfmt.Step{}, fmt.Errorf("decorator block not closed properly")
+}
+
+// parseParamList parses decorator parameters from the event stream.
+// Expects to be positioned at OPEN ParamList, leaves position after CLOSE ParamList.
+func (p *planner) parseParamList() ([]planfmt.Arg, error) {
+	var args []planfmt.Arg
+
+	// PRECONDITION: Must be at OPEN ParamList
+	invariant.Precondition(p.pos < len(p.events) &&
+		p.events[p.pos].Kind == parser.EventOpen &&
+		parser.NodeKind(p.events[p.pos].Data) == parser.NodeParamList,
+		"parseParamList must start at OPEN ParamList")
+
+	p.pos++ // Move past OPEN ParamList
+
+	// Skip opening paren token
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventToken {
+		p.pos++
+	}
+
+	// Parse each parameter
+	for p.pos < len(p.events) {
+		prevPos := p.pos
+		evt := p.events[p.pos]
+
+		// Check for CLOSE ParamList
+		if evt.Kind == parser.EventClose && parser.NodeKind(evt.Data) == parser.NodeParamList {
+			p.pos++ // Move past CLOSE ParamList
+			break
+		}
+
+		// Parse individual parameter
+		if evt.Kind == parser.EventOpen && parser.NodeKind(evt.Data) == parser.NodeParam {
+			arg, err := p.parseParam()
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, arg)
+			continue
+		}
+
+		// Skip tokens (commas, whitespace, etc.)
+		if evt.Kind == parser.EventToken {
+			p.pos++
+			continue
+		}
+
+		p.pos++
+		invariant.Invariant(p.pos > prevPos, "parseParamList stuck at pos %d", prevPos)
+	}
+
+	return args, nil
+}
+
+// parseParam parses a single parameter (key=value).
+// Expects to be positioned at OPEN Param, leaves position after CLOSE Param.
+func (p *planner) parseParam() (planfmt.Arg, error) {
+	// PRECONDITION: Must be at OPEN Param
+	invariant.Precondition(p.pos < len(p.events) &&
+		p.events[p.pos].Kind == parser.EventOpen &&
+		parser.NodeKind(p.events[p.pos].Data) == parser.NodeParam,
+		"parseParam must start at OPEN Param")
+
+	p.pos++ // Move past OPEN Param
+
+	// Parse parameter name
+	var paramName string
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventToken {
+		tokenIdx := p.events[p.pos].Data
+		paramName = string(p.tokens[tokenIdx].Text)
+		p.pos++
+	}
+
+	// Skip = token
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventToken {
+		p.pos++
+	}
+
+	// Parse parameter value
+	var paramValue planfmt.Value
+	if p.pos < len(p.events) && p.events[p.pos].Kind == parser.EventToken {
+		tokenIdx := p.events[p.pos].Data
+		token := p.tokens[tokenIdx]
+		tokenText := string(token.Text)
+
+		// Determine value type from token
+		switch token.Type {
+		case lexer.INTEGER:
+			// Parse integer
+			var intVal int64
+			fmt.Sscanf(tokenText, "%d", &intVal)
+			paramValue = planfmt.Value{
+				Kind: planfmt.ValueInt,
+				Int:  intVal,
+			}
+		case lexer.STRING:
+			// String value (remove quotes)
+			str := tokenText
+			if len(str) >= 2 && str[0] == '"' && str[len(str)-1] == '"' {
+				str = str[1 : len(str)-1]
+			}
+			paramValue = planfmt.Value{
+				Kind: planfmt.ValueString,
+				Str:  str,
+			}
+		case lexer.BOOLEAN:
+			// Boolean value
+			paramValue = planfmt.Value{
+				Kind: planfmt.ValueBool,
+				Bool: tokenText == "true",
+			}
+		case lexer.DURATION:
+			// Duration value (stored as string)
+			paramValue = planfmt.Value{
+				Kind: planfmt.ValueString,
+				Str:  tokenText,
+			}
+		default:
+			// Default to string
+			paramValue = planfmt.Value{
+				Kind: planfmt.ValueString,
+				Str:  tokenText,
+			}
+		}
+		p.pos++
+	}
+
+	// Skip to CLOSE Param
+	for p.pos < len(p.events) {
+		prevPos := p.pos
+		evt := p.events[p.pos]
+		if evt.Kind == parser.EventClose && parser.NodeKind(evt.Data) == parser.NodeParam {
+			p.pos++ // Move past CLOSE Param
+			break
+		}
+		p.pos++
+		invariant.Invariant(p.pos > prevPos, "parseParam stuck at pos %d", prevPos)
+	}
+
+	return planfmt.Arg{
+		Key: paramName,
+		Val: paramValue,
+	}, nil
 }
 
 // plan is the main planning entry point

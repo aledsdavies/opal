@@ -212,9 +212,33 @@ echo "@var.COUNT"
 
 	plan := result.Plan
 
-	// ASSERT: Should have 3 steps (3 echo commands)
-	if len(plan.Steps) != 3 {
-		t.Fatalf("Expected 3 steps, got %d", len(plan.Steps))
+	// ASSERT: Should have 2 steps (@retry decorator + outer echo)
+	if len(plan.Steps) != 2 {
+		t.Fatalf("Expected 2 steps, got %d", len(plan.Steps))
+	}
+
+	// Navigate the tree structure:
+	// Step 0: @retry { @timeout { echo COUNT=1 }; echo COUNT=3 }
+	// Step 1: echo COUNT=5
+
+	retryCmd := plan.Steps[0].Tree.(*planfmt.CommandNode)
+	if retryCmd.Decorator != "@retry" {
+		t.Fatalf("Expected @retry decorator, got %s", retryCmd.Decorator)
+	}
+
+	// Inside @retry: @timeout block and echo COUNT=3
+	if len(retryCmd.Block) != 2 {
+		t.Fatalf("Expected @retry to have 2 steps, got %d", len(retryCmd.Block))
+	}
+
+	timeoutCmd := retryCmd.Block[0].Tree.(*planfmt.CommandNode)
+	if timeoutCmd.Decorator != "@timeout" {
+		t.Fatalf("Expected @timeout decorator, got %s", timeoutCmd.Decorator)
+	}
+
+	// Inside @timeout: echo COUNT=1
+	if len(timeoutCmd.Block) != 1 {
+		t.Fatalf("Expected @timeout to have 1 step, got %d", len(timeoutCmd.Block))
 	}
 
 	// ASSERT: Innermost echo uses COUNT=1
@@ -222,9 +246,9 @@ echo "@var.COUNT"
 	// ASSERT: Outermost echo uses COUNT=5
 	// Three different DisplayIDs
 
-	innermostCommand := getCommandString(plan.Steps[0])
-	middleCommand := getCommandString(plan.Steps[1])
-	outermostCommand := getCommandString(plan.Steps[2])
+	innermostCommand := getCommandString(timeoutCmd.Block[0]) // echo COUNT=1
+	middleCommand := getCommandString(retryCmd.Block[1])      // echo COUNT=3
+	outermostCommand := getCommandString(plan.Steps[1])       // echo COUNT=5
 
 	innermostDisplayID := extractDisplayID(innermostCommand)
 	middleDisplayID := extractDisplayID(middleCommand)
@@ -315,7 +339,7 @@ func TestVarBlockScoping_SiblingExecutionDecorators(t *testing.T) {
 
 	plan := result.Plan
 
-	// ASSERT: Should have 2 steps (2 echo commands)
+	// ASSERT: Should have 2 steps (2 @retry decorators)
 	if len(plan.Steps) != 2 {
 		t.Fatalf("Expected 2 steps, got %d", len(plan.Steps))
 	}
@@ -324,6 +348,7 @@ func TestVarBlockScoping_SiblingExecutionDecorators(t *testing.T) {
 	// ASSERT: Second echo uses COUNT=7
 	// Different DisplayIDs (independent scopes)
 
+	// Both steps are @retry blocks, navigate into them
 	firstCommand := getCommandString(plan.Steps[0])
 	secondCommand := getCommandString(plan.Steps[1])
 
@@ -399,13 +424,22 @@ echo "@var.COUNT"
 
 	plan := result.Plan
 
-	// ASSERT: Should have 1 step (echo command)
-	if len(plan.Steps) != 1 {
-		t.Fatalf("Expected 1 step, got %d", len(plan.Steps))
+	// ASSERT: Should have 2 steps (empty @retry + echo command)
+	if len(plan.Steps) != 2 {
+		t.Fatalf("Expected 2 steps, got %d", len(plan.Steps))
 	}
 
-	// ASSERT: Echo uses COUNT=5 (parent scope)
-	command := getCommandString(plan.Steps[0])
+	// ASSERT: First step is empty @retry block
+	retryCmd := plan.Steps[0].Tree.(*planfmt.CommandNode)
+	if retryCmd.Decorator != "@retry" {
+		t.Fatalf("Expected @retry decorator, got %s", retryCmd.Decorator)
+	}
+	if len(retryCmd.Block) != 0 {
+		t.Errorf("Expected empty @retry block, got %d steps", len(retryCmd.Block))
+	}
+
+	// ASSERT: Second step is echo using COUNT=5 (parent scope)
+	command := getCommandString(plan.Steps[1])
 	if !strings.Contains(command, "opal:") {
 		t.Errorf("Command should contain DisplayID, got: %s", command)
 	}
@@ -441,7 +475,7 @@ echo "@var.A @var.B"
 
 	plan := result.Plan
 
-	// ASSERT: Should have 2 steps (2 echo commands)
+	// ASSERT: Should have 2 steps (@retry decorator + outer echo)
 	if len(plan.Steps) != 2 {
 		t.Fatalf("Expected 2 steps, got %d", len(plan.Steps))
 	}
@@ -450,6 +484,7 @@ echo "@var.A @var.B"
 	// ASSERT: Second echo: A=outer-a (restored), B=outer-b
 	// C not accessible outside block (would need third echo to test, but we can verify via SecretUses)
 
+	// First step is @retry block, navigate into it
 	firstCommand := getCommandString(plan.Steps[0])
 	secondCommand := getCommandString(plan.Steps[1])
 
@@ -501,7 +536,7 @@ fun test {
 
 	plan := result.Plan
 
-	// ASSERT: Should have 2 steps (2 echo commands)
+	// ASSERT: Should have 2 steps (@retry decorator + outer echo)
 	if len(plan.Steps) != 2 {
 		t.Fatalf("Expected 2 steps, got %d", len(plan.Steps))
 	}
@@ -510,6 +545,7 @@ fun test {
 	// ASSERT: Second echo (outside @retry) should use COUNT=5
 	// They should have DIFFERENT DisplayIDs
 
+	// First step is @retry block, navigate into it
 	firstCommand := getCommandString(plan.Steps[0])
 	secondCommand := getCommandString(plan.Steps[1])
 
@@ -572,12 +608,13 @@ var COUNT = "5"
 
 	plan := result.Plan
 
-	// ASSERT: Should have 1 step (echo command at depth 5)
+	// ASSERT: Should have 1 step (@retry decorator at root)
 	if len(plan.Steps) != 1 {
 		t.Fatalf("Expected 1 step, got %d", len(plan.Steps))
 	}
 
 	// ASSERT: Echo at depth 5 can access COUNT from root
+	// getCommandString will recursively navigate into blocks
 	command := getCommandString(plan.Steps[0])
 	if !strings.Contains(command, "opal:") {
 		t.Errorf("Command should contain DisplayID, got: %s", command)
@@ -588,14 +625,29 @@ var COUNT = "5"
 
 // ========== Helper Functions ==========
 
-// getCommandString extracts the command string from a step's execution tree
-// Uses getCommandArg from planner_test.go
+// getCommandString extracts the command string from a step's execution tree.
+// Handles both direct shell commands and decorator blocks (navigates into .Block[]).
 func getCommandString(step planfmt.Step) string {
 	if step.Tree == nil {
 		return ""
 	}
-	// Get the "command" argument from the @shell decorator
-	return getCommandArg(step.Tree, "command")
+
+	cmd, ok := step.Tree.(*planfmt.CommandNode)
+	if !ok {
+		return ""
+	}
+
+	// If this is a shell command, return the command arg
+	if cmd.Decorator == "@shell" {
+		return getCommandArg(step.Tree, "command")
+	}
+
+	// If this is a decorator block, navigate into the first step in the block
+	if len(cmd.Block) > 0 {
+		return getCommandString(cmd.Block[0])
+	}
+
+	return ""
 }
 
 // extractDisplayID extracts the first DisplayID from a command string
