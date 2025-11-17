@@ -258,8 +258,7 @@ func PlanWithObservability(events []parser.Event, tokens []lexer.Token, config C
 // decoratorBlockContext tracks active decorator blocks for scope management.
 // Execution decorators create isolated scopes where variables don't leak out.
 type decoratorBlockContext struct {
-	name       string // Decorator name for debugging
-	startDepth int    // Event depth to match block exit
+	name string // Decorator name for debugging
 }
 
 // planner holds state during planning
@@ -383,22 +382,6 @@ func (p *planner) checkDecoratorBlock() (bool, string) {
 	return false, ""
 }
 
-// currentEventDepth calculates nesting depth at current position.
-// Used to match decorator block entry/exit points for scope management.
-func (p *planner) currentEventDepth() int {
-	depth := 0
-	for i := 0; i < p.pos && i < len(p.events); i++ {
-		evt := p.events[i]
-		switch evt.Kind {
-		case parser.EventOpen:
-			depth++
-		case parser.EventClose:
-			depth--
-		}
-	}
-	return depth
-}
-
 // processDecoratorBlock handles a decorator block by entering scope, processing nested steps, and exiting scope.
 // Assumes p.pos is at STEP_ENTER and the step contains a decorator block.
 // Returns collected steps from inside the block.
@@ -411,16 +394,14 @@ func (p *planner) processDecoratorBlock(decoratorName string, steps *[]planfmt.S
 	}
 
 	// Enter scope
-	currentDepth := p.currentEventDepth()
 	p.vault.Push(decoratorName)
 	p.decoratorStack = append(p.decoratorStack, decoratorBlockContext{
-		name:       decoratorName,
-		startDepth: currentDepth,
+		name: decoratorName,
 	})
 
 	if p.config.Debug >= DebugDetailed {
 		p.recordDebugEvent("decorator_block_enter",
-			fmt.Sprintf("name=%s depth=%d", decoratorName, currentDepth))
+			fmt.Sprintf("name=%s", decoratorName))
 	}
 
 	// Skip past decorator tokens to find block
@@ -742,42 +723,10 @@ func (p *planner) planSource() ([]planfmt.Step, error) {
 		prevPos := p.pos
 		evt := p.events[p.pos]
 
-		// Check for decorator block entry
 		if evt.Kind == parser.EventOpen {
-			if hasBlock, decoratorName := p.checkDecoratorBlock(); hasBlock {
-				// Enter decorator block scope
-				currentDepth := p.currentEventDepth()
-				p.vault.Push(decoratorName)
-				p.decoratorStack = append(p.decoratorStack, decoratorBlockContext{
-					name:       decoratorName,
-					startDepth: currentDepth,
-				})
-
-				if p.config.Debug >= DebugDetailed {
-					p.recordDebugEvent("decorator_block_enter",
-						fmt.Sprintf("name=%s depth=%d", decoratorName, currentDepth))
-				}
-			}
 			depth++
 		} else if evt.Kind == parser.EventClose {
 			depth--
-
-			// Check for decorator block exit
-			if len(p.decoratorStack) > 0 {
-				currentDepth := p.currentEventDepth()
-				topBlock := p.decoratorStack[len(p.decoratorStack)-1]
-
-				// If we're closing the decorator block, pop scope
-				if currentDepth == topBlock.startDepth {
-					p.vault.Pop()
-					p.decoratorStack = p.decoratorStack[:len(p.decoratorStack)-1]
-
-					if p.config.Debug >= DebugDetailed {
-						p.recordDebugEvent("decorator_block_exit",
-							fmt.Sprintf("name=%s depth=%d", topBlock.name, currentDepth))
-					}
-				}
-			}
 		} else if evt.Kind == parser.EventStepEnter && depth == 1 {
 			// Top-level step - check if it contains a decorator block
 			savedPos := p.pos
