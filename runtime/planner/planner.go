@@ -418,6 +418,15 @@ func (p *planner) processDecoratorBlock(decoratorName string) (planfmt.Step, err
 		name: decoratorName,
 	})
 
+	// Ensure scope is popped on all exit paths (normal return or error)
+	closed := false
+	defer func() {
+		if !closed {
+			p.vault.Pop()
+			p.decoratorStack = p.decoratorStack[:len(p.decoratorStack)-1]
+		}
+	}()
+
 	if p.config.Debug >= DebugDetailed {
 		p.recordDebugEvent("decorator_block_enter",
 			fmt.Sprintf("name=%s", decoratorName))
@@ -450,6 +459,7 @@ func (p *planner) processDecoratorBlock(decoratorName string) (planfmt.Step, err
 			// Pop scope
 			p.vault.Pop()
 			p.decoratorStack = p.decoratorStack[:len(p.decoratorStack)-1]
+			closed = true // Mark as closed so defer becomes no-op
 
 			if p.config.Debug >= DebugDetailed {
 				p.recordDebugEvent("decorator_block_exit", fmt.Sprintf("name=%s", decoratorName))
@@ -615,7 +625,9 @@ func (p *planner) parseParam() (planfmt.Arg, error) {
 		case lexer.INTEGER:
 			// Parse integer
 			var intVal int64
-			fmt.Sscanf(tokenText, "%d", &intVal)
+			if _, err := fmt.Sscanf(tokenText, "%d", &intVal); err != nil {
+				return planfmt.Arg{}, fmt.Errorf("failed to parse integer parameter %q: %w", paramName, err)
+			}
 			paramValue = planfmt.Value{
 				Kind: planfmt.ValueInt,
 				Int:  intVal,
