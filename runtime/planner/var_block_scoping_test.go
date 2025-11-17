@@ -520,6 +520,11 @@ fun test {
 		t.Errorf("Second command: %s", secondCommand)
 	}
 
+	// ASSERT: Both values should be in SecretUses (both touched)
+	if len(plan.SecretUses) != 2 {
+		t.Errorf("Expected 2 SecretUses (both COUNT values touched), got %d", len(plan.SecretUses))
+	}
+
 	t.Logf("✓ First echo (inside @retry):  %s", firstCommand)
 	t.Logf("✓ Second echo (outside @retry): %s", secondCommand)
 	t.Logf("✓ Function decorator blocks work correctly")
