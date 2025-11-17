@@ -382,10 +382,10 @@ func (p *planner) checkDecoratorBlock() (bool, string) {
 	return false, ""
 }
 
-// processDecoratorBlock handles a decorator block by entering scope, processing nested steps, and exiting scope.
+// processDecoratorBlock handles a decorator block by creating a Step for the decorator itself.
 // Assumes p.pos is at STEP_ENTER and the step contains a decorator block.
-// Returns collected steps from inside the block.
-func (p *planner) processDecoratorBlock(decoratorName string, steps *[]planfmt.Step) error {
+// Returns a Step containing the decorator CommandNode with its block steps.
+func (p *planner) processDecoratorBlock(decoratorName string) (planfmt.Step, error) {
 	p.pos++ // Move past STEP_ENTER
 
 	// Skip to decorator
@@ -393,7 +393,11 @@ func (p *planner) processDecoratorBlock(decoratorName string, steps *[]planfmt.S
 		p.pos++
 	}
 
-	// Enter scope
+	// We're now at OPEN Decorator
+	// TODO: Parse decorator arguments here (before the block)
+	// For now, skip to the block
+
+	// Enter scope for variable isolation
 	p.vault.Push(decoratorName)
 	p.decoratorStack = append(p.decoratorStack, decoratorBlockContext{
 		name: decoratorName,
@@ -416,6 +420,9 @@ func (p *planner) processDecoratorBlock(decoratorName string, steps *[]planfmt.S
 		p.pos++
 		invariant.Invariant(p.pos > prevPos, "processDecoratorBlock stuck finding block at pos %d", prevPos)
 	}
+
+	// Collect block steps into local slice
+	var blockSteps []planfmt.Step
 
 	// Process nested steps
 	for p.pos < len(p.events) {
@@ -443,7 +450,20 @@ func (p *planner) processDecoratorBlock(decoratorName string, steps *[]planfmt.S
 				}
 			}
 
-			return nil
+			// Create CommandNode for the decorator
+			decoratorCmd := &planfmt.CommandNode{
+				Decorator: decoratorName,
+				Args:      []planfmt.Arg{}, // TODO: Parse actual arguments
+				Block:     blockSteps,
+			}
+
+			// Create Step
+			step := planfmt.Step{
+				ID:   p.nextStepID(),
+				Tree: decoratorCmd,
+			}
+
+			return step, nil
 		}
 
 		if evt.Kind == parser.EventStepEnter {
@@ -465,9 +485,12 @@ func (p *planner) processDecoratorBlock(decoratorName string, steps *[]planfmt.S
 
 			if hasNestedBlock {
 				// Recursively handle nested decorator block
-				err := p.processDecoratorBlock(nestedName, steps)
+				nestedStep, err := p.processDecoratorBlock(nestedName)
 				if err != nil {
-					return err
+					return planfmt.Step{}, err
+				}
+				if nestedStep.ID != 0 {
+					blockSteps = append(blockSteps, nestedStep)
 				}
 				continue
 			}
@@ -475,10 +498,10 @@ func (p *planner) processDecoratorBlock(decoratorName string, steps *[]planfmt.S
 			// Normal step
 			step, err := p.planStep()
 			if err != nil {
-				return err
+				return planfmt.Step{}, err
 			}
 			if step.ID != 0 {
-				*steps = append(*steps, step)
+				blockSteps = append(blockSteps, step)
 			}
 			continue
 		}
@@ -487,7 +510,7 @@ func (p *planner) processDecoratorBlock(decoratorName string, steps *[]planfmt.S
 		invariant.Invariant(p.pos > prevPos, "processDecoratorBlock stuck processing steps at pos %d", prevPos)
 	}
 
-	return nil
+	return planfmt.Step{}, fmt.Errorf("decorator block not closed properly")
 }
 
 // plan is the main planning entry point
@@ -662,9 +685,12 @@ func (p *planner) planFunctionBody() ([]planfmt.Step, error) {
 			p.pos = savedPos
 
 			if hasDecoratorBlock {
-				err := p.processDecoratorBlock(decoratorName, &steps)
+				step, err := p.processDecoratorBlock(decoratorName)
 				if err != nil {
 					return nil, err
+				}
+				if step.ID != 0 {
+					steps = append(steps, step)
 				}
 				continue
 			}
@@ -745,9 +771,12 @@ func (p *planner) planSource() ([]planfmt.Step, error) {
 			p.pos = savedPos
 
 			if hasDecoratorBlock {
-				err := p.processDecoratorBlock(decoratorName, &steps)
+				step, err := p.processDecoratorBlock(decoratorName)
 				if err != nil {
 					return nil, err
+				}
+				if step.ID != 0 {
+					steps = append(steps, step)
 				}
 				continue
 			}

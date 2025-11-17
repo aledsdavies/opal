@@ -50,7 +50,7 @@ echo "@var.COUNT"
 
 	plan := result.Plan
 
-	// ASSERT: Should have 2 steps (2 echo commands)
+	// ASSERT: Should have 2 steps (@retry decorator + outer echo)
 	if len(plan.Steps) != 2 {
 		t.Fatalf("Expected 2 steps, got %d", len(plan.Steps))
 	}
@@ -59,7 +59,17 @@ echo "@var.COUNT"
 	// ASSERT: Second echo (outside @retry) should use COUNT=5
 	// They should have DIFFERENT DisplayIDs
 
-	firstCommand := getCommandString(plan.Steps[0])
+	// First step is @retry decorator with block
+	retryStep := plan.Steps[0]
+	retryCmd, ok := retryStep.Tree.(*planfmt.CommandNode)
+	if !ok || retryCmd.Decorator != "@retry" {
+		t.Fatalf("Expected first step to be @retry, got %T with decorator %v", retryStep.Tree, retryCmd)
+	}
+	if len(retryCmd.Block) != 1 {
+		t.Fatalf("Expected @retry block to have 1 step, got %d", len(retryCmd.Block))
+	}
+
+	firstCommand := getCommandString(retryCmd.Block[0])
 	secondCommand := getCommandString(plan.Steps[1])
 
 	// Extract DisplayIDs from commands
