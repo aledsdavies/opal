@@ -3,7 +3,7 @@ package planner
 import (
 	"testing"
 
-	"github.com/aledsdavies/opal/core/planfmt"
+	"github.com/opal-lang/opal/core/planfmt"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
