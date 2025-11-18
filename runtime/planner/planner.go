@@ -37,6 +37,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lithammer/fuzzysearch/fuzzy"
 	"github.com/opal-lang/opal/core/decorator"
 	"github.com/opal-lang/opal/core/invariant"
 	"github.com/opal-lang/opal/core/planfmt"
@@ -44,7 +45,6 @@ import (
 	"github.com/opal-lang/opal/runtime/lexer"
 	"github.com/opal-lang/opal/runtime/parser"
 	"github.com/opal-lang/opal/runtime/vault"
-	"github.com/lithammer/fuzzysearch/fuzzy"
 )
 
 // Command represents a single decorator invocation during planning (internal type).
