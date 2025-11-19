@@ -233,21 +233,22 @@ func TestAdversarial_ConcurrentAccess_ThreadSafe(t *testing.T) {
 			}()
 
 			// Mix of operations to stress test the mutex
-			if stepNum%3 == 0 {
+			switch stepNum % 3 {
+			case 0:
 				// Try to access (some authorized, some not)
 				v.Push("step-1")
 				v.Push("@shell")
 				v.Access(exprID, "command") // May succeed or fail, but shouldn't panic
 				v.Pop()
 				v.Pop()
-			} else if stepNum%3 == 1 {
+			case 1:
 				// Try to build site paths
 				v.Push(fmt.Sprintf("step-%d", stepNum))
 				v.Push("@shell")
 				v.BuildSitePath("command")
 				v.Pop()
 				v.Pop()
-			} else {
+			default:
 				// Try to record references
 				v.Push(fmt.Sprintf("step-%d", stepNum))
 				v.Push("@env")
