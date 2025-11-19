@@ -16,7 +16,7 @@ env:
 jobs:
   create-corpus-pr:
     name: Create PR for New Corpus Files
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: write
