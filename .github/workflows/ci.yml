@@ -212,21 +212,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Snapshot fuzz corpus (runtime only)
-        if: matrix.module == 'runtime'
-        run: |
-          set -euo pipefail
-          echo "==> Fuzz corpus snapshot"
-          CORPUS_COUNT=$(find testdata/fuzz -type f 2>/dev/null | wc -l || echo 0)
-          CORPUS_BYTES=$(du -sb testdata/fuzz 2>/dev/null | cut -f1 || echo 0)
-          CORPUS_SIZE=$(du -sh testdata/fuzz 2>/dev/null | cut -f1 || echo "0")
-          echo "Corpus files: $CORPUS_COUNT"
-          echo "Corpus size: $CORPUS_SIZE ($CORPUS_BYTES bytes)"
-          echo "corpus_count=$CORPUS_COUNT" >> $GITHUB_OUTPUT
-          echo "corpus_size=$CORPUS_SIZE" >> $GITHUB_OUTPUT
-          echo "corpus_bytes=$CORPUS_BYTES" >> $GITHUB_OUTPUT
-        id: corpus_snapshot
-
       - name: Run module tests
         run: |
           set -euo pipefail
@@ -235,11 +220,6 @@ jobs:
             cd ${{ matrix.module }}
             go test -v -race -coverprofile=../coverage-${{ matrix.module }}.out -covermode=atomic ./...
           '
-          if [ "${{ matrix.module }}" = "runtime" ]; then
-            echo ""
-            echo "==> Corpus replay complete"
-            echo "All fuzz corpus files validated (count: ${{ steps.corpus_snapshot.outputs.corpus_count }})"
-          fi
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
