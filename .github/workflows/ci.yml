@@ -44,7 +44,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache-dependency-path: go.work.sum
 
       - name: Install gofumpt
         run: go install mvdan.cc/gofumpt@latest
@@ -78,7 +78,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache-dependency-path: go.work.sum
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
@@ -108,7 +108,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache-dependency-path: go.work.sum
 
       - name: Build binary
         env:
@@ -384,7 +384,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache-dependency-path: go.work.sum
 
       - name: Get version from tag
         id: version
